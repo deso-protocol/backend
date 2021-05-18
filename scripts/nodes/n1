@@ -1,0 +1,13 @@
+DATE=`date +%Y%m%d-%H:%M:%S-%N`
+
+(cd ../../ && go build -o backend -gcflags="all=-N -l" main.go && ./backend run \
+  --glog-v=2 \
+  --glog-vmodule="*bitcoin_manager*=2,*balance*=2,*view*=2,*frontend*=2,*peer*=0,*addr*=0,*network*=0,*utils*=0,*connection*=0,*main*=0,*server*=2,*mempool*=2,*miner*=2,*blockchain*=2" \
+  --connect-ips=localhost:17000 \
+  --api-port=18001 \
+  --protocol-port=18000 \
+  --txindex=true \
+  --read-only-mode=true \
+  --starter-bitclout-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
+  --block-cypher-api-key=092dae962ea44b02809a4c74408b42a1 \
+  --data-dir=/tmp/fe1_loadtest_144 )
