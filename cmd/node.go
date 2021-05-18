@@ -95,7 +95,7 @@ func (node *Node) Start() {
 		node.Config.GCPCredentialsPath,
 		node.Config.GCPBucketName,
 		node.Config.CompProfileCreation,
-		node.CoreNode.Config.AdminPublicKeys,
+		node.Config.AdminPublicKeys,
 	)
 	if err != nil {
 		glog.Fatal(err)
