@@ -105,7 +105,6 @@ func init() {
 	// Analytics + Profiling
 	runCmd.PersistentFlags().String("amplitude-key", "", "Client-side amplitude key for instrumenting user behavior.")
 	runCmd.PersistentFlags().String("amplitude-domain", "api.amplitude.com", "Client-side amplitude API Endpoint.")
-	runCmd.PersistentFlags().Bool("datadog-profiler", false, "Enable the DataDog profiler for performance testing.")
 
 	// User Interface
 	runCmd.PersistentFlags().String("support-email", "", "Show a support email to users of this node")
