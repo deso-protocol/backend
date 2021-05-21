@@ -44,6 +44,12 @@ type Config struct {
 	// Images
 	GCPCredentialsPath     string
 	GCPBucketName          string
+
+	// Wyre
+	WyreUrl                string
+	WyreAccountId          string
+	WyreApiKey             string
+	WyreSecretKey          string
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -98,6 +104,12 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	// Images
 	config.GCPCredentialsPath = viper.GetString("gcp-credentials-path")
 	config.GCPBucketName = viper.GetString("gcp-bucket-name")
+
+	// Wyre
+	config.WyreUrl = viper.GetString("wyre-url")
+	config.WyreAccountId = viper.GetString("wyre-account-id")
+	config.WyreApiKey = viper.GetString("wyre-api-key")
+	config.WyreSecretKey = viper.GetString("wyre-secret-key")
 
 	return &config
 }

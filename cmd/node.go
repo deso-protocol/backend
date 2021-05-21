@@ -96,6 +96,10 @@ func (node *Node) Start() {
 		node.Config.GCPBucketName,
 		node.Config.CompProfileCreation,
 		node.CoreNode.Config.AdminPublicKeys,
+		node.Config.WyreUrl,
+		node.Config.WyreAccountId,
+		node.Config.WyreApiKey,
+		node.Config.WyreSecretKey,
 	)
 	if err != nil {
 		glog.Fatal(err)

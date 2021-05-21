@@ -115,6 +115,13 @@ func init() {
 	runCmd.PersistentFlags().String("gcp-credentials-path", "", "Google credentials to images bucket")
 	runCmd.PersistentFlags().String("gcp-bucket-name", "", "Name of bucket to store images")
 
+	// Wyre
+	runCmd.PersistentFlags().String("wyre-account-id", "", "Wyre Account ID")
+	runCmd.PersistentFlags().String("wyre-url", "", "Wyre API URL")
+	runCmd.PersistentFlags().String("wyre-api-key", "", "Wyre API Key")
+	runCmd.PersistentFlags().String("wyre-secret-key", "", "Wyre Secret Key")
+
+
 	runCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
 		viper.BindPFlag(flag.Name, flag)
 	})
