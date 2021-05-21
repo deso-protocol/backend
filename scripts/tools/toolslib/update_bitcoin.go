@@ -13,13 +13,13 @@ import (
 
 // _generateUnsignedBTCPriceUpdate...
 func _generateUnsignedBTCPriceUpdate(updaterPubKey *btcec.PublicKey, newUSDCentsPerBitcoin uint64,
-	params *lib.BitCloutParams, node string) (*routes.UpdateBitcoinUSDExchangeRateResponse, error) {
-	endpoint := "http://" + node + routes.RoutePathUpdateBitcoinUSDExchangeRate
+	params *lib.BitCloutParams, node string) (*routes.UpdateGlobalParamsResponse, error) {
+	endpoint := "http://" + node + routes.RoutePathUpdateGlobalParams
 
 	// Setup request
-	payload := &routes.UpdateBitcoinUSDExchangeRateRequest {
+	payload := &routes.UpdateGlobalParamsRequest {
 		UpdaterPublicKeyBase58Check: lib.PkToString(updaterPubKey.SerializeCompressed(), params),
-		USDCentsPerBitcoin: newUSDCentsPerBitcoin,
+		USDCentsPerBitcoin: int64(newUSDCentsPerBitcoin),
 		MinFeeRateNanosPerKB: 1000,
 	}
 	postBody, err := json.Marshal(payload)
@@ -40,7 +40,7 @@ func _generateUnsignedBTCPriceUpdate(updaterPubKey *btcec.PublicKey, newUSDCents
 	}
 
 	// Process response
-	updateBitcoinUSDExchangeRateResponse := routes.UpdateBitcoinUSDExchangeRateResponse{}
+	updateBitcoinUSDExchangeRateResponse := routes.UpdateGlobalParamsResponse{}
 	err = json.NewDecoder(resp.Body).Decode(&updateBitcoinUSDExchangeRateResponse)
 	if err != nil {
 		return nil, errors.Wrap(err, "_generateUnsignedBTCPriceUpdate(): failed decoding body")
