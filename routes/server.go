@@ -85,6 +85,10 @@ const (
 	RoutePathSendPhoneNumberVerificationText   = "/api/v0/send-phone-number-verification-text"
 	RoutePathSubmitPhoneNumberVerificationCode = "/api/v0/submit-phone-number-verification-code"
 
+	// wyre.go
+	RoutePathGetWyreWalletOrderQuotation =   "/api/v0/get-wyre-wallet-order-quotation"
+	RoutePathGetWyreWalletOrderReservation = "/api/v0/get-wyre-wallet-order-reservation"
+
 	// miner.go
 	RoutePathGetBlockTemplate = "/api/v0/get-block-template"
 	RoutePathSubmitBlock      = "/api/v0/submit-block"
@@ -194,6 +198,12 @@ type APIServer struct {
 
 	// Optional, restricts access to the admin panel to these public keys
 	AdminPublicKeys []string
+
+	// Wyre
+	WyreUrl string
+	WyreAccountId string
+	WyreApiKey string
+	WyreSecretKey string
 }
 
 // NewAPIServer ...
@@ -226,6 +236,10 @@ func NewAPIServer(_backendServer *lib.Server,
 	googleBucketName string,
 	compProfileCreation bool,
 	adminPublicKeys []string,
+	wyreUrl string,
+	wyreAccountId string,
+	wyreApiKey string,
+	wyreSecretKey string,
 ) (*APIServer, error) {
 
 	var txIndexChain *lib.Blockchain
@@ -378,6 +392,10 @@ func NewAPIServer(_backendServer *lib.Server,
 		GoogleBucketName:                    googleBucketName,
 		IsCompProfileCreation:               compProfileCreation,
 		AdminPublicKeys:                     adminPublicKeys,
+		WyreUrl:                             wyreUrl,
+		WyreAccountId:                       wyreAccountId,
+		WyreApiKey:                          wyreApiKey,
+		WyreSecretKey:                       wyreSecretKey,
 	}
 
 	return fes, nil
@@ -824,6 +842,22 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetFullTikTokURL,
 			fes.GetFullTikTokURL,
+			false,
+		},
+
+		// Paths for wyre
+		{
+			"GetWyreWalletOrderQuotation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetWyreWalletOrderQuotation,
+			fes.GetWyreWalletOrderQuotation,
+			false,
+		},
+		{
+			"GetWyreWalletOrderReservation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetWyreWalletOrderReservation,
+			fes.GetWyreWalletOrderReservation,
 			false,
 		},
 	}

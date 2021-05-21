@@ -112,11 +112,14 @@ var (
 	// <prefix, user public key, contact's public key> -> <tStampNanos>
 	_GlobalStatePrefixUserPublicKeyContactPublicKeyToMostRecentReadTstampNanos = []byte{8}
 
+	// The prefix for checking the state of a user's wyre order.
+	_GlobalStatePrefixUserPublicKeyWyreOrderIdToWyreOrderMetadata = []byte{9}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
-	// NEXT_TAG: 3
+	// NEXT_TAG: 10
 )
 
 // This struct contains all the metadata associated with a user's public key.
@@ -187,6 +190,16 @@ type PhoneNumberMetadata struct {
 
 	// if true, when the public key associated with this metadata tries to create a profile, we will comp their fee.
 	ShouldCompProfileCreation bool
+}
+
+type WyreWalletOrderMetadata struct {
+	LatestWyreWalletOrderWebhookPayload WyreWalletOrderWebhookPayload
+
+	LatestWyreWalletOrderFullDetails *WyreWalletOrderFullDetails
+
+	BitCloutPurchasedNanos uint64
+
+	BasicTransferTxnBlockHash *lib.BlockHash
 }
 
 // countryCode is a string like 'US' (Note: the phonenumbers lib calls this a "region code")
@@ -262,6 +275,14 @@ func GlobalStateKeyForUserPkContactPkToMostRecentReadTstampNanos(userPubKey []by
 	prefixCopy := append([]byte{}, _GlobalStatePrefixUserPublicKeyContactPublicKeyToMostRecentReadTstampNanos...)
 	key := append(prefixCopy, userPubKey[:]...)
 	key = append(key, contactPubKey[:]...)
+	return key
+}
+
+// Key for accessing a public key's wyre order metadata.
+func GlobalStateKeyForUserPublicKeyWyreOrderIDToWyreOrderMetadata(userPublicKeyBytes []byte, orderIdBytes []byte) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixUserPublicKeyWyreOrderIdToWyreOrderMetadata...)
+	key := append(prefixCopy, userPublicKeyBytes...)
+	key = append(key, orderIdBytes...)
 	return key
 }
 
