@@ -14,7 +14,7 @@ import (
 // _generateUnsignedCreatorCoinBuy...
 func _generateUnsignedCreatorCoinBuy(buyerPubKey *btcec.PublicKey, creatorPubKey *btcec.PublicKey,
 	amountNanos uint64, params *lib.BitCloutParams, node string) (*routes.BuyOrSellCreatorCoinResponse, error){
-	endpoint := "http://" + node + routes.RoutePathBuyOrSellCreatorCoin
+	endpoint := node + routes.RoutePathBuyOrSellCreatorCoin
 
 	// Setup request
 	payload := &routes.BuyOrSellCreatorCoinRequest{
