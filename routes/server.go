@@ -5,13 +5,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	fmt "fmt"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/dgrijalva/jwt-go/v4"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/dgrijalva/jwt-go/v4"
 
 	"github.com/bitclout/core/lib"
 	chainlib "github.com/btcsuite/btcd/blockchain"
@@ -35,9 +36,9 @@ const (
 
 const (
 	// base.go
-	RoutePathHealthCheck              = "/api/v0/health-check"
-	RoutePathGetExchangeRate          = "/api/v0/get-exchange-rate"
-	RoutePathGetAppState              = "/api/v0/get-app-state"
+	RoutePathHealthCheck     = "/api/v0/health-check"
+	RoutePathGetExchangeRate = "/api/v0/get-exchange-rate"
+	RoutePathGetAppState     = "/api/v0/get-app-state"
 
 	// transaction.go
 	RoutePathGetTxn                   = "/api/v0/get-txn"
@@ -66,20 +67,24 @@ const (
 	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
 
 	// post.go
-	RoutePathGetPostsStateless        = "/api/v0/get-posts-stateless"
-	RoutePathGetSinglePost            = "/api/v0/get-single-post"
-	RoutePathGetPostsForPublicKey     = "/api/v0/get-posts-for-public-key"
-	RoutePathGetDiamondedPosts        = "/api/v0/get-diamonded-posts"
+	RoutePathGetPostsStateless       = "/api/v0/get-posts-stateless"
+	RoutePathGetSinglePost           = "/api/v0/get-single-post"
+	RoutePathGetLikesForPost         = "/api/v0/get-likes-for-post"
+	RoutePathGetDiamondsForPost      = "/api/v0/get-diamonds-for-post"
+	RoutePathGetRecloutsForPost      = "/api/v0/get-reclouts-for-post"
+	RoutePathGetQuoteRecloutsForPost = "/api/v0/get-quote-reclouts-for-post"
+	RoutePathGetPostsForPublicKey    = "/api/v0/get-posts-for-public-key"
+	RoutePathGetDiamondedPosts       = "/api/v0/get-diamonded-posts"
 
 	// media.go
-	RoutePathUploadImage              = "/api/v0/upload-image"
-	RoutePathGetFullTikTokURL         = "/api/v0/get-full-tiktok-url"
+	RoutePathUploadImage      = "/api/v0/upload-image"
+	RoutePathGetFullTikTokURL = "/api/v0/get-full-tiktok-url"
 
 	// message.go
-	RoutePathSendMessageStateless     = "/api/v0/send-message-stateless"
-	RoutePathGetMessagesStateless     = "/api/v0/get-messages-stateless"
-	RoutePathMarkContactMessagesRead  = "/api/v0/mark-contact-messages-read"
-	RoutePathMarkAllMessagesRead 	  = "/api/v0/mark-all-messages-read"
+	RoutePathSendMessageStateless    = "/api/v0/send-message-stateless"
+	RoutePathGetMessagesStateless    = "/api/v0/get-messages-stateless"
+	RoutePathMarkContactMessagesRead = "/api/v0/mark-contact-messages-read"
+	RoutePathMarkAllMessagesRead     = "/api/v0/mark-all-messages-read"
 
 	// verify.go
 	RoutePathSendPhoneNumberVerificationText   = "/api/v0/send-phone-number-verification-text"
@@ -92,15 +97,15 @@ const (
 	// Admin route paths can only be accessed if a user's public key is whitelisted as an admin.
 
 	// admin_node.go
-	RoutePathNodeControl                           = "/api/v0/admin/node-control"
-	RoutePathReprocessBitcoinBlock                 = "/api/v0/admin/reprocess-bitcoin-block"
-	RoutePathAdminGetMempoolStats                  = "/api/v0/admin/get-mempool-stats"
-	RoutePathEvictUnminedBitcoinTxns               = "/api/v0/admin/evict-unmined-bitcoin-txns"
+	RoutePathNodeControl             = "/api/v0/admin/node-control"
+	RoutePathReprocessBitcoinBlock   = "/api/v0/admin/reprocess-bitcoin-block"
+	RoutePathAdminGetMempoolStats    = "/api/v0/admin/get-mempool-stats"
+	RoutePathEvictUnminedBitcoinTxns = "/api/v0/admin/evict-unmined-bitcoin-txns"
 
 	// admin_transaction.go
-	RoutePathGetGlobalParams                       = "/api/v0/admin/get-global-params"
-	RoutePathUpdateGlobalParams                    = "/api/v0/admin/update-global-params"
-	RoutePathSwapIdentity                          = "/api/v0/admin/swap-identity"
+	RoutePathGetGlobalParams    = "/api/v0/admin/get-global-params"
+	RoutePathUpdateGlobalParams = "/api/v0/admin/update-global-params"
+	RoutePathSwapIdentity       = "/api/v0/admin/swap-identity"
 
 	// admin_user.go
 	RoutePathAdminUpdateUserGlobalMetadata         = "/api/v0/admin/update-user-global-metadata"
@@ -112,9 +117,9 @@ const (
 	RoutePathAdminGetUsernameVerificationAuditLogs = "/api/v0/admin/get-username-verification-audit-logs"
 
 	// admin_feed.go
-	RoutePathAdminUpdateGlobalFeed                 = "/api/v0/admin/update-global-feed"
-	RoutePathAdminPinPost                          = "/api/v0/admin/pin-post"
-	RoutePathAdminRemoveNilPosts                   = "/api/v0/admin/remove-nil-posts"
+	RoutePathAdminUpdateGlobalFeed = "/api/v0/admin/update-global-feed"
+	RoutePathAdminPinPost          = "/api/v0/admin/pin-post"
+	RoutePathAdminRemoveNilPosts   = "/api/v0/admin/remove-nil-posts"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -756,6 +761,34 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetSinglePost,
 			fes.GetSinglePost,
+			false,
+		},
+		{
+			"BlockGetTxn",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetLikesForPost,
+			fes.GetLikesForPost,
+			false,
+		},
+		{
+			"BlockGetTxn",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetDiamondsForPost,
+			fes.GetDiamondsForPost,
+			false,
+		},
+		{
+			"BlockGetTxn",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetRecloutsForPost,
+			fes.GetRecloutsForPost,
+			false,
+		},
+		{
+			"BlockGetTxn",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetQuoteRecloutsForPost,
+			fes.GetQuoteRecloutsForPost,
 			false,
 		},
 		{

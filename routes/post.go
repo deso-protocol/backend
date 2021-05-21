@@ -6,9 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/core/lib"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/pkg/errors"
 	"io"
 	"math"
 	"net/http"
@@ -16,6 +13,10 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/bitclout/core/lib"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/pkg/errors"
 )
 
 // GetPostsStatelessRequest ...
@@ -76,9 +77,10 @@ type PostEntryResponse struct {
 	// True if this post hash hex is pinned to the global feed.
 	IsPinned *bool `json:",omitempty"`
 	// PostExtraData stores an arbitrary map of attributes of a PostEntry
-	PostExtraData map[string]string
-	CommentCount  uint64
-	RecloutCount  uint64
+	PostExtraData     map[string]string
+	CommentCount      uint64
+	RecloutCount      uint64
+	QuoteRecloutCount uint64
 	// A list of parent posts for this post (ordered: root -> closest parent post).
 	ParentPosts []*PostEntryResponse
 
@@ -229,6 +231,7 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 		DiamondCount:               postEntry.DiamondCount,
 		CommentCount:               postEntry.CommentCount,
 		RecloutCount:               postEntry.RecloutCount,
+		QuoteRecloutCount:          postEntry.QuoteRecloutCount,
 		IsPinned:                   &postEntry.IsPinned,
 		PostExtraData:              postEntryResponseExtraData,
 	}
@@ -434,8 +437,8 @@ func (fes *APIServer) GetPostEntriesByTimePaginated(
 	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, err error) {
 
 	postEntries,
-	commentsByPostHash,
-	err := fes.GetPostsByTime(utxoView, startPostHash, readerPK, numToFetch, true /*skipHidden*/, true)
+		commentsByPostHash,
+		err := fes.GetPostsByTime(utxoView, startPostHash, readerPK, numToFetch, true /*skipHidden*/, true)
 
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("GetAllPostEntries: Error fetching posts from view: %v", err)
@@ -1418,8 +1421,6 @@ func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Req
 	}
 }
 
-
-
 type GetPostsDiamondedBySenderForReceiverRequest struct {
 	// Public key of the poster who received diamonds from the sender
 	ReceiverPublicKeyBase58Check string
@@ -1556,8 +1557,8 @@ func (fes *APIServer) GetDiamondedPosts(ww http.ResponseWriter, req *http.Reques
 				parentPostEntry := utxoView.GetPostEntryForPostHash(lib.StakeIDToHash(postEntry.ParentStakeID))
 				if parentPostEntry == nil {
 					_AddBadRequestError(ww, fmt.Sprintf(
-							"GetDiamondedPosts: Problem getting parent post with postHash %v for postEntry with hash %v",
-							hex.EncodeToString(postEntry.ParentStakeID), hex.EncodeToString(postEntry.PostHash[:])))
+						"GetDiamondedPosts: Problem getting parent post with postHash %v for postEntry with hash %v",
+						hex.EncodeToString(postEntry.ParentStakeID), hex.EncodeToString(postEntry.PostHash[:])))
 					return
 				}
 				var parentPostEntryResponse *PostEntryResponse
@@ -1599,17 +1600,635 @@ func (fes *APIServer) GetDiamondedPosts(ww http.ResponseWriter, req *http.Reques
 				}
 			}
 		}
-		diamondedPosts = diamondedPosts[startIndex:lib.MinInt(startIndex+numToFetch, len(diamondedPosts) -1)]
+		diamondedPosts = diamondedPosts[startIndex:lib.MinInt(startIndex+numToFetch, len(diamondedPosts)-1)]
 	}
 
 	res := &GetPostsDiamondedBySenderForReceiverResponse{
-		DiamondedPosts: diamondedPosts,
-		TotalDiamondsGiven: totalDiamondsGiven,
+		DiamondedPosts:               diamondedPosts,
+		TotalDiamondsGiven:           totalDiamondsGiven,
 		ReceiverProfileEntryResponse: _profileEntryToResponse(receiverProfileEntry, fes.Params, verifiedMap, utxoView),
-		SenderProfileEntryResponse: _profileEntryToResponse(senderProfileEntry, fes.Params, verifiedMap, utxoView),
+		SenderProfileEntryResponse:   _profileEntryToResponse(senderProfileEntry, fes.Params, verifiedMap, utxoView),
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDiamondedPosts: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type GetLikesForPostRequest struct {
+	// PostHashHex to fetch.
+	PostHashHex                string `safeForLogging:"true"`
+	Offset                     uint32 `safeForLogging:"true"`
+	Limit                      uint32 `safeForLogging:"true"`
+	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
+}
+
+type GetLikesForPostResponse struct {
+	Likers []*ProfileEntryResponse
+}
+
+func (fes *APIServer) GetLikesForPost(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetLikesForPostRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetLikesForPost: Problem parsing request body: %v", err), ""))
+		return
+	}
+
+	// Decode the postHash.
+	var postHash *BlockHash
+	if requestData.PostHashHex == "" {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetLikesForPost: Must provide a PostHashHex to fetch."), ""))
+		return
+	} else {
+		postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
+		if err != nil || len(postHashBytes) != HashSizeBytes {
+			_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(fmt.Errorf(
+				"GetLikesForPost: Error parsing post hash %v: %v",
+				requestData.PostHashHex, err), ""))
+			return
+		}
+		postHash = &BlockHash{}
+		copy(postHash[:], postHashBytes)
+	}
+
+	// Decode the reader public key into bytes. Default to nil if no pub key is passed in.
+	var readerPublicKeyBytes []byte
+	if requestData.ReaderPublicKeyBase58Check != "" {
+		var err error
+		readerPublicKeyBytes, _, err = Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
+		if requestData.ReaderPublicKeyBase58Check != "" && err != nil {
+			_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+				fmt.Errorf("GetLikesForPost: Problem decoding user public key: %v : %s", err, requestData.ReaderPublicKeyBase58Check), ""))
+			return
+		}
+	}
+
+	// Get a view with all the mempool transactions.
+	utxoView, err := fes.backendServer.mempool.GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetLikesForPost: Error constucting utxoView: %v", err), ""))
+		return
+	}
+
+	// Fetch the likers for the post requested.
+	reclouterPubKeys, err := utxoView.GetLikesForPostHash(postHash)
+	if err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetLikesForPost: Error getting likers %v", err), ""))
+		return
+	}
+
+	// Filter out any restricted profiles.
+	addReaderPublicKey := false
+	pkMapToFilter := make(map[PkMapKey][]byte)
+	for _, pubKey := range reclouterPubKeys {
+		pkMapKey := MakePkMapKey(pubKey)
+		pkMapToFilter[pkMapKey] = pubKey
+		if reflect.DeepEqual(pubKey, readerPublicKeyBytes) {
+			addReaderPublicKey = true
+		}
+	}
+	var filteredPkMap map[PkMapKey][]byte
+	if addReaderPublicKey {
+		filteredPkMap, err = FilterOutRestrictedPubKeysFromMap(
+			fes, pkMapToFilter, readerPublicKeyBytes, "leaderboard" /*moderationType*/)
+	} else {
+		filteredPkMap, err = FilterOutRestrictedPubKeysFromMap(
+			fes, pkMapToFilter, nil, "leaderboard" /*moderationType*/)
+	}
+	if err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetLikesForPost: Error filtering out restricted profiles: %v", err), ""))
+		return
+	}
+
+	// Grab verified username map pointer for constructing profile entry responses.
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+	if err != nil {
+		_AddInternalServerErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetLikesForPost: Error fetching verifiedMap: %v", err), ""))
+		return
+	}
+
+	// Create a list of the likers that were not restricted.
+	likers := []*ProfileEntryResponse{}
+	for _, filteredPubKey := range filteredPkMap {
+		profileEntry := utxoView._getProfileEntryForPublicKey(filteredPubKey)
+		if profileEntry == nil {
+			continue
+		} else {
+			profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+			likers = append(likers, profileEntryResponse)
+		}
+	}
+
+	// Almost done. Just need to sort the likers.
+	sort.Slice(likers, func(ii, jj int) bool {
+
+		// Attempt to sort on bitclout locked.
+		iiBitCloutLocked := likers[ii].CoinEntry.BitCloutLockedNanos
+		jjBitCloutLocked := likers[jj].CoinEntry.BitCloutLockedNanos
+		if iiBitCloutLocked > jjBitCloutLocked {
+			return true
+		} else if iiBitCloutLocked < jjBitCloutLocked {
+			return false
+		}
+
+		// Sort based on pub key if all else fails.
+		return likers[ii].PublicKeyBase58Check > likers[jj].PublicKeyBase58Check
+	})
+
+	// Cut out the page of reclouters that we care about.
+	likersLength := uint32(len(likers))
+	// Slice the comments from the offset up to either the end of the slice or the offset + limit, whichever is smaller.
+	maxIdx := MinUint32(likersLength, requestData.Offset+requestData.Limit)
+	var likersPage []*ProfileEntryResponse
+	if likersLength > requestData.Offset {
+		likersPage = likers[requestData.Offset:maxIdx]
+	}
+
+	// Return the posts found.
+	res := &GetLikesForPostResponse{
+		Likers: likersPage,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(fmt.Errorf(
+			"GetLikesForPost: Problem encoding response as JSON: %v", err), ""))
+		return
+	}
+}
+
+type GetDiamondsForPostRequest struct {
+	// PostHashHex to fetch.
+	PostHashHex                string `safeForLogging:"true"`
+	Offset                     uint32 `safeForLogging:"true"`
+	Limit                      uint32 `safeForLogging:"true"`
+	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
+}
+
+type GetDiamondsForPostResponse struct {
+	DiamondSenders []*DiamondSenderResponse
+}
+
+type DiamondSenderResponse struct {
+	DiamondSenderProfile *ProfileEntryResponse
+	DiamondLevel         int64
+}
+
+func (fes *APIServer) GetDiamondsForPost(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetDiamondsForPostRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetDiamondsForPost: Problem parsing request body: %v", err), ""))
+		return
+	}
+
+	// Decode the postHash.
+	var postHash *BlockHash
+	if requestData.PostHashHex == "" {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetDiamondsForPost: Must provide a PostHashHex to fetch."), ""))
+		return
+	} else {
+		postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
+		if err != nil || len(postHashBytes) != HashSizeBytes {
+			_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(fmt.Errorf(
+				"GetDiamondsForPost: Error parsing post hash %v: %v",
+				requestData.PostHashHex, err), ""))
+			return
+		}
+		postHash = &BlockHash{}
+		copy(postHash[:], postHashBytes)
+	}
+
+	// Decode the reader public key into bytes. Default to nil if no pub key is passed in.
+	var readerPublicKeyBytes []byte
+	if requestData.ReaderPublicKeyBase58Check != "" {
+		var err error
+		readerPublicKeyBytes, _, err = Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
+		if requestData.ReaderPublicKeyBase58Check != "" && err != nil {
+			_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+				fmt.Errorf("GetDiamondsForPost: Problem decoding user public key: %v : %s", err, requestData.ReaderPublicKeyBase58Check), ""))
+			return
+		}
+	}
+
+	// Get a view with all the mempool transactions.
+	utxoView, err := fes.backendServer.mempool.GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetDiamondsForPost: Error constucting utxoView: %v", err), ""))
+		return
+	}
+
+	// Fetch the diamonds for the post requested.
+	pkidToDiamondLevel, err := utxoView.GetDiamondSendersForPostHash(postHash)
+	if err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetDiamondsForPost: Error getting pkidToDiamondLevel map %v", err), ""))
+		return
+	}
+
+	// Filter out any restricted profiles.
+	pkMapToFilter := make(map[PkMapKey][]byte)
+	for senderPKID := range pkidToDiamondLevel {
+		profileEntry := utxoView._getProfileEntryForPKID(&senderPKID)
+		if profileEntry != nil {
+			pkMapKey := MakePkMapKey(profileEntry.PublicKey)
+			pkMapToFilter[pkMapKey] = profileEntry.PublicKey
+		}
+	}
+	filteredPkMap, err := FilterOutRestrictedPubKeysFromMap(
+		fes, pkMapToFilter, readerPublicKeyBytes, "leaderboard" /*moderationType*/)
+	if err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetDiamondsForPost: Error filtering out restricted profiles: %v", err), ""))
+		return
+	}
+
+	// Create a list of unifltered (aka not blacklisted) diamondSenders.
+	diamondSenders := []*ProfileEntry{}
+	for senderPKID := range pkidToDiamondLevel {
+		profileEntry := utxoView._getProfileEntryForPKID(&senderPKID)
+		if profileEntry == nil {
+			continue
+		} else {
+			if _, ok := filteredPkMap[MakePkMapKey(profileEntry.PublicKey)]; ok {
+				diamondSenders = append(diamondSenders, profileEntry)
+			}
+		}
+	}
+
+	// Almost done. Just need to sort the comments.
+	sort.Slice(diamondSenders, func(ii, jj int) bool {
+
+		// Attempt to sort on bitclout locked.
+		iiBitCloutLocked := diamondSenders[ii].BitCloutLockedNanos
+		jjBitCloutLocked := diamondSenders[jj].BitCloutLockedNanos
+		if iiBitCloutLocked > jjBitCloutLocked {
+			return true
+		} else if iiBitCloutLocked < jjBitCloutLocked {
+			return false
+		}
+
+		// Attempt to sort on diamond level.
+		iiPKID := utxoView._getPKIDForPublicKey(diamondSenders[ii].PublicKey)
+		jjPKID := utxoView._getPKIDForPublicKey(diamondSenders[jj].PublicKey)
+		iiDiamondLevel := pkidToDiamondLevel[*iiPKID.PKID]
+		jjDiamondLevel := pkidToDiamondLevel[*jjPKID.PKID]
+		if iiDiamondLevel > jjDiamondLevel {
+			return true
+		} else if iiDiamondLevel < jjDiamondLevel {
+			return false
+		}
+
+		// Sort based on pub key if all else fails.
+		return PkToString(diamondSenders[ii].PublicKey, fes.Params) > PkToString(diamondSenders[jj].PublicKey, fes.Params)
+	})
+
+	// Cut out the page of diamondSenders that we care about.
+	diamondSendersLength := uint32(len(diamondSenders))
+	// Slice the comments from the offset up to either the end of the slice or the offset + limit, whichever is smaller.
+	maxIdx := MinUint32(diamondSendersLength, requestData.Offset+requestData.Limit)
+	var diamondSendersPage []*ProfileEntry
+	if diamondSendersLength > requestData.Offset {
+		diamondSendersPage = diamondSenders[requestData.Offset:maxIdx]
+	}
+
+	// Grab verified username map pointer for constructing profile entry responses.
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+	if err != nil {
+		_AddInternalServerErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetDiamondsForPost: Error fetching verifiedMap: %v", err), ""))
+		return
+	}
+
+	// Convert final page of diamondSenders to a list of diamondSender responses.
+	diamondSenderResponses := []*DiamondSenderResponse{}
+	for _, diamondSender := range diamondSendersPage {
+		diamondSenderPKID := utxoView._getPKIDForPublicKey(diamondSender.PublicKey)
+		diamondSenderResponse := &DiamondSenderResponse{
+			DiamondSenderProfile: _profileEntryToResponse(diamondSender, fes.Params, verifiedMap, utxoView),
+			DiamondLevel:         pkidToDiamondLevel[*diamondSenderPKID.PKID],
+		}
+		diamondSenderResponses = append(diamondSenderResponses, diamondSenderResponse)
+	}
+
+	// Return the posts found.
+	res := &GetDiamondsForPostResponse{
+		DiamondSenders: diamondSenderResponses,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(fmt.Errorf(
+			"GetDiamondsForPost: Problem encoding response as JSON: %v", err), ""))
+		return
+	}
+}
+
+type GetRecloutsForPostRequest struct {
+	// PostHashHex to fetch.
+	PostHashHex                string `safeForLogging:"true"`
+	Offset                     uint32 `safeForLogging:"true"`
+	Limit                      uint32 `safeForLogging:"true"`
+	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
+}
+
+type GetRecloutsForPostResponse struct {
+	Reclouters []*ProfileEntryResponse
+}
+
+func (fes *APIServer) GetRecloutsForPost(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetRecloutsForPostRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetRecloutsForPost: Problem parsing request body: %v", err), ""))
+		return
+	}
+
+	// Decode the postHash.
+	var postHash *BlockHash
+	if requestData.PostHashHex == "" {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetRecloutsForPost: Must provide a PostHashHex to fetch."), ""))
+		return
+	} else {
+		postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
+		if err != nil || len(postHashBytes) != HashSizeBytes {
+			_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(fmt.Errorf(
+				"GetRecloutsForPost: Error parsing post hash %v: %v",
+				requestData.PostHashHex, err), ""))
+			return
+		}
+		postHash = &BlockHash{}
+		copy(postHash[:], postHashBytes)
+	}
+
+	// Decode the reader public key into bytes. Default to nil if no pub key is passed in.
+	var readerPublicKeyBytes []byte
+	if requestData.ReaderPublicKeyBase58Check != "" {
+		var err error
+		readerPublicKeyBytes, _, err = Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
+		if requestData.ReaderPublicKeyBase58Check != "" && err != nil {
+			_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+				fmt.Errorf("GetRecloutsForPost: Problem decoding user public key: %v : %s", err, requestData.ReaderPublicKeyBase58Check), ""))
+			return
+		}
+	}
+
+	// Get a view with all the mempool transactions.
+	utxoView, err := fes.backendServer.mempool.GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetRecloutsForPost: Error constucting utxoView: %v", err), ""))
+		return
+	}
+
+	// Fetch the reclouters for the post requested.
+	reclouterPubKeys, err := utxoView.GetRecloutsForPostHash(postHash)
+	if err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetRecloutsForPost: Error getting reclouters %v", err), ""))
+		return
+	}
+
+	// Filter out any restricted profiles.
+	addReaderPublicKey := false
+	pkMapToFilter := make(map[PkMapKey][]byte)
+	for _, pubKey := range reclouterPubKeys {
+		pkMapKey := MakePkMapKey(pubKey)
+		pkMapToFilter[pkMapKey] = pubKey
+		if reflect.DeepEqual(pubKey, readerPublicKeyBytes) {
+			addReaderPublicKey = true
+		}
+	}
+	var filteredPkMap map[PkMapKey][]byte
+	if addReaderPublicKey {
+		filteredPkMap, err = FilterOutRestrictedPubKeysFromMap(
+			fes, pkMapToFilter, readerPublicKeyBytes, "leaderboard" /*moderationType*/)
+	} else {
+		filteredPkMap, err = FilterOutRestrictedPubKeysFromMap(
+			fes, pkMapToFilter, nil, "leaderboard" /*moderationType*/)
+	}
+	if err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetRecloutsForPost: Error filtering out restricted profiles: %v", err), ""))
+		return
+	}
+
+	// Grab verified username map pointer for constructing profile entry responses.
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+	if err != nil {
+		_AddInternalServerErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetRecloutsForPost: Error fetching verifiedMap: %v", err), ""))
+		return
+	}
+
+	// Create a list of the reclouters that were not restricted.
+	reclouters := []*ProfileEntryResponse{}
+	for _, filteredPubKey := range filteredPkMap {
+		profileEntry := utxoView._getProfileEntryForPublicKey(filteredPubKey)
+		if profileEntry == nil {
+			continue
+		} else {
+			profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+			reclouters = append(reclouters, profileEntryResponse)
+		}
+	}
+
+	// Almost done. Just need to sort the comments.
+	sort.Slice(reclouters, func(ii, jj int) bool {
+
+		// Attempt to sort on bitclout locked.
+		iiBitCloutLocked := reclouters[ii].CoinEntry.BitCloutLockedNanos
+		jjBitCloutLocked := reclouters[jj].CoinEntry.BitCloutLockedNanos
+		if iiBitCloutLocked > jjBitCloutLocked {
+			return true
+		} else if iiBitCloutLocked < jjBitCloutLocked {
+			return false
+		}
+
+		// Sort based on pub key if all else fails.
+		return reclouters[ii].PublicKeyBase58Check > reclouters[jj].PublicKeyBase58Check
+	})
+
+	// Cut out the page of reclouters that we care about.
+	recloutersLength := uint32(len(reclouters))
+	// Slice the comments from the offset up to either the end of the slice or the offset + limit, whichever is smaller.
+	maxIdx := MinUint32(recloutersLength, requestData.Offset+requestData.Limit)
+	var recloutersPage []*ProfileEntryResponse
+	if recloutersLength > requestData.Offset {
+		recloutersPage = reclouters[requestData.Offset:maxIdx]
+	}
+
+	// Return the posts found.
+	res := &GetRecloutsForPostResponse{
+		Reclouters: recloutersPage,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(fmt.Errorf(
+			"GetRecloutsForPost: Problem encoding response as JSON: %v", err), ""))
+		return
+	}
+}
+
+type GetQuoteRecloutsForPostRequest struct {
+	// PostHashHex to fetch.
+	PostHashHex                string `safeForLogging:"true"`
+	Offset                     uint32 `safeForLogging:"true"`
+	Limit                      uint32 `safeForLogging:"true"`
+	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
+}
+
+type GetQuoteRecloutsForPostResponse struct {
+	QuoteReclouts []*PostEntryResponse
+}
+
+func (fes *APIServer) GetQuoteRecloutsForPost(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetQuoteRecloutsForPostRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetQuoteRecloutsForPost: Problem parsing request body: %v", err), ""))
+		return
+	}
+
+	// Decode the postHash.
+	var postHash *BlockHash
+	if requestData.PostHashHex == "" {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetQuoteRecloutsForPost: Must provide a PostHashHex to fetch."), ""))
+		return
+	} else {
+		postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
+		if err != nil || len(postHashBytes) != HashSizeBytes {
+			_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(fmt.Errorf(
+				"GetQuoteRecloutsForPost: Error parsing post hash %v: %v",
+				requestData.PostHashHex, err), ""))
+			return
+		}
+		postHash = &BlockHash{}
+		copy(postHash[:], postHashBytes)
+	}
+
+	// Decode the reader public key into bytes. Default to nil if no pub key is passed in.
+	var readerPublicKeyBytes []byte
+	if requestData.ReaderPublicKeyBase58Check != "" {
+		var err error
+		readerPublicKeyBytes, _, err = Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
+		if requestData.ReaderPublicKeyBase58Check != "" && err != nil {
+			_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+				fmt.Errorf("GetQuoteRecloutsForPost: Problem decoding user public key: %v : %s", err, requestData.ReaderPublicKeyBase58Check), ""))
+			return
+		}
+	}
+
+	// Get a view with all the mempool transactions.
+	utxoView, err := fes.backendServer.mempool.GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetQuoteRecloutsForPost: Error constucting utxoView: %v", err), ""))
+		return
+	}
+
+	// Fetch the quote reclouts for the post requested.
+	quoteReclouterPubKeys, quoteReclouterPubKeyToPosts, err := utxoView.GetQuoteRecloutsForPostHash(postHash)
+	if err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetQuoteRecloutsForPost: Error getting reclouters %v", err), ""))
+		return
+	}
+
+	// Filter out any restricted profiles.
+	filteredPubKeys, err := FilterOutRestrictedPubKeysFromList(
+		fes, quoteReclouterPubKeys, readerPublicKeyBytes, "leaderboard" /*moderationType*/)
+	if err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetQuoteRecloutsForPost: Error filtering out restricted profiles: %v", err), ""))
+		return
+	}
+
+	// Grab verified username map pointer for constructing profile entry responses.
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+	if err != nil {
+		_AddInternalServerErrorWithRollbar(ww, req, requestData, errors.Wrap(
+			fmt.Errorf("GetQuoteRecloutsForPost: Error fetching verifiedMap: %v", err), ""))
+		return
+	}
+
+	// Create a list of all the quote reclouts.
+	quoteReclouts := []*PostEntryResponse{}
+	for _, filteredPubKey := range filteredPubKeys {
+		// We get profile entries first since we do not include pub keys without profiles.
+		profileEntry := utxoView._getProfileEntryForPublicKey(filteredPubKey)
+		if profileEntry == nil {
+			continue
+		}
+
+		// Now that we have a non-nil profile, fetch the post and make the PostEntryResponse.
+		recloutPostEntries := quoteReclouterPubKeyToPosts[MakePkMapKey(filteredPubKey)]
+		profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+		for _, recloutPostEntry := range recloutPostEntries {
+			recloutPostEntryResponse, err := fes._postEntryToResponse(
+				recloutPostEntry, false, fes.Params, utxoView, readerPublicKeyBytes, 2)
+			if err != nil {
+				_AddInternalServerErrorWithRollbar(ww, req, requestData, errors.Wrap(
+					fmt.Errorf("GetQuoteRecloutsForPost: Error creating PostEntryResponse: %v", err), ""))
+				return
+			}
+			recloutPostEntryResponse.ProfileEntryResponse = profileEntryResponse
+
+			// Attach the finished recloutPostEntryResponse.
+			quoteReclouts = append(quoteReclouts, recloutPostEntryResponse)
+		}
+	}
+
+	// Almost done. Just need to sort the comments.
+	sort.Slice(quoteReclouts, func(ii, jj int) bool {
+		iiProfile := quoteReclouts[ii].ProfileEntryResponse
+		jjProfile := quoteReclouts[jj].ProfileEntryResponse
+
+		// Attempt to sort on bitclout locked.
+		iiBitCloutLocked := iiProfile.CoinEntry.BitCloutLockedNanos
+		jjBitCloutLocked := jjProfile.CoinEntry.BitCloutLockedNanos
+		if iiBitCloutLocked > jjBitCloutLocked {
+			return true
+		} else if iiBitCloutLocked < jjBitCloutLocked {
+			return false
+		}
+
+		// If bitclout locked is the same, sort on timestamp.
+		if quoteReclouts[ii].TimestampNanos > quoteReclouts[jj].TimestampNanos {
+			return true
+		} else if quoteReclouts[ii].TimestampNanos < quoteReclouts[jj].TimestampNanos {
+			return false
+		}
+
+		// Sort based on pub key if all else fails.
+		return iiProfile.PublicKeyBase58Check > jjProfile.PublicKeyBase58Check
+	})
+
+	// Cut out the page of reclouters that we care about.
+	quoteRecloutsLength := uint32(len(quoteReclouts))
+	// Slice the comments from the offset up to either the end of the slice or the offset + limit, whichever is smaller.
+	maxIdx := MinUint32(quoteRecloutsLength, requestData.Offset+requestData.Limit)
+	var quoteRecloutsPage []*PostEntryResponse
+	if quoteRecloutsLength > requestData.Offset {
+		quoteRecloutsPage = quoteReclouts[requestData.Offset:maxIdx]
+	}
+
+	// Return the posts found.
+	res := &GetQuoteRecloutsForPostResponse{
+		QuoteReclouts: quoteRecloutsPage,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestErrorWithRollbar(ww, req, requestData, errors.Wrap(fmt.Errorf(
+			"GetQuoteRecloutsForPost: Problem encoding response as JSON: %v", err), ""))
 		return
 	}
 }
