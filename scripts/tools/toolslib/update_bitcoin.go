@@ -14,7 +14,7 @@ import (
 // _generateUnsignedBTCPriceUpdate...
 func _generateUnsignedBTCPriceUpdate(updaterPubKey *btcec.PublicKey, newUSDCentsPerBitcoin uint64,
 	params *lib.BitCloutParams, node string) (*routes.UpdateGlobalParamsResponse, error) {
-	endpoint := "http://" + node + routes.RoutePathUpdateGlobalParams
+	endpoint := node + routes.RoutePathUpdateGlobalParams
 
 	// Setup request
 	payload := &routes.UpdateGlobalParamsRequest {

@@ -13,7 +13,7 @@ import (
 
 // SubmitTransactionToNode...
 func SubmitTransactionToNode(txn *lib.MsgBitCloutTxn, node string) error {
-	endpoint := "http://" + node + routes.RoutePathSubmitTransaction
+	endpoint := node + routes.RoutePathSubmitTransaction
 
 	// Encode the signed transaction to hex
 	txnBytes, err := txn.ToBytes(false)

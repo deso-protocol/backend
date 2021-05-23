@@ -14,7 +14,7 @@ import (
 // _generateUnsignedSendBitclout...
 func _generateUnsignedSendBitclout(senderPubKey *btcec.PublicKey, recipientPubKey *btcec.PublicKey, amountNanos int64,
 	params *lib.BitCloutParams, node string) (*routes.SendBitCloutResponse, error) {
-	endpoint := "http://" + node + routes.RoutePathSendBitClout
+	endpoint := node + routes.RoutePathSendBitClout
 
 	// Setup request
 	payload := &routes.SendBitCloutRequest{

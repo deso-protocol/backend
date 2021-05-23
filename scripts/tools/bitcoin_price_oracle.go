@@ -294,7 +294,7 @@ func main() {
 	fmt.Println("Network type set:", params.NetworkType.String())
 
 	// Node Parameters
-	node := "localhost:17001"
+	node := "http://localhost:17001"
 	fmt.Println("Node set:", node)
 
 	// Convert the Bitcoin USD Price to uint64
