@@ -36,3 +36,5 @@ FROM alpine:edge
 RUN apk add --update vips-dev
 
 COPY --from=backend /bitclout/src/backend/bin/backend /bitclout/bin/backend
+
+ENTRYPOINT ["/bitclout/bin/backend"]
