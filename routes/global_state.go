@@ -115,11 +115,14 @@ var (
 	// The prefix for checking the state of a user's wyre order.
 	_GlobalStatePrefixUserPublicKeyWyreOrderIdToWyreOrderMetadata = []byte{9}
 
+	// The prefix for checking whether or not bitclout has been sent for a given a wyre order
+	_GlobalStatePrefixWyreOrderIdProcessed = []byte{10}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
-	// NEXT_TAG: 10
+	// NEXT_TAG: 11
 )
 
 // This struct contains all the metadata associated with a user's public key.
@@ -196,6 +199,8 @@ type WyreWalletOrderMetadata struct {
 	LatestWyreWalletOrderWebhookPayload WyreWalletOrderWebhookPayload
 
 	LatestWyreWalletOrderFullDetails *WyreWalletOrderFullDetails
+
+	LatestWyreTransferDetails *WyreTransferDetails
 
 	BitCloutPurchasedNanos uint64
 
@@ -284,6 +289,11 @@ func GlobalStateKeyForUserPublicKeyWyreOrderIDToWyreOrderMetadata(userPublicKeyB
 	key := append(prefixCopy, userPublicKeyBytes...)
 	key = append(key, orderIdBytes...)
 	return key
+}
+
+func GlobalStateKeyForWyreOrderIDProcessed(orderIdBytes []byte) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixWyreOrderIdProcessed...)
+	return append(prefixCopy, orderIdBytes...)
 }
 
 

@@ -120,7 +120,7 @@ func init() {
 	runCmd.PersistentFlags().String("wyre-url", "", "Wyre API URL")
 	runCmd.PersistentFlags().String("wyre-api-key", "", "Wyre API Key")
 	runCmd.PersistentFlags().String("wyre-secret-key", "", "Wyre Secret Key")
-
+	runCmd.PersistentFlags().String("wyre-btc-address", "", "BTC Address for all Wyre Wallet Orders")
 
 	runCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
 		viper.BindPFlag(flag.Name, flag)

@@ -86,8 +86,9 @@ const (
 	RoutePathSubmitPhoneNumberVerificationCode = "/api/v0/submit-phone-number-verification-code"
 
 	// wyre.go
-	RoutePathGetWyreWalletOrderQuotation =   "/api/v0/get-wyre-wallet-order-quotation"
+	RoutePathGetWyreWalletOrderQuotation   = "/api/v0/get-wyre-wallet-order-quotation"
 	RoutePathGetWyreWalletOrderReservation = "/api/v0/get-wyre-wallet-order-reservation"
+	RoutePathWyreWalletOrderSubscription   = "/api/v0/wyre-wallet-order-subscription"
 
 	// miner.go
 	RoutePathGetBlockTemplate = "/api/v0/get-block-template"
@@ -204,6 +205,7 @@ type APIServer struct {
 	WyreAccountId string
 	WyreApiKey string
 	WyreSecretKey string
+	WyreBTCAddress string
 }
 
 // NewAPIServer ...
@@ -240,6 +242,7 @@ func NewAPIServer(_backendServer *lib.Server,
 	wyreAccountId string,
 	wyreApiKey string,
 	wyreSecretKey string,
+	wyreBTCAddress string,
 ) (*APIServer, error) {
 
 	var txIndexChain *lib.Blockchain
@@ -396,6 +399,7 @@ func NewAPIServer(_backendServer *lib.Server,
 		WyreAccountId:                       wyreAccountId,
 		WyreApiKey:                          wyreApiKey,
 		WyreSecretKey:                       wyreSecretKey,
+		WyreBTCAddress:                      wyreBTCAddress,
 	}
 
 	return fes, nil
@@ -858,6 +862,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetWyreWalletOrderReservation,
 			fes.GetWyreWalletOrderReservation,
+			false,
+		},
+		{
+			"WyreWalletOrderSubscription",
+			[]string{"POST", "OPTIONS"},
+			RoutePathWyreWalletOrderSubscription,
+			fes.WyreWalletOrderSubscription,
 			false,
 		},
 	}

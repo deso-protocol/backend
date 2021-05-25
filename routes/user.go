@@ -20,6 +20,7 @@ import (
 // GetUsersRequest ...
 type GetUsersStatelessRequest struct {
 	PublicKeysBase58Check []string `safeForLogging:"true"`
+	SkipHodlings bool `safeForLogging:"true"`
 }
 
 // GetUsersResponse ...
@@ -47,7 +48,7 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 		userList = append(userList, currentUser)
 	}
 
-	globalParams, err := fes.updateUsersStateless(userList)
+	globalParams, err := fes.updateUsersStateless(userList, getUsersRequest.SkipHodlings)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUsersStateless: Error fetching data for user: %v", err))
 		return
@@ -77,7 +78,7 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 	}
 }
 
-func (fes *APIServer) updateUsersStateless(userList []*User) (*lib.GlobalParamsEntry, error) {
+func (fes *APIServer) updateUsersStateless(userList []*User, skipHodlings bool) (*lib.GlobalParamsEntry, error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return nil, fmt.Errorf("updateUserFields: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
@@ -85,7 +86,7 @@ func (fes *APIServer) updateUsersStateless(userList []*User) (*lib.GlobalParamsE
 	globalParams := utxoView.GlobalParamsEntry
 	for _, user := range userList {
 		// If we get an error updating the user, log it but don't stop the show.
-		if err = fes.updateUserFieldsStateless(user, utxoView); err != nil {
+		if err = fes.updateUserFieldsStateless(user, utxoView, skipHodlings); err != nil {
 			glog.Errorf(fmt.Sprintf("updateUsers: Problem updating user with pk %s: %v", user.PublicKeyBase58Check, err))
 		}
 	}
@@ -93,7 +94,7 @@ func (fes *APIServer) updateUsersStateless(userList []*User) (*lib.GlobalParamsE
 	return globalParams, nil
 }
 
-func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoView) error {
+func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoView, skipHodlings bool) error {
 	// If there's no public key, then return an error. We need a public key on
 	// the user object in order to be able to update the fields.
 	if user.PublicKeyBase58Check == "" {
@@ -159,32 +160,34 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	sort.Strings(publicKeysBase58CheckFollowedByUser)
 	user.PublicKeysBase58CheckFollowedByUser = publicKeysBase58CheckFollowedByUser
 	pkid := utxoView.GetPKIDForPublicKey(publicKeyBytes)
-	// Get the users that the user hodls and vice versa
-	youHodlMap, hodlYouMap, err := fes.GetHodlingsForPublicKey(
-		pkid, true /*fetchProfiles*/, utxoView)
-	if err != nil {
-		return errors.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err)
-	}
+	if !skipHodlings {
+		// Get the users that the user hodls and vice versa
+		youHodlMap, hodlYouMap, err := fes.GetHodlingsForPublicKey(
+			pkid, true /*fetchProfiles*/, utxoView)
+		if err != nil {
+			return errors.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err)
+		}
 
-	youHodlList := []*BalanceEntryResponse{}
-	for _, entryRes := range youHodlMap {
-		youHodlList = append(youHodlList, entryRes)
+		youHodlList := []*BalanceEntryResponse{}
+		for _, entryRes := range youHodlMap {
+			youHodlList = append(youHodlList, entryRes)
+		}
+		// Note we sort the youHodl list by the creator pk
+		sort.Slice(youHodlList, func(ii, jj int) bool {
+			return youHodlList[ii].CreatorPublicKeyBase58Check > youHodlList[jj].CreatorPublicKeyBase58Check
+		})
+		hodlYouList := []*BalanceEntryResponse{}
+		for _, entryRes := range hodlYouMap {
+			hodlYouList = append(hodlYouList, entryRes)
+		}
+		// Note we sort the hodlYou list by the hodler pk
+		sort.Slice(hodlYouList, func(ii, jj int) bool {
+			return hodlYouList[ii].HODLerPublicKeyBase58Check > hodlYouList[jj].HODLerPublicKeyBase58Check
+		})
+		// Assign the new hodl lists to the user object
+		user.UsersYouHODL = youHodlList
+		user.UsersWhoHODLYou = hodlYouList
 	}
-	// Note we sort the youHodl list by the creator pk
-	sort.Slice(youHodlList, func(ii, jj int) bool {
-		return youHodlList[ii].CreatorPublicKeyBase58Check > youHodlList[jj].CreatorPublicKeyBase58Check
-	})
-	hodlYouList := []*BalanceEntryResponse{}
-	for _, entryRes := range hodlYouMap {
-		hodlYouList = append(hodlYouList, entryRes)
-	}
-	// Note we sort the hodlYou list by the hodler pk
-	sort.Slice(hodlYouList, func(ii, jj int) bool {
-		return hodlYouList[ii].HODLerPublicKeyBase58Check > hodlYouList[jj].HODLerPublicKeyBase58Check
-	})
-	// Assign the new hodl lists to the user object
-	user.UsersYouHODL = youHodlList
-	user.UsersWhoHODLYou = hodlYouList
 
 	// Populate fields from userMetadata global state
 	userMetadata, err := fes.getUserMetadataFromGlobalState(user.PublicKeyBase58Check)
