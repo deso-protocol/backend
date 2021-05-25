@@ -13,7 +13,7 @@ import (
 
 func _generateUnsignedMessage(senderPubKey *btcec.PublicKey, recipientPubKey *btcec.PublicKey, message string,
 	params *lib.BitCloutParams, node string) (*routes.SendMessageStatelessResponse, error){
-	endpoint := "http://" + node + routes.RoutePathSendMessageStateless
+	endpoint := node + routes.RoutePathSendMessageStateless
 
 	// Setup request
 	payload := &routes.SendMessageStatelessRequest{

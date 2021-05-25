@@ -14,7 +14,7 @@ import (
 // _generateUnsignedUpdateProfile...
 func _generateUnsignedUpdateProfile(updaterPubKey *btcec.PublicKey, newUsername string, newDescription string,
 	newProfilePic string, newCreatorBasisPoints uint64, params *lib.BitCloutParams, node string) (*routes.UpdateProfileResponse, error) {
-	endpoint := "http://" + node + routes.RoutePathUpdateProfile
+	endpoint := node + routes.RoutePathUpdateProfile
 
 	// Setup request
 	payload := &routes.UpdateProfileRequest{
