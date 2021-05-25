@@ -2,6 +2,7 @@ package toolslib
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"github.com/bitclout/backend/routes"
 	"github.com/bitclout/core/lib"
@@ -17,13 +18,13 @@ func _generateUnsignedSendDiamonds(senderPubKey *btcec.PublicKey, postHashHex st
 	endpoint := node + routes.RoutePathSendDiamonds
 
 	// Setup request
-	payload := &routes.SendDiamondsRequest{
-		SenderPublicKeyBase58Check: lib.PkToString(senderPubKey.SerializeCompressed(), params),
-		ReceiverPublicKeyBase58Check: receiverPublicKeyBase58Check,
-		DiamondPostHashHex: postHashHex,
-		DiamondLevel: diamondLevel,
-		MinFeeRateNanosPerKB:  1000,
-	}
+	payload := &routes.SendDiamondsRequest{}
+	payload.SenderPublicKeyBase58Check = lib.PkToString(senderPubKey.SerializeCompressed(), params)
+	payload.ReceiverPublicKeyBase58Check = receiverPublicKeyBase58Check
+	payload.DiamondPostHashHex = postHashHex
+	payload.DiamondLevel = diamondLevel
+	payload.MinFeeRateNanosPerKB = 1000
+
 	postBody, err := json.Marshal(payload)
 	if err != nil {
 		return nil, errors.Wrap(err, "_generateUnsignedSendDiamonds() failed to marshal struct")
@@ -51,6 +52,20 @@ func _generateUnsignedSendDiamonds(senderPubKey *btcec.PublicKey, postHashHex st
 	if err != nil {
 		return nil, errors.Wrap(err, "_generateUnsignedSendDiamonds(): failed closing body")
 	}
+
+	// TODO: Figure out why Decode() loses ExtraData field
+	diamondPostHashBytes, err := hex.DecodeString(postHashHex)
+	if err != nil {
+		return nil, errors.Wrap(err, "_generateUnsignedSendDiamonds(): failed decoding post hash")
+	}
+	diamondPostHash := &lib.BlockHash{}
+	copy(diamondPostHash[:], diamondPostHashBytes[:])
+
+	// Append extra data to the transaction. The fees and everything was already computed correctly server side.
+	diamondsExtraData := make(map[string][]byte)
+	diamondsExtraData[lib.DiamondLevelKey] = lib.IntToBuf(diamondLevel)
+	diamondsExtraData[lib.DiamondPostHashKey] = diamondPostHash[:]
+	sendDiamondsResponse.Transaction.ExtraData = diamondsExtraData
 
 	return &sendDiamondsResponse, nil
 }
