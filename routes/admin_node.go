@@ -139,9 +139,9 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 		bitcloutNodeStatus.LatestBlockHash = hex.EncodeToString(bitcloutBlockTip.Hash[:])
 		bitcloutNodeStatus.LatestBlockTstampSecs = uint32(bitcloutBlockTip.Header.TstampSecs)
 	}
-	if fes.TxIndexChain != nil {
+	if fes.TXIndex != nil {
 		// TxIndex status
-		bitcloutNodeStatus.LatestTxIndexHeight = fes.TxIndexChain.BlockTip().Height
+		bitcloutNodeStatus.LatestTxIndexHeight = fes.TXIndex.TXIndexChain.BlockTip().Height
 	}
 	// We only have headers remaining if we're in this state.
 	if bitcloutChainState == lib.SyncStateSyncingHeaders {
