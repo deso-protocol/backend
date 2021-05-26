@@ -101,6 +101,7 @@ func (node *Node) Start() {
 		node.Config.WyreApiKey,
 		node.Config.WyreSecretKey,
 		node.Config.WyreBTCAddress,
+		node.Config.BuyBitCloutSeed,
 	)
 	if err != nil {
 		glog.Fatal(err)
