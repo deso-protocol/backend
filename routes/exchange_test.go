@@ -1121,7 +1121,7 @@ func TestAPI(t *testing.T) {
 
 	// The transactions should have their block hashes set when queried
 	// now.
-	require.NoError(apiServer.UpdateTxindex())
+	require.NoError(apiServer.TXIndex.Update())
 	{
 		transactionInfoRequest := &APITransactionInfoRequest{
 			TransactionIDBase58Check: lib.PkToString(txn1.Hash()[:], apiServer.Params),
@@ -1354,17 +1354,17 @@ func TestAPI(t *testing.T) {
 
 		// Roll back the change we made to the chain.
 		apiServer.blockchain.SetBestChain(oldBestChain)
-		require.NoError(apiServer.UpdateTxindex())
+		require.NoError(apiServer.TXIndex.Update())
 
 		// Now everything should be reset properly.
 		{
 			prefix := lib.DbTxindexTxIDKey(&lib.BlockHash{})[0]
-			txnsInTransactionIndex, _ := lib.EnumerateKeysForPrefix(apiServer.TxIndexChain.DB(), []byte{prefix})
+			txnsInTransactionIndex, _ := lib.EnumerateKeysForPrefix(apiServer.TXIndex.TXIndexChain.DB(), []byte{prefix})
 			require.Equal(5+len(apiServer.Params.SeedTxns)+len(apiServer.Params.SeedBalances), len(txnsInTransactionIndex))
 		}
 		{
 			keysInPublicKeyTable, _ := lib.EnumerateKeysForPrefix(
-				apiServer.TxIndexChain.DB(), lib.DbTxindexPublicKeyPrefix([]byte{}))
+				apiServer.TXIndex.TXIndexChain.DB(), lib.DbTxindexPublicKeyPrefix([]byte{}))
 			// Three pairs for the block rewards and two pairs for the transactions
 			// we created.
 			require.Equal(10+
