@@ -550,7 +550,7 @@ type ReprocessBitcoinBlockResponse struct {
 
 func ReprocessBitcoinBlockUsingAPI(blockHeightOrHash string, bitcoinManager *lib.BitcoinManager, params *lib.BitCloutParams) error {
 
-	URL := fmt.Sprintf("https://blockchain.info/block/%v?format=hex", blockHeightOrHash)
+	URL := fmt.Sprintf("https://blockchain.info/rawblock/%v?format=hex", blockHeightOrHash)
 	glog.Debugf("ReprocessBitcoinBlockUsingAPI: URL: %v", URL)
 
 	req, err := http.NewRequest("GET", URL, nil)
