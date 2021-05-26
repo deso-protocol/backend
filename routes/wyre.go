@@ -332,7 +332,7 @@ type WyreWalletOrderQuotationPayload struct {
 func (fes *APIServer) GetWyreWalletOrderQuotation(ww http.ResponseWriter, req *http.Request) {
 	// Exit immediately if this node has not integrated with Wyre
 	if !fes.IsConfiguredForWyre() {
-		_AddBadRequestError(ww, fmt.Sprintf("HandleWyreWalletOrderWebhook: This node is not configured with Wyre"))
+		_AddBadRequestError(ww, fmt.Sprintf("GetWyreWalletOrderQuotation: This node is not configured with Wyre"))
 		return
 	}
 	// Decode the request body
@@ -356,7 +356,7 @@ func (fes *APIServer) GetWyreWalletOrderQuotation(ww http.ResponseWriter, req *h
 
 	payload, err := json.Marshal(body)
 	if err != nil {
-		// do something with this error
+		_AddBadRequestError(ww, fmt.Sprintf("GetWyreWalletOrderQuotation: Error marshaling JSON body: %v", err))
 		return
 	}
 
@@ -417,7 +417,7 @@ func (fes *APIServer) GetWyreWalletOrderReservation(ww http.ResponseWriter, req 
 
 	payload, err := json.Marshal(body)
 	if err != nil {
-		// do something with this error
+		_AddBadRequestError(ww, fmt.Sprintf("GetWyreWalletOrderReservation: Error marshaling JSON body: %v", err))
 		return
 	}
 
