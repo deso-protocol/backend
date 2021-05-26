@@ -1841,7 +1841,7 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 	// notifications.
 	if fes.TxIndexChain == nil {
 		return nil, nil, errors.Errorf(
-			"GetNotifications: Cannot be called when TxIndexChain " +
+			"GetNotifications: Cannot be called when TXIndexChain " +
 				"is nil. This error occurs when --txindex was not passed to the program " +
 				"on startup")
 	}
