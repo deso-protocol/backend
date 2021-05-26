@@ -243,8 +243,12 @@ func (fes *APIServer) putUserMetadataInGlobalState(
 	return nil
 }
 
-func (fes *APIServer) SendSeedBitClout(recipientPkBytes []byte, amountNanos uint64) (txnHash *lib.BlockHash, _err error) {
-	starterSeedBytes, err := bip39.NewSeedWithErrorChecking(fes.StarterBitCloutSeed, "")
+func (fes *APIServer) SendSeedBitClout(recipientPkBytes []byte, amountNanos uint64, useBuyBitCloutSeed bool) (txnHash *lib.BlockHash, _err error) {
+	senderSeed := fes.StarterBitCloutSeed
+	if useBuyBitCloutSeed {
+		senderSeed = fes.BuyBitCloutSeed
+	}
+	starterSeedBytes, err := bip39.NewSeedWithErrorChecking(senderSeed, "")
 	if err != nil {
 		return nil, fmt.Errorf("SendSeedBitClout: Error converting mnemonic: %+v", err)
 	}

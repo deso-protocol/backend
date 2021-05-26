@@ -196,14 +196,16 @@ type PhoneNumberMetadata struct {
 }
 
 type WyreWalletOrderMetadata struct {
+	// Last payload received from Wyre webhook
 	LatestWyreWalletOrderWebhookPayload WyreWalletOrderWebhookPayload
 
-	LatestWyreWalletOrderFullDetails *WyreWalletOrderFullDetails
+	// Track Wallet Order response received based on the last payload received from Wyre Webhook
+	LatestWyreTrackWalletOrderResponse *WyreTrackOrderResponse
 
-	LatestWyreTransferDetails *WyreTransferDetails
-
+	// Amount of BitClout that was sent for this WyreWalletOrder
 	BitCloutPurchasedNanos uint64
 
+	// BlockHash of the transaction for sending the BitClout
 	BasicTransferTxnBlockHash *lib.BlockHash
 }
 
@@ -284,16 +286,17 @@ func GlobalStateKeyForUserPkContactPkToMostRecentReadTstampNanos(userPubKey []by
 }
 
 // Key for accessing a public key's wyre order metadata.
-func GlobalStateKeyForUserPublicKeyWyreOrderIDToWyreOrderMetadata(userPublicKeyBytes []byte, orderIdBytes []byte) []byte {
+func GlobalStateKeyForUserPublicKeyTstampNanosToWyreOrderMetadata(userPublicKeyBytes []byte, timestampNanos uint64) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixUserPublicKeyWyreOrderIdToWyreOrderMetadata...)
 	key := append(prefixCopy, userPublicKeyBytes...)
-	key = append(key, orderIdBytes...)
+	key = append(key, lib.EncodeUint64(timestampNanos)...)
 	return key
 }
 
 func GlobalStateKeyForWyreOrderIDProcessed(orderIdBytes []byte) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixWyreOrderIdProcessed...)
-	return append(prefixCopy, orderIdBytes...)
+	key := append(prefixCopy, orderIdBytes...)
+	return key
 }
 
 
