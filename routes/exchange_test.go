@@ -160,8 +160,9 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	require := require.New(t)
 	_, _ = assert, require
 
-	chain, params, db := NewLowDifficultyBlockchain()
-	_ = db
+	chain, params, _ := NewLowDifficultyBlockchain()
+	txIndexDb, _ := GetTestBadgerDb()
+	txIndex, _ := lib.NewTXIndex(nil, params, txIndexDb.Opts().Dir)
 	mempool, miner := NewTestMiner(t, chain, params, true /*isSender*/)
 	// Mine two blocks to give the sender some BitClout.
 	block1, err := miner.MineAndProcessSingleBlock(0 /*threadIndex*/, mempool)
@@ -177,7 +178,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	}
 	publicApiServer, err := NewAPIServer(
 		nil, mempool,
-		chain, miner.BlockProducer, nil, params, testJSONPort,
+		chain, miner.BlockProducer, txIndex, params, testJSONPort,
 		testMinFeeRateNanosPerKB, "", 20000,
 		nil,
 		globalStateDB, globalStateRemoteNode, globalStateSharedSecret,
@@ -191,7 +192,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 
 	privateApiServer, err := NewAPIServer(
 		nil, mempool,
-		chain, miner.BlockProducer, nil, params, testJSONPort,
+		chain, miner.BlockProducer, txIndex, params, testJSONPort,
 		testMinFeeRateNanosPerKB, "", 20000,
 		nil,
 		globalStateDB, globalStateRemoteNode, "",
