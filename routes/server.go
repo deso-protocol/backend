@@ -462,7 +462,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		// Endpoint to trigger the reprocessing of a particular Bitcoin block.
 		{
 			"ReprocessBitcoinBlock",
-			[]string{"GET"},
+			[]string{"GET", "POST", "OPTIONS"},
 			RoutePathReprocessBitcoinBlock + "/{blockHashHexOrblockHeight:[0-9abcdefABCDEF]+}",
 			fes.ReprocessBitcoinBlock,
 			false,
