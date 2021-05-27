@@ -539,6 +539,8 @@ func (fes *APIServer) GetBTCAddress() string {
 type GetWyreWalletOrderForPublicKeyRequest struct {
 	PublicKeyBase58Check string
 	Username string
+
+	AdminPublicKey string
 }
 
 type GetWyreWalletOrderForPublicKeyResponse struct {
