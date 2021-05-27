@@ -180,11 +180,6 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	contactMap := make(map[string]*MessageContactResponse)
 	newContactEntries := []*MessageContactResponse{}
 	uniqueProfilesInPaginatedSetSeen := uint64(0)
-	blockedPubKeysForUser, err := fes.GetBlockedPubKeysForUser(publicKeyBytes)
-	if err != nil {
-		return nil, nil,  nil, 0, errors.Wrapf(
-			err, "getMessagesStateless: Problem getting blocked users for public key")
-	}
 	for _, messageEntry := range messageEntries {
 		// Check who the other party in the message is
 		otherPartyPublicKeyBytes, otherPartyPublicKeyBase58Check := fes.getOtherPartyInThread(messageEntry, publicKeyBytes)
@@ -196,7 +191,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 		if alreadySeen && !inPageSet { continue }
 
 		// Skip if it's a blocked user
-		if _, blocked := blockedPubKeysForUser[otherPartyPublicKeyBase58Check]; blocked { continue }
+		if utxoView.IsBlocked(publicKeyBytes, otherPartyPublicKeyBytes) { continue }
 
 		// Filter out messages if requested by user
 		passedFilters, checkedFilters := publicKeyPassedFilters[otherPartyPublicKeyBase58Check]
@@ -274,7 +269,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 				publicKeyInPaginatedSet[otherPartyPublicKeyBase58Check] = true
 
 				// We now know the other user's messages are set to be returned for the first time.
-				otherProfileEntry := _profileEntryToResponse(utxoView.GetProfileEntryForPublicKey(otherPartyPublicKeyBytes), fes.Params, verifiedMap, utxoView)
+				otherProfileEntry := _profileEntryToResponse(utxoView.GetProfileEntryForPublicKey(otherPartyPublicKeyBytes), fes.Params, verifiedMap, utxoView, publicKeyBytes)
 				publicKeyToProfileEntry[otherPartyPublicKeyBase58Check] = otherProfileEntry
 
 				contactEntry := &MessageContactResponse{

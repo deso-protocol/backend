@@ -150,7 +150,7 @@ func (fes *APIServer) _getRecloutPostEntryResponse(postEntry *lib.PostEntry, add
 			if profileEntry != nil {
 				// Convert it to a response since that sanitizes the inputs.
 				verifiedMap, _ := fes.GetVerifiedUsernameToPKIDMap()
-				profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+				profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView, readerPK)
 				recloutedPostEntryResponse.ProfileEntryResponse = profileEntryResponse
 			}
 			recloutedPostEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPK, recloutedPostEntry)
@@ -511,7 +511,7 @@ func (fes *APIServer) _getCommentResponse(
 	}
 
 	profileEntryFound := profileEntryMap[lib.MakePkMapKey(commentEntry.PosterPublicKey)]
-	commentResponse.ProfileEntryResponse = _profileEntryToResponse(profileEntryFound, fes.Params, verifiedMap, utxoView)
+	commentResponse.ProfileEntryResponse = _profileEntryToResponse(profileEntryFound, fes.Params, verifiedMap, utxoView, readerPK)
 
 	return commentResponse, nil
 }
@@ -794,16 +794,10 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(readerPublicKeyBytes)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetPostsStateless: Error fetching blocked pub keys for user: %v", err))
-		return
-	}
-
 	postEntryResponses := []*PostEntryResponse{}
 	for _, postEntry := range postEntries {
 		// If the creator who posted postEntry is in the map of blocked pub keys, skip this postEntry
-		if _, ok := blockedPubKeys[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]; !ok {
+		if !utxoView.IsBlocked(readerPublicKeyBytes, postEntry.PosterPublicKey) {
 			var postEntryResponse *PostEntryResponse
 			postEntryResponse, err = fes._postEntryToResponse(postEntry, requestData.AddGlobalFeedBool, fes.Params, utxoView, readerPublicKeyBytes, 2)
 			if err != nil {
@@ -812,11 +806,10 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 			}
 			profileEntryFound := profileEntryMap[lib.MakePkMapKey(postEntry.PosterPublicKey)]
 			postEntryResponse.ProfileEntryResponse = _profileEntryToResponse(
-				profileEntryFound, fes.Params, verifiedMap, utxoView)
+				profileEntryFound, fes.Params, verifiedMap, utxoView, readerPublicKeyBytes)
 			commentsFound := commentsByPostHash[*postEntry.PostHash]
 			for _, commentEntry := range commentsFound {
-				if _, ok = blockedPubKeys[lib.PkToString(commentEntry.PosterPublicKey, fes.Params)]; !ok {
-					commentResponse, err := fes._getCommentResponse(commentEntry, profileEntryMap, requestData.AddGlobalFeedBool, verifiedMap, utxoView, readerPublicKeyBytes)
+				if !utxoView.IsBlocked(readerPublicKeyBytes, commentEntry.PosterPublicKey) {					commentResponse, err := fes._getCommentResponse(commentEntry, profileEntryMap, requestData.AddGlobalFeedBool, verifiedMap, utxoView, readerPublicKeyBytes)
 					if fes._shouldSkipCommentResponse(commentResponse, err) {
 						continue
 					}
@@ -999,15 +992,8 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		parentPostEntries, truncatedTree = utxoView.GetParentPostEntriesForPostEntry(postEntry, 100 /*maxDepth*/, true /*rootFirst*/)
 	}
 
-	// Get profiles blocked by the reader.
-	blockedPublicKeys, err := fes.GetBlockedPubKeysForUser(readerPublicKeyBytes)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Problem getting blocked public keys for user: %v", err))
-		return
-	}
-
 	// Get users blocked by creator of root post.
-	var rootBlockedPublicKeys map[string]struct{}
+	var rootParentPublicKey []byte
 	// If we were able to get all parents back to the root post that started this thread, get the public keys blocked
 	// by the user who posted the root post. If we did not get the post that started this thread, do not use the blocked
 	// public keys of creator of the first post in parentPostEntries to filter out comments. truncatedTree will only be
@@ -1015,26 +1001,14 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	// GetParentPostEntriesForPostEntry.  If we restrict the depth at which users can comment, we can remove the logic
 	// around truncatedTree.
 	if !truncatedTree && len(parentPostEntries) > 0 {
-		rootParent := parentPostEntries[0]
-		rootBlockedPublicKeys, err = fes.GetBlockedPubKeysForUser(rootParent.PosterPublicKey)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"GetSinglePost: Problem with GetBlockedPubKeysForUser for root entry: publicKey: %v %v", lib.PkToString(rootParent.PosterPublicKey, fes.Params), err))
-			return
-		}
+		rootParentPublicKey = parentPostEntries[0].PosterPublicKey
 	} else if len(parentPostEntries) == 0 {
 		// If the current post entry we're at is the root, then use that to determine who is blocked.
-		rootBlockedPublicKeys, err = fes.GetBlockedPubKeysForUser(postEntry.PosterPublicKey)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"GetSinglePost: Problem with GetBlockedPubKeysForUser for current post entry: publicKey: %v %v", lib.PkToString(postEntry.PosterPublicKey, fes.Params), err))
-			return
-		}
+		rootParentPublicKey = postEntry.PosterPublicKey
 	}
 
-	// Merge the blocked public keys from the root entry with the blocked public keys of the reader
-	for k, v := range rootBlockedPublicKeys {
-		blockedPublicKeys[k] = v
+	isBlockedPublicKey := func (posterPublicKey []byte) bool {
+		return utxoView.IsBlocked(readerPublicKeyBytes, posterPublicKey) || utxoView.IsBlocked(rootParentPublicKey, posterPublicKey)
 	}
 
 	// Create a map of all the profile pub keys associated with our posts + comments.
@@ -1044,18 +1018,18 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	// Determine whether or not the posters of the "single post" we are fetching is blocked by the reader.  If the
 	// poster of the single post is blocked, we will want to include the single post, but not any of the comments
 	// created by the poster that are children of this "single post".
-	_, isCurrentPosterBlocked := blockedPublicKeys[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]
+	isCurrentPosterBlocked := isBlockedPublicKey(postEntry.PosterPublicKey)
 	for _, commentEntry := range commentEntries {
 		pkMapKey := lib.MakePkMapKey(commentEntry.PosterPublicKey)
 		// Remove comments that are blocked by either the reader or the poster of the root post
-		if _, ok := blockedPublicKeys[lib.PkToString(commentEntry.PosterPublicKey, fes.Params)]; !ok && profilePubKeyMap[pkMapKey] == nil {
+		if !isBlockedPublicKey(commentEntry.PosterPublicKey) && profilePubKeyMap[pkMapKey] == nil {
 			profilePubKeyMap[pkMapKey] = commentEntry.PosterPublicKey
 		}
 	}
 	for _, parentPostEntry := range parentPostEntries {
 		pkMapKey := lib.MakePkMapKey(parentPostEntry.PosterPublicKey)
 		// Remove parents that are blocked by either the reader or the poster of the root post
-		if _, ok := blockedPublicKeys[lib.PkToString(parentPostEntry.PosterPublicKey, fes.Params)]; !ok && profilePubKeyMap[pkMapKey] == nil {
+		if !isBlockedPublicKey(parentPostEntry.PosterPublicKey) && profilePubKeyMap[pkMapKey] == nil {
 			profilePubKeyMap[pkMapKey] = parentPostEntry.PosterPublicKey
 		}
 	}
@@ -1123,7 +1097,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 			continue
 		} else {
 			pubKeyToProfileEntryResponseMap[lib.MakePkMapKey(pubKeyBytes)] =
-				_profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+				_profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView, readerPublicKeyBytes)
 		}
 	}
 
@@ -1566,7 +1540,7 @@ func (fes *APIServer) GetDiamondedPosts(ww http.ResponseWriter, req *http.Reques
 					_AddBadRequestError(ww, fmt.Sprintf("GetDiamondedPosts: Problem converting parent post entry to response: %v", err))
 				}
 				parentProfileEntry := utxoView.GetProfileEntryForPublicKey(parentPostEntry.PosterPublicKey)
-				parentPostEntryResponse.ProfileEntryResponse = _profileEntryToResponse(parentProfileEntry, fes.Params, verifiedMap, utxoView)
+				parentPostEntryResponse.ProfileEntryResponse = _profileEntryToResponse(parentProfileEntry, fes.Params, verifiedMap, utxoView, readerPublicKeyBytes)
 				postEntryResponse.ParentPosts = []*PostEntryResponse{parentPostEntryResponse}
 			}
 			diamondedPosts = append(diamondedPosts, postEntryResponse)
@@ -1605,8 +1579,8 @@ func (fes *APIServer) GetDiamondedPosts(ww http.ResponseWriter, req *http.Reques
 	res := &GetPostsDiamondedBySenderForReceiverResponse{
 		DiamondedPosts: diamondedPosts,
 		TotalDiamondsGiven: totalDiamondsGiven,
-		ReceiverProfileEntryResponse: _profileEntryToResponse(receiverProfileEntry, fes.Params, verifiedMap, utxoView),
-		SenderProfileEntryResponse: _profileEntryToResponse(senderProfileEntry, fes.Params, verifiedMap, utxoView),
+		ReceiverProfileEntryResponse: _profileEntryToResponse(receiverProfileEntry, fes.Params, verifiedMap, utxoView, readerPublicKeyBytes),
+		SenderProfileEntryResponse: _profileEntryToResponse(senderProfileEntry, fes.Params, verifiedMap, utxoView, readerPublicKeyBytes),
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDiamondedPosts: Problem encoding response as JSON: %v", err))
