@@ -53,17 +53,17 @@ const (
 	RoutePathSendDiamonds             = "/api/v0/send-diamonds"
 
 	// user.go
-	RoutePathGetUsersStateless        = "/api/v0/get-users-stateless"
-	RoutePathDeleteIdentities         = "/api/v0/delete-identities"
-	RoutePathGetProfiles              = "/api/v0/get-profiles"
-	RoutePathGetSingleProfile         = "/api/v0/get-single-profile"
-	RoutePathGetHodlersForPublicKey   = "/api/v0/get-hodlers-for-public-key"
-	RoutePathGetDiamondsForPublicKey  = "/api/v0/get-diamonds-for-public-key"
-	RoutePathGetFollowsStateless      = "/api/v0/get-follows-stateless"
-	RoutePathGetUserGlobalMetadata    = "/api/v0/get-user-global-metadata"
-	RoutePathUpdateUserGlobalMetadata = "/api/v0/update-user-global-metadata"
-	RoutePathGetNotifications         = "/api/v0/get-notifications"
-	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
+	RoutePathGetUsersStateless                = "/api/v0/get-users-stateless"
+	RoutePathDeleteIdentities                 = "/api/v0/delete-identities"
+	RoutePathGetProfiles                      = "/api/v0/get-profiles"
+	RoutePathGetSingleProfile                 = "/api/v0/get-single-profile"
+	RoutePathGetHodlersForPublicKey           = "/api/v0/get-hodlers-for-public-key"
+	RoutePathGetDiamondsForPublicKey          = "/api/v0/get-diamonds-for-public-key"
+	RoutePathGetFollowsStateless              = "/api/v0/get-follows-stateless"
+	RoutePathCreateBlockPublicKeyTxnStateless = "/api/v0/create-block-public-key-txn-stateless"
+	RoutePathGetUserGlobalMetadata            = "/api/v0/get-user-global-metadata"
+	RoutePathUpdateUserGlobalMetadata         = "/api/v0/update-user-global-metadata"
+	RoutePathGetNotifications                 = "/api/v0/get-notifications"
 
 	// post.go
 	RoutePathGetPostsStateless        = "/api/v0/get-posts-stateless"
@@ -578,6 +578,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			false,
 		},
 		{
+			"CreateBlockPublicKeyTxnStateless",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateBlockPublicKeyTxnStateless,
+			fes.CreateBlockPublicKeyTxnStateless,
+			false,
+		},
+		{
 			"CreateLikeStateless",
 			[]string{"POST", "OPTIONS"},
 			RoutePathCreateLikeStateless,
@@ -756,13 +763,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetSinglePost,
 			fes.GetSinglePost,
-			false,
-		},
-		{
-			"BlockPublicKey",
-			[]string{"POST", "OPTIONS"},
-			RoutePathBlockPublicKey,
-			fes.BlockPublicKey,
 			false,
 		},
 		{

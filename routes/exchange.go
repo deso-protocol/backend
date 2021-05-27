@@ -1635,22 +1635,6 @@ func (fes *APIServer) FilterOutRestrictedPubKeysFromList(profilePubKeys [][]byte
 	return filteredPubKeys, nil
 }
 
-//Get the map of public keys this user has blocked.  The _blockedPubKeyMap operates as a hashset to speed up look up time
-// while value are empty structs to keep memory usage down.
-func (fes *APIServer) GetBlockedPubKeysForUser(userPubKey []byte) (_blockedPubKeyMap map[string]struct{}, _err error) {
-	/* Get public keys of users the reader has blocked */
-	userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPubKey, fes.Params))
-	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf("GetBlockedPubKeysForUser: Problem with getUserMetadataFromGlobalState: %v", err), "")
-	}
-
-	blockedPublicKeys := userMetadata.BlockedPublicKeys
-	if blockedPublicKeys == nil {
-		blockedPublicKeys = make(map[string]struct{})
-	}
-	return blockedPublicKeys, nil
-}
-
 // Fetches all the profiles from the db starting with a given profilePubKey, up to numToFetch.
 // This is then joined with mempool and all profiles are returned.  Because the mempool may contain
 // profile changes, the number of profiles returned in the map is not guaranteed to be numEntries.

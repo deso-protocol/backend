@@ -117,7 +117,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	profileEntryy := utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
 	if profileEntryy != nil {
 		// Convert it to a response since that sanitizes the inputs.
-		profileEntryResponse := _profileEntryToResponse(profileEntryy, fes.Params, verifiedMap, utxoView)
+		profileEntryResponse := _profileEntryToResponse(profileEntryy, fes.Params, verifiedMap, utxoView, publicKeyBytes)
 		user.ProfileEntryResponse = profileEntryResponse
 	}
 
@@ -203,12 +203,6 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	if err != nil {
 		return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err), "")
 	}
-	// Get map of public keys user has blocked
-	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(publicKeyBytes)
-	if err != nil {
-		return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem with GetBlockedPubKeysForUser: %v", err), "")
-	}
-	user.BlockedPubKeys = blockedPubKeys
 
 	// Only set User.IsAdmin in GetUsersStateless
 	// We don't want or need to set this on every endpoint that generates a ProfileEntryResponse
@@ -315,8 +309,8 @@ func _balanceEntryToResponse(
 		BalanceNanos:                balanceEntry.BalanceNanos,
 		NetBalanceInMempool:         int64(balanceEntry.BalanceNanos) - int64(dbBalanceNanos),
 
-		// If the profile is nil, this will be nil
-		ProfileEntryResponse: _profileEntryToResponse(profileEntry, params, verifiedMap, utxoView),
+		// If the profile is nil, this will be nil. Reader PK is nil because we do not need to determine if profile is blocked by the reader.
+		ProfileEntryResponse: _profileEntryToResponse(profileEntry, params, verifiedMap, utxoView, nil),
 	}
 }
 
@@ -475,6 +469,7 @@ type ProfileEntryResponse struct {
 	IsHidden             bool
 	IsReserved           bool
 	IsVerified           bool
+	IsBlockedByReader    bool
 	Comments             []*PostEntryResponse
 	Posts                []*PostEntryResponse
 	// Creator coin fields
@@ -550,7 +545,7 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 
 		for _, profileEntry := range profileEntries {
 			profileEntryResponses = append(
-				profileEntryResponses, _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView))
+				profileEntryResponses, _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView, readerPubKey))
 			if len(profileEntryResponses) == numToFetch {
 				break
 			}
@@ -803,7 +798,7 @@ func (fes *APIServer) GetProfilesByUsernamePrefixAndBitCloutLocked(
 	return filteredProfileEntries, nil
 }
 
-func _profileEntryToResponse(profileEntry *lib.ProfileEntry, params *lib.BitCloutParams, verifiedUsernameMap map[string]*lib.PKID, utxoView *lib.UtxoView) *ProfileEntryResponse {
+func _profileEntryToResponse(profileEntry *lib.ProfileEntry, params *lib.BitCloutParams, verifiedUsernameMap map[string]*lib.PKID, utxoView *lib.UtxoView, readerPK []byte) *ProfileEntryResponse {
 	if profileEntry == nil {
 		return nil
 	}
@@ -836,13 +831,17 @@ func _profileEntryToResponse(profileEntry *lib.ProfileEntry, params *lib.BitClou
 		isVerified = !val
 	}
 
-	// Check global state for isVerified bool.
-	if verifiedUsernameMap != nil && utxoView != nil {
-		pkidEntry := utxoView.GetPKIDForPublicKey(profileEntry.PublicKey)
-		verifiedUsernamePKID := verifiedUsernameMap[strings.ToLower(string(profileEntry.Username))]
-		if verifiedUsernamePKID != nil {
-			// TODO: Delete the "isVerified" or statement once we kell reserved_usernames.go.
-			isVerified = (*verifiedUsernamePKID == *pkidEntry.PKID) || isVerified
+	// Check global state for isVerified bool and get isBlockedByReader.
+	isBlockedByReader := false
+	if utxoView != nil {
+		isBlockedByReader = utxoView.IsBlocked(readerPK, profileEntry.PublicKey)
+		if verifiedUsernameMap != nil {
+			pkidEntry := utxoView.GetPKIDForPublicKey(profileEntry.PublicKey)
+			verifiedUsernamePKID := verifiedUsernameMap[strings.ToLower(string(profileEntry.Username))]
+			if verifiedUsernamePKID != nil {
+				// TODO: Delete the "isVerified" or statement once we kell reserved_usernames.go.
+				isVerified = (*verifiedUsernamePKID == *pkidEntry.PKID) || isVerified
+			}
 		}
 	}
 
@@ -857,6 +856,7 @@ func _profileEntryToResponse(profileEntry *lib.ProfileEntry, params *lib.BitClou
 		IsHidden:                 profileEntry.IsHidden,
 		IsReserved:               isReserved,
 		IsVerified:               isVerified,
+		IsBlockedByReader:        isBlockedByReader,
 		StakeMultipleBasisPoints: profileEntry.StakeMultipleBasisPoints,
 		StakeEntryStats:          lib.GetStakeEntryStats(profileEntry.StakeEntry, params),
 	}
@@ -874,7 +874,7 @@ func (fes *APIServer) augmentProfileEntry(
 	utxoView *lib.UtxoView,
 	readerPK []byte) *ProfileEntryResponse {
 
-	profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+	profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView, readerPK)
 
 	// Attach the posts to the profile
 	profilePostsFound := postsByProfilePublicKey[lib.MakePkMapKey(profileEntry.PublicKey)]
@@ -891,7 +891,7 @@ func (fes *APIServer) augmentProfileEntry(
 
 		profileEntryFound := profileEntriesByPublicKey[lib.MakePkMapKey(profilePostEntry.PosterPublicKey)]
 		profilePostRes.ProfileEntryResponse = _profileEntryToResponse(
-			profileEntryFound, fes.Params, verifiedMap, utxoView)
+			profileEntryFound, fes.Params, verifiedMap, utxoView, readerPK)
 		if profilePostRes.IsHidden {
 			// Don't show posts that this user has chosen to hide.
 			continue
@@ -903,9 +903,11 @@ func (fes *APIServer) augmentProfileEntry(
 }
 
 type GetSingleProfileRequest struct {
-	// When set, we return profiles starting at the given pubkey up to numEntriesToReturn.
+	// The public key of the user requesting the single profile
+	UserPublicKeyBase58Check string `safeForLogging:"true"`
+	// Public key of profile being requested
 	PublicKeyBase58Check string `safeForLogging:"true"`
-	// When set, we return profiles starting at the given username up to numEntriesToReturn.
+	// Username of the profile being requested.
 	Username string `safeForLogging:"true"`
 }
 
@@ -934,7 +936,7 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 		var publicKeyBytes []byte
 		publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Problem decoding user public key: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Problem decoding public key: %v", err))
 			return
 		}
 		profileEntry = utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
@@ -945,6 +947,14 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 	if profileEntry == nil {
 		_AddNotFoundError(ww, fmt.Sprintf("GetSingleProfile: could not find profile for username or public key: %v, %v", requestData.Username, requestData.PublicKeyBase58Check))
 		return
+	}
+	var readerPublicKeyBytes []byte
+	if requestData.UserPublicKeyBase58Check != "" {
+		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.UserPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Problem decoding user public key: %v", err))
+			return
+		}
 	}
 	filteredPubKeys, err := fes.FilterOutRestrictedPubKeysFromList([][]byte{profileEntry.PublicKey}, nil, "")
 	if err != nil {
@@ -964,7 +974,7 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 			_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: could not get verified map: %v", err))
 			return
 		}
-		profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+		profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView, readerPublicKeyBytes)
 		res = GetSingleProfileResponse{
 			Profile: profileEntryResponse,
 		}
@@ -1104,8 +1114,9 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 
 		profileEntry := utxoView.GetProfileEntryForPublicKey(lib.MustBase58CheckDecode(publicKeyBase58Check))
 		if profileEntry != nil {
+			// Reader PK is nil because we do not need to determine if profile is blocked by the reader.
 			balanceEntryResponse.ProfileEntryResponse = _profileEntryToResponse(
-				profileEntry, fes.Params, verifiedMap, utxoView)
+				profileEntry, fes.Params, verifiedMap, utxoView, nil)
 		}
 	}
 	// Return the last public key in this slice to simplify pagination.
@@ -1230,8 +1241,9 @@ func (fes *APIServer) GetDiamondsForPublicKey(ww http.ResponseWriter, req *http.
 		}
 		profileEntry := utxoView.GetProfileEntryForPublicKey(profilePK)
 		if profileEntry != nil {
+			// Reader PK is nil because we do not need to determine if profile is blocked by the reader.
 			diamondSenderSummaryResponse.ProfileEntryResponse = _profileEntryToResponse(
-				profileEntry, fes.Params, verifiedMap, utxoView)
+				profileEntry, fes.Params, verifiedMap, utxoView, nil)
 		}
 		totalDiamonds += diamondSenderSummaryResponse.TotalDiamonds
 	}
@@ -1401,8 +1413,9 @@ func (fes *APIServer) getPublicKeyToProfileEntryMapForFollows(publicKeyBytes []b
 
 		var followProfileEntry *ProfileEntryResponse
 		if fetchValues {
+			// Reader PK is nil because we do not need to determine if profile is blocked by the reader.
 			followProfileEntry = _profileEntryToResponse(
-				utxoView.GetProfileEntryForPublicKey(followPubKey), fes.Params, verifiedMap, utxoView)
+				utxoView.GetProfileEntryForPublicKey(followPubKey), fes.Params, verifiedMap, utxoView, nil)
 		}
 		followPubKeyBase58Check := lib.PkToString(followPubKey, fes.Params)
 		publicKeyToProfileEntry[followPubKeyBase58Check] = followProfileEntry
@@ -1672,12 +1685,6 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		return
 	}
 
-	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(userPublicKeyBytes)
-	if err != nil {
-		_AddBadRequestError(ww, err.Error())
-		return
-	}
-
 	// Filter out blocked public keys from transactions metadata response
 	filteredTxnMetadataList := []*TransactionMetadataResponse{}
 	for _, txn := range finalTxnMetadataList {
@@ -1687,7 +1694,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 			APIAddError(ww, err.Error())
 			return
 		}
-		if _, ok := blockedPubKeys[lib.PkToString(pkBytes, fes.Params)]; !ok {
+		if !utxoView.IsBlocked(userPublicKeyBytes, pkBytes) {
 			filteredTxnMetadataList = append(filteredTxnMetadataList, txn)
 		}
 	}
@@ -1719,7 +1726,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		profileEntry := utxoView.GetProfileEntryForPublicKey(currentPkBytes)
 		if profileEntry != nil {
 			profileEntryResponses[lib.PkToString(profileEntry.PublicKey, fes.Params)] =
-				_profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+				_profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView, userPublicKeyBytes)
 		}
 		return nil
 	}
@@ -1905,6 +1912,16 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 			if !TxnMetaIsNotification(txnMeta, request.PublicKeyBase58Check, utxoView) {
 				continue
 			}
+			// Skip notifications if the transactor is blocked by the reader
+			var transactorPublicKeyBytes []byte
+			transactorPublicKeyBytes, _, err = lib.Base58CheckDecode(txnMeta.TransactorPublicKeyBase58Check)
+			if err != nil {
+				errors.Errorf("GetNotifications: Error decoding transactor public key")
+				continue
+			}
+			if utxoView.IsBlocked(pkBytes, transactorPublicKeyBytes) {
+				continue
+			}
 			currentIndexBytes := keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]
 			res := &TransactionMetadataResponse{
 				Metadata: txnMeta,
@@ -1989,10 +2006,18 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 			// If the transaction is a notification then add it to our list with the proper
 			// index value set.
 			if TxnMetaIsNotification(txnMeta, request.PublicKeyBase58Check, utxoView) {
-				mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
-					Metadata: txnMeta,
-					Index:    currentIndex,
-				})
+				var transactorPublicKeyBytes []byte
+				transactorPublicKeyBytes, _, err = lib.Base58CheckDecode(txnMeta.TransactorPublicKeyBase58Check)
+				if err != nil {
+					errors.Errorf("GetNotifications: Error decoding transactor public key")
+					continue
+				}
+				if !utxoView.IsBlocked(pkBytes, transactorPublicKeyBytes) {
+					mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
+						Metadata: txnMeta,
+						Index:    currentIndex,
+					})
+				}
 			}
 
 			// TODO: Commenting this out for now because it causes incorrect behavior
@@ -2132,25 +2157,29 @@ type TransactionMetadataResponse struct {
 	Index    int64
 }
 
-type BlockPublicKeyRequest struct {
+type CreateBlockPublicKeyTxnStatelessRequest struct {
 	PublicKeyBase58Check      string
 	BlockPublicKeyBase58Check string
 	Unblock                   bool
-	JWT                       string
+	MinFeeRateNanosPerKB      uint64 `safeForLogging:"true"`
 }
 
-type BlockPublicKeyResponse struct {
-	BlockedPublicKeys map[string]struct{}
+type CreateBlockPublicKeyTxnStatelessResponse struct {
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgBitCloutTxn
+	TransactionHex    string
 }
 
 // This endpoint is used for blocking and unblocking users.  A boolean flag Unblock is passed to indicate whether
 // a user should be blocked or unblocked.
-func (fes *APIServer) BlockPublicKey(ww http.ResponseWriter, req *http.Request) {
+func (fes *APIServer) CreateBlockPublicKeyTxnStateless(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := BlockPublicKeyRequest{}
+	requestData := CreateBlockPublicKeyTxnStatelessRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"BlockPublicKey: Problem parsing request body: %v", err))
+			"CreateBlockPublicKeyTxnStateless: Problem parsing request body: %v", err))
 		return
 	}
 
@@ -2159,15 +2188,8 @@ func (fes *APIServer) BlockPublicKey(ww http.ResponseWriter, req *http.Request) 
 	userPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 	if err != nil || len(userPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"BlockPublicKey: Problem decoding user public key %s: %v",
+			"CreateBlockPublicKeyTxnStateless: Problem decoding user public key %s: %v",
 			requestData.PublicKeyBase58Check, err))
-		return
-	}
-
-	// Validate their permissions
-	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
-	if !isValid {
-		_AddBadRequestError(ww, fmt.Sprintf("BlockPublicKey: Invalid token: %v", err))
 		return
 	}
 
@@ -2176,46 +2198,34 @@ func (fes *APIServer) BlockPublicKey(ww http.ResponseWriter, req *http.Request) 
 	blockPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.BlockPublicKeyBase58Check)
 	if err != nil || len(blockPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"BlockPublicKey: Problem decoding public key to block %s: %v",
+			"CreateBlockPublicKeyTxnStateless: Problem decoding public key to block %s: %v",
 			requestData.BlockPublicKeyBase58Check, err))
 		return
 	}
 
-	userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.PublicKeyBase58Check)
+	// Try and create the block for the user.
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateBlockPublicKeyTxn(
+		userPublicKeyBytes, blockPublicKeyBytes, requestData.Unblock,
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("BlockPublicKey: Problem with getUserMetadataFromGlobalState: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("CreateBlockPublicKeyTxnStateless: Problem creating transaction: %v", err))
 		return
 	}
-	blockPublicKeyString := lib.PkToString(blockPublicKeyBytes, fes.Params)
-
-	blockedPublicKeys := userMetadata.BlockedPublicKeys
-	if blockedPublicKeys == nil {
-		blockedPublicKeys = make(map[string]struct{})
-	}
-	// Check if the user is already blocked by the reader.
-	_, keyExists := blockedPublicKeys[blockPublicKeyString]
-
-	// Delete the public keys from the Reader's map of blocked public keys if we are unblocking and the public key is
-	// in the map.  Add the public key to the User's map of blocked public keys if we are blocking and the public key is
-	// not currently present in the User's map of blocked public keys.
-	if keyExists && requestData.Unblock {
-		delete(blockedPublicKeys, blockPublicKeyString)
-	} else if !keyExists && !requestData.Unblock {
-		blockedPublicKeys[blockPublicKeyString] = struct{}{}
-	}
-	userMetadata.BlockedPublicKeys = blockedPublicKeys
-	err = fes.putUserMetadataInGlobalState(userMetadata)
+	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("BlockPublicKey: Problem with putUserMetadataInGlobalState: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("CreateBlockPublicKeyTxnStateless: Problem serializing transaction: %v", err))
 		return
 	}
 
-	// Return the posts found.
-	res := &BlockPublicKeyResponse{
-		BlockedPublicKeys: blockedPublicKeys,
+	res := &CreateBlockPublicKeyTxnStatelessResponse{
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("BlockPublicKey: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("CreateBlockPublicKeyTxnStateless: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
