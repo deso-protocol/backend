@@ -545,7 +545,6 @@ type GetWyreWalletOrderForPublicKeyResponse struct {
 	WyreWalletOrderMetadataResponses []*WyreWalletOrderMetadataResponse
 }
 
-//hex.EncodeToString(postEntry.PostHash[:])
 func (fes *APIServer) GetWyreWalletOrdersForPublicKey(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetWyreWalletOrderForPublicKeyRequest{}
