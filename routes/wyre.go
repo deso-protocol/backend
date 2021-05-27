@@ -411,7 +411,7 @@ func (fes *APIServer) GetWyreWalletOrderReservation(ww http.ResponseWriter, req 
 		PaymentMethod: "debit-card",
 		SourceAmount: fmt.Sprintf("%f", wyreWalletOrderReservationRequest.SourceAmount),
 		LockFields: []string{"dest", "destCurrency"},
-		RedirectUrl: fmt.Sprintf("%v/buy-bitclout", req.Host),
+		RedirectUrl: fmt.Sprintf("https://%v/buy-bitclout", req.Host),
 		ReferenceId: fmt.Sprintf("%v:%v", wyreWalletOrderReservationRequest.ReferenceId, currentTime),
 	}
 
