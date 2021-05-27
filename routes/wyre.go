@@ -509,9 +509,7 @@ func (fes *APIServer) GetWyreWalletOrderMetadataFromGlobalState(publicKey string
 		return nil, err
 	}
 	currentWyreWalletOrderMetadata := &WyreWalletOrderMetadata{}
-	err = gob.NewDecoder(bytes.NewReader(currentWyreWalletOrderMetadataBytes)).Decode(currentWyreWalletOrderMetadata)
-	if err != nil {
-		// do somethign with this error
+	if err = gob.NewDecoder(bytes.NewReader(currentWyreWalletOrderMetadataBytes)).Decode(currentWyreWalletOrderMetadata); err != nil {
 		return nil, err
 	}
 	return currentWyreWalletOrderMetadata, err
