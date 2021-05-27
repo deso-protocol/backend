@@ -628,13 +628,30 @@ type WyreWalletOrderMetadataResponse struct {
 
 	// BlockHash of the transaction for sending the BitClout
 	BasicTransferTxnHash string
+
+	Timestamp *time.Time
 }
 
 func WyreWalletOrderMetadataToResponse(metadata *WyreWalletOrderMetadata) (*WyreWalletOrderMetadataResponse) {
-	return &WyreWalletOrderMetadataResponse{
+	orderMetadataResponse := WyreWalletOrderMetadataResponse{
 		LatestWyreTrackWalletOrderResponse: metadata.LatestWyreTrackWalletOrderResponse,
 		LatestWyreWalletOrderWebhookPayload: metadata.LatestWyreWalletOrderWebhookPayload,
 		BitCloutPurchasedNanos: metadata.BitCloutPurchasedNanos,
-		BasicTransferTxnHash: hex.EncodeToString(metadata.BasicTransferTxnBlockHash[:]),
+		Timestamp: getTimestampFromReferenceId(metadata.LatestWyreWalletOrderWebhookPayload.ReferenceId),
 	}
+	basicTransferTxnHash := metadata.BasicTransferTxnBlockHash
+	if basicTransferTxnHash != nil {
+		orderMetadataResponse.BasicTransferTxnHash = hex.EncodeToString(basicTransferTxnHash[:])
+	}
+	return &orderMetadataResponse
+}
+
+func getTimestampFromReferenceId(referenceId string) (*time.Time) {
+	splits := strings.Split(referenceId, ":")
+	uint64Timestamp, err := strconv.ParseUint(splits[1], 10,  64)
+	if err != nil {
+		return nil
+	}
+	timestamp := time.Unix(0, int64(uint64Timestamp))
+	return &timestamp
 }
