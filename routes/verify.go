@@ -300,7 +300,7 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 			}
 		}
 
-		if err = fes.SendSeedBitClout(userMetadata.PublicKey, amountToSendNanos); err != nil {
+		if _, err = fes.SendSeedBitClout(userMetadata.PublicKey, amountToSendNanos, false); err != nil {
 			glog.Errorf("SubmitPhoneNumberVerificationCode: Error sending seed BitClout: %v", err)
 		}
 	}
