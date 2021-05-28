@@ -181,9 +181,11 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 			usdCentsPerBitcoin := utxoView.GetCurrentUSDCentsPerBitcoin()
 			// Get the current Satoshis / CLOUT-nano exchange rate
 			satoshisPerUnit := lib.GetSatoshisPerUnitExchangeRate(startNanos, usdCentsPerBitcoin)
-			// Assess a 1% fee
-			nodeFee := satoshisPerUnit / 100
-			bitcloutToSend := satsPurchased * lib.NanosPerUnit / (satoshisPerUnit + nodeFee)
+
+			nodeFeePercentage := float64(1.0)
+			conversionRateAfterFee := float64(satoshisPerUnit) * (100.0 + nodeFeePercentage) / 100.0
+			bitcloutToSend := uint64(float64(satsPurchased) * float64(lib.NanosPerUnit) / (conversionRateAfterFee))
+
 			// Make sure this order hasn't been paid out, then mark it as paid out.
 			wyreOrderIdKey := GlobalStateKeyForWyreOrderIDProcessed([]byte(orderId))
 			// We expect badger to return a key not found error if BitClout has been paid out for this order.
