@@ -105,6 +105,10 @@ type User struct {
 
 	// Is this user an admin
 	IsAdmin bool
+
+	// Is this user blacklisted/graylisted
+	IsBlacklisted bool
+	IsGraylisted bool
 }
 
 type BalanceEntryResponse struct {

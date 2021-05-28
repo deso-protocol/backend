@@ -210,6 +210,24 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	}
 	user.BlockedPubKeys = blockedPubKeys
 
+	// Check if the user is blacklisted/graylisted
+	blacklistKey := GlobalStateKeyForBlacklistedProfile(publicKeyBytes[:])
+	userBlacklistState, err := fes.GlobalStateGet(blacklistKey)
+	if err != nil {
+		return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem getting blacklist: %v", err), "")
+	}
+	if reflect.DeepEqual(userBlacklistState, lib.IsBlacklisted) {
+		user.IsBlacklisted = true
+	}
+	graylistKey := GlobalStateKeyForGraylistedProfile(publicKeyBytes[:])
+	userGraylistState, err := fes.GlobalStateGet(graylistKey)
+	if err != nil {
+		return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem getting graylist: %v", err), "")
+	}
+	if reflect.DeepEqual(userGraylistState, lib.IsGraylisted) {
+		user.IsGraylisted = true
+	}
+
 	// Only set User.IsAdmin in GetUsersStateless
 	// We don't want or need to set this on every endpoint that generates a ProfileEntryResponse
 	if len(fes.AdminPublicKeys) == 0 {
