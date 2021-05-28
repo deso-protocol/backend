@@ -18,15 +18,15 @@ func _generateUnsignedCreatorCoinBuy(buyerPubKey *btcec.PublicKey, creatorPubKey
 
 	// Setup request
 	payload := &routes.BuyOrSellCreatorCoinRequest{
-		lib.PkToString(buyerPubKey.SerializeCompressed(), params),
-		lib.PkToString(creatorPubKey.SerializeCompressed(), params),
-		"buy",
-		amountNanos,
-		0,
-		0,
-		0,
-		0,
-		1000,
+		UpdaterPublicKeyBase58Check: lib.PkToString(buyerPubKey.SerializeCompressed(), params),
+		CreatorPublicKeyBase58Check: lib.PkToString(creatorPubKey.SerializeCompressed(), params),
+		OperationType: "buy",
+		BitCloutToSellNanos: amountNanos,
+		CreatorCoinToSellNanos: 0,
+		BitCloutToAddNanos: 0,
+		MinBitCloutExpectedNanos: 0,
+		MinCreatorCoinExpectedNanos: 0,
+		MinFeeRateNanosPerKB: 1000,
 	}
 	postBody, err := json.Marshal(payload)
 	if err != nil {
