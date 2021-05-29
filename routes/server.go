@@ -90,6 +90,12 @@ const (
 	RoutePathSendPhoneNumberVerificationText   = "/api/v0/send-phone-number-verification-text"
 	RoutePathSubmitPhoneNumberVerificationCode = "/api/v0/submit-phone-number-verification-code"
 
+	// wyre.go
+	RoutePathGetWyreWalletOrderQuotation     = "/api/v0/get-wyre-wallet-order-quotation"
+	RoutePathGetWyreWalletOrderReservation   = "/api/v0/get-wyre-wallet-order-reservation"
+	RoutePathWyreWalletOrderSubscription     = "/api/v0/wyre-wallet-order-subscription"
+	RoutePathGetWyreWalletOrdersForPublicKey = "/api/v0/admin/get-wyre-wallet-orders-for-public-key"
+
 	// miner.go
 	RoutePathGetBlockTemplate = "/api/v0/get-block-template"
 	RoutePathSubmitBlock      = "/api/v0/submit-block"
@@ -199,6 +205,14 @@ type APIServer struct {
 
 	// Optional, restricts access to the admin panel to these public keys
 	AdminPublicKeys []string
+
+	// Wyre
+	WyreUrl string
+	WyreAccountId string
+	WyreApiKey string
+	WyreSecretKey string
+	WyreBTCAddress string
+	BuyBitCloutSeed string
 }
 
 // NewAPIServer ...
@@ -231,6 +245,12 @@ func NewAPIServer(_backendServer *lib.Server,
 	googleBucketName string,
 	compProfileCreation bool,
 	adminPublicKeys []string,
+	wyreUrl string,
+	wyreAccountId string,
+	wyreApiKey string,
+	wyreSecretKey string,
+	wyreBTCAddress string,
+	buyBitCloutSeed string,
 ) (*APIServer, error) {
 
 	var txIndexChain *lib.Blockchain
@@ -383,6 +403,12 @@ func NewAPIServer(_backendServer *lib.Server,
 		GoogleBucketName:                    googleBucketName,
 		IsCompProfileCreation:               compProfileCreation,
 		AdminPublicKeys:                     adminPublicKeys,
+		WyreUrl:                             wyreUrl,
+		WyreAccountId:                       wyreAccountId,
+		WyreApiKey:                          wyreApiKey,
+		WyreSecretKey:                       wyreSecretKey,
+		WyreBTCAddress:                      wyreBTCAddress,
+		BuyBitCloutSeed:                     buyBitCloutSeed,
 	}
 
 	return fes, nil
@@ -467,7 +493,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		// Endpoint to trigger the reprocessing of a particular Bitcoin block.
 		{
 			"ReprocessBitcoinBlock",
-			[]string{"GET"},
+			[]string{"GET", "POST", "OPTIONS"},
 			RoutePathReprocessBitcoinBlock + "/{blockHashHexOrblockHeight:[0-9abcdefABCDEF]+}",
 			fes.ReprocessBitcoinBlock,
 			false,
@@ -754,6 +780,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.EvictUnminedBitcoinTxns,
 			true,
 		},
+		{
+			"GetWyreWalletOrdersForPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetWyreWalletOrdersForPublicKey,
+			fes.GetWyreWalletOrdersForPublicKey,
+			true,
+		},
 		// End all /admin routes
 
 		{
@@ -857,6 +890,29 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetFullTikTokURL,
 			fes.GetFullTikTokURL,
+			false,
+		},
+
+		// Paths for wyre
+		{
+			"GetWyreWalletOrderQuotation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetWyreWalletOrderQuotation,
+			fes.GetWyreWalletOrderQuotation,
+			false,
+		},
+		{
+			"GetWyreWalletOrderReservation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetWyreWalletOrderReservation,
+			fes.GetWyreWalletOrderReservation,
+			false,
+		},
+		{
+			"WyreWalletOrderSubscription",
+			[]string{"POST", "OPTIONS"},
+			RoutePathWyreWalletOrderSubscription,
+			fes.WyreWalletOrderSubscription,
 			false,
 		},
 	}

@@ -112,11 +112,17 @@ var (
 	// <prefix, user public key, contact's public key> -> <tStampNanos>
 	_GlobalStatePrefixUserPublicKeyContactPublicKeyToMostRecentReadTstampNanos = []byte{8}
 
+	// The prefix for checking the state of a user's wyre order.
+	_GlobalStatePrefixUserPublicKeyWyreOrderIdToWyreOrderMetadata = []byte{9}
+
+	// The prefix for checking whether or not bitclout has been sent for a given a wyre order
+	_GlobalStatePrefixWyreOrderIdProcessed = []byte{10}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
-	// NEXT_TAG: 3
+	// NEXT_TAG: 11
 )
 
 // This struct contains all the metadata associated with a user's public key.
@@ -187,6 +193,20 @@ type PhoneNumberMetadata struct {
 
 	// if true, when the public key associated with this metadata tries to create a profile, we will comp their fee.
 	ShouldCompProfileCreation bool
+}
+
+type WyreWalletOrderMetadata struct {
+	// Last payload received from Wyre webhook
+	LatestWyreWalletOrderWebhookPayload WyreWalletOrderWebhookPayload
+
+	// Track Wallet Order response received based on the last payload received from Wyre Webhook
+	LatestWyreTrackWalletOrderResponse *WyreTrackOrderResponse
+
+	// Amount of BitClout that was sent for this WyreWalletOrder
+	BitCloutPurchasedNanos uint64
+
+	// BlockHash of the transaction for sending the BitClout
+	BasicTransferTxnBlockHash *lib.BlockHash
 }
 
 // countryCode is a string like 'US' (Note: the phonenumbers lib calls this a "region code")
@@ -262,6 +282,20 @@ func GlobalStateKeyForUserPkContactPkToMostRecentReadTstampNanos(userPubKey []by
 	prefixCopy := append([]byte{}, _GlobalStatePrefixUserPublicKeyContactPublicKeyToMostRecentReadTstampNanos...)
 	key := append(prefixCopy, userPubKey[:]...)
 	key = append(key, contactPubKey[:]...)
+	return key
+}
+
+// Key for accessing a public key's wyre order metadata.
+func GlobalStateKeyForUserPublicKeyTstampNanosToWyreOrderMetadata(userPublicKeyBytes []byte, timestampNanos uint64) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixUserPublicKeyWyreOrderIdToWyreOrderMetadata...)
+	key := append(prefixCopy, userPublicKeyBytes...)
+	key = append(key, lib.EncodeUint64(timestampNanos)...)
+	return key
+}
+
+func GlobalStateKeyForWyreOrderIDProcessed(orderIdBytes []byte) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixWyreOrderIdProcessed...)
+	key := append(prefixCopy, orderIdBytes...)
 	return key
 }
 

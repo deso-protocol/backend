@@ -18,10 +18,10 @@ func _generateUnsignedSendBitclout(senderPubKey *btcec.PublicKey, recipientPubKe
 
 	// Setup request
 	payload := &routes.SendBitCloutRequest{
-		lib.PkToString(senderPubKey.SerializeCompressed(), params),
-		lib.PkToString(recipientPubKey.SerializeCompressed(), params),
-		amountNanos,
-		0,
+		SenderPublicKeyBase58Check: lib.PkToString(senderPubKey.SerializeCompressed(), params),
+		RecipientPublicKeyOrUsername: lib.PkToString(recipientPubKey.SerializeCompressed(), params),
+		AmountNanos: amountNanos,
+		MinFeeRateNanosPerKB: 1000,
 	}
 	postBody, err := json.Marshal(payload)
 	if err != nil {

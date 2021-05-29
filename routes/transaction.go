@@ -457,7 +457,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 		return 0, errors.Wrap(fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for phone number metadata: %v", err), "")
 	}
 	// Send the comp amount to the public key
-	err = fes.SendSeedBitClout(profilePublicKey, compAmount)
+	_, err = fes.SendSeedBitClout(profilePublicKey, compAmount, false)
 	if err != nil {
 		return 0, errors.Wrap(fmt.Errorf("UpdateProfile: error comping create profile fee: %v", err), "")
 	}

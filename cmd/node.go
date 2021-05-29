@@ -96,6 +96,12 @@ func (node *Node) Start() {
 		node.Config.GCPBucketName,
 		node.Config.CompProfileCreation,
 		node.Config.AdminPublicKeys,
+		node.Config.WyreUrl,
+		node.Config.WyreAccountId,
+		node.Config.WyreApiKey,
+		node.Config.WyreSecretKey,
+		node.Config.WyreBTCAddress,
+		node.Config.BuyBitCloutSeed,
 	)
 	if err != nil {
 		glog.Fatal(err)

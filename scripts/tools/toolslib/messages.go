@@ -17,10 +17,10 @@ func _generateUnsignedMessage(senderPubKey *btcec.PublicKey, recipientPubKey *bt
 
 	// Setup request
 	payload := &routes.SendMessageStatelessRequest{
-		lib.PkToString(senderPubKey.SerializeCompressed(), params),
-		lib.PkToString(recipientPubKey.SerializeCompressed(), params),
-		message,
-		1000,
+		SenderPublicKeyBase58Check: lib.PkToString(senderPubKey.SerializeCompressed(), params),
+		RecipientPublicKeyBase58Check: lib.PkToString(recipientPubKey.SerializeCompressed(), params),
+		MessageText: message,
+		MinFeeRateNanosPerKB: 1000,
 	}
 	postBody, err := json.Marshal(payload)
 	if err != nil {

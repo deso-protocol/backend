@@ -18,15 +18,15 @@ func _generateUnsignedUpdateProfile(updaterPubKey *btcec.PublicKey, newUsername 
 
 	// Setup request
 	payload := &routes.UpdateProfileRequest{
-		lib.PkToString(updaterPubKey.SerializeCompressed(), params),
-		"",
-		newUsername,
-		newDescription,
-		newProfilePic,
-		newCreatorBasisPoints,
-		12500,
-		false,
-		1000,
+		UpdaterPublicKeyBase58Check: lib.PkToString(updaterPubKey.SerializeCompressed(), params),
+		ProfilePublicKeyBase58Check: "",
+		NewUsername: newUsername,
+		NewDescription: newDescription,
+		NewProfilePic: newProfilePic,
+		NewCreatorBasisPoints: newCreatorBasisPoints,
+		NewStakeMultipleBasisPoints: 12500,
+		IsHidden: false,
+		MinFeeRateNanosPerKB: 1000,
 	}
 	postBody, err := json.Marshal(payload)
 	if err != nil {
