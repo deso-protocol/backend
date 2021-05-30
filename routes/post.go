@@ -1658,12 +1658,9 @@ func (fes *APIServer) GetLikesForPost(ww http.ResponseWriter, req *http.Request)
 		pkMapToFilter[pkMapKey] = pubKey
 	}
 
-	postEntry := utxoView.GetPostEntryForPostHash(postHash)
-	postEntryReaderState := utxoView.GetPostEntryReaderState(readerPublicKeyBytes, postEntry)
-	addReaderPublicKey := postEntryReaderState.LikedByReader
 
 	var filteredPkMap map[lib.PkMapKey][]byte
-	if addReaderPublicKey {
+	if addReaderPublicKey := utxoView.GetLikedByReader(readerPublicKeyBytes, postHash); addReaderPublicKey {
 		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, readerPublicKeyBytes, "leaderboard" /*moderationType*/)
 	} else {
 		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, nil, "leaderboard" /*moderationType*/)
@@ -1929,12 +1926,8 @@ func (fes *APIServer) GetRecloutsForPost(ww http.ResponseWriter, req *http.Reque
 		pkMapToFilter[pkMapKey] = pubKey
 	}
 
-	postEntry := utxoView.GetPostEntryForPostHash(postHash)
-	postEntryReaderState := utxoView.GetPostEntryReaderState(readerPublicKeyBytes, postEntry)
-	addReaderPublicKey := postEntryReaderState.RecloutedByReader
-
 	var filteredPkMap map[lib.PkMapKey][]byte
-	if addReaderPublicKey {
+	if _, addReaderPublicKey := utxoView.GetRecloutPostEntryStateForReader(readerPublicKeyBytes, postHash); addReaderPublicKey {
 		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(
 			pkMapToFilter, readerPublicKeyBytes, "leaderboard" /*moderationType*/)
 	} else {
