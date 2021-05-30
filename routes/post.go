@@ -1641,23 +1641,21 @@ func (fes *APIServer) GetLikesForPost(ww http.ResponseWriter, req *http.Request)
 	if requestData.PostHashHex == "" {
 		_AddBadRequestError(ww, fmt.Sprintf("GetLikesForPost: Must provide a PostHashHex to fetch."))
 		return
-	} else {
-		postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
-		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
-			_AddBadRequestError(ww, fmt.Sprintf("GetLikesForPost: Error parsing post hash %v: %v",
-				requestData.PostHashHex, err))
-			return
-		}
-		postHash = &lib.BlockHash{}
-		copy(postHash[:], postHashBytes)
 	}
+	postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
+	if err != nil || len(postHashBytes) != lib.HashSizeBytes {
+		_AddBadRequestError(ww, fmt.Sprintf("GetLikesForPost: Error parsing post hash %v: %v",
+										requestData.PostHashHex, err))
+		return
+	}
+	postHash = &lib.BlockHash{}
+	copy(postHash[:], postHashBytes)
 
 	// Decode the reader public key into bytes. Default to nil if no pub key is passed in.
 	var readerPublicKeyBytes []byte
 	if requestData.ReaderPublicKeyBase58Check != "" {
-		var err error
 		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
-		if requestData.ReaderPublicKeyBase58Check != "" && err != nil {
+		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetLikesForPost: Problem decoding user public key: %v : %s", err,
 				requestData.ReaderPublicKeyBase58Check))
 			return
@@ -1679,15 +1677,16 @@ func (fes *APIServer) GetLikesForPost(ww http.ResponseWriter, req *http.Request)
 	}
 
 	// Filter out any restricted profiles.
-	addReaderPublicKey := false
 	pkMapToFilter := make(map[lib.PkMapKey][]byte)
 	for _, pubKey := range reclouterPubKeys {
 		pkMapKey := lib.MakePkMapKey(pubKey)
 		pkMapToFilter[pkMapKey] = pubKey
-		if reflect.DeepEqual(pubKey, readerPublicKeyBytes) {
-			addReaderPublicKey = true
-		}
 	}
+
+	postEntry := utxoView.GetPostEntryForPostHash(postHash)
+	postEntryReaderState := utxoView.GetPostEntryReaderState(readerPublicKeyBytes, postEntry)
+	addReaderPublicKey := postEntryReaderState.LikedByReader
+
 	var filteredPkMap map[lib.PkMapKey][]byte
 	if addReaderPublicKey {
 		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, readerPublicKeyBytes, "leaderboard" /*moderationType*/)
@@ -1712,10 +1711,9 @@ func (fes *APIServer) GetLikesForPost(ww http.ResponseWriter, req *http.Request)
 		profileEntry := utxoView.GetProfileEntryForPublicKey(filteredPubKey)
 		if profileEntry == nil {
 			continue
-		} else {
-			profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
-			likers = append(likers, profileEntryResponse)
 		}
+		profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+		likers = append(likers, profileEntryResponse)
 	}
 
 	// Almost done. Just need to sort the likers.
@@ -1738,7 +1736,7 @@ func (fes *APIServer) GetLikesForPost(ww http.ResponseWriter, req *http.Request)
 	likersLength := uint32(len(likers))
 	// Slice the comments from the offset up to either the end of the slice or the offset + limit, whichever is smaller.
 	maxIdx := lib.MinUint32(likersLength, requestData.Offset+requestData.Limit)
-	var likersPage []*ProfileEntryResponse
+	likersPage := []*ProfileEntryResponse{}
 	if likersLength > requestData.Offset {
 		likersPage = likers[requestData.Offset:maxIdx]
 	}
@@ -1747,7 +1745,7 @@ func (fes *APIServer) GetLikesForPost(ww http.ResponseWriter, req *http.Request)
 	res := &GetLikesForPostResponse{
 		Likers: likersPage,
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetLikesForPost: Problem encoding response as JSON: %v", err))
 		return
 	}
@@ -1783,23 +1781,21 @@ func (fes *APIServer) GetDiamondsForPost(ww http.ResponseWriter, req *http.Reque
 	if requestData.PostHashHex == "" {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDiamondsForPost: Must provide a PostHashHex to fetch."))
 		return
-	} else {
-		postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
-		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
-			_AddBadRequestError(ww, fmt.Sprintf("GetDiamondsForPost: Error parsing post hash %v: %v",
-				requestData.PostHashHex, err))
-			return
-		}
-		postHash = &lib.BlockHash{}
-		copy(postHash[:], postHashBytes)
 	}
+	postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
+	if err != nil || len(postHashBytes) != lib.HashSizeBytes {
+		_AddBadRequestError(ww, fmt.Sprintf("GetDiamondsForPost: Error parsing post hash %v: %v",
+										requestData.PostHashHex, err))
+		return
+	}
+	postHash = &lib.BlockHash{}
+	copy(postHash[:], postHashBytes)
 
 	// Decode the reader public key into bytes. Default to nil if no pub key is passed in.
 	var readerPublicKeyBytes []byte
 	if requestData.ReaderPublicKeyBase58Check != "" {
-		var err error
 		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
-		if requestData.ReaderPublicKeyBase58Check != "" && err != nil {
+		if err != nil {
 			_AddBadRequestError(ww,
 				fmt.Sprintf("GetDiamondsForPost: Problem decoding user public key: %v : %s", err, requestData.ReaderPublicKeyBase58Check))
 			return
@@ -1823,8 +1819,7 @@ func (fes *APIServer) GetDiamondsForPost(ww http.ResponseWriter, req *http.Reque
 	// Filter out any restricted profiles.
 	pkMapToFilter := make(map[lib.PkMapKey][]byte)
 	for senderPKID := range pkidToDiamondLevel {
-		profileEntry := utxoView.GetProfileEntryForPKID(&senderPKID)
-		if profileEntry != nil {
+		if profileEntry := utxoView.GetProfileEntryForPKID(&senderPKID); profileEntry != nil {
 			pkMapKey := lib.MakePkMapKey(profileEntry.PublicKey)
 			pkMapToFilter[pkMapKey] = profileEntry.PublicKey
 		}
@@ -1835,16 +1830,15 @@ func (fes *APIServer) GetDiamondsForPost(ww http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	// Create a list of unifltered (aka not blacklisted) diamondSenders.
+	// Create a list of unfiltered (aka not blacklisted) diamondSenders.
 	diamondSenders := []*lib.ProfileEntry{}
 	for senderPKID := range pkidToDiamondLevel {
 		profileEntry := utxoView.GetProfileEntryForPKID(&senderPKID)
 		if profileEntry == nil {
 			continue
-		} else {
-			if _, ok := filteredPkMap[lib.MakePkMapKey(profileEntry.PublicKey)]; ok {
-				diamondSenders = append(diamondSenders, profileEntry)
-			}
+		}
+		if _, ok := filteredPkMap[lib.MakePkMapKey(profileEntry.PublicKey)]; ok {
+			diamondSenders = append(diamondSenders, profileEntry)
 		}
 	}
 
@@ -1879,7 +1873,7 @@ func (fes *APIServer) GetDiamondsForPost(ww http.ResponseWriter, req *http.Reque
 	diamondSendersLength := uint32(len(diamondSenders))
 	// Slice the comments from the offset up to either the end of the slice or the offset + limit, whichever is smaller.
 	maxIdx := lib.MinUint32(diamondSendersLength, requestData.Offset+requestData.Limit)
-	var diamondSendersPage []*lib.ProfileEntry
+	diamondSendersPage := []*lib.ProfileEntry{}
 	if diamondSendersLength > requestData.Offset {
 		diamondSendersPage = diamondSenders[requestData.Offset:maxIdx]
 	}
@@ -1906,7 +1900,7 @@ func (fes *APIServer) GetDiamondsForPost(ww http.ResponseWriter, req *http.Reque
 	res := &GetDiamondsForPostResponse{
 		DiamondSenders: diamondSenderResponses,
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDiamondsForPost: Problem encoding response as JSON: %v", err))
 		return
 	}
@@ -1937,23 +1931,21 @@ func (fes *APIServer) GetRecloutsForPost(ww http.ResponseWriter, req *http.Reque
 	if requestData.PostHashHex == "" {
 		_AddBadRequestError(ww, fmt.Sprintf("GetRecloutsForPost: Must provide a PostHashHex to fetch."))
 		return
-	} else {
-		postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
-		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
-			_AddBadRequestError(ww, fmt.Sprintf("GetRecloutsForPost: Error parsing post hash %v: %v",
-				requestData.PostHashHex, err))
-			return
-		}
-		postHash = &lib.BlockHash{}
-		copy(postHash[:], postHashBytes)
 	}
+	postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
+	if err != nil || len(postHashBytes) != lib.HashSizeBytes {
+		_AddBadRequestError(ww, fmt.Sprintf("GetRecloutsForPost: Error parsing post hash %v: %v",
+										requestData.PostHashHex, err))
+		return
+	}
+	postHash = &lib.BlockHash{}
+	copy(postHash[:], postHashBytes)
 
 	// Decode the reader public key into bytes. Default to nil if no pub key is passed in.
 	var readerPublicKeyBytes []byte
 	if requestData.ReaderPublicKeyBase58Check != "" {
-		var err error
 		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
-		if requestData.ReaderPublicKeyBase58Check != "" && err != nil {
+		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetRecloutsForPost: Problem decoding user public key: %v : %s", err, requestData.ReaderPublicKeyBase58Check))
 			return
 		}
@@ -1974,15 +1966,16 @@ func (fes *APIServer) GetRecloutsForPost(ww http.ResponseWriter, req *http.Reque
 	}
 
 	// Filter out any restricted profiles.
-	addReaderPublicKey := false
 	pkMapToFilter := make(map[lib.PkMapKey][]byte)
 	for _, pubKey := range reclouterPubKeys {
 		pkMapKey := lib.MakePkMapKey(pubKey)
 		pkMapToFilter[pkMapKey] = pubKey
-		if reflect.DeepEqual(pubKey, readerPublicKeyBytes) {
-			addReaderPublicKey = true
-		}
 	}
+
+	postEntry := utxoView.GetPostEntryForPostHash(postHash)
+	postEntryReaderState := utxoView.GetPostEntryReaderState(readerPublicKeyBytes, postEntry)
+	addReaderPublicKey := postEntryReaderState.RecloutedByReader
+
 	var filteredPkMap map[lib.PkMapKey][]byte
 	if addReaderPublicKey {
 		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(
@@ -2008,10 +2001,9 @@ func (fes *APIServer) GetRecloutsForPost(ww http.ResponseWriter, req *http.Reque
 		profileEntry := utxoView.GetProfileEntryForPublicKey(filteredPubKey)
 		if profileEntry == nil {
 			continue
-		} else {
-			profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
-			reclouters = append(reclouters, profileEntryResponse)
 		}
+		profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+		reclouters = append(reclouters, profileEntryResponse)
 	}
 
 	// Almost done. Just need to sort the comments.
@@ -2034,7 +2026,7 @@ func (fes *APIServer) GetRecloutsForPost(ww http.ResponseWriter, req *http.Reque
 	recloutersLength := uint32(len(reclouters))
 	// Slice the comments from the offset up to either the end of the slice or the offset + limit, whichever is smaller.
 	maxIdx := lib.MinUint32(recloutersLength, requestData.Offset+requestData.Limit)
-	var recloutersPage []*ProfileEntryResponse
+	recloutersPage := []*ProfileEntryResponse{}
 	if recloutersLength > requestData.Offset {
 		recloutersPage = reclouters[requestData.Offset:maxIdx]
 	}
@@ -2043,7 +2035,7 @@ func (fes *APIServer) GetRecloutsForPost(ww http.ResponseWriter, req *http.Reque
 	res := &GetRecloutsForPostResponse{
 		Reclouters: recloutersPage,
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetRecloutsForPost: Problem encoding response as JSON: %v", err))
 		return
@@ -2075,24 +2067,22 @@ func (fes *APIServer) GetQuoteRecloutsForPost(ww http.ResponseWriter, req *http.
 	if requestData.PostHashHex == "" {
 		_AddBadRequestError(ww, fmt.Sprintf("GetQuoteRecloutsForPost: Must provide a PostHashHex to fetch."))
 		return
-	} else {
-		postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
-		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"GetQuoteRecloutsForPost: Error parsing post hash %v: %v",
-				requestData.PostHashHex, err))
-			return
-		}
-		postHash = &lib.BlockHash{}
-		copy(postHash[:], postHashBytes)
 	}
+	postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
+	if err != nil || len(postHashBytes) != lib.HashSizeBytes {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetQuoteRecloutsForPost: Error parsing post hash %v: %v",
+		requestData.PostHashHex, err))
+		return
+	}
+	postHash = &lib.BlockHash{}
+	copy(postHash[:], postHashBytes)
 
 	// Decode the reader public key into bytes. Default to nil if no pub key is passed in.
 	var readerPublicKeyBytes []byte
 	if requestData.ReaderPublicKeyBase58Check != "" {
-		var err error
 		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
-		if requestData.ReaderPublicKeyBase58Check != "" && err != nil {
+		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetQuoteRecloutsForPost: Problem decoding user public key: %v : %s",
 				err, requestData.ReaderPublicKeyBase58Check))
 			return
@@ -2183,7 +2173,7 @@ func (fes *APIServer) GetQuoteRecloutsForPost(ww http.ResponseWriter, req *http.
 	quoteRecloutsLength := uint32(len(quoteReclouts))
 	// Slice the comments from the offset up to either the end of the slice or the offset + limit, whichever is smaller.
 	maxIdx := lib.MinUint32(quoteRecloutsLength, requestData.Offset+requestData.Limit)
-	var quoteRecloutsPage []*PostEntryResponse
+	quoteRecloutsPage := []*PostEntryResponse{}
 	if quoteRecloutsLength > requestData.Offset {
 		quoteRecloutsPage = quoteReclouts[requestData.Offset:maxIdx]
 	}
@@ -2192,7 +2182,7 @@ func (fes *APIServer) GetQuoteRecloutsForPost(ww http.ResponseWriter, req *http.
 	res := &GetQuoteRecloutsForPostResponse{
 		QuoteReclouts: quoteRecloutsPage,
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetQuoteRecloutsForPost: Problem encoding response as JSON: %v", err))
 		return
