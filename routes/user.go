@@ -1426,7 +1426,7 @@ func (fes *APIServer) getPublicKeyToProfileEntryMapForFollows(publicKeyBytes []b
 		publicKeyToProfileEntry[followPubKeyBase58Check] = followProfileEntry
 
 		// If we've fetched enough followers and we're not fetching all followers, break.
-		if uint64(len(publicKeyToProfileEntry)) > numToFetch && !fetchAllFollows {
+		if uint64(len(publicKeyToProfileEntry)) >= numToFetch && !fetchAllFollows {
 			break
 		}
 	}
