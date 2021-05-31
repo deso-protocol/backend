@@ -19,6 +19,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/dgraph-io/badger/v3 v3.2011.1
 	github.com/dgrijalva/jwt-go/v4 v4.0.0-preview1
+	github.com/fatih/structs v1.1.0
 	github.com/golang/glog v0.0.0-20210429001901-424d2337a529
 	github.com/gorilla/mux v1.8.0
 	github.com/h2non/bimg v1.1.5

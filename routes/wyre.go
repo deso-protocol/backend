@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"github.com/bitclout/core/lib"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/fatih/structs"
+	"github.com/golang/glog"
 	"io"
 	"io/ioutil"
 	"math"
@@ -125,6 +127,10 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 	referenceId := wyreWalletOrderWebhookRequest.ReferenceId
 	referenceIdSplit := strings.Split(referenceId, ":")
 	publicKey := referenceIdSplit[0]
+	err := fes.LogAmplitudeEvent(publicKey, "wyre : buy : subscription", structs.Map(wyreWalletOrderWebhookRequest))
+	if err != nil {
+		glog.Error("WyreWalletOrderSubscription: Error logging payload to amplitude: %v", err)
+	}
 	timestamp, err := strconv.ParseUint(referenceIdSplit[1], 10, 64)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: Error parsing timestamp as uint64 from referenceId: %v", err))

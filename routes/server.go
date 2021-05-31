@@ -5,13 +5,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	fmt "fmt"
-	"github.com/DataDog/datadog-go/statsd"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/dgrijalva/jwt-go/v4"
 	"io"
 	"io/ioutil"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -211,8 +209,8 @@ type APIServer struct {
 	WyreBTCAddress string
 	BuyBitCloutSeed string
 
-	// Report starter and buy bitclout balances if we have a statsd client
-	statsd *statsd.Client
+	// Signals that the frontend server is in a stopped state
+	quit chan struct{}
 }
 
 // NewAPIServer ...
@@ -369,12 +367,6 @@ func NewAPIServer(_backendServer *lib.Server,
 			"NewAPIServer: Error: A globalStateDB or a globalStateRemoteNode is required")
 	}
 
-	// Setup statsd
-	statsdClient, err := statsd.New(fmt.Sprintf("%s:%d", os.Getenv("DD_AGENT_HOST"), 8125))
-	if err != nil {
-		glog.Fatal(err)
-	}
-
 	fes := &APIServer{
 		// TODO: It would be great if we could eliminate the dependency on
 		// the backendServer. Right now it's here because it was the easiest
@@ -415,8 +407,9 @@ func NewAPIServer(_backendServer *lib.Server,
 		WyreSecretKey:                       wyreSecretKey,
 		WyreBTCAddress:                      wyreBTCAddress,
 		BuyBitCloutSeed:                     buyBitCloutSeed,
-		statsd:                              statsdClient,
 	}
+
+	fes.StartSeedBalancesMonitoring()
 
 	return fes, nil
 }
@@ -1151,4 +1144,5 @@ func (fes *APIServer) tryUpdateTxindex() {
 // Stop...
 func (fes *APIServer) Stop() {
 	glog.Info("APIServer.Stop: Gracefully shutting down APIServer")
+	close(fes.quit)
 }
