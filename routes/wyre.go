@@ -150,6 +150,9 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 		newMetadataObj.BitCloutPurchasedNanos = currentWyreWalletOrderMetadata.BitCloutPurchasedNanos
 		newMetadataObj.BasicTransferTxnBlockHash = currentWyreWalletOrderMetadata.BasicTransferTxnBlockHash
 	}
+	// Update global state before all transfer logic is completed so we have a record of the last webhook payload
+	// received in the event of an error when paying out BitClout.
+	fes.UpdateWyreGlobalState(ww, publicKeyBytes, timestamp, newMetadataObj)
 
 	// If there is a transferId, we need to get the transfer details, update the new metadata object and pay out
 	// bitclout if it has not been paid out yet.
@@ -216,7 +219,7 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 			}
 		}
 	}
-	// Update global state
+	// Update global state after all transfer logic is completed.
 	fes.UpdateWyreGlobalState(ww, publicKeyBytes, timestamp, newMetadataObj)
 }
 
