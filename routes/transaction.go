@@ -295,6 +295,12 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	// Get the public key.
+	profilePublicKey := updaterPublicKeyBytes
+	if requestData.ProfilePublicKeyBase58Check != "" {
+		profilePublicKey = profilePublicKeyBytess
+	}
+
 	if len(requestData.NewUsername) > 0 && (strings.Index(requestData.NewUsername, "BC") == 0 ||
 		strings.Index(requestData.NewUsername, "tBC") == 0) {
 		_AddBadRequestError(ww, fmt.Sprintf(
@@ -343,20 +349,20 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 
 		utxoView.GetProfileEntryForUsername([]byte(requestData.NewUsername))
 		if existingProfile, usernameExists := utxoView.ProfileUsernameToProfileEntry[lib.MakeUsernameMapKey([]byte(requestData.NewUsername))]; usernameExists && !existingProfile.IsDeleted() {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"UpdateProfile: Username %v already exists", string(existingProfile.Username)))
-			return
+			// Check that the existing profile does not belong to the profile public key
+			if utxoView.GetPKIDForPublicKey(profilePublicKey) != utxoView.GetPKIDForPublicKey(existingProfile.PublicKey) {
+				_AddBadRequestError(ww, fmt.Sprintf(
+					"UpdateProfile: Username %v already exists", string(existingProfile.Username)))
+				return
+			}
+
 		}
 		if !lib.UsernameRegex.Match([]byte(requestData.NewUsername)) {
 			_AddBadRequestError(ww, lib.RuleErrorInvalidUsername.Error())
 			return
 		}
 	}
-	// Get the public key.
-	profilePublicKey := updaterPublicKeyBytes
-	if requestData.ProfilePublicKeyBase58Check != "" {
-		profilePublicKey = profilePublicKeyBytess
-	}
+
 	additionalFees, err := fes.CompProfileCreation(profilePublicKey, userMetadata, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, err.Error())
