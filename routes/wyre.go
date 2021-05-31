@@ -106,6 +106,8 @@ type WyreTransferDetails struct {
 	Id        string      `json:"id"`
 }
 
+// Make sure you only allow access to Wyre IPs for this endpoint, otherwise anybody can take all the funds from
+// the public key that sends BitClout. WHITELIST WYRE IPs.
 func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *http.Request) {
 	// If this node has not integrated with Wyre, bail immediately.
 	if !fes.IsConfiguredForWyre() {

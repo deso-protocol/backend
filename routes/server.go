@@ -876,6 +876,8 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			false,
 		},
 		{
+			// Make sure you only allow access to Wyre IPs for this endpoint, otherwise anybody can take all the funds from
+			// the public key that sends BitClout. WHITELIST WYRE IPs.
 			"WyreWalletOrderSubscription",
 			[]string{"POST", "OPTIONS"},
 			RoutePathWyreWalletOrderSubscription,
