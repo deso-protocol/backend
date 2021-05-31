@@ -118,6 +118,9 @@ var (
 	// The prefix for checking whether or not bitclout has been sent for a given a wyre order
 	_GlobalStatePrefixWyreOrderIdProcessed = []byte{10}
 
+	// Keeps a record of all wyre orders so we can see what has been processed or not.
+	_GlobalStatePrefixWyreOrderId = []byte{11}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
@@ -295,6 +298,12 @@ func GlobalStateKeyForUserPublicKeyTstampNanosToWyreOrderMetadata(userPublicKeyB
 
 func GlobalStateKeyForWyreOrderIDProcessed(orderIdBytes []byte) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixWyreOrderIdProcessed...)
+	key := append(prefixCopy, orderIdBytes...)
+	return key
+}
+
+func GlobalStateKeyForWyreOrderID(orderIdBytes []byte) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixWyreOrderId...)
 	key := append(prefixCopy, orderIdBytes...)
 	return key
 }
