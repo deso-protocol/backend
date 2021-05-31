@@ -12,6 +12,9 @@ func (fes *APIServer) StartSeedBalancesMonitoring() {
 		for {
 			select {
 			case <- time.After(5 * time.Second):
+				if fes.backendServer.GetStatsdClient() == nil {
+					return
+				}
 				tags := []string{}
 				if fes.StarterBitCloutSeed != "" {
 					starterBitCloutBalance, err := fes.GetBalanceForSeed(fes.StarterBitCloutSeed)

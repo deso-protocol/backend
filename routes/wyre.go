@@ -135,8 +135,7 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 	referenceId := wyreWalletOrderWebhookRequest.ReferenceId
 	referenceIdSplit := strings.Split(referenceId, ":")
 	publicKey := referenceIdSplit[0]
-	err := fes.LogAmplitudeEvent(publicKey, "wyre : buy : subscription", structs.Map(wyreWalletOrderWebhookRequest))
-	if err != nil {
+	if err = fes.LogAmplitudeEvent(publicKey, "wyre : buy : subscription", structs.Map(wyreWalletOrderWebhookRequest)); err != nil {
 		glog.Error("WyreWalletOrderSubscription: Error logging payload to amplitude: %v", err)
 	}
 	timestamp, err := strconv.ParseUint(referenceIdSplit[1], 10, 64)
@@ -651,7 +650,7 @@ type WyreWalletOrderMetadataResponse struct {
 	Timestamp *time.Time
 }
 
-func WyreWalletOrderMetadataToResponse(metadata *WyreWalletOrderMetadata) (*WyreWalletOrderMetadataResponse) {
+func WyreWalletOrderMetadataToResponse(metadata *WyreWalletOrderMetadata) *WyreWalletOrderMetadataResponse {
 	orderMetadataResponse := WyreWalletOrderMetadataResponse{
 		LatestWyreTrackWalletOrderResponse: metadata.LatestWyreTrackWalletOrderResponse,
 		LatestWyreWalletOrderWebhookPayload: metadata.LatestWyreWalletOrderWebhookPayload,
@@ -665,7 +664,7 @@ func WyreWalletOrderMetadataToResponse(metadata *WyreWalletOrderMetadata) (*Wyre
 	return &orderMetadataResponse
 }
 
-func getTimestampFromReferenceId(referenceId string) (*time.Time) {
+func getTimestampFromReferenceId(referenceId string) *time.Time {
 	splits := strings.Split(referenceId, ":")
 	uint64Timestamp, err := strconv.ParseUint(splits[1], 10,  64)
 	if err != nil {
