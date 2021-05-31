@@ -329,6 +329,8 @@ func (fes *APIServer) UpdateWyreGlobalState(ww http.ResponseWriter, publicKeyByt
 
 type WalletOrderQuotationRequest struct {
 	SourceAmount float64
+	Country string
+	SourceCurrency string
 }
 
 type WyreWalletOrderQuotationPayload struct {
@@ -361,8 +363,8 @@ func (fes *APIServer) GetWyreWalletOrderQuotation(ww http.ResponseWriter, req *h
 		Dest: fmt.Sprintf("bitcoin:%v", fes.WyreBTCAddress),
 		AmountIncludeFees: true,
 		DestCurrency: "BTC",
-		SourceCurrency: "USD",
-		Country: "US",
+		SourceCurrency: wyreWalletOrderQuotationRequest.SourceCurrency,
+		Country: wyreWalletOrderQuotationRequest.Country,
 		WalletType: "DEBIT_CARD",
 		SourceAmount: fmt.Sprintf("%f", wyreWalletOrderQuotationRequest.SourceAmount),
 	}
@@ -383,6 +385,8 @@ func (fes *APIServer) GetWyreWalletOrderQuotation(ww http.ResponseWriter, req *h
 type WalletOrderReservationRequest struct {
 	SourceAmount float64
 	ReferenceId string
+	Country string
+	SourceCurrency string
 }
 
 type WyreWalletOrderReservationPayload struct {
@@ -419,8 +423,8 @@ func (fes *APIServer) GetWyreWalletOrderReservation(ww http.ResponseWriter, req 
 		Dest: fes.GetBTCAddress(),
 		AmountIncludeFees: true,
 		DestCurrency: "BTC",
-		SourceCurrency: "USD",
-		Country: "US",
+		SourceCurrency: wyreWalletOrderReservationRequest.SourceCurrency,
+		Country: wyreWalletOrderReservationRequest.Country,
 		PaymentMethod: "debit-card",
 		SourceAmount: fmt.Sprintf("%f", wyreWalletOrderReservationRequest.SourceAmount),
 		LockFields: []string{"dest", "destCurrency"},
