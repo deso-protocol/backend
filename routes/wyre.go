@@ -122,6 +122,12 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 	}
 
 	orderId := wyreWalletOrderWebhookRequest.OrderId
+	orderIdBytes := []byte(orderId)
+	err := fes.GlobalStatePut(GlobalStateKeyForWyreOrderID(orderIdBytes), []byte{1})
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: Error saving orderId to global state"))
+		return
+	}
 	referenceId := wyreWalletOrderWebhookRequest.ReferenceId
 	referenceIdSplit := strings.Split(referenceId, ":")
 	publicKey := referenceIdSplit[0]
@@ -190,7 +196,7 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 			bitcloutToSend := uint64(float64(satsPurchased) * float64(lib.NanosPerUnit) / (conversionRateAfterFee))
 
 			// Make sure this order hasn't been paid out, then mark it as paid out.
-			wyreOrderIdKey := GlobalStateKeyForWyreOrderIDProcessed([]byte(orderId))
+			wyreOrderIdKey := GlobalStateKeyForWyreOrderIDProcessed(orderIdBytes)
 			// We expect badger to return a key not found error if BitClout has been paid out for this order.
 			// If it does not return an error, BitClout has already been paid out, so we skip ahead.
 			val, _ := fes.GlobalStateGet(wyreOrderIdKey)
