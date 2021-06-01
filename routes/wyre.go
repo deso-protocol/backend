@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"github.com/bitclout/core/lib"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/fatih/structs"
+	"github.com/golang/glog"
 	"io"
 	"io/ioutil"
 	"math"
@@ -133,6 +135,9 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 	referenceId := wyreWalletOrderWebhookRequest.ReferenceId
 	referenceIdSplit := strings.Split(referenceId, ":")
 	publicKey := referenceIdSplit[0]
+	if err = fes.logAmplitudeEvent(publicKey, "wyre : buy : subscription", structs.Map(wyreWalletOrderWebhookRequest)); err != nil {
+		glog.Errorf("WyreWalletOrderSubscription: Error logging payload to amplitude: %v", err)
+	}
 	timestamp, err := strconv.ParseUint(referenceIdSplit[1], 10, 64)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: Error parsing timestamp as uint64 from referenceId: %v", err))
@@ -649,7 +654,7 @@ type WyreWalletOrderMetadataResponse struct {
 	Timestamp *time.Time
 }
 
-func WyreWalletOrderMetadataToResponse(metadata *WyreWalletOrderMetadata) (*WyreWalletOrderMetadataResponse) {
+func WyreWalletOrderMetadataToResponse(metadata *WyreWalletOrderMetadata) *WyreWalletOrderMetadataResponse {
 	orderMetadataResponse := WyreWalletOrderMetadataResponse{
 		LatestWyreTrackWalletOrderResponse: metadata.LatestWyreTrackWalletOrderResponse,
 		LatestWyreWalletOrderWebhookPayload: metadata.LatestWyreWalletOrderWebhookPayload,
@@ -663,7 +668,7 @@ func WyreWalletOrderMetadataToResponse(metadata *WyreWalletOrderMetadata) (*Wyre
 	return &orderMetadataResponse
 }
 
-func getTimestampFromReferenceId(referenceId string) (*time.Time) {
+func getTimestampFromReferenceId(referenceId string) *time.Time {
 	splits := strings.Split(referenceId, ":")
 	uint64Timestamp, err := strconv.ParseUint(splits[1], 10,  64)
 	if err != nil {

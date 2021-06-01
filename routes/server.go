@@ -7,6 +7,7 @@ import (
 	fmt "fmt"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/dgrijalva/jwt-go/v4"
+	"github.com/tyler-smith/go-bip39"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -208,6 +209,9 @@ type APIServer struct {
 	WyreSecretKey string
 	WyreBTCAddress string
 	BuyBitCloutSeed string
+
+	// Signals that the frontend server is in a stopped state
+	quit chan struct{}
 }
 
 // NewAPIServer ...
@@ -405,6 +409,8 @@ func NewAPIServer(_backendServer *lib.Server,
 		WyreBTCAddress:                      wyreBTCAddress,
 		BuyBitCloutSeed:                     buyBitCloutSeed,
 	}
+
+	fes.StartSeedBalancesMonitoring()
 
 	return fes, nil
 }
@@ -1141,4 +1147,102 @@ func (fes *APIServer) tryUpdateTxindex() {
 // Stop...
 func (fes *APIServer) Stop() {
 	glog.Info("APIServer.Stop: Gracefully shutting down APIServer")
+	close(fes.quit)
 }
+
+// Amplitude Logging
+type AmplitudeUploadRequestBody struct {
+	ApiKey string `json:"api_key"`
+	Events []AmplitudeEvent `json:"events"`
+}
+
+type AmplitudeEvent struct {
+	UserId          string `json:"user_id"`
+	EventType       string `json:"event_type"`
+	EventProperties map[string]interface{} `json:"event_properties"`
+}
+
+func (fes *APIServer) logAmplitudeEvent(publicKeyBytes string, event string, eventData map[string]interface{})  error {
+	if fes.AmplitudeKey == "" {
+		return nil
+	}
+	headers := map[string][]string{
+		"Content-Type": {"application/json"},
+		"Accept":       {"*/*"},
+	}
+	events := []AmplitudeEvent{{UserId: publicKeyBytes, EventType: event, EventProperties: eventData}}
+	ampBody := AmplitudeUploadRequestBody{ApiKey: fes.AmplitudeKey, Events: events}
+	payload, err := json.Marshal(ampBody)
+	if err != nil {
+		return err
+	}
+	data := bytes.NewBuffer(payload)
+	req, err := http.NewRequest("POST", "https://api2.amplitude.com/2/httpapi", data)
+	if err != nil {
+		return err
+	}
+	req.Header = headers
+
+	client := &http.Client{}
+	_, err = client.Do(req)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// Monitor balances for starter bitclout seed and buy bitclout seed
+func (fes *APIServer) StartSeedBalancesMonitoring() {
+	go func() {
+	out:
+		for {
+			select {
+			case <- time.After(5 * time.Second):
+				if fes.backendServer.GetStatsdClient() == nil {
+					return
+				}
+				tags := []string{}
+				fes.logBalanceForSeed(fes.StarterBitCloutSeed, "STARTER_BITCLOUT", tags)
+				fes.logBalanceForSeed(fes.BuyBitCloutSeed, "BUY_BITCLOUT", tags)
+			case <- fes.quit:
+				break out
+			}
+		}
+	}()
+}
+
+func (fes *APIServer) logBalanceForSeed(seed string, seedName string, tags []string) {
+	if seed == "" {
+		return
+	}
+	balance, err := fes.getBalanceForSeed(seed)
+	if err != nil {
+		glog.Errorf("LogBalanceForSeed: Error getting balance for %v seed", seedName)
+		return
+	}
+	if err = fes.backendServer.GetStatsdClient().Gauge(fmt.Sprintf("%v_BALANCE", seedName), float64(balance), tags, 1); err != nil {
+		glog.Errorf("LogBalanceForSeed: Error logging balance to datadog for %v seed", seedName)
+	}
+}
+
+func (fes *APIServer) getBalanceForSeed(seedPhrase string) (uint64, error){
+	seedBytes, err := bip39.NewSeedWithErrorChecking(seedPhrase, "")
+	if err != nil {
+		return 0, fmt.Errorf("GetBalanceForSeed: Error converting mnemonic: %+v", err)
+	}
+
+	pubKey, _, _, err := lib.ComputeKeysFromSeed(seedBytes, 0, fes.Params)
+	if err != nil {
+		return 0, fmt.Errorf("GetBalanceForSeed: Error computing keys from seed: %+v", err)
+	}
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return 0, fmt.Errorf("GetBalanceForSeed: Error getting UtxoView: %v", err)
+	}
+	currentBalanceNanos, err := GetBalanceForPublicKeyUsingUtxoView(pubKey.SerializeCompressed(), utxoView)
+	if err != nil {
+		return 0, fmt.Errorf("GetBalanceForSeed: Error getting balance: %v", err)
+	}
+	return currentBalanceNanos, nil
+}
+

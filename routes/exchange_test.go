@@ -135,7 +135,7 @@ func NewTestMiner(t *testing.T, chain *lib.Blockchain, params *lib.BitCloutParam
 	mempool := lib.NewBitCloutMempool(
 		chain, 0, /* rateLimitFeeRateNanosPerKB */
 		0 /* minFeeRateNanosPerKB */, "", true,
-		"" /*dataDir*/, "", nil)
+		"" /*dataDir*/, "")
 	minerPubKeys := []string{}
 	if isSender {
 		minerPubKeys = append(minerPubKeys, senderPkString)
