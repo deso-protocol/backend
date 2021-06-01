@@ -174,7 +174,7 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 		}
 
 		// Only whitelist posts for users that are auto-whitelisted and the post is not a comment or a vanilla reclout.
-		if userMetadata.WhitelistPosts && len(postEntry.ParentStakeID) > 0 && (postEntry.IsQuotedReclout || postEntry.RecloutedPostHash == nil) {
+		if userMetadata.WhitelistPosts && len(postEntry.ParentStakeID) == 0 && (postEntry.IsQuotedReclout || postEntry.RecloutedPostHash == nil) {
 			minTimestampNanos := time.Now().UTC().AddDate(0, 0, -1).UnixNano() // last 24 hours
 			_, dbPostAndCommentHashes, _, err := lib.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
 				fes.blockchain.DB(), updaterPublicKeyBytes, false /*fetchEntries*/, uint64(minTimestampNanos), 0, /*maxTimestampNanos*/
