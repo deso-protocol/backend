@@ -3,7 +3,6 @@ package routes
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 )
 
@@ -40,10 +39,9 @@ func (fes *APIServer) LogAmplitudeEvent(publicKeyBytes string, event string, eve
 	req.Header = headers
 
 	client := &http.Client{}
-	resp, err := client.Do(req)
+	_, err = client.Do(req)
 	if err != nil {
 		return err
 	}
-	fmt.Println(resp)
 	return nil
 }

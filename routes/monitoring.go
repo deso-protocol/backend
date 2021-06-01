@@ -16,25 +16,23 @@ func (fes *APIServer) StartSeedBalancesMonitoring() {
 					return
 				}
 				tags := []string{}
-				if fes.StarterBitCloutSeed != "" {
-					starterBitCloutBalance, err := fes.GetBalanceForSeed(fes.StarterBitCloutSeed)
-					if err != nil {
-						glog.Error("StartSeedBalancesMonitoring: Error getting balance for starter bitclout seed")
-					} else {
-						fes.backendServer.GetStatsdClient().Gauge(fmt.Sprintf("STARTER_BITCLOUT_BALANCE"), float64(starterBitCloutBalance), tags, 1)
-					}
-				}
-				if fes.BuyBitCloutSeed != "" {
-					buyBitCloutBalance, err := fes.GetBalanceForSeed(fes.BuyBitCloutSeed)
-					if err != nil {
-						glog.Error("StartSeedBalancesMonitoring: Error getting balance for buy bitclout seed")
-					} else {
-						fes.backendServer.GetStatsdClient().Gauge(fmt.Sprintf("BUY_BITCLOUT_BALANCE"), float64(buyBitCloutBalance), tags, 1)
-					}
-				}
+				fes.LogBalanceForSeed(fes.StarterBitCloutSeed, "STARTER_BITCLOUT", tags)
+				fes.LogBalanceForSeed(fes.BuyBitCloutSeed, "BUY_BITCLOUT", tags)
 			case <- fes.quit:
 				break out
 			}
 		}
 	}()
+}
+
+func (fes *APIServer) LogBalanceForSeed(seed string, seedName string, tags []string) {
+	if seed == "" {
+		return
+	}
+	balance, err := fes.GetBalanceForSeed(seed)
+	if err != nil {
+		glog.Error("LogBalanceForSeed: Error getting balance for %v seed", seedName)
+		return
+	}
+	fes.backendServer.GetStatsdClient().Gauge(fmt.Sprintf("%v_BALANCE", seedName), float64(balance), tags, 1)
 }
