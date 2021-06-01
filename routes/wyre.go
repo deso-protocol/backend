@@ -630,12 +630,7 @@ func (fes *APIServer) GetWyreWalletOrdersForPublicKey(ww http.ResponseWriter, re
 }
 
 func (fes *APIServer) IsConfiguredForWyre() bool {
-	return fes.WyreBTCAddress != "" &&
-		fes.WyreUrl != "" &&
-		fes.WyreAccountId != "" &&
-		fes.WyreSecretKey != "" &&
-		fes.WyreApiKey != "" &&
-		fes.BuyBitCloutSeed != ""
+	return fes.WyreUrl != ""
 }
 
 type WyreWalletOrderMetadataResponse struct {

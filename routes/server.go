@@ -1197,7 +1197,7 @@ func (fes *APIServer) StartSeedBalancesMonitoring() {
 	out:
 		for {
 			select {
-			case <- time.After(5 * time.Second):
+			case <- time.After(1 * time.Minute):
 				if fes.backendServer.GetStatsdClient() == nil {
 					return
 				}
