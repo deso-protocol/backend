@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/dgraph-io/badger/v3"
-	"github.com/tyler-smith/go-bip39"
 	"io"
 	"net/http"
 	"reflect"
@@ -2238,25 +2237,3 @@ func (fes *APIServer) BlockPublicKey(ww http.ResponseWriter, req *http.Request) 
 		return
 	}
 }
-
-func (fes *APIServer) GetBalanceForSeed(seedPhrase string) (uint64, error){
-	seedBytes, err := bip39.NewSeedWithErrorChecking(seedPhrase, "")
-	if err != nil {
-		return 0, fmt.Errorf("GetBalanceForSeed: Error converting mnemonic: %+v", err)
-	}
-
-	pubKey, _, _, err := lib.ComputeKeysFromSeed(seedBytes, 0, fes.Params)
-	if err != nil {
-		return 0, fmt.Errorf("GetBalanceForSeed: Error computing keys from seed: %+v", err)
-	}
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		return 0, fmt.Errorf("GetBalanceForSeed: Error getting UtxoView: %v", err)
-	}
-	currentBalanceNanos, err := GetBalanceForPublicKeyUsingUtxoView(pubKey.SerializeCompressed(), utxoView)
-	if err != nil {
-		return 0, fmt.Errorf("GetBalanceForSeed: Error getting balance: %v", err)
-	}
-	return currentBalanceNanos, nil
-}
-
