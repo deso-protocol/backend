@@ -34,5 +34,7 @@ func (fes *APIServer) LogBalanceForSeed(seed string, seedName string, tags []str
 		glog.Errorf("LogBalanceForSeed: Error getting balance for %v seed", seedName)
 		return
 	}
-	fes.backendServer.GetStatsdClient().Gauge(fmt.Sprintf("%v_BALANCE", seedName), float64(balance), tags, 1)
+	if err = fes.backendServer.GetStatsdClient().Gauge(fmt.Sprintf("%v_BALANCE", seedName), float64(balance), tags, 1); err != nil {
+		glog.Errorf("LogBalanceForSeed: Error logging balance to datadog for %v seed", seedName)
+	}
 }
