@@ -184,15 +184,19 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 			}
 
 			// Collect all the posts the user made in the last 24 hours.
-			lastDaysPostEntries := []*lib.PostEntry{}
+			maxAutoWhitelistPostsPerDay := 5
+			postEntriesInLastDay := 0
 			for _, dbPostOrCommentHash := range dbPostAndCommentHashes {
 				if existingPostEntry := utxoView.GetPostEntryForPostHash(dbPostOrCommentHash); len(existingPostEntry.ParentStakeID) == 0 {
-					lastDaysPostEntries = append(lastDaysPostEntries, postEntry)
+					postEntriesInLastDay += 1
+				}
+				if maxAutoWhitelistPostsPerDay >= postEntriesInLastDay {
+					break
 				}
 			}
 
 			// If the whitelited user has made <5 posts in the last 24hrs add this post to the feed.
-			if len(lastDaysPostEntries) < 5 {
+			if postEntriesInLastDay < maxAutoWhitelistPostsPerDay {
 				dbKey := GlobalStateKeyForTstampPostHash(postEntry.TimestampNanos, postHash)
 				// Encode the post entry and stick it in the database.
 				if err = fes.GlobalStatePut(dbKey, []byte{1}); err != nil {
