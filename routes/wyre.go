@@ -135,7 +135,7 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 	referenceId := wyreWalletOrderWebhookRequest.ReferenceId
 	referenceIdSplit := strings.Split(referenceId, ":")
 	publicKey := referenceIdSplit[0]
-	if err = fes.logAmplitudeEvent(publicKey, "wyre : buy : subscription", structs.Map(wyreWalletOrderWebhookRequest)); err != nil {
+	if err = fes.logAmplitudeEvent(publicKey, fmt.Sprintf("wyre : buy : subscription : %v", strings.ToLower(wyreWalletOrderWebhookRequest.OrderStatus)), structs.Map(wyreWalletOrderWebhookRequest)); err != nil {
 		glog.Errorf("WyreWalletOrderSubscription: Error logging payload to amplitude: %v", err)
 	}
 	timestamp, err := strconv.ParseUint(referenceIdSplit[1], 10, 64)
@@ -630,12 +630,7 @@ func (fes *APIServer) GetWyreWalletOrdersForPublicKey(ww http.ResponseWriter, re
 }
 
 func (fes *APIServer) IsConfiguredForWyre() bool {
-	return fes.WyreBTCAddress != "" &&
-		fes.WyreUrl != "" &&
-		fes.WyreAccountId != "" &&
-		fes.WyreSecretKey != "" &&
-		fes.WyreApiKey != "" &&
-		fes.BuyBitCloutSeed != ""
+	return fes.WyreUrl != ""
 }
 
 type WyreWalletOrderMetadataResponse struct {
