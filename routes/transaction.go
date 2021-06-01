@@ -186,8 +186,7 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 			// Collect all the posts the user made in the last 24 hours.
 			lastDaysPostEntries := []*lib.PostEntry{}
 			for _, dbPostOrCommentHash := range dbPostAndCommentHashes {
-				postEntry := utxoView.GetPostEntryForPostHash(dbPostOrCommentHash)
-				if len(postEntry.ParentStakeID) == 0 {
+				if existingPostEntry := utxoView.GetPostEntryForPostHash(dbPostOrCommentHash); len(existingPostEntry.ParentStakeID) == 0 {
 					lastDaysPostEntries = append(lastDaysPostEntries, postEntry)
 				}
 			}
@@ -196,8 +195,7 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 			if len(lastDaysPostEntries) < 5 {
 				dbKey := GlobalStateKeyForTstampPostHash(postEntry.TimestampNanos, postHash)
 				// Encode the post entry and stick it in the database.
-				err = fes.GlobalStatePut(dbKey, []byte{1})
-				if err != nil {
+				if err = fes.GlobalStatePut(dbKey, []byte{1}); err != nil {
 					return errors.Errorf("Problem adding post to global state: %v", err)
 				}
 			}
