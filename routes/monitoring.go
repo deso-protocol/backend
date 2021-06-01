@@ -31,7 +31,7 @@ func (fes *APIServer) LogBalanceForSeed(seed string, seedName string, tags []str
 	}
 	balance, err := fes.GetBalanceForSeed(seed)
 	if err != nil {
-		glog.Error("LogBalanceForSeed: Error getting balance for %v seed", seedName)
+		glog.Errorf("LogBalanceForSeed: Error getting balance for %v seed", seedName)
 		return
 	}
 	fes.backendServer.GetStatsdClient().Gauge(fmt.Sprintf("%v_BALANCE", seedName), float64(balance), tags, 1)

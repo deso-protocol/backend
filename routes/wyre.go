@@ -136,7 +136,7 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 	referenceIdSplit := strings.Split(referenceId, ":")
 	publicKey := referenceIdSplit[0]
 	if err = fes.LogAmplitudeEvent(publicKey, "wyre : buy : subscription", structs.Map(wyreWalletOrderWebhookRequest)); err != nil {
-		glog.Error("WyreWalletOrderSubscription: Error logging payload to amplitude: %v", err)
+		glog.Errorf("WyreWalletOrderSubscription: Error logging payload to amplitude: %v", err)
 	}
 	timestamp, err := strconv.ParseUint(referenceIdSplit[1], 10, 64)
 	if err != nil {
