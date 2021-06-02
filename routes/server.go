@@ -2,7 +2,6 @@ package routes
 
 import (
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
 	fmt "fmt"
 	"github.com/btcsuite/btcd/btcec"
@@ -15,11 +14,9 @@ import (
 	"time"
 
 	"github.com/bitclout/core/lib"
-	chainlib "github.com/btcsuite/btcd/blockchain"
 	"github.com/dgraph-io/badger/v3"
 	"github.com/golang/glog"
 	"github.com/kevinburke/twilio-go"
-	"github.com/sasha-s/go-deadlock"
 	muxtrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/gorilla/mux"
 )
 
@@ -150,14 +147,7 @@ type APIServer struct {
 	// A pointer to the router that handles all requests.
 	router *muxtrace.Router
 
-	// TxIndexLock protects the transaction index. It is only relevant when
-	// --txindex is provided to a node. This is mainly useful for the exchange
-	// API not the frontend API.
-	TxIndexLock deadlock.RWMutex
-	// The txindex has it s own separate Blockchain object. This allows us to
-	// capture more metadata when collecting transactions without interfering
-	// with the goings-on of the main chain.
-	TxIndexChain *lib.Blockchain
+	TXIndex *lib.TXIndex
 
 	// Used for getting/setting the global state. Usually either a db is set OR
 	// a remote node is set-- not both. When a remote node is set, global state
@@ -219,7 +209,7 @@ func NewAPIServer(_backendServer *lib.Server,
 	_mempool *lib.BitCloutMempool,
 	_blockchain *lib.Blockchain,
 	_blockProducer *lib.BitCloutBlockProducer,
-	_txindexDB *badger.DB,
+	txIndex *lib.TXIndex,
 	params *lib.BitCloutParams,
 	jsonPort uint16,
 	_minFeeRateNanosPerKB uint64,
@@ -252,117 +242,6 @@ func NewAPIServer(_backendServer *lib.Server,
 	buyBitCloutSeed string,
 ) (*APIServer, error) {
 
-	var txIndexChain *lib.Blockchain
-	if _txindexDB != nil {
-		// See if we have a best chain hash stored in the txindex db.
-		bestBlockHashBeforeInit := lib.DbGetBestHash(_txindexDB, lib.ChainTypeBitCloutBlock)
-
-		// If we haven't initialized the txIndexChain before, set up the
-		// seed mappings.
-		if bestBlockHashBeforeInit == nil {
-
-			// Add the seed balances. Originate them from the architect public key and
-			// set their block as the genesis block.
-			{
-				dummyPk := lib.ArchitectPubKeyBase58Check
-				dummyTxn := &lib.MsgBitCloutTxn{
-					TxInputs:  []*lib.BitCloutInput{},
-					TxOutputs: params.SeedBalances,
-					TxnMeta:   &lib.BlockRewardMetadataa{},
-					PublicKey: lib.MustBase58CheckDecode(dummyPk),
-				}
-				affectedPublicKeys := []*lib.AffectedPublicKey{}
-				totalOutput := uint64(0)
-				for _, seedBal := range params.SeedBalances {
-					affectedPublicKeys = append(affectedPublicKeys, &lib.AffectedPublicKey{
-						PublicKeyBase58Check: lib.PkToString(seedBal.PublicKey, params),
-						Metadata:             "GenesisBlockSeedBalance",
-					})
-					totalOutput += seedBal.AmountNanos
-				}
-				err := lib.DbPutTxindexTransactionMappings(_txindexDB, dummyTxn, params, &lib.TransactionMetadata{
-					TransactorPublicKeyBase58Check: dummyPk,
-					AffectedPublicKeys:             affectedPublicKeys,
-					BlockHashHex:                   lib.GenesisBlockHashHex,
-					TxnIndexInBlock:                uint64(0),
-					// Just set some dummy metadata
-					BasicTransferTxindexMetadata: &lib.BasicTransferTxindexMetadata{
-						TotalInputNanos:  0,
-						TotalOutputNanos: totalOutput,
-						FeeNanos:         0,
-					},
-				})
-				if err != nil {
-					return nil, fmt.Errorf("NewAPIServer: Error initializing seed balances in txindex: %v", err)
-				}
-			}
-
-			// Add the other seed txns to the txn index.
-			for txnIndex, txnHex := range params.SeedTxns {
-				txnBytes, err := hex.DecodeString(txnHex)
-				if err != nil {
-					return nil, fmt.Errorf(
-						"NewAPIServer: Error decoding seed "+
-							"txn HEX: %v, txn index: %v, txn hex: %v",
-						err, txnIndex, txnHex)
-				}
-				txn := &lib.MsgBitCloutTxn{}
-				if err := txn.FromBytes(txnBytes); err != nil {
-					return nil, fmt.Errorf(
-						"NewAPIServer: Error decoding seed "+
-							"txn BYTES: %v, txn index: %v, txn hex: %v",
-						err, txnIndex, txnHex)
-				}
-				err = lib.DbPutTxindexTransactionMappings(_txindexDB, txn, params, &lib.TransactionMetadata{
-					TransactorPublicKeyBase58Check: lib.PkToString(txn.PublicKey, params),
-					// Note that we don't set AffectedPublicKeys for the SeedTxns
-					BlockHashHex:    lib.GenesisBlockHashHex,
-					TxnIndexInBlock: uint64(0),
-					// Just set some dummy metadata
-					BasicTransferTxindexMetadata: &lib.BasicTransferTxindexMetadata{
-						TotalInputNanos:  0,
-						TotalOutputNanos: 0,
-						FeeNanos:         0,
-					},
-				})
-				if err != nil {
-					return nil, fmt.Errorf("NewAPIServer: Error initializing seed txn %v in txindex: %v", txn, err)
-				}
-			}
-		}
-
-		// Ignore all the notifications from the txindex blockchain object
-		txIndexBlockchainNotificationChan := make(chan *lib.ServerMessage, 1000)
-		go func() {
-			for {
-				<-txIndexBlockchainNotificationChan
-			}
-		}()
-
-		// This blockchain object should already be initialized.
-		var err error
-		// Only set a BitcoinManager if we have one. This makes some tests pass.
-		var bitcoinManager *lib.BitcoinManager
-		if _backendServer != nil && _backendServer.GetBitcoinManager() != nil {
-			bitcoinManager = _backendServer.GetBitcoinManager()
-		}
-		// Note that we *DONT* pass _backendServer here because the server
-		// is already tied to the to the main blockchain.
-		txIndexChain, err = lib.NewBlockchain(
-			[]string{}, 0,
-			params, chainlib.NewMedianTime(), _txindexDB,
-			bitcoinManager, nil)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"NewAPIServer: Error initializing TxIndex on APIServer: %v", err)
-		}
-
-		// At this point, we should have set up a blockchain object for our
-		// txindex, and initialized all of the seed txns and seed balances
-		// correctly. Attaching blocks to our txnindex blockchain or adding
-		// txns to our txindex should work smoothly now.
-	}
-
 	if globalStateDB == nil && globalStateRemoteNode == "" {
 		return nil, fmt.Errorf(
 			"NewAPIServer: Error: A globalStateDB or a globalStateRemoteNode is required")
@@ -377,7 +256,7 @@ func NewAPIServer(_backendServer *lib.Server,
 		mempool:                             _mempool,
 		blockchain:                          _blockchain,
 		blockProducer:                       _blockProducer,
-		TxIndexChain:                        txIndexChain,
+		TXIndex:                             txIndex,
 		Params:                              params,
 		JSONPort:                            jsonPort,
 		MinFeeRateNanosPerKB:                _minFeeRateNanosPerKB,
@@ -1105,23 +984,6 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 func (fes *APIServer) Start() {
 	fes.initState()
 
-	if fes.TxIndexChain != nil {
-		glog.Info("Starting txindex update thread because --txindex was passed. " +
-			"Waiting for node to fully sync...")
-
-		// Run a loop to continuously update the txindex. Note that this is a noop
-		// except when run the first time or when a new block has arrived.
-		go func() {
-			for {
-				fes.tryUpdateTxindex()
-				time.Sleep(1 * time.Second)
-			}
-		}()
-	} else {
-		glog.Info("NOT starting txindex update thread because --txindex was NOT " +
-			"passed. This means some API endpoints that rely on --txindex will not work.")
-	}
-
 	glog.Infof("Listening to NON-SSL JSON API connections on port :%d", fes.JSONPort)
 	glog.Error(http.ListenAndServe(fmt.Sprintf(":%d", fes.JSONPort), fes.router))
 }
@@ -1130,18 +992,6 @@ func (fes *APIServer) Start() {
 func (fes *APIServer) initState() {
 	glog.Info("APIServer.Start: Starting APIServer")
 	fes.router = fes.NewRouter()
-}
-
-func (fes *APIServer) tryUpdateTxindex() {
-	// If the node is not fully synced, don't do an update.
-	if fes.blockchain.ChainState() != lib.SyncStateFullyCurrent {
-		glog.Debugf("tryUpdateTxindex: Waiting for node to sync before updating txindex.")
-		return
-	}
-	// If the node is fully synced, then try an update.
-	if err := fes.UpdateTxindex(); err != nil {
-		glog.Error(fmt.Errorf("tryUpdateTxindex: Problem running update: %v", err))
-	}
 }
 
 // Stop...

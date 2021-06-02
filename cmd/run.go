@@ -46,11 +46,6 @@ func init() {
 	coreCmd.SetupRunFlags(runCmd)
 
 	// Add all the backend flags
-	runCmd.PersistentFlags().Bool("txindex", false,
-		"When set to true, the node will generate an index mapping transaction "+
-			"ids to transaction information. This enables the use of certain API calls "+
-			"like ones that allow the lookup of particular transactions by their ID. "+
-			"Defaults to false because the index can be large.")
 	runCmd.PersistentFlags().Uint64("api-port", 0,
 		"When set, determines the port on which this node will listen for json "+
 			"requests. If unset, the port will default to what is present in the BitCloutParams set.")

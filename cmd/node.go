@@ -13,7 +13,6 @@ import (
 
 type Node struct {
 	APIServer   *routes.APIServer
-	TXIndex     *badger.DB
 	GlobalState *badger.DB
 	Config      *Config
 
@@ -30,21 +29,6 @@ func NewNode(config *Config, coreNode *coreCmd.Node) *Node {
 
 func (node *Node) Start() {
 	var err error
-
-	// Create a transaction index as a separate db that's managed by the APIServer.
-	// This makes it easy to delete manually if it gets too large.
-	if node.Config.TXIndex {
-		txindexDir := filepath.Join(lib.GetBadgerDbPath(node.CoreNode.Config.DataDirectory), "txindex")
-		txindexOpts := badger.DefaultOptions(txindexDir)
-		txindexOpts.ValueDir = lib.GetBadgerDbPath(txindexDir)
-		txindexOpts.MemTableSize = 1024 << 20
-		glog.Infof("TxIndex BadgerDB Dir: %v", txindexOpts.Dir)
-		glog.Infof("TxIndex BadgerDB ValueDir: %v", txindexOpts.ValueDir)
-		node.TXIndex, err = badger.Open(txindexOpts)
-		if err != nil {
-			glog.Fatal(err)
-		}
-	}
 
 	// For the global state, we use a local db unless a remote node is set in
 	// which case all global state set/fetch calls will proxy to the remote.
@@ -71,7 +55,7 @@ func (node *Node) Start() {
 		node.CoreNode.Server.GetMempool(),
 		node.CoreNode.Server.GetBlockchain(),
 		node.CoreNode.Server.GetBlockProducer(),
-		node.TXIndex,
+		node.CoreNode.TXIndex,
 		node.CoreNode.Params,
 		node.Config.APIPort,
 		node.CoreNode.Config.MinFeerate,
@@ -115,9 +99,5 @@ func (node *Node) Stop() {
 
 	if node.GlobalState != nil {
 		_ = node.GlobalState.Close()
-	}
-
-	if node.TXIndex != nil {
-		_ = node.TXIndex.Close()
 	}
 }
