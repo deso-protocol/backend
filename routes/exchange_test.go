@@ -135,7 +135,7 @@ func NewTestMiner(t *testing.T, chain *lib.Blockchain, params *lib.BitCloutParam
 	mempool := lib.NewBitCloutMempool(
 		chain, 0, /* rateLimitFeeRateNanosPerKB */
 		0 /* minFeeRateNanosPerKB */, "", true,
-		"" /*dataDir*/, "", nil)
+		"" /*dataDir*/, "")
 	minerPubKeys := []string{}
 	if isSender {
 		minerPubKeys = append(minerPubKeys, senderPkString)
@@ -162,7 +162,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 
 	chain, params, _ := NewLowDifficultyBlockchain()
 	txIndexDb, _ := GetTestBadgerDb()
-	txIndex, _ := lib.NewTXIndex(nil, params, txIndexDb.Opts().Dir)
+	txIndex, _ := lib.NewTXIndex(chain, nil, params, txIndexDb.Opts().Dir)
 	mempool, miner := NewTestMiner(t, chain, params, true /*isSender*/)
 	// Mine two blocks to give the sender some BitClout.
 	block1, err := miner.MineAndProcessSingleBlock(0 /*threadIndex*/, mempool)
