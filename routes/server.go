@@ -103,6 +103,7 @@ const (
 	RoutePathReprocessBitcoinBlock                 = "/api/v0/admin/reprocess-bitcoin-block"
 	RoutePathAdminGetMempoolStats                  = "/api/v0/admin/get-mempool-stats"
 	RoutePathEvictUnminedBitcoinTxns               = "/api/v0/admin/evict-unmined-bitcoin-txns"
+	RoutePathSetUSDCentsToBitCloutExchangeRate       = "/api/v0/admin/set-usd-cents-to-bitclout-exchange-rate"
 
 	// admin_transaction.go
 	RoutePathGetGlobalParams                       = "/api/v0/admin/get-global-params"
@@ -464,15 +465,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			false,
 		},
 
-		// Route for burning Bitcoin for BitClout
-		{
-			"BurnBitcoin",
-			[]string{"POST", "OPTIONS"},
-			RoutePathBurnBitcoin,
-			fes.BurnBitcoinStateless,
-			false,
-		},
-
 		// Route for submitting signed transactions for network broadcast
 		{
 			"SubmitTransaction",
@@ -786,6 +778,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetWyreWalletOrdersForPublicKey,
 			fes.GetWyreWalletOrdersForPublicKey,
+			true,
+		},
+		{
+			"SetUSDCentsToBitCloutExchangeRate",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSetUSDCentsToBitCloutExchangeRate,
+			fes.SetUSDCentsToBitCloutExchangeRate,
 			true,
 		},
 		// End all /admin routes

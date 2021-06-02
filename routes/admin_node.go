@@ -716,3 +716,34 @@ func (fes *APIServer) EvictUnminedBitcoinTxns(ww http.ResponseWriter, req *http.
 		return
 	}
 }
+
+type SetUSDCentsToBitCloutExchangeRateRequest struct {
+	BitCloutNanosPerUSD uint64
+	AdminPublicKey string
+}
+
+type SetUSDCentsToBitCloutExchangeRateResponse struct {
+
+}
+
+func (fes *APIServer) SetUSDCentsToBitCloutExchangeRate(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := SetUSDCentsToBitCloutExchangeRateRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SetCloutToUSDExchangeRate: Problem parsing request body: %v", err))
+		return
+	}
+
+	if err := fes.GlobalStatePut(
+		GlobalStateKeyForUSDCentsToBitCloutExchangeRate(),
+		lib.UintToBuf(requestData.BitCloutNanosPerUSD)); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SetCloutToUSDExchangeRate: Problem putting exchange rate in global state: %v", err))
+		return
+	}
+
+	res := SetUSDCentsToBitCloutExchangeRateResponse{}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SetCloutToUSDExchangeRate: Problem encoding response as JSON: %v", err))
+		return
+	}
+}

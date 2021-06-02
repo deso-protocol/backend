@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/bitclout/backend/scripts/tools/toolslib"
 	"io"
+	"math"
 	"net/http"
 	"reflect"
 	"strings"
@@ -18,7 +20,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/golang/glog"
-	merkletree "github.com/laser/go-merkle-tree"
 	"github.com/pkg/errors"
 )
 
@@ -487,8 +488,8 @@ func GetBalanceForPublicKeyUsingUtxoView(
 	return totalBalanceNanos, nil
 }
 
-// BurnBitcoinRequest ...
-type BurnBitcoinRequest struct {
+// ExchangeBitcoinRequest ...
+type ExchangeBitcoinRequest struct {
 	// The public key of the user who we're creating the burn for.
 	PublicKeyBase58Check string `safeForLogging:"true"`
 	// Note: When BurnAmountSatoshis is negative, we assume that the user wants
@@ -514,8 +515,8 @@ type BurnBitcoinRequest struct {
 	SignedHashes []string
 }
 
-// BurnBitcoinResponse ...
-type BurnBitcoinResponse struct {
+// ExchangeBitcoinResponse ...
+type ExchangeBitcoinResponse struct {
 	TotalInputSatoshis   uint64
 	BurnAmountSatoshis   uint64
 	ChangeAmountSatoshis uint64
@@ -529,18 +530,22 @@ type BurnBitcoinResponse struct {
 	UnsignedHashes []string
 }
 
-// BurnBitcoinStateless ...
-func (fes *APIServer) BurnBitcoinStateless(ww http.ResponseWriter, req *http.Request) {
+// ExchangeBitcoinStateless ...
+func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http.Request) {
+	if fes.BuyBitCloutSeed == "" {
+		_AddBadRequestError(ww, "ExchangeBitcoinStateless: This node is not configured to sell BitClout for Bitcoin")
+		return
+	}
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := BurnBitcoinRequest{}
+	requestData := ExchangeBitcoinRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("BurnBitcoin: Problem parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Problem parsing request body: %v", err))
 		return
 	}
 
 	// Make sure the fee rate isn't negative.
 	if requestData.FeeRateSatoshisPerKB < 0 {
-		_AddBadRequestError(ww, fmt.Sprintf("BurnBitcoin: BurnAmount %d or "+
+		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: BurnAmount %d or "+
 			"FeeRateSatoshisPerKB %d cannot be negative",
 			requestData.BurnAmountSatoshis, requestData.FeeRateSatoshisPerKB))
 		return
@@ -548,13 +553,14 @@ func (fes *APIServer) BurnBitcoinStateless(ww http.ResponseWriter, req *http.Req
 
 	// If BurnAmountSatoshis is negative, set it to the maximum amount of satoshi
 	// that can be burned while accounting for the fee.
+	// this is actually Sats, so that's good.
 	burnAmountSatoshis := requestData.BurnAmountSatoshis
 	if burnAmountSatoshis < 0 {
 		bitcoinUtxos, err := lib.BlockCypherExtractBitcoinUtxosFromResponse(
 			requestData.LatestBitcionAPIResponse, requestData.BTCDepositAddress,
 			fes.Params)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("BurnBitcoin: Problem getting "+
+			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Problem getting "+
 				"Bitcoin UTXOs: %v", err))
 			return
 		}
@@ -567,19 +573,19 @@ func (fes *APIServer) BurnBitcoinStateless(ww http.ResponseWriter, req *http.Req
 		txFee := lib.EstimateBitcoinTxFee(
 			len(bitcoinUtxos), 1, uint64(requestData.FeeRateSatoshisPerKB))
 		if int64(txFee) > totalInput {
-			_AddBadRequestError(ww, fmt.Sprintf("BurnBitcoin: Transaction fee %d is "+
+			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Transaction fee %d is "+
 				"so high that we can't spend the inputs total=%d", txFee, totalInput))
 			return
 		}
 
 		burnAmountSatoshis = totalInput - int64(txFee)
-		glog.Tracef("BurnBitcoin: Getting ready to burn %d Satoshis", burnAmountSatoshis)
+		glog.Tracef("ExchangeBitcoinStateless: Getting ready to burn %d Satoshis", burnAmountSatoshis)
 	}
 
 	// Prevent the user from creating a burn transaction with a dust output since
 	// this will result in the transaction being rejected by Bitcoin nodes.
 	if burnAmountSatoshis < 10000 {
-		_AddBadRequestError(ww, fmt.Sprintf("BurnBitcoin: You must burn at least .0001 Bitcoins "+
+		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: You must burn at least .0001 Bitcoins "+
 			"or else Bitcoin nodes will reject your transaction as \"dust.\""))
 		return
 	}
@@ -588,7 +594,7 @@ func (fes *APIServer) BurnBitcoinStateless(ww http.ResponseWriter, req *http.Req
 	// around a bit to not have to do this but oh well.
 	utxoSource := func(spendAddr string, params *lib.BitCloutParams) ([]*lib.BitcoinUtxo, error) {
 		if spendAddr != requestData.BTCDepositAddress {
-			return nil, fmt.Errorf("ButnBitcoin.UtxoSource: Expecting deposit address %s "+
+			return nil, fmt.Errorf("ExchangeBitcoinStateless.UtxoSource: Expecting deposit address %s "+
 				"but got unrecognized address %s", requestData.BTCDepositAddress, spendAddr)
 		}
 		return lib.BlockCypherExtractBitcoinUtxosFromResponse(
@@ -598,12 +604,12 @@ func (fes *APIServer) BurnBitcoinStateless(ww http.ResponseWriter, req *http.Req
 	// Get the pubKey from the request
 	pkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 	if err != nil {
-		_AddBadRequestError(ww, "BurnBitcoin: Invalid public key")
+		_AddBadRequestError(ww, "ExchangeBitcoinStateless: Invalid public key")
 		return
 	}
 	addressPubKey, err := btcutil.NewAddressPubKey(pkBytes, fes.Params.BitcoinBtcdParams)
 	if err != nil {
-		_AddBadRequestError(ww, "BurnBitcoin: Invalid public key")
+		_AddBadRequestError(ww, "ExchangeBitcoinStateless: Invalid public key")
 		return
 	}
 	pubKey := addressPubKey.PubKey()
@@ -612,13 +618,13 @@ func (fes *APIServer) BurnBitcoinStateless(ww http.ResponseWriter, req *http.Req
 		uint64(burnAmountSatoshis),
 		uint64(requestData.FeeRateSatoshisPerKB),
 		pubKey,
-		fes.Params.BitcoinBurnAddress,
+		fes.WyreBTCAddress,
 		fes.Params,
 		utxoSource)
 
 	if bitcoinSpendErr != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("BurnBitcoin: Problem creating Bitcoin spend "+
-				"transaction given input: %v", bitcoinSpendErr))
+		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Problem creating Bitcoin spend "+
+			"transaction given input: %v", bitcoinSpendErr))
 		return
 	}
 
@@ -627,17 +633,17 @@ func (fes *APIServer) BurnBitcoinStateless(ww http.ResponseWriter, req *http.Req
 	for ii, signedHash := range requestData.SignedHashes {
 		sig, err := hex.DecodeString(signedHash)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("BurnBitcoin: Failed to decode hash: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Failed to decode hash: %v", err))
 			return
 		}
 		parsedSig, err := btcec.ParseDERSignature(sig, btcec.S256())
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("BurnBitcoin: Parsing "+
+			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Parsing "+
 				"signature failed: %v: %v", signedHash, err))
 			return
 		}
 		sigWithLowS := parsedSig.Serialize()
-		glog.Errorf("BitcoinBurn: Bitcoin sig from frontend: %v; Bitcoin "+
+		glog.Errorf("ExchangeBitcoinStateless: Bitcoin sig from frontend: %v; Bitcoin "+
 			"sig with low S breaker: %v; Equal? %v",
 			hex.EncodeToString(sig), hex.EncodeToString(sigWithLowS), reflect.DeepEqual(sig, sigWithLowS))
 		sig = sigWithLowS
@@ -646,7 +652,7 @@ func (fes *APIServer) BurnBitcoinStateless(ww http.ResponseWriter, req *http.Req
 
 		sigScript, err := txscript.NewScriptBuilder().AddData(sig).AddData(pkData).Script()
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("BurnBitcoin: Failed to generate signature: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Failed to generate signature: %v", err))
 			return
 		}
 
@@ -658,15 +664,35 @@ func (fes *APIServer) BurnBitcoinStateless(ww http.ResponseWriter, req *http.Req
 	bitcoinTxnBuffer := bytes.Buffer{}
 	err = bitcoinTxn.SerializeNoWitness(&bitcoinTxnBuffer)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("BurnBitcoin: Problem serializing Bitcoin transaction: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Problem serializing Bitcoin transaction: %v", err))
 		return
 	}
 	bitcoinTxnBytes := bitcoinTxnBuffer.Bytes()
 	bitcoinTxnHash := bitcoinTxn.TxHash()
 
-	var bitcloutTxn *lib.MsgBitCloutTxn
+	// Check that bitclout they would get does not exceed dumbledore balance
+	// Use global state price. We're adding USD-CLOUT in global state. super admin only. To compute BTC-CLOUT, use blockchain.com ticker.
+	// make get request to blockchain here to get BTC price.
+	// TODO: do we need to add a fee here?
+	nanosPurchased, err := fes.GetNanosFromSats(uint64(burnAmountSatoshis))
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error computing nanos purchased: %v", err))
+		return
+	}
+	balanceInsufficient, err := fes.ExceedsSendBitCloutBalance(nanosPurchased)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error checking if send bitclout balance is sufficient: %v", err))
+		return
+	}
+	if balanceInsufficient {
+		// TODO: THIS SHOULD TRIGGER ALERT
+		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: SendBitClout wallet balance is below nanos purchased"))
+		return
+	}
+
+	var bitcloutTxnHash *lib.BlockHash
 	if requestData.Broadcast {
-		glog.Infof("BurnBitcoin: Broadcasting Bitcoin txn: %v", bitcoinTxn)
+		glog.Infof("ExchangeBitcoinStateless: Broadcasting Bitcoin txn: %v", bitcoinTxn)
 
 		// Check whether the deposits being used to construct this transaction have RBF enabled.
 		// If they do then we force the user to wait until those deposits have been mined into a
@@ -682,7 +708,7 @@ func (fes *APIServer) BurnBitcoinStateless(ww http.ResponseWriter, req *http.Req
 			for _, txIn := range bitcoinTxn.TxIn {
 				isRBF, err := lib.BlockonomicsCheckRBF(txIn.PreviousOutPoint.Hash.String())
 				if err != nil {
-					glog.Errorf("BurnBitcoin: ERROR: Blockonomics request to check RBF for txn "+
+					glog.Errorf("ExchangeBitcoinStateless: ERROR: Blockonomics request to check RBF for txn "+
 						"hash %v failed. This is bad because it means users are not able to "+
 						"complete Bitcoin burns: %v", txIn.PreviousOutPoint.Hash.String(), err)
 					_AddBadRequestError(ww, fmt.Sprintf(
@@ -693,7 +719,7 @@ func (fes *APIServer) BurnBitcoinStateless(ww http.ResponseWriter, req *http.Req
 				// If we got a success response from Blockonomics then bail if the transaction has
 				// RBF set.
 				if isRBF {
-					glog.Errorf("BurnBitcoin: ERROR: Blockonomics found RBF txn: %v", bitcoinTxnHash.String())
+					glog.Errorf("ExchangeBitcoinStateless: ERROR: Blockonomics found RBF txn: %v", bitcoinTxnHash.String())
 					_AddBadRequestError(ww, fmt.Sprintf(
 						"Your deposit has \"replace by fee\" set, "+
 							"which means we must wait for one confirmation on the Bitcoin blockchain before "+
@@ -709,12 +735,11 @@ func (fes *APIServer) BurnBitcoinStateless(ww http.ResponseWriter, req *http.Req
 		// use Bitcoin nodes to do it. Note that BLockCypher tends to be the more reliable path.
 		if fes.BlockCypherAPIKey != "" {
 			// Push the transaction to BlockCypher and ensure no error occurs.
-			err := lib.BlockCypherPushAndWaitForTxn(
+			if err = lib.BlockCypherPushAndWaitForTxn(
 				hex.EncodeToString(bitcoinTxnBytes), &bitcoinTxnHash,
 				fes.BlockCypherAPIKey, fes.Params.BitcoinDoubleSpendWaitSeconds,
-				fes.Params)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("BurnBitcoin: Error broadcasting transaction: %v", err))
+				fes.Params); err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error broadcasting transaction: %v", err))
 				return
 			}
 
@@ -722,79 +747,24 @@ func (fes *APIServer) BurnBitcoinStateless(ww http.ResponseWriter, req *http.Req
 		// We have the Bitcoin transaction now so broadcast it to the Bitcoin
 		// chain. This waits for confirmation from the Bitcoin node before
 		// returning.
-		glog.Infof("BurnBitcoin: Broadcasting txn to Bitcoin nodes: %v", &bitcoinTxnHash)
-		if err := fes.backendServer.GetBitcoinManager().BroadcastTxnAndCheckAddedRedundant(
+		glog.Infof("ExchangeBitcoinStateless: Broadcasting txn to Bitcoin nodes: %v", &bitcoinTxnHash)
+		if err = fes.backendServer.GetBitcoinManager().BroadcastTxnAndCheckAddedRedundant(
 			bitcoinTxn, 30 /*timeoutSecs*/, 10 /*numNodesToPing*/); err != nil {
 
 			_AddBadRequestError(ww, fmt.Sprintf(
-				"BurnBitcoin: Error broadcasting transaction: %v", err))
+				"ExchangeBitcoinStateless: Error broadcasting transaction: %v", err))
 			return
 		}
 
-		// Now that we know the txn is valid on the Bitcoin chain, wrap it into
-		// a BitClout BitcoinExchange txn and broadcast it to the other BitClout
-		// nodes.
-		//
-		// The only thing a BitcoinExchange transaction has set is its TxnMeta.
-		// Everything else is left blank because it is not needed. Note that the
-		// recipient of the BitClout that will be created is the first valid input in
-		// the BitcoinTransaction specified. Note also that the
-		// fee is deducted as a percentage of the eventual BitClout that will get
-		// created as a result of this transaction.
-		bitcoinExchangeMetadata := &lib.BitcoinExchangeMetadata{
-			BitcoinTransaction: bitcoinTxn,
-			BitcoinBlockHash:   &lib.BlockHash{},
-			// Not including a merkle proof causes the mempool/broadcast code to
-			// do a simpler check of the txn's validity. In order for it to actually
-			// be mined into a BitClout block, however, the transaction needs to
-			// ultimately have its merkle proof filled in once the Bitcoin txn has
-			// been mined into a Bitcoin block.
-			BitcoinMerkleRoot:  &lib.BlockHash{},
-			BitcoinMerkleProof: []*merkletree.ProofPart{},
-		}
-		bitcloutTxn = &lib.MsgBitCloutTxn{
-			TxnMeta: bitcoinExchangeMetadata,
-		}
 
-		// Broadcast the newly-created BitClout txn. This call is asynchronous.
-		if _, err := fes.backendServer.BroadcastTransaction(bitcloutTxn); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("BurnBitcoin: Problem broadcasting "+
-				"bitclout txn: %v", err))
-			return
-		}
-
-		/*********************************************************************
-		// Update our global state record of how much the user has bought
-		*********************************************************************/
-		userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.PublicKeyBase58Check)
+		bitcloutTxnHash, err = fes.SendSeedBitClout(pkBytes, nanosPurchased, true)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"BurnBitcoin: Problem with getUserMetadataFromGlobalState: %v", err))
-			return
-		}
-
-		userMetadata.SatoshisBurnedSoFar += totalInputSatoshis
-
-		// If the user has burned enough to create a profile, update that boolean
-		if userMetadata.SatoshisBurnedSoFar >= fes.MinSatoshisBurnedForProfileCreation {
-			userMetadata.HasBurnedEnoughSatoshisToCreateProfile = true
-		}
-
-		// Update the amount of BitClout purchased so far based on the purchase
-		// the user just made
-		err = fes.putUserMetadataInGlobalState(userMetadata)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"BurnBitcoin: Problem with putUserMetadataInGlobalState: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error sending BitClout: %v", err))
 			return
 		}
 	}
 
-	bitCloutTxnHashHex := ""
-	if bitcloutTxn != nil {
-		bitCloutTxnHashHex = bitcloutTxn.Hash().String()
-	}
-	res := &BurnBitcoinResponse{
+	res := &ExchangeBitcoinResponse{
 		TotalInputSatoshis:   totalInputSatoshis,
 		BurnAmountSatoshis:   uint64(burnAmountSatoshis),
 		FeeSatoshis:          fee,
@@ -803,14 +773,49 @@ func (fes *APIServer) BurnBitcoinStateless(ww http.ResponseWriter, req *http.Req
 
 		SerializedTxnHex:   hex.EncodeToString(bitcoinTxnBytes),
 		TxnHashHex:         bitcoinTxn.TxHash().String(),
-		BitCloutTxnHashHex: bitCloutTxnHashHex,
+		BitCloutTxnHashHex: bitcloutTxnHash.String(),
 
 		UnsignedHashes: unsignedHashes,
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("BurnBitcoin: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+// GetNanosFromSats - convert Satoshis to BitClout nanos
+func (fes *APIServer) GetNanosFromSats(satoshis uint64) (uint64, error){
+	usdToBTC, err := toolslib.GetUSDToBTCPrice()
+	if err != nil {
+		return 0, fmt.Errorf(" Problem getting usd to btc exchange rate: %v", err)
+	}
+	usdCentsPerBitcoin := usdToBTC * 100
+	usdCents := (float64(satoshis) * usdCentsPerBitcoin) / math.Pow(10, 8)
+	return fes.GetNanosFromUSDCents(usdCents)
+}
+
+// GetNanosFromUSDCents - convert USD cents to BitClout nanos
+func (fes *APIServer) GetNanosFromUSDCents(usdCents float64) (uint64, error){
+	val, err := fes.GlobalStateGet(GlobalStateKeyForUSDCentsToBitCloutExchangeRate())
+	if err != nil {
+		return 0, fmt.Errorf("Problem getting bitclout to usd exchange rate from global state: %v", err)
+	}
+	usdCentsPerBitClout, bytesRead :=  lib.Uvarint(val)
+	if bytesRead <= 0 {
+		return 0, fmt.Errorf("Problem reading bytes from global state: %v", err)
+	}
+
+	nanosPurchased := uint64(usdCents * float64(lib.NanosPerUnit) / float64(usdCentsPerBitClout))
+	return nanosPurchased, nil
+}
+
+// ExceedsSendBitCloutBalance - Check if nanosPurchased is greater than the balance of the BuyBitClout wallet.
+func (fes *APIServer) ExceedsSendBitCloutBalance(nanosPurchased uint64) (bool, error) {
+	buyBitCloutSeedBalance, err := fes.getBalanceForSeed(fes.BuyBitCloutSeed)
+	if err != nil {
+		return false, fmt.Errorf("Error getting buy bitclout balance: %v", err)
+	}
+	return nanosPurchased > buyBitCloutSeedBalance, nil
 }
 
 // SendBitCloutRequest ...
