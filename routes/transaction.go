@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/backend/scripts/tools/toolslib"
 	"io"
 	"math"
 	"net/http"
@@ -785,7 +784,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 
 // GetNanosFromSats - convert Satoshis to BitClout nanos
 func (fes *APIServer) GetNanosFromSats(satoshis uint64) (uint64, error){
-	usdToBTC, err := toolslib.GetUSDToBTCPrice()
+	usdToBTC, err := GetUSDToBTCPrice()
 	if err != nil {
 		return 0, fmt.Errorf(" Problem getting usd to btc exchange rate: %v", err)
 	}
@@ -796,15 +795,10 @@ func (fes *APIServer) GetNanosFromSats(satoshis uint64) (uint64, error){
 
 // GetNanosFromUSDCents - convert USD cents to BitClout nanos
 func (fes *APIServer) GetNanosFromUSDCents(usdCents float64) (uint64, error){
-	val, err := fes.GlobalStateGet(GlobalStateKeyForUSDCentsToBitCloutExchangeRate())
+	usdCentsPerBitClout, err := fes.GetUSDCentsToBitCloutFromGlobalState()
 	if err != nil {
-		return 0, fmt.Errorf("Problem getting bitclout to usd exchange rate from global state: %v", err)
+		return 0, err
 	}
-	usdCentsPerBitClout, bytesRead :=  lib.Uvarint(val)
-	if bytesRead <= 0 {
-		return 0, fmt.Errorf("Problem reading bytes from global state: %v", err)
-	}
-
 	nanosPurchased := uint64(usdCents * float64(lib.NanosPerUnit) / float64(usdCentsPerBitClout))
 	return nanosPurchased, nil
 }

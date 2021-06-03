@@ -718,12 +718,12 @@ func (fes *APIServer) EvictUnminedBitcoinTxns(ww http.ResponseWriter, req *http.
 }
 
 type SetUSDCentsToBitCloutExchangeRateRequest struct {
-	BitCloutNanosPerUSD uint64
+	USDCentsPerBitClout uint64
 	AdminPublicKey string
 }
 
 type SetUSDCentsToBitCloutExchangeRateResponse struct {
-
+	USDCentsPerBitClout uint64
 }
 
 func (fes *APIServer) SetUSDCentsToBitCloutExchangeRate(ww http.ResponseWriter, req *http.Request) {
@@ -736,14 +736,48 @@ func (fes *APIServer) SetUSDCentsToBitCloutExchangeRate(ww http.ResponseWriter, 
 
 	if err := fes.GlobalStatePut(
 		GlobalStateKeyForUSDCentsToBitCloutExchangeRate(),
-		lib.UintToBuf(requestData.BitCloutNanosPerUSD)); err != nil {
+		lib.UintToBuf(requestData.USDCentsPerBitClout)); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SetCloutToUSDExchangeRate: Problem putting exchange rate in global state: %v", err))
 		return
 	}
 
-	res := SetUSDCentsToBitCloutExchangeRateResponse{}
+	res := SetUSDCentsToBitCloutExchangeRateResponse{
+		USDCentsPerBitClout: requestData.USDCentsPerBitClout,
+	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SetCloutToUSDExchangeRate: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+type GetUSDCentsToBitCloutExchangeRateResponse struct {
+	USDCentsPerBitClout uint64
+}
+
+func (fes *APIServer) GetUSDCentsToBitCloutExchangeRate(ww http.ResponseWriter, req *http.Request) {
+	exchangeRate, err := fes.GetUSDCentsToBitCloutFromGlobalState()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUSDCentsToBitCloutExchangeRate: error getting exchange rate: %v", err))
+		return
+	}
+	res := GetUSDCentsToBitCloutExchangeRateResponse{
+		USDCentsPerBitClout: exchangeRate,
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUSDCentsToBitCloutExchangeRate: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) GetUSDCentsToBitCloutFromGlobalState() (uint64, error) {
+	val, err := fes.GlobalStateGet(GlobalStateKeyForUSDCentsToBitCloutExchangeRate())
+	if err != nil {
+		return 0, fmt.Errorf("Problem getting bitclout to usd exchange rate from global state: %v", err)
+	}
+	usdCentsPerBitClout, bytesRead :=  lib.Uvarint(val)
+	if bytesRead <= 0 {
+		return 0, fmt.Errorf("Problem reading bytes from global state: %v", err)
+	}
+	return usdCentsPerBitClout, nil
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/bitclout/backend/routes"
 	"github.com/bitclout/backend/scripts/tools/toolslib"
 	"github.com/bitclout/core/lib"
 	"github.com/tyler-smith/go-bip39"
@@ -14,7 +15,7 @@ func main() {
 		"", "A mnemonic associated with a param updater public key.")
 	flag.Parse()
 
-	finalBitcoinUSDPrice, err := toolslib.GetUSDToBTCPrice()
+	finalBitcoinUSDPrice, err := routes.GetUSDToBTCPrice()
 	if err != nil {
 		panic(err)
 	}

@@ -44,7 +44,7 @@ const (
 	RoutePathGetTxn                   = "/api/v0/get-txn"
 	RoutePathSubmitTransaction        = "/api/v0/submit-transaction"
 	RoutePathUpdateProfile            = "/api/v0/update-profile"
-	RoutePathBurnBitcoin              = "/api/v0/burn-bitcoin"
+	RoutePathExchangeBitcoin          = "/api/v0/exchange-bitcoin"
 	RoutePathSendBitClout             = "/api/v0/send-bitclout"
 	RoutePathSubmitPost               = "/api/v0/submit-post"
 	RoutePathCreateFollowTxnStateless = "/api/v0/create-follow-txn-stateless"
@@ -103,7 +103,7 @@ const (
 	RoutePathReprocessBitcoinBlock                 = "/api/v0/admin/reprocess-bitcoin-block"
 	RoutePathAdminGetMempoolStats                  = "/api/v0/admin/get-mempool-stats"
 	RoutePathEvictUnminedBitcoinTxns               = "/api/v0/admin/evict-unmined-bitcoin-txns"
-	RoutePathSetUSDCentsToBitCloutExchangeRate       = "/api/v0/admin/set-usd-cents-to-bitclout-exchange-rate"
+	RoutePathSetUSDCentsToBitCloutExchangeRate     = "/api/v0/admin/set-usd-cents-to-bitclout-exchange-rate"
 
 	// admin_transaction.go
 	RoutePathGetGlobalParams                       = "/api/v0/admin/get-global-params"
@@ -455,7 +455,14 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetExchangeRate,
 			false,
 		},
-
+		// Route for exchanging Bitcoin for BitClout
+		{
+			"ExchangeBitcoin",
+			[]string{"POST", "OPTIONS"},
+			RoutePathExchangeBitcoin,
+			fes.ExchangeBitcoinStateless,
+			false,
+		},
 		// Route for sending BitClout
 		{
 			"SendBitClout",
