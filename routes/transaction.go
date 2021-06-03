@@ -763,6 +763,11 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		}
 	}
 
+	bitcloutTxnHashString := ""
+	if bitcloutTxnHash != nil {
+		bitcloutTxnHashString = bitcloutTxnHash.String()
+	}
+
 	res := &ExchangeBitcoinResponse{
 		TotalInputSatoshis:   totalInputSatoshis,
 		BurnAmountSatoshis:   uint64(burnAmountSatoshis),
@@ -772,7 +777,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 
 		SerializedTxnHex:   hex.EncodeToString(bitcoinTxnBytes),
 		TxnHashHex:         bitcoinTxn.TxHash().String(),
-		BitCloutTxnHashHex: bitcloutTxnHash.String(),
+		BitCloutTxnHashHex: bitcloutTxnHashString,
 
 		UnsignedHashes: unsignedHashes,
 	}
