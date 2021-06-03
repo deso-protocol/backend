@@ -10,7 +10,6 @@ import (
 
 type Config struct {
 	// Core
-	TXIndex                bool
 	APIPort                uint16
 
 	// Onboarding
@@ -58,8 +57,6 @@ type Config struct {
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config := Config{}
 
-	// Core
-	config.TXIndex = viper.GetBool("txindex")
 	config.APIPort = uint16(viper.GetUint64("api-port"))
 	if config.APIPort <= 0 {
 		// TODO: pull this out of core. we shouldn't need core's config here

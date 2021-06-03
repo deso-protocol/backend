@@ -160,9 +160,9 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	require := require.New(t)
 	_, _ = assert, require
 
-	txDB, _ := GetTestBadgerDb()
-	chain, params, db := NewLowDifficultyBlockchain()
-	_ = db
+	chain, params, _ := NewLowDifficultyBlockchain()
+	txIndexDb, _ := GetTestBadgerDb()
+	txIndex, _ := lib.NewTXIndex(chain, nil, params, txIndexDb.Opts().Dir)
 	mempool, miner := NewTestMiner(t, chain, params, true /*isSender*/)
 	// Mine two blocks to give the sender some BitClout.
 	block1, err := miner.MineAndProcessSingleBlock(0 /*threadIndex*/, mempool)
@@ -178,7 +178,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	}
 	publicApiServer, err := NewAPIServer(
 		nil, mempool,
-		chain, miner.BlockProducer, txDB, params, testJSONPort,
+		chain, miner.BlockProducer, txIndex, params, testJSONPort,
 		testMinFeeRateNanosPerKB, "", 20000,
 		nil,
 		globalStateDB, globalStateRemoteNode, globalStateSharedSecret,
@@ -192,7 +192,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 
 	privateApiServer, err := NewAPIServer(
 		nil, mempool,
-		chain, miner.BlockProducer, txDB, params, testJSONPort,
+		chain, miner.BlockProducer, txIndex, params, testJSONPort,
 		testMinFeeRateNanosPerKB, "", 20000,
 		nil,
 		globalStateDB, globalStateRemoteNode, "",
@@ -489,9 +489,9 @@ func TestAPI(t *testing.T) {
 	}
 
 	// Updating the txindex should work.
-	require.NoError(apiServer.UpdateTxindex())
+	require.NoError(apiServer.TXIndex.Update())
 	// Running it a second time shouldn't be problematic.
-	require.NoError(apiServer.UpdateTxindex())
+	require.NoError(apiServer.TXIndex.Update())
 
 	// Getting info on a nonexistent transaction should fail gracefully.
 	{
@@ -1122,7 +1122,7 @@ func TestAPI(t *testing.T) {
 
 	// The transactions should have their block hashes set when queried
 	// now.
-	require.NoError(apiServer.UpdateTxindex())
+	require.NoError(apiServer.TXIndex.Update())
 	{
 		transactionInfoRequest := &APITransactionInfoRequest{
 			TransactionIDBase58Check: lib.PkToString(txn1.Hash()[:], apiServer.Params),
@@ -1294,18 +1294,18 @@ func TestAPI(t *testing.T) {
 		chainWithFirstBlockOnly := apiServer.blockchain.BestChain()[:2]
 		oldBestChain := apiServer.blockchain.BestChain()
 		apiServer.blockchain.SetBestChain(chainWithFirstBlockOnly)
-		require.NoError(apiServer.UpdateTxindex())
+		require.NoError(apiServer.TXIndex.Update())
 
 		// The miner public key should return one transaction for its single
 		// block reward rather than three.
 		{
 			prefix := lib.DbTxindexTxIDKey(&lib.BlockHash{})[0]
-			txnsInTransactionIndex, _ := lib.EnumerateKeysForPrefix(apiServer.TxIndexChain.DB(), []byte{prefix})
+			txnsInTransactionIndex, _ := lib.EnumerateKeysForPrefix(apiServer.TXIndex.TXIndexChain.DB(), []byte{prefix})
 			require.Equal(1+len(apiServer.Params.SeedTxns)+len(apiServer.Params.SeedBalances), len(txnsInTransactionIndex))
 		}
 		{
 			keysInPublicKeyTable, _ := lib.EnumerateKeysForPrefix(
-				apiServer.TxIndexChain.DB(), lib.DbTxindexPublicKeyPrefix([]byte{}))
+				apiServer.TXIndex.TXIndexChain.DB(), lib.DbTxindexPublicKeyPrefix([]byte{}))
 			// There should be two keys since one is the miner public key and
 			// the other is a dummy public key corresponding to the input of
 			// a block reward txn. Plus one for the seed balance, which creates
@@ -1318,7 +1318,7 @@ func TestAPI(t *testing.T) {
 		{
 			minerPk, _, _ := lib.Base58CheckDecode(senderPkString)
 			transactionsInPublicKeyIndex := lib.DbGetTxindexTxnsForPublicKey(
-				apiServer.TxIndexChain.DB(), minerPk)
+				apiServer.TXIndex.TXIndexChain.DB(), minerPk)
 			// The number should be one because there should be a single block
 			// reward in the first block and that's it.
 			require.Equal(1, len(transactionsInPublicKeyIndex))
@@ -1355,17 +1355,17 @@ func TestAPI(t *testing.T) {
 
 		// Roll back the change we made to the chain.
 		apiServer.blockchain.SetBestChain(oldBestChain)
-		require.NoError(apiServer.UpdateTxindex())
+		require.NoError(apiServer.TXIndex.Update())
 
 		// Now everything should be reset properly.
 		{
 			prefix := lib.DbTxindexTxIDKey(&lib.BlockHash{})[0]
-			txnsInTransactionIndex, _ := lib.EnumerateKeysForPrefix(apiServer.TxIndexChain.DB(), []byte{prefix})
+			txnsInTransactionIndex, _ := lib.EnumerateKeysForPrefix(apiServer.TXIndex.TXIndexChain.DB(), []byte{prefix})
 			require.Equal(5+len(apiServer.Params.SeedTxns)+len(apiServer.Params.SeedBalances), len(txnsInTransactionIndex))
 		}
 		{
 			keysInPublicKeyTable, _ := lib.EnumerateKeysForPrefix(
-				apiServer.TxIndexChain.DB(), lib.DbTxindexPublicKeyPrefix([]byte{}))
+				apiServer.TXIndex.TXIndexChain.DB(), lib.DbTxindexPublicKeyPrefix([]byte{}))
 			// Three pairs for the block rewards and two pairs for the transactions
 			// we created.
 			require.Equal(10+

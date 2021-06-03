@@ -1857,9 +1857,9 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*TransactionMetadataResponse, *lib.UtxoView, error) {
 	// If the TxIndex flag was not passed to this node then we can't compute
 	// notifications.
-	if fes.TxIndexChain == nil {
+	if fes.TXIndex == nil {
 		return nil, nil, errors.Errorf(
-			"GetNotifications: Cannot be called when TxIndexChain " +
+			"GetNotifications: Cannot be called when TXIndexChain " +
 				"is nil. This error occurs when --txindex was not passed to the program " +
 				"on startup")
 	}
@@ -1898,7 +1898,7 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 	// the end of this loop.
 	for {
 		keysFound, valsFound, err := lib.DBGetPaginatedKeysAndValuesForPrefix(
-			fes.TxIndexChain.DB(), startPrefix, validForPrefix,
+			fes.TXIndex.TXIndexChain.DB(), startPrefix, validForPrefix,
 			maxKeyLen, int(request.NumToFetch), true, /*reverse*/
 			true /*fetchValues*/)
 		if err != nil {
@@ -1912,7 +1912,7 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 
 			// In this case we need to look up the full transaction and convert
 			// it into a proper transaction response.
-			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TxIndexChain.DB(), txID)
+			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txID)
 			if txnMeta == nil {
 				// We should never be missing a transaction for a given txid, but
 				// just continue in this case.
@@ -1962,7 +1962,7 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 	// Get the NextIndex from the db. This will be used to determine whether
 	// or not it's appropriate to fetch txns from the mempool. It will also be
 	// used to assign consistent index values to memppool txns.
-	NextIndexVal := lib.DbGetTxindexNextIndexForPublicKey(fes.TxIndexChain.DB(), pkBytes)
+	NextIndexVal := lib.DbGetTxindexNextIndexForPublicKey(fes.TXIndex.TXIndexChain.DB(), pkBytes)
 	if NextIndexVal == nil {
 		return nil, nil, fmt.Errorf("Unable to get next index for public key: %v", request.PublicKeyBase58Check)
 	}

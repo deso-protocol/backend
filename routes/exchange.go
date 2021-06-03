@@ -15,7 +15,6 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/dgraph-io/badger/v3"
 	"github.com/golang/glog"
 	bip39 "github.com/tyler-smith/go-bip39"
 )
@@ -136,8 +135,8 @@ func _headerToResponse(header *lib.MsgBitCloutHeader, hash string) *HeaderRespon
 
 // APIBase is an endpoint that simply confirms that the API is up and running.
 func (fes *APIServer) APIBase(ww http.ResponseWriter, rr *http.Request) {
-	if fes.TxIndexChain == nil {
-		APIAddError(ww, fmt.Sprintf("APIBase: Cannot be called when TxIndexChain "+
+	if fes.TXIndex == nil {
+		APIAddError(ww, fmt.Sprintf("APIBase: Cannot be called when TXIndexChain "+
 			"is nil. This error occurs when --txindex was not passed to the program on startup"))
 		return
 	}
@@ -160,7 +159,7 @@ func (fes *APIServer) APIBase(ww http.ResponseWriter, rr *http.Request) {
 	}
 	for _, txn := range blockMsg.Txns {
 		// Look up the metadata for each transaction.
-		txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TxIndexChain.DB(), txn.Hash())
+		txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txn.Hash())
 
 		res.Transactions = append(
 			res.Transactions, APITransactionToResponse(
@@ -708,257 +707,6 @@ func (fes *APIServer) APITransferBitClout(ww http.ResponseWriter, rr *http.Reque
 	}
 }
 
-// GetTxindexUpdateBlockNodes ...
-func (fes *APIServer) GetTxindexUpdateBlockNodes() (
-	_txindexTipNode *lib.BlockNode, _blockTipNode *lib.BlockNode, _commonAncestor *lib.BlockNode,
-	_detachBlocks []*lib.BlockNode, _attachBlocks []*lib.BlockNode) {
-
-	// Get the current txindex tip.
-	txindexTipHash := fes.TxIndexChain.BlockTip()
-	if txindexTipHash == nil {
-		// The tip hash should never be nil since the txindex chain should have
-		// been initialized in the constructor. Print an error and return in this
-		// case.
-		glog.Error("Error: TxIndexChain had nil tip; this should never " +
-			"happen and it means the transaction index is broken.")
-		return nil, nil, nil, nil, nil
-	}
-	// If the tip of the txindex is no longer stored in the block index, it
-	// means the txindex hit a fork that we are no longer keeping track of.
-	// The only thing we can really do in this case is rebuild the entire index
-	// from scratch. To do that, we return all the blocks in the index to detach
-	// and all the blocks in the real chain to attach.
-	txindexTipNode := fes.blockchain.CopyBlockIndex()[*txindexTipHash.Hash]
-
-	if txindexTipNode == nil {
-		glog.Info("GetTxindexUpdateBlockNodes: Txindex tip was not found in block " +
-			"tree; building txindex starting at genesis block")
-
-		newTxIndexBestChain, _ := fes.TxIndexChain.CopyBestChain()
-		newBlockchainBestChain, _ := fes.blockchain.CopyBestChain()
-
-		return txindexTipNode, fes.blockchain.BlockTip(), nil, newTxIndexBestChain, newBlockchainBestChain
-	}
-
-	// At this point, we know our txindex tip is in our block index so
-	// there must be a common ancestor between the tip and the block tip.
-	blockTip := fes.blockchain.BlockTip()
-	commonAncestor, detachBlocks, attachBlocks := lib.GetReorgBlocks(txindexTipNode, blockTip)
-
-	return txindexTipNode, blockTip, commonAncestor, detachBlocks, attachBlocks
-}
-
-// UpdateTxindex syncs the transaction index with the blockchain.
-// Specifically, it reads in all the blocks that have come in since the last
-// time this function was called and adds the new transactions to the txindex.
-// It also handles reorgs properly.
-//
-// TODO(DELETEME, cleanup): This code is disgusting and error-prone. I really think just biting the
-// bullet and adding the transaction indexing code to block_view.go might have been a lot
-// cleaner, but this code works and passes all the tests so I'm leaving it as-is for now.
-// If we ever have issues with the block explorer we should kill this code probably.
-func (fes *APIServer) UpdateTxindex() error {
-	// If we don't have a chain set, return an error.
-	if fes.TxIndexChain == nil {
-		return fmt.Errorf("UpdateTxindex: Cannot be called when TxIndexChain " +
-			"is nil. This error occurs when --txindex was not passed to the program " +
-			"on startup")
-	}
-
-	// Lock the txindex and the blockchain for reading until we're
-	// done with the rest of the function.
-	fes.TxIndexLock.Lock()
-	defer fes.TxIndexLock.Unlock()
-	txindexTipNode, blockTipNode, commonAncestor, detachBlocks, attachBlocks := fes.GetTxindexUpdateBlockNodes()
-
-	// Note that the blockchain's ChainLock does not need to be held at this
-	// point because we're just reading blocks from the db, which never get
-	// deleted and therefore don't need the lock in order to access.
-
-	// If we get to this point, the commonAncestor should never be nil.
-	if commonAncestor == nil {
-		return fmt.Errorf("UpdateTxindex: Expected common ancestor "+
-			"between txindex tip %v and block tip %v but found none; this "+
-			"should never happen", txindexTipNode, blockTipNode)
-	}
-	// If the tip of the txindex is the same as the block tip, don't do
-	// an update.
-	if reflect.DeepEqual(txindexTipNode.Hash[:], blockTipNode.Hash[:]) {
-		glog.Debugf("UpdateTxindex: Skipping update since block tip equals "+
-			"txindex tip: Height: %d, Hash: %v", txindexTipNode.Height, txindexTipNode.Hash)
-		return nil
-	}
-
-	// When the txindex tip does not match the block tip then there's work
-	// to do. Log at the info level.
-	glog.Infof("UpdateTxindex: Updating txindex tip (height: %d, hash: %v) "+
-		"to block tip (height: %d, hash: %v) ...",
-		txindexTipNode.Height, txindexTipNode.Hash,
-		blockTipNode.Height, blockTipNode.Hash)
-
-	// For each of the blocks we're removing, delete the transactions from
-	// the transaction index.
-	for _, blockToDetach := range detachBlocks {
-		// Go through each txn in the block and delete its mappings from our
-		// txindex.
-		glog.Debugf("UpdateTxindex: Detaching block (height: %d, hash: %v)",
-			blockToDetach.Height, blockToDetach.Hash)
-		blockMsg, err := lib.GetBlock(blockToDetach.Hash, fes.TxIndexChain.DB())
-		if err != nil {
-			return fmt.Errorf("UpdateTxindex: Problem fetching detach block "+
-				"with hash %v: %v", blockToDetach.Hash, err)
-		}
-		// Iterate through each transaction in the block and delete all its
-		// mappings from the db. Note the txindex has its own db that is
-		// distinct and isolated from our core blockchain db.
-		for _, txn := range blockMsg.Txns {
-			if err := lib.DbDeleteTxindexTransactionMappings(
-				fes.TxIndexChain.DB(), txn, fes.Params); err != nil {
-
-				return fmt.Errorf("UpdateTxindex: Problem deleting "+
-					"transaction mappings for transaction %v: %v", txn.Hash(), err)
-			}
-		}
-
-		// Now that all the transactions have been deleted from our txindex,
-		// it's safe to disconnect the block from our txindex chain.
-		//
-		// Only set a BitcoinManager if we have one. This prevents some tests from erroring out.
-		var bitcoinManager *lib.BitcoinManager
-		if fes.backendServer != nil && fes.backendServer.GetBitcoinManager() != nil {
-			bitcoinManager = fes.backendServer.GetBitcoinManager()
-		}
-		utxoView, err := lib.NewUtxoView(
-			fes.TxIndexChain.DB(), fes.Params, bitcoinManager)
-		if err != nil {
-			return fmt.Errorf(
-				"UpdateTxindex: Error initializing UtxoView: %v", err)
-		}
-		utxoOps, err := lib.GetUtxoOperationsForBlock(
-			fes.TxIndexChain.DB(), blockToDetach.Hash)
-		if err != nil {
-			return fmt.Errorf(
-				"UpdateTxindex: Error getting UtxoOps for block %v: %v", blockToDetach, err)
-		}
-		// Compute the hashes for all the transactions.
-		txHashes, err := lib.ComputeTransactionHashes(blockMsg.Txns)
-		if err != nil {
-			return fmt.Errorf(
-				"UpdateTxindex: Error computing tx hashes for block %v: %v",
-				blockToDetach, err)
-		}
-		if err := utxoView.DisconnectBlock(blockMsg, txHashes, utxoOps); err != nil {
-			return fmt.Errorf("UpdateTxindex: Error detaching block "+
-				"%v from UtxoView: %v", blockToDetach, err)
-		}
-		if err := utxoView.FlushToDb(); err != nil {
-			return fmt.Errorf("UpdateTxindex: Error flushing view to db for block "+
-				"%v: %v", blockToDetach, err)
-		}
-		// We have to flush a couple of extra things that the view doesn't flush...
-		if err := lib.PutBestHash(utxoView.TipHash, fes.TxIndexChain.DB(), lib.ChainTypeBitCloutBlock); err != nil {
-			return fmt.Errorf("UpdateTxindex: Error putting best hash for block "+
-				"%v: %v", blockToDetach, err)
-		}
-		err = fes.TxIndexChain.DB().Update(func(txn *badger.Txn) error {
-			if err := lib.DeleteUtxoOperationsForBlockWithTxn(txn, blockToDetach.Hash); err != nil {
-				return fmt.Errorf("UpdateTxindex: Error deleting UtxoOperations 1 for block %v, %v", blockToDetach.Hash, err)
-			}
-			if err := txn.Delete(lib.BlockHashToBlockKey(blockToDetach.Hash)); err != nil {
-				return fmt.Errorf("UpdateTxindex: Error deleting UtxoOperations 2 for block %v %v", blockToDetach.Hash, err)
-			}
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("UpdateTxindex: Error updating badgger: %v", err)
-		}
-		// Delete this block from the chain db so we don't get duplicate block errors.
-
-		// Remove this block from our bestChain data structures.
-		newBlockIndex := fes.TxIndexChain.CopyBlockIndex()
-		newBestChain, newBestChainMap := fes.TxIndexChain.CopyBestChain()
-		newBestChain = newBestChain[:len(newBestChain)-1]
-		delete(newBestChainMap, *(blockToDetach.Hash))
-		delete(newBlockIndex, *(blockToDetach.Hash))
-
-		fes.TxIndexChain.SetBestChainMap(newBestChain, newBestChainMap, newBlockIndex)
-
-		// At this point the entries for the block should have been removed
-		// from both our Txindex chain and our transaction index mappings.
-	}
-
-	// For each of the blocks we're adding, process them on our txindex chain
-	// and add their mappings to our txn index. Compute any metadata that might
-	// be useful.
-	for _, blockToAttach := range attachBlocks {
-		if blockToAttach.Height%100 == 0 {
-			glog.Infof("UpdateTxindex: Txindex progress: block %d / %d",
-				blockToAttach.Height, blockTipNode.Height)
-		}
-		glog.Tracef("UpdateTxindex: Attaching block (height: %d, hash: %v)",
-			blockToAttach.Height, blockToAttach.Hash)
-
-		blockMsg, err := lib.GetBlock(blockToAttach.Hash, fes.blockchain.DB())
-		if err != nil {
-			return fmt.Errorf("UpdateTxindex: Problem fetching attach block "+
-				"with hash %v: %v", blockToAttach.Hash, err)
-		}
-
-		// We use a view to simulate adding transactions to our chain. This allows
-		// us to extract custom metadata fields that we can show in our block explorer.
-		//
-		// Only set a BitcoinManager if we have one. This makes some tests pass.
-		var bitcoinManager *lib.BitcoinManager
-		if fes.backendServer != nil && fes.backendServer.GetBitcoinManager() != nil {
-			bitcoinManager = fes.backendServer.GetBitcoinManager()
-		}
-		utxoView, err := lib.NewUtxoView(fes.TxIndexChain.DB(), fes.Params, bitcoinManager)
-		if err != nil {
-			return fmt.Errorf(
-				"UpdateTxindex: Error initializing UtxoView: %v", err)
-		}
-
-		// Do each block update in a single transaction so we're safe in case the node
-		// restarts.
-		fes.TxIndexChain.DB().Update(func(dbTxn *badger.Txn) error {
-
-			// Iterate through each transaction in the block and do the following:
-			// - Connect it to the view
-			// - Compute its mapping values, which may include custom metadata fields
-			// - add all its mappings to the db.
-			for txnIndexInBlock, txn := range blockMsg.Txns {
-				txnMeta, err := lib.ConnectTxnAndComputeTransactionMetadata(
-					txn, utxoView, blockToAttach.Hash, blockToAttach.Height, uint64(txnIndexInBlock))
-				if err != nil {
-					return fmt.Errorf("UpdateTxindex: Problem connecting txn %v to txindex: %v",
-						txn, err)
-				}
-
-				err = lib.DbPutTxindexTransactionMappingsWithTxn(dbTxn, txn, fes.Params, txnMeta)
-				if err != nil {
-					return fmt.Errorf("UpdateTxindex: Problem adding txn %v to txindex: %v",
-						txn, err)
-				}
-			}
-
-			return nil
-		})
-
-		// Now that we have added all the txns to our TxIndex db, attach the block
-		// to update our chain.
-		_, _, err = fes.TxIndexChain.ProcessBlock(blockMsg, false /*verifySignatures*/)
-		if err != nil {
-			return fmt.Errorf("UpdateTxindex: Problem attaching block %v: %v",
-				blockToAttach, err)
-		}
-	}
-
-	glog.Infof("UpdateTxindex: Txindex update complete. New tip: (height: %d, hash: %v)",
-		fes.TxIndexChain.BlockTip().Height, fes.TxIndexChain.BlockTip().Hash)
-
-	return nil
-}
-
 // APITransactionInfoRequest specifies the params for a call to the
 // APITransactionInfo endpoint.
 type APITransactionInfoRequest struct {
@@ -1008,7 +756,7 @@ type APITransactionInfoResponse struct {
 // up-to-date.
 func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Request) {
 	// If the --txindex flag hasn't been passed to the node, return an error outright.
-	if fes.TxIndexChain == nil {
+	if fes.TXIndex == nil {
 		APIAddError(ww, fmt.Sprintf("APITransactionInfo: This function cannot be "+
 			"called without passing --txindex to the node on startup."))
 		return
@@ -1024,7 +772,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 
 	// If the public key is set to "mempool" it means we should just return all of the
 	// transactions that are currently in the mempool.
-	nextBlockHeight := fes.TxIndexChain.BlockTip().Height + 1
+	nextBlockHeight := fes.TXIndex.TXIndexChain.BlockTip().Height + 1
 	if transactionInfoRequest.IsMempool {
 		// Get all the txns from the mempool.
 		poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
@@ -1040,10 +788,9 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		if fes.backendServer != nil && fes.backendServer.GetBitcoinManager() != nil {
 			bitcoinManager = fes.backendServer.GetBitcoinManager()
 		}
-		utxoView, err := lib.NewUtxoView(
-			fes.TxIndexChain.DB(), fes.Params, bitcoinManager)
+		utxoView, err := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.Params, bitcoinManager)
 		if err != nil {
-			APIAddError(ww, fmt.Sprintf("UpdateTxindex: Error initializing UtxoView "+
+			APIAddError(ww, fmt.Sprintf("Update: Error initializing UtxoView "+
 				"for mempool request: %v", err))
 			return
 		}
@@ -1056,7 +803,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 				poolTx.Tx, utxoView, &lib.BlockHash{} /*Block hash*/, nextBlockHeight,
 				uint64(0) /*txnIndexInBlock*/)
 			if err != nil {
-				APIAddError(ww, fmt.Sprintf("UpdateTxindex: Error connecting "+
+				APIAddError(ww, fmt.Sprintf("Update: Error connecting "+
 					"txn for mempool request: %v: %v", poolTx.Tx, err))
 				return
 			}
@@ -1094,8 +841,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		copy(txID[:], txIDBytes)
 
 		// Use the txID to lookup the requested transaction.
-		txn, txnMeta := lib.DbGetTxindexFullTransactionByTxID(
-			fes.TxIndexChain.DB(), fes.blockchain.DB(), txID)
+		txn, txnMeta := lib.DbGetTxindexFullTransactionByTxID(fes.TXIndex.TXIndexChain.DB(), fes.blockchain.DB(), txID)
 		_, _ = txn, txnMeta
 
 		if txn == nil {
@@ -1121,9 +867,9 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			if fes.backendServer != nil && fes.backendServer.GetBitcoinManager() != nil {
 				bitcoinManager = fes.backendServer.GetBitcoinManager()
 			}
-			utxoView, err := lib.NewUtxoView(fes.TxIndexChain.DB(), fes.Params, bitcoinManager)
+			utxoView, err := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.Params, bitcoinManager)
 			if err != nil {
-				APIAddError(ww, fmt.Sprintf("UpdateTxindex: Error initializing UtxoView: %v", err))
+				APIAddError(ww, fmt.Sprintf("Update: Error initializing UtxoView: %v", err))
 				return
 			}
 			// Connect all txns in the mempool up to the current one we want info on.
@@ -1135,7 +881,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 				_, err := lib.ConnectTxnAndComputeTransactionMetadata(
 					poolTx.Tx, utxoView, &lib.BlockHash{} /*Block hash*/, nextBlockHeight, uint64(0) /*txnIndexInBlock*/)
 				if err != nil {
-					APIAddError(ww, fmt.Sprintf("UpdateTxindex: Error connecting txn: %v: %v", txn, err))
+					APIAddError(ww, fmt.Sprintf("Update: Error connecting txn: %v: %v", txn, err))
 					return
 				}
 			}
@@ -1144,7 +890,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			txnMeta, err = lib.ConnectTxnAndComputeTransactionMetadata(
 				txn, utxoView, &lib.BlockHash{} /*Block hash*/, nextBlockHeight, uint64(0) /*txnIndexInBlock*/)
 			if err != nil {
-				APIAddError(ww, fmt.Sprintf("UpdateTxindex: Error connecting MAIN txn: %v: %v", txn, err))
+				APIAddError(ww, fmt.Sprintf("Update: Error connecting MAIN txn: %v: %v", txn, err))
 				return
 			}
 		}
@@ -1195,14 +941,14 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	res.Transactions = []*TransactionResponse{}
 
 	// Look up all the transactions for the public key.
-	txHashes := lib.DbGetTxindexTxnsForPublicKey(fes.TxIndexChain.DB(), publicKeyBytes)
+	txHashes := lib.DbGetTxindexTxnsForPublicKey(fes.TXIndex.TXIndexChain.DB(), publicKeyBytes)
 	// Process all the transactions found and add them to the response.
 	for _, txHash := range txHashes {
 		txIDString := lib.PkToString(txHash[:], fes.Params)
 		// In this case we need to look up the full transaction and convert
 		// it into a proper transaction response.
 		fullTxn, txnMeta := lib.DbGetTxindexFullTransactionByTxID(
-			fes.TxIndexChain.DB(), fes.blockchain.DB(), txHash)
+			fes.TXIndex.TXIndexChain.DB(), fes.blockchain.DB(), txHash)
 		if fullTxn == nil || txnMeta == nil {
 			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem looking up "+
 				"transaction with TxID: %v; this should never happen", txIDString))
@@ -1225,10 +971,9 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	if fes.backendServer != nil && fes.backendServer.GetBitcoinManager() != nil {
 		bitcoinManager = fes.backendServer.GetBitcoinManager()
 	}
-	utxoView, err := lib.NewUtxoView(
-		fes.TxIndexChain.DB(), fes.Params, bitcoinManager)
+	utxoView, err := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.Params, bitcoinManager)
 	if err != nil {
-		APIAddError(ww, fmt.Sprintf("UpdateTxindex: Error initializing UtxoView: %v", err))
+		APIAddError(ww, fmt.Sprintf("Update: Error initializing UtxoView: %v", err))
 		return
 	}
 	// Look up all the transactions for the public key from the mempool.
@@ -1240,7 +985,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			poolTx.Tx, utxoView, &lib.BlockHash{} /*Block hash*/, nextBlockHeight,
 			uint64(0) /*txnIndexInBlock*/)
 		if err != nil {
-			APIAddError(ww, fmt.Sprintf("UpdateTxindex: Error connecting "+
+			APIAddError(ww, fmt.Sprintf("Update: Error connecting "+
 				"txn: %v: %v", poolTx.Tx, err))
 			return
 		}
@@ -1427,7 +1172,7 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 	if blockRequest.FullBlock {
 		for _, txn := range blockMsg.Txns {
 			// Look up the metadata for each transaction.
-			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TxIndexChain.DB(), txn.Hash())
+			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txn.Hash())
 
 			res.Transactions = append(
 				res.Transactions, APITransactionToResponse(

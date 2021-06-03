@@ -1,3 +1,5 @@
+#!/bin/env bash
+
 DATE=`date +%Y%m%d-%H:%M:%S-%N`
 
 (cd ../../ && go build -o backend -gcflags="all=-N -l" main.go && ./backend run \
