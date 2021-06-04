@@ -1,10 +1,9 @@
-#!/bin/env bash
 
 DATE=`date +%Y%m%d-%H:%M:%S-%N`
 
 rm /tmp/main.*.log
 
-(cd ../../ && go build -o backend -gcflags="all=-N -l" main.go && \
+(cd ../../ && CGO_CFLAGS_ALLOW=-Xpreprocessor go build -o backend -gcflags="all=-N -l" main.go && \
   ./backend run \
   --glog-v=2 \
   --glog-vmodule="*bitcoin_manager*=2,*balance*=2,*view*=2,*frontend*=2,*peer*=0,*addr*=0,*network*=0,*utils*=0,*connection*=0,*main*=0,*server*=2,*mempool*=2,*miner*=2,*blockchain*=2" \

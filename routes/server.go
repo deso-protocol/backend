@@ -256,6 +256,7 @@ func NewAPIServer(_backendServer *lib.Server,
 		mempool:                             _mempool,
 		blockchain:                          _blockchain,
 		blockProducer:                       _blockProducer,
+		quit:                                make(chan struct{}),
 		TXIndex:                             txIndex,
 		Params:                              params,
 		JSONPort:                            jsonPort,
@@ -288,8 +289,6 @@ func NewAPIServer(_backendServer *lib.Server,
 		WyreBTCAddress:                      wyreBTCAddress,
 		BuyBitCloutSeed:                     buyBitCloutSeed,
 	}
-
-	fes.StartSeedBalancesMonitoring()
 
 	return fes, nil
 }
@@ -983,6 +982,9 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 // Start ...
 func (fes *APIServer) Start() {
 	fes.initState()
+	fes.StartSeedBalancesMonitoring()
+	glog.Info(fes.quit)
+	glog.Info("quit signal")
 
 	glog.Infof("Listening to NON-SSL JSON API connections on port :%d", fes.JSONPort)
 	glog.Error(http.ListenAndServe(fmt.Sprintf(":%d", fes.JSONPort), fes.router))
@@ -997,7 +999,11 @@ func (fes *APIServer) initState() {
 // Stop...
 func (fes *APIServer) Stop() {
 	glog.Info("APIServer.Stop: Gracefully shutting down APIServer")
-	close(fes.quit)
+	//glog.Info(fes)
+	//glog.Info(&fes)
+	//glog.Info(&fes.quit)
+	//glog.Info(fes.quit)
+	//close(fes.quit)
 }
 
 // Amplitude Logging
@@ -1044,7 +1050,6 @@ func (fes *APIServer) logAmplitudeEvent(publicKeyBytes string, event string, eve
 // Monitor balances for starter bitclout seed and buy bitclout seed
 func (fes *APIServer) StartSeedBalancesMonitoring() {
 	go func() {
-	out:
 		for {
 			select {
 			case <- time.After(1 * time.Minute):
@@ -1054,8 +1059,8 @@ func (fes *APIServer) StartSeedBalancesMonitoring() {
 				tags := []string{}
 				fes.logBalanceForSeed(fes.StarterBitCloutSeed, "STARTER_BITCLOUT", tags)
 				fes.logBalanceForSeed(fes.BuyBitCloutSeed, "BUY_BITCLOUT", tags)
-			case <- fes.quit:
-				break out
+			//case <- fes.quit:
+			//	break out
 			}
 		}
 	}()

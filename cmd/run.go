@@ -35,6 +35,7 @@ func Run(cmd *cobra.Command, args []string) {
 	signal.Notify(shutdownListener, syscall.SIGINT, syscall.SIGTERM)
 	defer func() {
 		node.Stop()
+		coreNode.Stop()
 		glog.Info("Shutdown complete")
 	}()
 
