@@ -46,11 +46,6 @@ func init() {
 	coreCmd.SetupRunFlags(runCmd)
 
 	// Add all the backend flags
-	runCmd.PersistentFlags().Bool("txindex", false,
-		"When set to true, the node will generate an index mapping transaction "+
-			"ids to transaction information. This enables the use of certain API calls "+
-			"like ones that allow the lookup of particular transactions by their ID. "+
-			"Defaults to false because the index can be large.")
 	runCmd.PersistentFlags().Uint64("api-port", 0,
 		"When set, determines the port on which this node will listen for json "+
 			"requests. If unset, the port will default to what is present in the BitCloutParams set.")
@@ -115,6 +110,13 @@ func init() {
 	runCmd.PersistentFlags().String("gcp-credentials-path", "", "Google credentials to images bucket")
 	runCmd.PersistentFlags().String("gcp-bucket-name", "", "Name of bucket to store images")
 
+	// Wyre
+	runCmd.PersistentFlags().String("wyre-account-id", "", "Wyre Account ID")
+	runCmd.PersistentFlags().String("wyre-url", "", "Wyre API URL")
+	runCmd.PersistentFlags().String("wyre-api-key", "", "Wyre API Key")
+	runCmd.PersistentFlags().String("wyre-secret-key", "", "Wyre Secret Key")
+	runCmd.PersistentFlags().String("wyre-btc-address", "", "BTC Address for all Wyre Wallet Orders")
+	runCmd.PersistentFlags().String("buy-bitclout-seed", "", "Seed phrase from which BitClout will be sent for orders placed through Wyre")
 	runCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
 		viper.BindPFlag(flag.Name, flag)
 	})

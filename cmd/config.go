@@ -10,7 +10,6 @@ import (
 
 type Config struct {
 	// Core
-	TXIndex                bool
 	APIPort                uint16
 
 	// Onboarding
@@ -45,13 +44,19 @@ type Config struct {
 	// Images
 	GCPCredentialsPath     string
 	GCPBucketName          string
+
+	// Wyre
+	WyreUrl                string
+	WyreAccountId          string
+	WyreApiKey             string
+	WyreSecretKey          string
+	WyreBTCAddress         string
+	BuyBitCloutSeed        string
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config := Config{}
 
-	// Core
-	config.TXIndex = viper.GetBool("txindex")
 	config.APIPort = uint16(viper.GetUint64("api-port"))
 	if config.APIPort <= 0 {
 		// TODO: pull this out of core. we shouldn't need core's config here
@@ -101,5 +106,13 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.GCPCredentialsPath = viper.GetString("gcp-credentials-path")
 	config.GCPBucketName = viper.GetString("gcp-bucket-name")
 
+	// Wyre
+	config.WyreUrl = viper.GetString("wyre-url")
+	config.WyreAccountId = viper.GetString("wyre-account-id")
+	config.WyreApiKey = viper.GetString("wyre-api-key")
+	config.WyreSecretKey = viper.GetString("wyre-secret-key")
+	config.WyreBTCAddress = viper.GetString("wyre-btc-address")
+	// Seed from which BitClout will be sent for orders placed through Wyre
+	config.BuyBitCloutSeed = viper.GetString("buy-bitclout-seed")
 	return &config
 }

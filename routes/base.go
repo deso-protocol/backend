@@ -77,6 +77,7 @@ type GetAppStateResponse struct {
 	CreateProfileFeeNanos  uint64
 	CompProfileCreation    bool
 	DiamondLevelMap        map[int64]uint64
+	HasWyreIntegration     bool
 	// Send back the password stored in our HTTPOnly cookie
 	// so amplitude can track which passwords people are using
 	Password string
@@ -120,6 +121,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		CreateProfileFeeNanos:               utxoView.GlobalParamsEntry.CreateProfileFeeNanos,
 		CompProfileCreation:                 fes.IsCompProfileCreation,
 		DiamondLevelMap:                     lib.GetBitCloutNanosDiamondLevelMapAtBlockHeight(int64(fes.blockchain.BlockTip().Height)),
+		HasWyreIntegration:                  fes.IsConfiguredForWyre(),
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
