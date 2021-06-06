@@ -691,3 +691,67 @@ func (fes *APIServer) AdminGetUsernameVerificationAuditLogs(ww http.ResponseWrit
 		return
 	}
 }
+
+// AdminGetUserMetadataRequest...
+type AdminGetUserMetadataRequest struct {
+	PublicKeyBase58Check string
+}
+
+// AdminGetUserMetadataResponse...
+type AdminGetUserMetadataReponse struct {
+	// Profile Data
+	username 				string
+
+	// Verifiers
+	isVerified 		  		bool
+	verifiedPublicKey 		string
+
+	// Gray/Black list
+	isGraylisted 			bool
+	graylisterPublicKey 	string
+	isBlacklisted 			bool
+	blacklisterPublicKey 	string
+
+	// Phone number verification
+	phoneNumberVerified 	string
+}
+
+// Get the audit logs for a particular public key and their associated metadata
+func (fes *APIServer) AdminGetUserMetadata(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminGetUserMetadataRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Fetch the public key for a user
+	userPublicKeyBase58Check := requestData.PublicKeyBase58Check
+	userPublicKeyBytes, _, err := lib.Base58CheckDecode(userPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Failed decoding user public key: %v", err))
+		return
+	}
+
+	// Get the user's PKID
+	userPKIDEntry := lib.DBGetPKIDEntryForPublicKey(fes.GlobalStateDB, userPublicKeyBytes)
+	userPKID := userPKIDEntry.PKID
+
+	// Pull the profile entry (if it exists)
+	profileEntry := lib.DBGetProfileEntryForPKID(fes.GlobalStateDB, userPKID)
+
+	// Pull the verified map from global state and check if verified
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("AdminGetUserMetadata: Failed fetching verified map from database: %v", err))
+		return
+	}
+	if verifiedMap == nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: No verified user map in global state."))
+		return
+	}
+	isVerified := *verifiedMap[strings.ToLower(string(profileEntry.Username))] == *userPKID
+
+	// Figure out who verified the user
+}
+

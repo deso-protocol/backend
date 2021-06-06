@@ -110,6 +110,7 @@ const (
 	RoutePathAdminRemoveVerificationBadge          = "/api/v0/admin/remove-verification-badge"
 	RoutePathAdminGetVerifiedUsers                 = "/api/v0/admin/get-verified-users"
 	RoutePathAdminGetUsernameVerificationAuditLogs = "/api/v0/admin/get-username-verification-audit-logs"
+	RoutePathAdminGetUserMetadata 				   = "/api/v0/admin/get-user-metadata"
 
 	// admin_feed.go
 	RoutePathAdminUpdateGlobalFeed                 = "/api/v0/admin/update-global-feed"
@@ -748,6 +749,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			RoutePathEvictUnminedBitcoinTxns,
 			fes.EvictUnminedBitcoinTxns,
 			true,
+		},
+		{
+			"AdminGetUserMetadata",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetUserMetadata,
+			fes.AdminGetUserMetadata,
+			true, // Check Secret
 		},
 		// End all /admin routes
 
