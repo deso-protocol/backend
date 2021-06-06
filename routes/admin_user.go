@@ -717,22 +717,25 @@ type AdminGetUserMetadataRequest struct {
 }
 
 // AdminGetUserMetadataResponse...
-type AdminGetUserMetadataReponse struct {
+type AdminGetUserMetadataResponse struct {
 	// Profile Data
-	username 				string
+	Username 					string
 
 	// Verifiers
-	isVerified 		  		bool
-	verifiedPublicKey 		string
+	IsVerified 		  			bool
+	VerifierPublicKey 			string
 
-	// Gray/Black list
-	isGraylisted 			bool
-	graylisterPublicKey 	string
-	isBlacklisted 			bool
-	blacklisterPublicKey 	string
+	// White/Gray/Black list
+	IsWhitelisted 				bool
+	LastWhitelisterPublicKey 	string
+	IsGraylisted 				bool
+	LastGraylisterPublicKey 	string
+	IsBlacklisted 				bool
+	LastBlacklisterPublicKey 	string
 
 	// Phone number verification
-	phoneNumberVerified 	string
+	PhoneNumber 				string
+	Email			 			string
 }
 
 // Get the audit logs for a particular public key and their associated metadata
@@ -757,20 +760,88 @@ func (fes *APIServer) AdminGetUserMetadata(ww http.ResponseWriter, req *http.Req
 	userPKID := userPKIDEntry.PKID
 
 	// Pull the profile entry (if it exists)
+	var isVerified bool
+	var verifierPublicKey string
 	profileEntry := lib.DBGetProfileEntryForPKID(fes.GlobalStateDB, userPKID)
+	if profileEntry != nil {
+		// Pull the verified map from global state and check if verified
+		verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+		if err != nil {
+			_AddInternalServerError(ww, fmt.Sprintf("AdminGetUserMetadata: Failed fetching verified map from database: %v", err))
+			return
+		}
+		if verifiedMap == nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: No verified user map in global state."))
+			return
+		}
+		isVerified = *verifiedMap[strings.ToLower(string(profileEntry.Username))] == *userPKID
 
-	// Pull the verified map from global state and check if verified
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+		// Get the verification audit logs from global state.
+		key := GlobalStateKeyForUsernameVerificationAuditLogs(string(profileEntry.Username))
+		verificationUsernameAuditLogBytes, err := fes.GlobalStateGet(key)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem getting audit logs for this username: %v", err))
+			return
+		}
+		verificationAuditLogs := []VerificationUsernameAuditLog{}
+		if verificationUsernameAuditLogBytes != nil {
+			err = gob.NewDecoder(bytes.NewReader(verificationUsernameAuditLogBytes)).Decode(&verificationAuditLogs)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem decoding username verification logs for this user: %v", err))
+				return
+			}
+		}
+
+		// Check the last log for the verifierPublicKey
+		mostRecentVerificationLog := verificationAuditLogs[len(verificationAuditLogs) - 1]
+		verifierPKID := mostRecentVerificationLog.VerifierPKID
+		verifierPublicKey = lib.PkToString(lib.PKIDToPublicKey(verifierPKID), fes.Params)
+	} else {
+		verifierPublicKey = ""
+	}
+
+	// Gather userMetadata
+	userMetadata, err := fes.getUserMetadataFromGlobalState(userPublicKeyBase58Check)
 	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("AdminGetUserMetadata: Failed fetching verified map from database: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem fetching user metadata: %v", err))
 		return
 	}
-	if verifiedMap == nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: No verified user map in global state."))
-		return
-	}
-	isVerified := *verifiedMap[strings.ToLower(string(profileEntry.Username))] == *userPKID
 
-	// Figure out who verified the user
+	// Get username if a profile exists
+	var username string
+	if profileEntry != nil {
+		username = string(profileEntry.Username)
+	}
+
+	// Get whitelist information
+	isWhitelisted := userMetadata.WhitelistPosts
+
+	// Get verified phone/email information
+	phoneNumber := userMetadata.PhoneNumber
+	email 	:= userMetadata.Email
+
+	// Gather blacklist information
+	isBlacklisted := userMetadata.RemoveEverywhere
+
+	// Gather graylist information
+	isGraylisted := userMetadata.RemoveFromLeaderboard
+
+	res := AdminGetUserMetadataResponse{
+		Username: username,
+		IsVerified: isVerified,
+		VerifierPublicKey: verifierPublicKey,
+		IsWhitelisted: isWhitelisted,
+		LastWhitelisterPublicKey: "",
+		IsGraylisted: isGraylisted,
+		LastGraylisterPublicKey: "",
+		IsBlacklisted: isBlacklisted,
+		LastBlacklisterPublicKey: "",
+		PhoneNumber: phoneNumber,
+		Email: email,
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem encoding response as JSON: %v", err))
+		return
+	}
 }
 
