@@ -72,7 +72,18 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 		}
 	}
 
-	// If we do not have a public key, try and get one from the username.
+	// Check if the username provided was a actually a phone number. If it is,
+	// search for the associated public key in global state.
+	if userPublicKeyBytes == nil && requestData.Username != "" && requestData.Username[0] == '+' {
+		phoneNumberMetadata, err := fes.getPhoneNumberMetadataFromGlobalState(requestData.Username)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Error getting phone number metadata: %v", err))
+			return
+		}
+		userPublicKeyBytes = phoneNumberMetadata.PublicKey
+	}
+
+	// If we do not have a public key by this point, try and get one from the profile associated with the username.
 	if userPublicKeyBytes == nil && requestData.Username != "" {
 		utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 		if err != nil {
@@ -187,41 +198,31 @@ type AdminGetAllUserGlobalMetadataResponse struct {
 	PubKeyToUsername           map[string]string
 }
 
-// AdminGetAllUserGlobalMetadata ...
-func (fes *APIServer) AdminGetAllUserGlobalMetadata(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := AdminGetAllUserGlobalMetadataRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetAllUserGlobalMetadata: Problem parsing request body: %v", err))
-		return
-	}
-
+// getUserMetadataUsernameMaps acts as a helper function for AdminGetAllUserGlobalMetadata.
+func (fes *APIServer) getUserMetadataUsernameMaps(numToFetch int) (_publicKeyToUserMetadata map[string]*UserMetadata,
+	_publicKeyToUsername map[string]string, _err error) {
 	// Seek the global state for the user metadata prefix.
 	seekKey := _GlobalStatePrefixPublicKeyToUserMetadata
-	keys, vals, err := fes.GlobalStateSeek(seekKey /*startPrefix*/, seekKey, /*validForPrefix*/
-		0 /*maxKeyLen -- ignored since reverse is false*/, requestData.NumToFetch, false, /*reverse*/
-		true /*fetchValues*/)
+	keys, vals, err := fes.GlobalStateSeek(seekKey, seekKey,0 ,numToFetch,false,true)
 	if err != nil {
-		_AddInternalServerError(
-			ww, fmt.Sprintf("AdminGetAllUserGlobalMetadata: %v", err))
-		return
+		return nil, nil,
+		errors.Wrapf(err, "getUserMetadataUsernameMaps: problem with GlobalStateSeek")
 	}
 
 	// Sanity check that we got an appropriate number of keys and values.
 	if len(keys) != len(vals) {
-		_AddInternalServerError(
-			ww, "AdminGetAllUserGlobalMetadata: GlobalState keys/vals length mismatch.")
-		return
+		return nil, nil,
+			errors.Wrapf(err, "getUserMetadataUsernameMaps: GlobalState keys/vals length mismatch.")
 	}
 
 	// Get a view that includes the transaction we just processed.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddInternalServerError(
-			ww, fmt.Sprintf("AdminGetAllUserGlobalMetadata: problem with GetAugmentedUniversalView: %v", err))
-		return
+		return nil, nil,
+			errors.Wrapf(err, "getUserMetadataUsernameMaps: problem with GetAugmentedUniversalView")
 	}
 
+	// Create public key mappings
 	publicKeyToUserMetadata := make(map[string]*UserMetadata)
 	publicKeyToUsername := make(map[string]string)
 	for ii, dbKeyBytes := range keys {
@@ -234,8 +235,8 @@ func (fes *APIServer) AdminGetAllUserGlobalMetadata(ww http.ResponseWriter, req 
 		userMetadata := UserMetadata{}
 		err = gob.NewDecoder(bytes.NewReader(vals[ii])).Decode(&userMetadata)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminGetAllUserGlobalMetadata: Problem getting metadata from global state: %v", err))
-			return
+			return nil, nil,
+				errors.Wrapf(err, "getUserMetadataUsernameMaps: problem getting metadata from global state")
 		}
 
 		publicKeyToUserMetadata[pubKeyString] = &userMetadata
@@ -244,6 +245,24 @@ func (fes *APIServer) AdminGetAllUserGlobalMetadata(ww http.ResponseWriter, req 
 		if profileEntry != nil {
 			publicKeyToUsername[pubKeyString] = string(profileEntry.Username)
 		}
+	}
+
+	return publicKeyToUserMetadata, publicKeyToUsername, nil
+}
+
+// AdminGetAllUserGlobalMetadata ...
+func (fes *APIServer) AdminGetAllUserGlobalMetadata(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminGetAllUserGlobalMetadataRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetAllUserGlobalMetadata: Problem parsing request body: %v", err))
+		return
+	}
+
+	publicKeyToUserMetadata, publicKeyToUsername, err := fes.getUserMetadataUsernameMaps(requestData.NumToFetch)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetAllUserGlobalMetadata: Problem with getUserMetadataUsernameMaps: %v", err))
+		return
 	}
 
 	// If we made it this far we were successful, return without error.
