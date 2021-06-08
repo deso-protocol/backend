@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/bitclout/core/lib"
+	"github.com/golang/glog"
 	"io"
 	"net/http"
 )
@@ -33,9 +34,12 @@ func (fes *APIServer) HealthCheck(ww http.ResponseWriter, rr *http.Request) {
 }
 
 type GetExchangeRateResponse struct {
-	SatoshisPerBitCloutExchangeRate uint64
-	NanosSold                       uint64
-	USDCentsPerBitcoinExchangeRate  uint64
+	SatoshisPerBitCloutExchangeRate        uint64
+	NanosSold                              uint64
+	USDCentsPerBitcoinExchangeRate         uint64
+	USDCentsPerBitCloutExchangeRate        uint64
+	USDCentsPerBitCloutReserveExchangeRate uint64
+	BuyBitCloutFeeBasisPoints              uint64
 }
 
 func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) {
@@ -48,13 +52,33 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 	satoshisPerUnit := lib.GetSatoshisPerUnitExchangeRate(
 		startNanos, usdCentsPerBitcoin)
 
+	usdCentsPerBitCloutExchangeRate, err := fes.GetExchangePrice()
+	if err != nil {
+		glog.Errorf("GetExchangeRate: error getting current price of BitClout from exchanges %v", err)
+		usdCentsPerBitCloutExchangeRate = 0
+	}
+	usdCentsPerBitCloutReserveExchangeRate, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
+	if err != nil {
+		glog.Errorf("GetExchangeRate: error getting reserve exchange rate from global state: %v", err)
+		usdCentsPerBitCloutReserveExchangeRate = 0
+	}
+
+	feeBasisPoints, err := fes.GetBuyBitCloutFeeBasisPointsResponseFromGlobalState()
+	if err != nil {
+		glog.Errorf("GetExchangeRate: error getting buy bitclout fee basis points from global state: %v", err)
+		feeBasisPoints = 0
+	}
+
 	res := &GetExchangeRateResponse{
 		SatoshisPerBitCloutExchangeRate: satoshisPerUnit,
 		NanosSold:                       startNanos,
 		USDCentsPerBitcoinExchangeRate:  usdCentsPerBitcoin,
+		USDCentsPerBitCloutExchangeRate: usdCentsPerBitCloutExchangeRate,
+		USDCentsPerBitCloutReserveExchangeRate: usdCentsPerBitCloutReserveExchangeRate,
+		BuyBitCloutFeeBasisPoints: feeBasisPoints,
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetExchangeRate: Problem encoding response as JSON: %v", err))
 		return
 	}
