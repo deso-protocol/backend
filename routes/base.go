@@ -60,6 +60,12 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 	}
 }
 
+func (fes *APIServer) GetExchangePrice() (uint64, error){
+	// TODO: hit blockchain.com api to get current price
+	// Return USD Cents per BitClout
+	return 150 * 100, nil
+}
+
 type GetAppStateRequest struct {
 	PublicKeyBase58Check string
 }

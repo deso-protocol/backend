@@ -673,7 +673,13 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 	// Use global state price. We're adding USD-CLOUT in global state. super admin only. To compute BTC-CLOUT, use blockchain.com ticker.
 	// make get request to blockchain here to get BTC price.
 	// TODO: do we need to add a fee here?
-	nanosPurchased, err := fes.GetNanosFromSats(uint64(burnAmountSatoshis))
+	var feeBasisPoints uint64
+	feeBasisPoints, err = fes.GetBuyBitCloutFeeBasisPointsResponseFromGlobalState()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error getting buy bitclout premium basis points from global state: %v", err))
+		return
+	}
+	nanosPurchased, err := fes.GetNanosFromSats(uint64(burnAmountSatoshis), feeBasisPoints)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error computing nanos purchased: %v", err))
 		return
@@ -788,23 +794,31 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 }
 
 // GetNanosFromSats - convert Satoshis to BitClout nanos
-func (fes *APIServer) GetNanosFromSats(satoshis uint64) (uint64, error){
+func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) (uint64, error){
 	usdToBTC, err := GetUSDToBTCPrice()
 	if err != nil {
 		return 0, fmt.Errorf(" Problem getting usd to btc exchange rate: %v", err)
 	}
 	usdCentsPerBitcoin := usdToBTC * 100
 	usdCents := (float64(satoshis) * usdCentsPerBitcoin) / math.Pow(10, 8)
-	return fes.GetNanosFromUSDCents(usdCents)
+	return fes.GetNanosFromUSDCents(usdCents, feeBasisPoints)
 }
 
 // GetNanosFromUSDCents - convert USD cents to BitClout nanos
-func (fes *APIServer) GetNanosFromUSDCents(usdCents float64) (uint64, error){
-	usdCentsPerBitClout, err := fes.GetUSDCentsToBitCloutFromGlobalState()
+func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint64) (uint64, error){
+	usdCentsPerBitCloutReservePrice, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
 	if err != nil {
 		return 0, err
 	}
-	nanosPurchased := uint64(usdCents * float64(lib.NanosPerUnit) / float64(usdCentsPerBitClout))
+	usdCentsPerBitClout, err := fes.GetExchangePrice()
+	if err != nil {
+		return 0, err
+	}
+	conversionRateAfterFee := float64(usdCentsPerBitClout) * ((100.0 + (float64(feeBasisPoints) / 100.0))/ 100.0)
+	if conversionRateAfterFee < float64(usdCentsPerBitCloutReservePrice) {
+		conversionRateAfterFee = float64(usdCentsPerBitCloutReservePrice)
+	}
+	nanosPurchased := uint64(usdCents * float64(lib.NanosPerUnit) / conversionRateAfterFee)
 	return nanosPurchased, nil
 }
 

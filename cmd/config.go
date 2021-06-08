@@ -31,6 +31,7 @@ type Config struct {
 	SecureHeaderDevelopment   bool
 	SecureHeaderAllowHosts    []string
 	AdminPublicKeys           []string
+	SuperAdminPublicKeys      []string
 
 	// Analytics + Profiling
 	AmplitudeKey           string
@@ -93,6 +94,7 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.SecureHeaderDevelopment = viper.GetBool("secure-header-development")
 	config.SecureHeaderAllowHosts =  viper.GetStringSlice("secure-header-allow-hosts")
 	config.AdminPublicKeys = viper.GetStringSlice("admin-public-keys")
+	config.SuperAdminPublicKeys = viper.GetStringSlice("super-admin-public-keys")
 
 	// Analytics + Profiling
 	config.AmplitudeKey = viper.GetString("amplitude-key")

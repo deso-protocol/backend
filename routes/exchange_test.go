@@ -184,7 +184,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 		globalStateDB, globalStateRemoteNode, globalStateSharedSecret,
 		[]string{}, false, []string{},
 		"", "", false, nil, "", 0,
-		"", "", "", "", false, []string{}, "", "", "", "", "", "")
+		"", "", "", "", false, []string{}, []string{}, "", "", "", "", "", "")
 	require.NoError(err)
 
 	// Calling initState() initializes the state of the APIServer and the router as well.
@@ -198,7 +198,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 		globalStateDB, globalStateRemoteNode, "",
 		[]string{}, false, []string{},
 		"", "", false, nil, "", 0,
-		"", "", "", "", false, []string{"adminpublickey"}, "", "", "", "", "", "")
+		"", "", "", "", false, []string{"adminpublickey"}, []string{},"", "", "", "", "", "")
 	require.NoError(err)
 
 	// Calling initState() initializes the state of the APIServer and the router as well.

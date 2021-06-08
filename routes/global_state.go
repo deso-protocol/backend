@@ -121,8 +121,11 @@ var (
 	// Keeps a record of all wyre orders so we can see what has been processed or not.
 	_GlobalStatePrefixWyreOrderId = []byte{11}
 
-	// Stores the current USD Cents per BitClout exchange rate
-	_GlobalStatePrefixUSDCentsToBitCloutExchangeRate = []byte{12}
+	// Stores the current USD Cents per BitClout reserve exchange rate.
+	// If rate received from exchanges goes below this value, use this value instead.
+	_GlobalStatePrefixUSDCentsToBitCloutReserveExchangeRate = []byte{12}
+
+	_GlobalStatePrefixBuyBitCloutFeeBasisPoints = []byte{13}
 
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
@@ -311,8 +314,13 @@ func GlobalStateKeyForWyreOrderID(orderIdBytes []byte) []byte {
 	return key
 }
 
-func GlobalStateKeyForUSDCentsToBitCloutExchangeRate() []byte {
-	prefixCopy := append([]byte{}, _GlobalStatePrefixUSDCentsToBitCloutExchangeRate...)
+func GlobalStateKeyForUSDCentsToBitCloutReserveExchangeRate() []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixUSDCentsToBitCloutReserveExchangeRate...)
+	return prefixCopy
+}
+
+func GlobalStateKeyForBuyBitCloutFeeBasisPoints() []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixBuyBitCloutFeeBasisPoints...)
 	return prefixCopy
 }
 

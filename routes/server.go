@@ -96,11 +96,14 @@ const (
 	// Admin route paths can only be accessed if a user's public key is whitelisted as an admin.
 
 	// admin_node.go
-	RoutePathNodeControl                           = "/api/v0/admin/node-control"
-	RoutePathReprocessBitcoinBlock                 = "/api/v0/admin/reprocess-bitcoin-block"
-	RoutePathAdminGetMempoolStats                  = "/api/v0/admin/get-mempool-stats"
-	RoutePathEvictUnminedBitcoinTxns               = "/api/v0/admin/evict-unmined-bitcoin-txns"
-	RoutePathSetUSDCentsToBitCloutExchangeRate     = "/api/v0/admin/set-usd-cents-to-bitclout-exchange-rate"
+	RoutePathNodeControl                              = "/api/v0/admin/node-control"
+	RoutePathReprocessBitcoinBlock                    = "/api/v0/admin/reprocess-bitcoin-block"
+	RoutePathAdminGetMempoolStats                     = "/api/v0/admin/get-mempool-stats"
+	RoutePathEvictUnminedBitcoinTxns                  = "/api/v0/admin/evict-unmined-bitcoin-txns"
+	RoutePathSetUSDCentsToBitCloutReserveExchangeRate = "/api/v0/admin/set-usd-cents-to-bitclout-reserve-exchange-rate"
+	RoutePathGetUSDCentsToBitCloutReserveExchangeRate = "/api/v0/admin/get-usd-cents-to-bitclout-reserve-exchange-rate"
+	RoutePathSetBuyBitCloutFeeBasisPoints             = "/api/v0/admin/set-buy-bitclout-fee-basis-points"
+	RoutePathGetBuyBitCloutFeeBasisPoints             = "/api/v0/admin/get-buy-bitclout-fee-basis-points"
 
 	// admin_transaction.go
 	RoutePathGetGlobalParams                       = "/api/v0/admin/get-global-params"
@@ -192,6 +195,8 @@ type APIServer struct {
 
 	// Optional, restricts access to the admin panel to these public keys
 	AdminPublicKeys []string
+	// Admins with higher levels of access
+	SuperAdminPublicKeys []string
 
 	// Wyre
 	WyreUrl string
@@ -235,6 +240,7 @@ func NewAPIServer(_backendServer *lib.Server,
 	googleBucketName string,
 	compProfileCreation bool,
 	adminPublicKeys []string,
+	superAdminPublicKeys []string,
 	wyreUrl string,
 	wyreAccountId string,
 	wyreApiKey string,
@@ -282,6 +288,7 @@ func NewAPIServer(_backendServer *lib.Server,
 		GoogleBucketName:                    googleBucketName,
 		IsCompProfileCreation:               compProfileCreation,
 		AdminPublicKeys:                     adminPublicKeys,
+		SuperAdminPublicKeys:                superAdminPublicKeys,
 		WyreUrl:                             wyreUrl,
 		WyreAccountId:                       wyreAccountId,
 		WyreApiKey:                          wyreApiKey,
@@ -543,6 +550,27 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetUserGlobalMetadata,
 			false,
 		},
+		{
+			"GetSinglePost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetSinglePost,
+			fes.GetSinglePost,
+			false,
+		},
+		{
+			"BlockPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathBlockPublicKey,
+			fes.BlockPublicKey,
+			false,
+		},
+		{
+			"BlockGetTxn",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetTxn,
+			fes.GetTxn,
+			false,
+		},
 
 		// Begin all /admin routes
 
@@ -666,34 +694,21 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetWyreWalletOrdersForPublicKey,
 			true,
 		},
-		{
-			"SetUSDCentsToBitCloutExchangeRate",
-			[]string{"POST", "OPTIONS"},
-			RoutePathSetUSDCentsToBitCloutExchangeRate,
-			fes.SetUSDCentsToBitCloutExchangeRate,
-			true,
-		},
 		// End all /admin routes
 
+		// GET endpoints for managing parameters related to Buying BitClout
 		{
-			"GetSinglePost",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetSinglePost,
-			fes.GetSinglePost,
+			"GetUSDCentsToBitCloutReserveExchangeRate",
+			[]string{"GET"},
+			RoutePathGetUSDCentsToBitCloutReserveExchangeRate,
+			fes.GetUSDCentsToBitCloutReserveExchangeRate,
 			false,
 		},
 		{
-			"BlockPublicKey",
-			[]string{"POST", "OPTIONS"},
-			RoutePathBlockPublicKey,
-			fes.BlockPublicKey,
-			false,
-		},
-		{
-			"BlockGetTxn",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetTxn,
-			fes.GetTxn,
+			"GetBuyBitCloutFeeBasisPoints",
+			[]string{"GET"},
+			RoutePathGetBuyBitCloutFeeBasisPoints,
+			fes.GetBuyBitCloutFeeBasisPoints,
 			false,
 		},
 
@@ -792,40 +807,60 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 	fullRouteList = append(fullRouteList, fes.APIRoutes()...)
 	fullRouteList = append(fullRouteList, fes.GlobalStateRoutes()...)
 
-	for _, route := range fullRouteList {
-		var handler http.Handler
+	var SuperAdminRoutes = []Route{
+		{
+			"SetUSDCentsToBitCloutReserveExchangeRate",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSetUSDCentsToBitCloutReserveExchangeRate,
+			fes.SetUSDCentsToBitCloutReserveExchangeRate,
+			true,
+		},
+		{
+			"SetBuyBitCloutFeeBasisPoints",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSetBuyBitCloutFeeBasisPoints,
+			fes.SetBuyBitCloutFeeBasisPoints,
+			true,
+		}}
 
-		handler = route.HandlerFunc
-		// Note that the wrapper that is applied last is actually called first. For
-		// example if you have:
-		// - handler = C(handler)
-		// - handler = B(handler)
-		// - handler = A(handler)
-		// then A will be called first B will be called second, and C will be called
-		// last.
+	addRoutes := func(routeList []Route, checkSuperAdminOnly bool) {
+		for _, route := range routeList {
+			var handler http.Handler
 
-		// Anyone can access the admin panel if no public keys exist
-		if route.CheckPublicKey && len(fes.AdminPublicKeys) > 0 {
-			handler = fes.CheckAdminPublicKey(handler)
-		}
-		handler = Logger(handler, route.Name)
-		handler = AddHeaders(handler, fes.AccessControlAllowOrigins)
+			handler = route.HandlerFunc
+			// Note that the wrapper that is applied last is actually called first. For
+			// example if you have:
+			// - handler = C(handler)
+			// - handler = B(handler)
+			// - handler = A(handler)
+			// then A will be called first B will be called second, and C will be called
+			// last.
 
-		router.
-			Methods(route.Method...).
-			Path(route.Pattern).
-			Name(route.Name).
-			Handler(handler)
+			// Anyone can access the admin panel if no public keys exist
+			if route.CheckPublicKey && (len(fes.AdminPublicKeys) > 0 || len(fes.SuperAdminPublicKeys) > 0) {
+				handler = fes.CheckAdminPublicKey(handler, checkSuperAdminOnly)
+			}
+			handler = Logger(handler, route.Name)
+			handler = AddHeaders(handler, fes.AccessControlAllowOrigins)
 
-		// Support legacy frontend server routes that weren't prefixed
-		if strings.HasPrefix(route.Pattern, "/api/v0") {
 			router.
 				Methods(route.Method...).
-				Path(strings.ReplaceAll(route.Pattern, "/api/v0", "")).
+				Path(route.Pattern).
 				Name(route.Name).
 				Handler(handler)
+
+			// Support legacy frontend server routes that weren't prefixed
+			if strings.HasPrefix(route.Pattern, "/api/v0") {
+				router.
+					Methods(route.Method...).
+					Path(strings.ReplaceAll(route.Pattern, "/api/v0", "")).
+					Name(route.Name).
+					Handler(handler)
+			}
 		}
 	}
+	addRoutes(fullRouteList, false)
+	addRoutes(SuperAdminRoutes, true)
 
 	return router
 }
@@ -917,7 +952,7 @@ type AdminRequest struct {
 }
 
 // CheckSecret ...
-func (fes *APIServer) CheckAdminPublicKey(inner http.Handler) http.Handler {
+func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, checkSuperAdminOnly bool) http.Handler {
 	return http.HandlerFunc(func(ww http.ResponseWriter, req *http.Request) {
 		requestData := AdminRequest{}
 
@@ -956,15 +991,33 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler) http.Handler {
 			return
 		}
 
-		for _, adminPubKey := range fes.AdminPublicKeys {
-			if adminPubKey == requestData.AdminPublicKey {
+		// If this a regular admin endpoint, we iterate through all the admin public keys.
+		if !checkSuperAdminOnly {
+			for _, adminPubKey := range fes.AdminPublicKeys {
+				if adminPubKey == requestData.AdminPublicKey {
+					// We found a match, serve the request
+					inner.ServeHTTP(ww, req)
+					return
+				}
+			}
+		}
+
+
+		// We also check super admins, as they have a superset of capabilities.
+		for _, superAdminPubKey := range fes.SuperAdminPublicKeys {
+			if superAdminPubKey == requestData.AdminPublicKey {
 				// We found a match, serve the request
 				inner.ServeHTTP(ww, req)
 				return
 			}
 		}
 
-		_AddBadRequestError(ww, "CheckAdminPublicKey: Not an admin")
+		adminType := "an admin"
+		if checkSuperAdminOnly {
+			adminType = "a superadmin"
+		}
+		_AddBadRequestError(ww, fmt.Sprintf("CheckAdminPublicKey: Not %v", adminType))
+		return
 	})
 }
 
