@@ -42,6 +42,10 @@ type GetPostsStatelessRequest struct {
 
 	// This gets posts sorted by clout
 	GetPostsByClout             bool   `safeForLogging:"true"`
+
+	// This only gets posts that include media, like photos and videos
+	MediaRequired bool `safeForLogging:"true"`
+
 	PostsByCloutMinutesLookback uint64 `safeForLogging:"true"`
 
 	// If set to true, then the posts in the response will contain a boolean about whether they're in the global feed
@@ -299,12 +303,12 @@ func (fes *APIServer) GetAllPostEntries(readerPK []byte) (
 }
 
 func (fes *APIServer) GetPostEntriesForFollowFeed(
-	startAfterPostHash *lib.BlockHash, readerPK []byte, numToFetch int, utxoView *lib.UtxoView) (
+	startAfterPostHash *lib.BlockHash, readerPK []byte, numToFetch int, utxoView *lib.UtxoView, mediaRequired bool) (
 	_postEntries []*lib.PostEntry,
 	_profilesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry,
 	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, err error) {
 
-	postEntries, err := fes.GetPostsForFollowFeedForPublicKey(utxoView, startAfterPostHash, readerPK, numToFetch, true /* skip hidden */)
+	postEntries, err := fes.GetPostsForFollowFeedForPublicKey(utxoView, startAfterPostHash, readerPK, numToFetch, true /* skip hidden */, mediaRequired)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("GetPostEntriesForFollowFeed: Error fetching posts from view: %v", err)
 	}
@@ -524,7 +528,7 @@ func (fes *APIServer) _shouldSkipCommentResponse(commentResponse *PostEntryRespo
 }
 
 func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
-	startPostHash *lib.BlockHash, readerPK []byte, numToFetch int, utxoView *lib.UtxoView) (
+	startPostHash *lib.BlockHash, readerPK []byte, numToFetch int, utxoView *lib.UtxoView, mediaRequired bool) (
 	_postEntries []*lib.PostEntry,
 	_profilesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry,
 	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, err error) {
@@ -586,6 +590,11 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 				continue
 			}
 
+			// mediaRequired set to determine if we only want posts that include media and ignore posts without
+			if mediaRequired && postEntry != nil && !postEntry.HasMedia() {
+				continue
+			}
+
 			if postEntry != nil {
 				postEntries = append(postEntries, postEntry)
 			}
@@ -628,6 +637,11 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 		for _, postEntry := range utxoView.PostHashToPostEntry {
 			// Skip deleted / hidden posts and any comments.
 			if postEntry.IsDeleted() || postEntry.IsHidden || len(postEntry.ParentStakeID) != 0 {
+				continue
+			}
+
+			// mediaRequired set to determine if we only want posts that include media and ignore posts without
+			if mediaRequired && !postEntry.HasMedia() {
 				continue
 			}
 
@@ -753,14 +767,14 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 		postEntries,
 			profileEntryMap,
 			readerStateMap,
-			err = fes.GetPostEntriesForFollowFeed(startPostHash, readerPublicKeyBytes, numToFetch, utxoView)
+			err = fes.GetPostEntriesForFollowFeed(startPostHash, readerPublicKeyBytes, numToFetch, utxoView, requestData.MediaRequired)
 		// if we're getting posts for follow feed, no comments are returned (they aren't necessary)
 		commentsByPostHash = make(map[lib.BlockHash][]*lib.PostEntry)
 	} else if requestData.GetPostsForGlobalWhitelist {
 		postEntries,
 			profileEntryMap,
 			readerStateMap,
-			err = fes.GetPostEntriesForGlobalWhitelist(startPostHash, readerPublicKeyBytes, numToFetch, utxoView)
+			err = fes.GetPostEntriesForGlobalWhitelist(startPostHash, readerPublicKeyBytes, numToFetch, utxoView, requestData.MediaRequired)
 		// if we're getting posts for the global whitelist, no comments are returned (they aren't necessary)
 		commentsByPostHash = make(map[lib.BlockHash][]*lib.PostEntry)
 	} else if requestData.GetPostsByClout {
@@ -1294,6 +1308,7 @@ type GetPostsForPublicKeyRequest struct {
 	LastPostHashHex string `safeForLogging:"true"`
 	// Number of records to fetch
 	NumToFetch uint64 `safeForLogging:"true"`
+	MediaRequired bool `safeForLogging:"true"`
 }
 
 // GetPostsForPublicKeyResponse ...
@@ -1363,7 +1378,7 @@ func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Req
 	}
 
 	// Get Posts Ordered by time.
-	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash, requestData.NumToFetch)
+	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash, requestData.NumToFetch, requestData.MediaRequired)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPostsForPublicKey: Problem getting paginated posts: %v", err))
 		return
@@ -1417,8 +1432,6 @@ func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Req
 		return
 	}
 }
-
-
 
 type GetPostsDiamondedBySenderForReceiverRequest struct {
 	// Public key of the poster who received diamonds from the sender

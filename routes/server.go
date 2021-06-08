@@ -597,27 +597,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			true, // Check Secret
 		},
 		{
-			"AdminGetUsernameVerificationAuditLogs",
-			[]string{"POST", "OPTIONS"},
-			RoutePathAdminGetUsernameVerificationAuditLogs,
-			fes.AdminGetUsernameVerificationAuditLogs,
-			true, // Check Secret
-		},
-		{
-			"AdminGrantVerificationBadge",
-			[]string{"POST", "OPTIONS"},
-			RoutePathAdminGrantVerificationBadge,
-			fes.AdminGrantVerificationBadge,
-			true, // Check Secret
-		},
-		{
-			"AdminRemoveVerificationBadge",
-			[]string{"POST", "OPTIONS"},
-			RoutePathAdminRemoveVerificationBadge,
-			fes.AdminRemoveVerificationBadge,
-			true, // Check Secret
-		},
-		{
 			"AdminGetAllUserGlobalMetadata",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminGetAllUserGlobalMetadata,
@@ -646,13 +625,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			true, // CheckSecret
 		},
 		{
-			"AdminRemoveNilPosts",
-			[]string{"POST", "OPTIONS"},
-			RoutePathAdminRemoveNilPosts,
-			fes.AdminRemoveNilPosts,
-			true,
-		},
-		{
 			"AdminGetMempoolStats",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminGetMempoolStats,
@@ -660,31 +632,10 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			true,
 		},
 		{
-			"SwapIdentity",
-			[]string{"POST", "OPTIONS"},
-			RoutePathSwapIdentity,
-			fes.SwapIdentity,
-			true,
-		},
-		{
-			"UpdateGlobalParams",
-			[]string{"POST", "OPTIONS"},
-			RoutePathUpdateGlobalParams,
-			fes.UpdateGlobalParams,
-			true,
-		},
-		{
 			"GetGlobalParams",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetGlobalParams,
 			fes.GetGlobalParams,
-			true,
-		},
-		{
-			"EvictUnminedBitcoinTxns",
-			[]string{"POST", "OPTIONS"},
-			RoutePathEvictUnminedBitcoinTxns,
-			fes.EvictUnminedBitcoinTxns,
 			true,
 		},
 		{
@@ -809,6 +760,55 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 
 	var SuperAdminRoutes = []Route{
 		{
+			"AdminGetUsernameVerificationAuditLogs",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetUsernameVerificationAuditLogs,
+			fes.AdminGetUsernameVerificationAuditLogs,
+			true, // Check Secret
+		},
+		{
+			"AdminGrantVerificationBadge",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGrantVerificationBadge,
+			fes.AdminGrantVerificationBadge,
+			true, // Check Secret
+		},
+		{
+			"AdminRemoveVerificationBadge",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminRemoveVerificationBadge,
+			fes.AdminRemoveVerificationBadge,
+			true, // Check Secret
+		},
+		{
+			"SwapIdentity",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSwapIdentity,
+			fes.SwapIdentity,
+			true,
+		},
+		{
+			"UpdateGlobalParams",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateGlobalParams,
+			fes.UpdateGlobalParams,
+			true,
+		},
+		{
+			"EvictUnminedBitcoinTxns",
+			[]string{"POST", "OPTIONS"},
+			RoutePathEvictUnminedBitcoinTxns,
+			fes.EvictUnminedBitcoinTxns,
+			true,
+		},
+		{
+			"AdminRemoveNilPosts",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminRemoveNilPosts,
+			fes.AdminRemoveNilPosts,
+			true,
+		},
+		{
 			"SetUSDCentsToBitCloutReserveExchangeRate",
 			[]string{"POST", "OPTIONS"},
 			RoutePathSetUSDCentsToBitCloutReserveExchangeRate,
@@ -821,7 +821,8 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			RoutePathSetBuyBitCloutFeeBasisPoints,
 			fes.SetBuyBitCloutFeeBasisPoints,
 			true,
-		}}
+		},
+	}
 
 	addRoutes := func(routeList []Route, checkSuperAdminOnly bool) {
 		for _, route := range routeList {
