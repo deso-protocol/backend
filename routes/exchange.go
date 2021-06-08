@@ -45,54 +45,54 @@ const (
 // APIRoutes returns the routes for the public-facing API.
 func (fes *APIServer) APIRoutes() []Route {
 	var APIRoutes = []Route{
-		Route{
+		{
 			"APIBase",
 			[]string{"GET"},
 			RoutePathAPIBase,
 			fes.APIBase,
-			false, // CheckSecret
+			PublicAccess, // CheckSecret
 		},
-		Route{
+		{
 			"APIKeyPair",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAPIKeyPair,
 			fes.APIKeyPair,
-			false, // CheckSecret
+			PublicAccess, // CheckSecret
 		},
-		Route{
+		{
 			"APIBalance",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAPIBalance,
 			fes.APIBalance,
-			false, // CheckSecret
+			PublicAccess, // CheckSecret
 		},
-		Route{
+		{
 			"APITransferBitClout",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAPITransferBitClout,
 			fes.APITransferBitClout,
-			false, // CheckSecret
+			PublicAccess, // CheckSecret
 		},
-		Route{
+		{
 			"APITransactionInfo",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAPITransactionInfo,
 			fes.APITransactionInfo,
-			false, // CheckSecret
+			PublicAccess, // CheckSecret
 		},
-		Route{
+		{
 			"APINodeInfo",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAPINodeInfo,
 			fes.APINodeInfo,
-			true, // CheckSecret
+			AdminAccess, // CheckSecret
 		},
-		Route{
+		{
 			"APIBlock",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAPIBlock,
 			fes.APIBlock,
-			false, // CheckSecret
+			PublicAccess, // CheckSecret
 		},
 	}
 
@@ -1545,7 +1545,7 @@ func (fes *APIServer) GetProfilesByCoinValue(
 	return profilesByPublicKey, postsByPublicKey, postEntryReaderStates, nil
 }
 
-func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, startAfterPostHash *lib.BlockHash, publicKey []byte, numToFetch int, skipHidden bool) (
+func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, startAfterPostHash *lib.BlockHash, publicKey []byte, numToFetch int, skipHidden bool, mediaRequired bool) (
 	_postEntries []*lib.PostEntry, _err error) {
 	// Get the people who follow publicKey
 	// Note: GetFollowEntriesForPublicKey also loads them into the view
@@ -1601,6 +1601,11 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 	for _, postEntry := range bav.PostHashToPostEntry {
 		// Ignore deleted or hidden posts and any comments.
 		if postEntry.IsDeleted() || (postEntry.IsHidden && skipHidden) || len(postEntry.ParentStakeID) != 0 {
+			continue
+		}
+
+		// mediaRequired set to determine if we only want posts that include media and ignore posts without
+		if mediaRequired && !postEntry.HasMedia(){
 			continue
 		}
 

@@ -110,6 +110,16 @@ func init() {
 	runCmd.PersistentFlags().String("gcp-credentials-path", "", "Google credentials to images bucket")
 	runCmd.PersistentFlags().String("gcp-bucket-name", "", "Name of bucket to store images")
 
+	// Admin
+	runCmd.PersistentFlags().StringSlice("admin-public-keys", []string{},
+		"A list of public keys which gives users access to the admin panel. "+
+			"If no keys are specified anyone can access the admin panel. You can add a space "+
+			"and a comment after every public key and leave a note about who the public key belongs to.")
+	runCmd.PersistentFlags().StringSlice("super-admin-public-keys", []string{},
+		"A list of public keys which gives users access to the super admin panel. "+
+			"If no keys are specified anyone can access the super admin panel. You can add a space "+
+			"and a comment after every public key and leave a note about who the public key belongs to.")
+
 	// Wyre
 	runCmd.PersistentFlags().String("wyre-account-id", "", "Wyre Account ID")
 	runCmd.PersistentFlags().String("wyre-url", "", "Wyre API URL")
