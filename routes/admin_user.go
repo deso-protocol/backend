@@ -516,15 +516,15 @@ type VerifiedUsernameToPKID struct {
 
 type VerificationUsernameAuditLog struct {
 	// Time at which the verification was granted or removed.
-	TimestampNanos uint64
+	TimestampNanos 		uint64
 	// Username and PKID of the admin who verified the user.
-	VerifierUsername string
-	VerifierPKID     *lib.PKID
+	VerifierUsername 	string
+	VerifierPKID     	*lib.PKID
 	// The user who was verified or had their verification removed.
-	VerifiedUsername string
-	VerifiedPKID     *lib.PKID
+	VerifiedUsername 	string
+	VerifiedPKID     	*lib.PKID
 	// Indicator of whether this request granted verification or removed verification.
-	IsRemoval bool
+	IsRemoval 			bool
 }
 
 type FilterType uint32

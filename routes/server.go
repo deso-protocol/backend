@@ -631,15 +631,15 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetWyreWalletOrdersForPublicKey,
 			AdminAccess,
 		},
+		// Super Admin routes
 		{
 
 			"AdminGetUserAdminData",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminGetUserAdminData,
 			fes.AdminGetUserAdminData,
-			AdminAccess,
+			SuperAdminAccess,
 		},
-		// Super Admin routes
 		{
 			"AdminGetUsernameVerificationAuditLogs",
 			[]string{"POST", "OPTIONS"},
