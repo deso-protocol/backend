@@ -33,35 +33,35 @@ func (fes *APIServer) GlobalStateRoutes() []Route {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGlobalStatePutRemote,
 			fes.GlobalStatePutRemote,
-			true, // CheckSecret
+			AdminAccess, // CheckSecret
 		},
 		{
 			"GlobalStateGetRemote",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGlobalStateGetRemote,
 			fes.GlobalStateGetRemote,
-			true, // CheckSecret
+			AdminAccess, // CheckSecret
 		},
 		{
 			"GlobalStateBatchGetRemote",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGlobalStateBatchGetRemote,
 			fes.GlobalStateBatchGetRemote,
-			true, // CheckSecret
+			AdminAccess, // CheckSecret
 		},
 		{
 			"GlobalStateDeleteRemote",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGlobalStateDeleteRemote,
 			fes.GlobalStateDeleteRemote,
-			true, // CheckSecret
+			AdminAccess, // CheckSecret
 		},
 		{
 			"GlobalStateSeekRemote",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGlobalStateSeekRemote,
 			fes.GlobalStateSeekRemote,
-			true, // CheckSecret
+			AdminAccess, // CheckSecret
 		},
 	}
 
