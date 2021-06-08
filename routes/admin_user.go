@@ -10,6 +10,7 @@ import (
 	"github.com/pkg/errors"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -136,12 +137,13 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 	}
 
 	// Gather relevant information from filter logs
-	userPKIDEntry := lib.DBGetPKIDEntryForPublicKey(fes.GlobalStateDB, userPublicKeyBytes)
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem getting utxoView: %v", err))
 		return
 	}
+	userPKIDEntry := utxoView.GetPKIDForPublicKey(userPublicKeyBytes)
+	profileEntry := utxoView.GetProfileEntryForPKID(userPKIDEntry.PKID)
 
 	// Now that we have a userMetadata object, update it based on the request.
 	if requestData.IsBlacklistUpdate {
@@ -153,7 +155,7 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating blacklist: %v", err))
 			}
 			// We update the logs accordingly
-			err = fes.UpdateFilterAuditLogs(requestData.Username, userPKIDEntry, Blacklist, false, requestData.AdminPublicKey, utxoView)
+			err = fes.UpdateFilterAuditLogs(string(profileEntry.Username), userPKIDEntry, Blacklist, false, requestData.AdminPublicKey, utxoView)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating blacklist logs: %v", err))
 				return
@@ -165,7 +167,7 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 				return
 			}
 			// We update the logs accordingly
-			err = fes.UpdateFilterAuditLogs(requestData.Username, userPKIDEntry, Blacklist, true, requestData.AdminPublicKey, utxoView)
+			err = fes.UpdateFilterAuditLogs(string(profileEntry.Username), userPKIDEntry, Blacklist, true, requestData.AdminPublicKey, utxoView)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating blacklist logs: %v", err))
 				return
@@ -183,7 +185,7 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 				return
 			}
 			// We update the logs accordingly
-			err = fes.UpdateFilterAuditLogs(requestData.Username, userPKIDEntry, Graylist, false, requestData.AdminPublicKey, utxoView)
+			err = fes.UpdateFilterAuditLogs(string(profileEntry.Username), userPKIDEntry, Graylist, false, requestData.AdminPublicKey, utxoView)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating graylist logs: %v", err))
 				return
@@ -195,7 +197,7 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 				return
 			}
 			// We update the logs accordingly
-			err = fes.UpdateFilterAuditLogs(requestData.Username, userPKIDEntry, Graylist, true, requestData.AdminPublicKey, utxoView)
+			err = fes.UpdateFilterAuditLogs(string(profileEntry.Username), userPKIDEntry, Graylist, true, requestData.AdminPublicKey, utxoView)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating graylist logs: %v", err))
 				return
@@ -204,7 +206,7 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 	} else if requestData.IsWhitelistUpdate {
 		userMetadata.WhitelistPosts = requestData.WhitelistPosts
 		// We update the logs accordingly
-		err = fes.UpdateFilterAuditLogs(requestData.Username, userPKIDEntry, Whitelist, !requestData.WhitelistPosts, requestData.AdminPublicKey, utxoView)
+		err = fes.UpdateFilterAuditLogs(string(profileEntry.Username), userPKIDEntry, Whitelist, !requestData.WhitelistPosts, requestData.AdminPublicKey, utxoView)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating whitelist logs: %v", err))
 			return
@@ -432,7 +434,7 @@ func (fes *APIServer) UpdateFilterAuditLogs(usernameToUpdate string, pkidEntryTo
 
 	// Decode the updater's public key
 	updaterPublicKeyBytes, _, err := lib.Base58CheckDecode(updaterPublicKeyBase58Check)
-	if err != nil || len(updaterPublicKeyBase58Check) != btcec.PubKeyBytesLenCompressed {
+	if err != nil || len(updaterPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
 		return errors.Wrap(fmt.Errorf("UpdateFilterAuditLogs: Failed to decode verifier public key bytes"), "")
 	}
 	updaterPKID := utxoView.GetPKIDForPublicKey(updaterPublicKeyBytes)
@@ -864,7 +866,7 @@ func (fes *APIServer) AdminGetUsernameVerificationAuditLogs(ww http.ResponseWrit
 
 // AdminGetUserMetadataRequest...
 type AdminGetUserAdminDataRequest struct {
-	PublicKeyBase58Check string
+	UserPublicKeyBase58Check string
 }
 
 // AdminGetUserMetadataResponse...
@@ -903,24 +905,28 @@ func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Re
 	}
 
 	// Fetch the public key for a user
-	userPublicKeyBase58Check := requestData.PublicKeyBase58Check
+
+	// Gather relevant information for logs
+	userPublicKeyBase58Check := requestData.UserPublicKeyBase58Check
 	userPublicKeyBytes, _, err := lib.Base58CheckDecode(userPublicKeyBase58Check)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Failed decoding user public key: %v", err))
 		return
 	}
-
-	// Get the user's PKID
-	userPKIDEntry := lib.DBGetPKIDEntryForPublicKey(fes.GlobalStateDB, userPublicKeyBytes)
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem getting utxoView: %v", err))
+		return
+	}
+	userPKIDEntry := utxoView.GetPKIDForPublicKey(userPublicKeyBytes)
 	userPKID := userPKIDEntry.PKID
+	profileEntry := utxoView.GetProfileEntryForPKID(userPKIDEntry.PKID)
 
-	// Pull the profile entry (if it exists)
+	// Pull the verified map from global state and check if verified.
 	isVerified := false
 	lastVerifierPublicKey := ""
 	lastVerifyRemoverPublicKey := ""
-	profileEntry := lib.DBGetProfileEntryForPKID(fes.GlobalStateDB, userPKID)
 	if profileEntry != nil {
-		// Pull the verified map from global state and check if verified.
 		verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
 		if err != nil {
 			_AddInternalServerError(ww, fmt.Sprintf("AdminGetUserMetadata: Failed fetching verified map from database: %v", err))
@@ -930,7 +936,9 @@ func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Re
 			_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: No verified user map in global state."))
 			return
 		}
-		isVerified = *verifiedMap[strings.ToLower(string(profileEntry.Username))] == *userPKID
+		if _, hasEntry := verifiedMap[strings.ToLower(string(profileEntry.Username))]; hasEntry {
+			isVerified = reflect.DeepEqual(verifiedMap[strings.ToLower(string(profileEntry.Username))], userPKID)
+		}
 
 		// Get the verification audit logs from global state.
 		key := GlobalStateKeyForUsernameVerificationAuditLogs(string(profileEntry.Username))
