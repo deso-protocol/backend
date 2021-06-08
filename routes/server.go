@@ -302,13 +302,21 @@ func NewAPIServer(_backendServer *lib.Server,
 	return fes, nil
 }
 
+type AccessLevel int
+
+const (
+	PublicAccess AccessLevel = iota
+	AdminAccess
+	SuperAdminAccess
+)
+
 // Route ...
 type Route struct {
 	Name           string
 	Method         []string
 	Pattern        string
 	HandlerFunc    http.HandlerFunc
-	CheckPublicKey bool
+	AccessLevel    AccessLevel
 }
 
 // InitRoutes ...
@@ -322,7 +330,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			"/",
 			fes.Index,
-			false,
+			PublicAccess,
 		},
 
 		{
@@ -330,7 +338,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathHealthCheck,
 			fes.HealthCheck,
-			false,
+			PublicAccess,
 		},
 
 		// Routes for populating various UI elements.
@@ -339,7 +347,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetExchangeRate,
 			fes.GetExchangeRate,
-			false,
+			PublicAccess,
 		},
 		// Route for exchanging Bitcoin for BitClout
 		{
@@ -347,7 +355,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathExchangeBitcoin,
 			fes.ExchangeBitcoinStateless,
-			false,
+			PublicAccess,
 		},
 		// Route for sending BitClout
 		{
@@ -355,7 +363,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathSendBitClout,
 			fes.SendBitClout,
-			false,
+			PublicAccess,
 		},
 
 		// Route for submitting signed transactions for network broadcast
@@ -364,7 +372,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathSubmitTransaction,
 			fes.SubmitTransaction,
-			false,
+			PublicAccess,
 		},
 
 		// Temporary route to wipe seedinfo cookies
@@ -373,7 +381,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathDeleteIdentities,
 			fes.DeleteIdentities,
-			false,
+			PublicAccess,
 		},
 
 		// Endpoint to trigger the reprocessing of a particular Bitcoin block.
@@ -382,7 +390,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET", "POST", "OPTIONS"},
 			RoutePathReprocessBitcoinBlock + "/{blockHashHexOrblockHeight:[0-9abcdefABCDEF]+}",
 			fes.ReprocessBitcoinBlock,
-			false,
+			PublicAccess,
 		},
 		// Endpoint to trigger granting a user a verified badge
 
@@ -392,35 +400,35 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetUsersStateless,
 			fes.GetUsersStateless,
-			false,
+			PublicAccess,
 		},
 		{
 			"SendPhoneNumberVerificationText",
 			[]string{"POST", "OPTIONS"},
 			RoutePathSendPhoneNumberVerificationText,
 			fes.SendPhoneNumberVerificationText,
-			false,
+			PublicAccess,
 		},
 		{
 			"SubmitPhoneNumberVerificationCode",
 			[]string{"POST", "OPTIONS"},
 			RoutePathSubmitPhoneNumberVerificationCode,
 			fes.SubmitPhoneNumberVerificationCode,
-			false,
+			PublicAccess,
 		},
 		{
 			"UploadImage",
 			[]string{"POST", "OPTIONS"},
 			RoutePathUploadImage,
 			fes.UploadImage,
-			false,
+			PublicAccess,
 		},
 		{
 			"SubmitPost",
 			[]string{"POST", "OPTIONS"},
 			RoutePathSubmitPost,
 			fes.SubmitPost,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetPostsStateless",
@@ -428,14 +436,14 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			RoutePathGetPostsStateless,
 			fes.GetPostsStateless,
 			// CheckSecret: No need to check the secret since this is a read-only endpoint.
-			false,
+			PublicAccess,
 		},
 		{
 			"UpdateProfile",
 			[]string{"POST", "OPTIONS"},
 			RoutePathUpdateProfile,
 			fes.UpdateProfile,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetProfiles",
@@ -443,225 +451,287 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			RoutePathGetProfiles,
 			fes.GetProfiles,
 			// CheckSecret: No need to check the secret since this is a read-only endpoint.
-			false,
+			PublicAccess,
 		},
 		{
 			"GetSingleProfile",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetSingleProfile,
 			fes.GetSingleProfile,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetPostsForPublicKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetPostsForPublicKey,
 			fes.GetPostsForPublicKey,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetDiamondsForPublicKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetDiamondsForPublicKey,
 			fes.GetDiamondsForPublicKey,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetDiamondedPosts",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetDiamondedPosts,
 			fes.GetDiamondedPosts,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetHodlersForPublicKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetHodlersForPublicKey,
 			fes.GetHodlersForPublicKey,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetFollowsStateless",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetFollowsStateless,
 			fes.GetFollowsStateless,
-			false,
+			PublicAccess,
 		},
 		{
 			"CreateFollowTxnStateless",
 			[]string{"POST", "OPTIONS"},
 			RoutePathCreateFollowTxnStateless,
 			fes.CreateFollowTxnStateless,
-			false,
+			PublicAccess,
 		},
 		{
 			"CreateLikeStateless",
 			[]string{"POST", "OPTIONS"},
 			RoutePathCreateLikeStateless,
 			fes.CreateLikeStateless,
-			false,
+			PublicAccess,
 		},
 		{
 			"BuyOrSellCreatorCoin",
 			[]string{"POST", "OPTIONS"},
 			RoutePathBuyOrSellCreatorCoin,
 			fes.BuyOrSellCreatorCoin,
-			false,
+			PublicAccess,
 		},
 		{
 			"TransferCreatorCoin",
 			[]string{"POST", "OPTIONS"},
 			RoutePathTransferCreatorCoin,
 			fes.TransferCreatorCoin,
-			false,
+			PublicAccess,
 		},
 		{
 			"SendDiamonds",
 			[]string{"POST", "OPTIONS"},
 			RoutePathSendDiamonds,
 			fes.SendDiamonds,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetNotifications",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetNotifications,
 			fes.GetNotifications,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetAppState",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetAppState,
 			fes.GetAppState,
-			false,
+			PublicAccess,
 		},
 		{
 			"UpdateUserGlobalMetadata",
 			[]string{"POST", "OPTIONS"},
 			RoutePathUpdateUserGlobalMetadata,
 			fes.UpdateUserGlobalMetadata,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetUserGlobalMetadata",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetUserGlobalMetadata,
 			fes.GetUserGlobalMetadata,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetSinglePost",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetSinglePost,
 			fes.GetSinglePost,
-			false,
+			PublicAccess,
 		},
 		{
 			"BlockPublicKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathBlockPublicKey,
 			fes.BlockPublicKey,
-			false,
+			PublicAccess,
 		},
 		{
 			"BlockGetTxn",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetTxn,
 			fes.GetTxn,
-			false,
+			PublicAccess,
 		},
 
 		// Begin all /admin routes
-
 		{
 			// Route for all low-level node operations.
 			"NodeControl",
 			[]string{"POST", "OPTIONS"},
 			RoutePathNodeControl,
 			fes.NodeControl,
-			true,
+			AdminAccess,
 		},
 		{
 			"AdminUpdateUserGlobalMetadata",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateUserGlobalMetadata,
 			fes.AdminUpdateUserGlobalMetadata,
-			true,
+			AdminAccess,
 		},
 		{
 			"AdminGetVerifiedUsers",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminGetVerifiedUsers,
 			fes.AdminGetVerifiedUsers,
-			true, // Check Secret
+			AdminAccess, // Check Secret
 		},
 		{
 			"AdminGetAllUserGlobalMetadata",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminGetAllUserGlobalMetadata,
 			fes.AdminGetAllUserGlobalMetadata,
-			true,
+			AdminAccess,
 		},
 		{
 			"AdminGetUserGlobalMetadata",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminGetUserGlobalMetadata,
 			fes.AdminGetUserGlobalMetadata,
-			true,
+			AdminAccess,
 		},
 		{
 			"AdminUpdateGlobalFeed",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateGlobalFeed,
 			fes.AdminUpdateGlobalFeed,
-			true,
+			AdminAccess,
 		},
 		{
 			"AdminPinPost",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminPinPost,
 			fes.AdminPinPost,
-			true, // CheckSecret
+			AdminAccess, // CheckSecret
 		},
 		{
 			"AdminGetMempoolStats",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminGetMempoolStats,
 			fes.AdminGetMempoolStats,
-			true,
+			AdminAccess,
 		},
 		{
 			"GetGlobalParams",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetGlobalParams,
 			fes.GetGlobalParams,
-			true,
+			AdminAccess,
 		},
 		{
 			"GetWyreWalletOrdersForPublicKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetWyreWalletOrdersForPublicKey,
 			fes.GetWyreWalletOrdersForPublicKey,
-			true,
+			AdminAccess,
 		},
-		// End all /admin routes
-
 		// GET endpoints for managing parameters related to Buying BitClout
 		{
 			"GetUSDCentsToBitCloutReserveExchangeRate",
 			[]string{"GET"},
 			RoutePathGetUSDCentsToBitCloutReserveExchangeRate,
 			fes.GetUSDCentsToBitCloutReserveExchangeRate,
-			false,
+			AdminAccess,
 		},
 		{
 			"GetBuyBitCloutFeeBasisPoints",
 			[]string{"GET"},
 			RoutePathGetBuyBitCloutFeeBasisPoints,
 			fes.GetBuyBitCloutFeeBasisPoints,
-			false,
+			AdminAccess,
 		},
+		// Super Admin routes
+		{
+			"AdminGetUsernameVerificationAuditLogs",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetUsernameVerificationAuditLogs,
+			fes.AdminGetUsernameVerificationAuditLogs,
+			SuperAdminAccess,
+		},
+		{
+			"AdminGrantVerificationBadge",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGrantVerificationBadge,
+			fes.AdminGrantVerificationBadge,
+			SuperAdminAccess,
+		},
+		{
+			"AdminRemoveVerificationBadge",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminRemoveVerificationBadge,
+			fes.AdminRemoveVerificationBadge,
+			SuperAdminAccess,
+		},
+		{
+			"SwapIdentity",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSwapIdentity,
+			fes.SwapIdentity,
+			SuperAdminAccess,
+		},
+		{
+			"UpdateGlobalParams",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateGlobalParams,
+			fes.UpdateGlobalParams,
+			SuperAdminAccess,
+		},
+		{
+			"EvictUnminedBitcoinTxns",
+			[]string{"POST", "OPTIONS"},
+			RoutePathEvictUnminedBitcoinTxns,
+			fes.EvictUnminedBitcoinTxns,
+			SuperAdminAccess,
+		},
+		{
+			"AdminRemoveNilPosts",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminRemoveNilPosts,
+			fes.AdminRemoveNilPosts,
+			SuperAdminAccess,
+		},
+		{
+			"SetUSDCentsToBitCloutReserveExchangeRate",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSetUSDCentsToBitCloutReserveExchangeRate,
+			fes.SetUSDCentsToBitCloutReserveExchangeRate,
+			SuperAdminAccess,
+		},
+		{
+			"SetBuyBitCloutFeeBasisPoints",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSetBuyBitCloutFeeBasisPoints,
+			fes.SetBuyBitCloutFeeBasisPoints,
+			SuperAdminAccess,
+		},
+		// End all /admin routes
 
 		// message.go
 		{
@@ -669,28 +739,28 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathSendMessageStateless,
 			fes.SendMessageStateless,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetMessagesStateless",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetMessagesStateless,
 			fes.GetMessagesStateless,
-			false,
+			PublicAccess,
 		},
 		{
 			"MarkContactMessagesRead",
 			[]string{"POST", "OPTIONS"},
 			RoutePathMarkContactMessagesRead,
 			fes.MarkContactMessagesRead,
-			false,
+			PublicAccess,
 		},
 		{
 			"MarkAllMessagesRead",
 			[]string{"POST", "OPTIONS"},
 			RoutePathMarkAllMessagesRead,
 			fes.MarkAllMessagesRead,
-			false,
+			PublicAccess,
 		},
 
 		// Paths for the mining pool
@@ -699,14 +769,14 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetBlockTemplate,
 			fes.GetBlockTemplate,
-			false,
+			PublicAccess,
 		},
 		{
 			"SubmitBlock",
 			[]string{"POST", "OPTIONS"},
 			RoutePathSubmitBlock,
 			fes.SubmitBlock,
-			false,
+			PublicAccess,
 		},
 
 		{
@@ -714,7 +784,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetFullTikTokURL,
 			fes.GetFullTikTokURL,
-			false,
+			PublicAccess,
 		},
 
 		// Paths for wyre
@@ -723,14 +793,14 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetWyreWalletOrderQuotation,
 			fes.GetWyreWalletOrderQuotation,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetWyreWalletOrderReservation",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetWyreWalletOrderReservation,
 			fes.GetWyreWalletOrderReservation,
-			false,
+			PublicAccess,
 		},
 		{
 			// Make sure you only allow access to Wyre IPs for this endpoint, otherwise anybody can take all the funds from
@@ -739,7 +809,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathWyreWalletOrderSubscription,
 			fes.WyreWalletOrderSubscription,
-			false,
+			PublicAccess,
 		},
 	}
 
@@ -758,111 +828,39 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 	fullRouteList = append(fullRouteList, fes.APIRoutes()...)
 	fullRouteList = append(fullRouteList, fes.GlobalStateRoutes()...)
 
-	var SuperAdminRoutes = []Route{
-		{
-			"AdminGetUsernameVerificationAuditLogs",
-			[]string{"POST", "OPTIONS"},
-			RoutePathAdminGetUsernameVerificationAuditLogs,
-			fes.AdminGetUsernameVerificationAuditLogs,
-			true, // Check Secret
-		},
-		{
-			"AdminGrantVerificationBadge",
-			[]string{"POST", "OPTIONS"},
-			RoutePathAdminGrantVerificationBadge,
-			fes.AdminGrantVerificationBadge,
-			true, // Check Secret
-		},
-		{
-			"AdminRemoveVerificationBadge",
-			[]string{"POST", "OPTIONS"},
-			RoutePathAdminRemoveVerificationBadge,
-			fes.AdminRemoveVerificationBadge,
-			true, // Check Secret
-		},
-		{
-			"SwapIdentity",
-			[]string{"POST", "OPTIONS"},
-			RoutePathSwapIdentity,
-			fes.SwapIdentity,
-			true,
-		},
-		{
-			"UpdateGlobalParams",
-			[]string{"POST", "OPTIONS"},
-			RoutePathUpdateGlobalParams,
-			fes.UpdateGlobalParams,
-			true,
-		},
-		{
-			"EvictUnminedBitcoinTxns",
-			[]string{"POST", "OPTIONS"},
-			RoutePathEvictUnminedBitcoinTxns,
-			fes.EvictUnminedBitcoinTxns,
-			true,
-		},
-		{
-			"AdminRemoveNilPosts",
-			[]string{"POST", "OPTIONS"},
-			RoutePathAdminRemoveNilPosts,
-			fes.AdminRemoveNilPosts,
-			true,
-		},
-		{
-			"SetUSDCentsToBitCloutReserveExchangeRate",
-			[]string{"POST", "OPTIONS"},
-			RoutePathSetUSDCentsToBitCloutReserveExchangeRate,
-			fes.SetUSDCentsToBitCloutReserveExchangeRate,
-			true,
-		},
-		{
-			"SetBuyBitCloutFeeBasisPoints",
-			[]string{"POST", "OPTIONS"},
-			RoutePathSetBuyBitCloutFeeBasisPoints,
-			fes.SetBuyBitCloutFeeBasisPoints,
-			true,
-		},
-	}
+	for _, route := range fullRouteList {
+		var handler http.Handler
 
-	addRoutes := func(routeList []Route, checkSuperAdminOnly bool) {
-		for _, route := range routeList {
-			var handler http.Handler
+		handler = route.HandlerFunc
+		// Note that the wrapper that is applied last is actually called first. For
+		// example if you have:
+		// - handler = C(handler)
+		// - handler = B(handler)
+		// - handler = A(handler)
+		// then A will be called first B will be called second, and C will be called
+		// last.
 
-			handler = route.HandlerFunc
-			// Note that the wrapper that is applied last is actually called first. For
-			// example if you have:
-			// - handler = C(handler)
-			// - handler = B(handler)
-			// - handler = A(handler)
-			// then A will be called first B will be called second, and C will be called
-			// last.
+		// Anyone can access the admin panel if no public keys exist
+		if route.AccessLevel != PublicAccess && (len(fes.AdminPublicKeys) > 0 || len(fes.SuperAdminPublicKeys) > 0) {
+			handler = fes.CheckAdminPublicKey(handler, route.AccessLevel)
+		}
+		handler = Logger(handler, route.Name)
+		handler = AddHeaders(handler, fes.AccessControlAllowOrigins)
+		router.
+			Methods(route.Method...).
+			Path(route.Pattern).
+			Name(route.Name).
+			Handler(handler)
 
-			// Anyone can access the admin panel if no public keys exist
-			if route.CheckPublicKey && (len(fes.AdminPublicKeys) > 0 || len(fes.SuperAdminPublicKeys) > 0) {
-				handler = fes.CheckAdminPublicKey(handler, checkSuperAdminOnly)
-			}
-			handler = Logger(handler, route.Name)
-			handler = AddHeaders(handler, fes.AccessControlAllowOrigins)
-
+		// Support legacy frontend server routes that weren't prefixed
+		if strings.HasPrefix(route.Pattern, "/api/v0") {
 			router.
 				Methods(route.Method...).
-				Path(route.Pattern).
+				Path(strings.ReplaceAll(route.Pattern, "/api/v0", "")).
 				Name(route.Name).
 				Handler(handler)
-
-			// Support legacy frontend server routes that weren't prefixed
-			if strings.HasPrefix(route.Pattern, "/api/v0") {
-				router.
-					Methods(route.Method...).
-					Path(strings.ReplaceAll(route.Pattern, "/api/v0", "")).
-					Name(route.Name).
-					Handler(handler)
-			}
 		}
 	}
-	addRoutes(fullRouteList, false)
-	addRoutes(SuperAdminRoutes, true)
-
 	return router
 }
 
@@ -953,7 +951,7 @@ type AdminRequest struct {
 }
 
 // CheckSecret ...
-func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, checkSuperAdminOnly bool) http.Handler {
+func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel AccessLevel) http.Handler {
 	return http.HandlerFunc(func(ww http.ResponseWriter, req *http.Request) {
 		requestData := AdminRequest{}
 
@@ -993,7 +991,7 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, checkSuperAdminOnl
 		}
 
 		// If this a regular admin endpoint, we iterate through all the admin public keys.
-		if !checkSuperAdminOnly {
+		if AccessLevel == AdminAccess {
 			for _, adminPubKey := range fes.AdminPublicKeys {
 				if adminPubKey == requestData.AdminPublicKey {
 					// We found a match, serve the request
@@ -1014,7 +1012,7 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, checkSuperAdminOnl
 		}
 
 		adminType := "an admin"
-		if checkSuperAdminOnly {
+		if AccessLevel == SuperAdminAccess {
 			adminType = "a superadmin"
 		}
 		_AddBadRequestError(ww, fmt.Sprintf("CheckAdminPublicKey: Not %v", adminType))
