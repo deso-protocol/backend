@@ -39,7 +39,7 @@ type AdminUpdateUserGlobalMetadataRequest struct {
 	// Remove PhoneNumberMetadata to allow re-registration
 	RemovePhoneNumberMetadata bool `safeForLogging:"true"`
 
-	AdminPublicKey   string
+	AdminPublicKey string
 }
 
 // AdminUpdateUserGlobalMetadataResponse ...
@@ -245,10 +245,10 @@ func (fes *APIServer) getUserMetadataUsernameMaps(numToFetch int) (_publicKeyToU
 	_publicKeyToUsername map[string]string, _err error) {
 	// Seek the global state for the user metadata prefix.
 	seekKey := _GlobalStatePrefixPublicKeyToUserMetadata
-	keys, vals, err := fes.GlobalStateSeek(seekKey, seekKey,0 ,numToFetch,false,true)
+	keys, vals, err := fes.GlobalStateSeek(seekKey, seekKey, 0, numToFetch, false, true)
 	if err != nil {
 		return nil, nil,
-		errors.Wrapf(err, "getUserMetadataUsernameMaps: problem with GlobalStateSeek")
+			errors.Wrapf(err, "getUserMetadataUsernameMaps: problem with GlobalStateSeek")
 	}
 
 	// Sanity check that we got an appropriate number of keys and values.
@@ -445,13 +445,13 @@ func (fes *APIServer) UpdateFilterAuditLogs(usernameToUpdate string, pkidEntryTo
 	}
 	tstamp := uint64(time.Now().UnixNano())
 	newFilterLog := FilterAuditLog{
-		TimestampNanos: 	tstamp,
-		Filter: 			filterType,
-		UpdaterUsername: 	updaterUsername,
-		UpdaterPKID: 		updaterPKID.PKID,
-		UpdatedUsername: 	usernameToUpdate,
-		UpdatedPKID: 		pkidEntryToUpdate.PKID,
-		IsRemoval: 			isRemoval,
+		TimestampNanos:  tstamp,
+		Filter:          filterType,
+		UpdaterUsername: updaterUsername,
+		UpdaterPKID:     updaterPKID.PKID,
+		UpdatedUsername: usernameToUpdate,
+		UpdatedPKID:     pkidEntryToUpdate.PKID,
+		IsRemoval:       isRemoval,
 	}
 	// Prepend this new audit log to the list of audit logs.
 	filterLogs = append([]FilterAuditLog{newFilterLog}, filterLogs...)
@@ -516,15 +516,15 @@ type VerifiedUsernameToPKID struct {
 
 type VerificationUsernameAuditLog struct {
 	// Time at which the verification was granted or removed.
-	TimestampNanos 		uint64
+	TimestampNanos uint64
 	// Username and PKID of the admin who verified the user.
-	VerifierUsername 	string
-	VerifierPKID     	*lib.PKID
+	VerifierUsername string
+	VerifierPKID     *lib.PKID
 	// The user who was verified or had their verification removed.
-	VerifiedUsername 	string
-	VerifiedPKID     	*lib.PKID
+	VerifiedUsername string
+	VerifiedPKID     *lib.PKID
 	// Indicator of whether this request granted verification or removed verification.
-	IsRemoval 			bool
+	IsRemoval bool
 }
 
 type FilterType uint32
@@ -538,17 +538,17 @@ const (
 
 type FilterAuditLog struct {
 	// Time at which the filter status was granted or removed.
-	TimestampNanos		uint64
+	TimestampNanos uint64
 	// The filter type being updated
-	Filter				FilterType
+	Filter FilterType
 	// Username and PKID of the admin who filtered the user.
-	UpdaterUsername		string
-	UpdaterPKID    		*lib.PKID
+	UpdaterUsername string
+	UpdaterPKID     *lib.PKID
 	// The user who was filtered or had their filter removed.
-	UpdatedUsername		string
-	UpdatedPKID	     	*lib.PKID
+	UpdatedUsername string
+	UpdatedPKID     *lib.PKID
 	// Indicator of whether this request granted the filter status or removed it.
-	IsRemoval 			bool
+	IsRemoval bool
 }
 
 // AdminGrantVerificationBadgeRequest ...
@@ -872,27 +872,27 @@ type AdminGetUserAdminDataRequest struct {
 // AdminGetUserMetadataResponse...
 type AdminGetUserAdminDataResponse struct {
 	// Profile Data
-	Username 						string
+	Username string
 
 	// Verifiers
-	IsVerified 		  				bool
-	LastVerifierPublicKey 			string
-	LastVerifyRemoverPublicKey		string
+	IsVerified                 bool
+	LastVerifierPublicKey      string
+	LastVerifyRemoverPublicKey string
 
 	// White/Gray/Black list
-	IsWhitelisted 					bool
-	LastWhitelisterPublicKey 		string
-	LastWhitelistRemoverPublicKey  	string
-	IsGraylisted 					bool
-	LastGraylisterPublicKey 		string
-	LastGraylistRemoverPublicKey 	string
-	IsBlacklisted 					bool
-	LastBlacklisterPublicKey 		string
-	LastBlacklistRemoverPublicKey 	string
+	IsWhitelisted                 bool
+	LastWhitelisterPublicKey      string
+	LastWhitelistRemoverPublicKey string
+	IsGraylisted                  bool
+	LastGraylisterPublicKey       string
+	LastGraylistRemoverPublicKey  string
+	IsBlacklisted                 bool
+	LastBlacklisterPublicKey      string
+	LastBlacklistRemoverPublicKey string
 
 	// Phone number verification
-	PhoneNumber 					string
-	Email			 				string
+	PhoneNumber string
+	Email       string
 }
 
 // Get the audit logs for a particular public key and their associated metadata
@@ -1038,28 +1038,27 @@ func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Re
 
 	// Get verified phone/email information
 	phoneNumber := userMetadata.PhoneNumber
-	email 	:= userMetadata.Email
+	email := userMetadata.Email
 
 	res := AdminGetUserAdminDataResponse{
-		Username: username,
-		IsVerified: isVerified,
-		LastVerifierPublicKey: lastVerifierPublicKey,
-		LastVerifyRemoverPublicKey: lastVerifyRemoverPublicKey,
-		IsWhitelisted: isWhitelisted,
-		LastWhitelisterPublicKey: lastWhitelisterPublicKey,
+		Username:                      username,
+		IsVerified:                    isVerified,
+		LastVerifierPublicKey:         lastVerifierPublicKey,
+		LastVerifyRemoverPublicKey:    lastVerifyRemoverPublicKey,
+		IsWhitelisted:                 isWhitelisted,
+		LastWhitelisterPublicKey:      lastWhitelisterPublicKey,
 		LastWhitelistRemoverPublicKey: lastWhitelistRemoverPublicKey,
-		IsGraylisted: isGraylisted,
-		LastGraylisterPublicKey: lastGraylisterPublicKey,
-		LastGraylistRemoverPublicKey: lastGraylistRemoverPublicKey,
-		IsBlacklisted: isBlacklisted,
-		LastBlacklisterPublicKey: lastBlacklisterPublicKey,
+		IsGraylisted:                  isGraylisted,
+		LastGraylisterPublicKey:       lastGraylisterPublicKey,
+		LastGraylistRemoverPublicKey:  lastGraylistRemoverPublicKey,
+		IsBlacklisted:                 isBlacklisted,
+		LastBlacklisterPublicKey:      lastBlacklisterPublicKey,
 		LastBlacklistRemoverPublicKey: lastBlacklistRemoverPublicKey,
-		PhoneNumber: phoneNumber,
-		Email: email,
+		PhoneNumber:                   phoneNumber,
+		Email:                         email,
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
-
