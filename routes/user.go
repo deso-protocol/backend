@@ -230,11 +230,19 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 
 	// Only set User.IsAdmin in GetUsersStateless
 	// We don't want or need to set this on every endpoint that generates a ProfileEntryResponse
-	if len(fes.AdminPublicKeys) == 0 {
+	if len(fes.AdminPublicKeys) == 0 && len(fes.SuperAdminPublicKeys) == 0 {
 		user.IsAdmin = true
+		user.IsSuperAdmin = true
 	} else {
 		for _, k := range fes.AdminPublicKeys {
 			if k == user.PublicKeyBase58Check {
+				user.IsAdmin = true
+				break
+			}
+		}
+		for _, k := range fes.SuperAdminPublicKeys {
+			if k == user.PublicKeyBase58Check {
+				user.IsSuperAdmin = true
 				user.IsAdmin = true
 				break
 			}

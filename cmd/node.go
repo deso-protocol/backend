@@ -80,6 +80,7 @@ func (node *Node) Start() {
 		node.Config.GCPBucketName,
 		node.Config.CompProfileCreation,
 		node.Config.AdminPublicKeys,
+		node.Config.SuperAdminPublicKeys,
 		node.Config.WyreUrl,
 		node.Config.WyreAccountId,
 		node.Config.WyreApiKey,

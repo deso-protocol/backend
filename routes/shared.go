@@ -105,6 +105,8 @@ type User struct {
 
 	// Is this user an admin
 	IsAdmin bool
+	// Is th user a super admin
+	IsSuperAdmin bool
 
 	// Is this user blacklisted/graylisted
 	IsBlacklisted bool
