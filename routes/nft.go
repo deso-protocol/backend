@@ -402,3 +402,147 @@ func (fes *APIServer) CreateNFTBid(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 }
+
+type AcceptNFTBidRequest struct {
+	UpdaterPublicKeyBase58Check string `safeForLogging:"true"`
+	NFTPostHashHex              string `safeForLogging:"true"`
+	SerialNumber                int    `safeForLogging:"true"`
+	BidderPublicKeyBase58Check  string `safeForLogging:"true"`
+	BidAmountNanos              int    `safeForLogging:"true"`
+	UnencryptedUnlockableText   string `safeForLogging:"true"`
+
+	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+}
+
+type AcceptNFTBidResponse struct {
+	BidderPublicKeyBase58Check string `safeForLogging:"true"`
+	NFTPostHashHex             string `safeForLogging:"true"`
+	SerialNumber               int    `safeForLogging:"true"`
+	BidAmountNanos             int    `safeForLogging:"true"`
+
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgBitCloutTxn
+	TransactionHex    string
+}
+
+func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AcceptNFTBidRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTBid: Error parsing request body: %v", err))
+		return
+	}
+
+	// Do a simple validation of the requestData.
+	if requestData.NFTPostHashHex == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTBid: Must include NFTPostHashHex"))
+		return
+
+	} else if requestData.UpdaterPublicKeyBase58Check == "" || requestData.BidderPublicKeyBase58Check == "" {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AcceptNFTBid: Must include UpdaterPublicKeyBase58Check and BidderPublicKeyBase58Check"))
+		return
+
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(fes.Params.MaxCopiesPerNFT) {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AcceptNFTBid: SerialNumbers must be between %d and %d, received: %d",
+			1, fes.Params.MaxCopiesPerNFT, requestData.SerialNumber))
+		return
+
+	} else if requestData.BidAmountNanos < 0 {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AcceptNFTBid: BidAmountNanos must be non-negative, received: %d", requestData.BidAmountNanos))
+		return
+	}
+
+	// Get the PostHash for the NFT.
+	nftPostHashBytes, err := hex.DecodeString(requestData.NFTPostHashHex)
+	if err != nil || len(nftPostHashBytes) != lib.HashSizeBytes {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AcceptNFTBid: Error parsing post hash %v: %v",
+			requestData.NFTPostHashHex, err))
+		return
+	}
+	nftPostHash := &lib.BlockHash{}
+	copy(nftPostHash[:], nftPostHashBytes)
+
+	// Get the updater's public key.
+	updaterPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.UpdaterPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTBid: Problem decoding user public key: %v", err))
+		return
+	}
+
+	// Get the bidder's public key.
+	bidderPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.BidderPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTBid: Problem decoding bidder public key: %v", err))
+		return
+	}
+
+	// Get the NFT bid so we can do a more hardcore validation of the request data.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTBid: Error getting utxoView: %v", err))
+		return
+	}
+	bidderPKID := utxoView.GetPKIDForPublicKey(bidderPublicKeyBytes)
+	if bidderPKID == nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AcceptNFTBid: Error could not find PKID for bidder pub key %v",
+			requestData.BidderPublicKeyBase58Check))
+		return
+	}
+	nftBidKey := lib.MakeNFTBidKey(bidderPKID.PKID, nftPostHash, uint64(requestData.SerialNumber))
+	nftBidEntry := utxoView.GetNFTBidEntryForNFTBidKey(&nftBidKey)
+	if nftBidEntry == nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AcceptNFTBid: Error could not find an NFT bid entry for bidder pub key %v, "+
+				"postHash %v and serialNumber %d", requestData.BidderPublicKeyBase58Check,
+			requestData.NFTPostHashHex, requestData.SerialNumber))
+		return
+	}
+
+	// RPH-FIXME: Make sure the bidder has sufficient funds to fill this bid.
+
+	// Try and create the accept NFT bid txn for the user.
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateAcceptNFTBidTxn(
+		updaterPublicKeyBytes,
+		nftPostHash,
+		uint64(requestData.SerialNumber),
+		bidderPKID.PKID,
+		uint64(requestData.BidAmountNanos),
+		requestData.UnencryptedUnlockableText,
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTBid: Problem creating transaction: %v", err))
+		return
+	}
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTBid: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := AcceptNFTBidResponse{
+		BidderPublicKeyBase58Check: requestData.BidderPublicKeyBase58Check,
+		NFTPostHashHex:             requestData.NFTPostHashHex,
+		SerialNumber:               requestData.SerialNumber,
+		BidAmountNanos:             requestData.BidAmountNanos,
+
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("AcceptNFTBid: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
