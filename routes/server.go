@@ -75,7 +75,7 @@ const (
 	RoutePathUpdateNFT      = "/api/v0/update-nft"
 	RoutePathGetNFTFeed     = "/api/v0/get-nft-feed"
 	RoutePathGetNFTsForUser = "/api/v0/get-nfts-for-user"
-	RoutePathSubmitNFTBid   = "/api/v0/submit-nft-bid"
+	RoutePathCreateNFTBid   = "/api/v0/create-nft-bid"
 	RoutePathAcceptNFTBid   = "/api/v0/accept-nft-bid"
 
 	// media.go
