@@ -4,14 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	fmt "fmt"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/dgrijalva/jwt-go/v4"
-	"github.com/tyler-smith/go-bip39"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/dgrijalva/jwt-go/v4"
+	"github.com/tyler-smith/go-bip39"
 
 	"github.com/bitclout/core/lib"
 	"github.com/dgraph-io/badger/v3"
@@ -33,9 +34,9 @@ const (
 
 const (
 	// base.go
-	RoutePathHealthCheck              = "/api/v0/health-check"
-	RoutePathGetExchangeRate          = "/api/v0/get-exchange-rate"
-	RoutePathGetAppState              = "/api/v0/get-app-state"
+	RoutePathHealthCheck     = "/api/v0/health-check"
+	RoutePathGetExchangeRate = "/api/v0/get-exchange-rate"
+	RoutePathGetAppState     = "/api/v0/get-app-state"
 
 	// transaction.go
 	RoutePathGetTxn                   = "/api/v0/get-txn"
@@ -64,20 +65,28 @@ const (
 	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
 
 	// post.go
-	RoutePathGetPostsStateless        = "/api/v0/get-posts-stateless"
-	RoutePathGetSinglePost            = "/api/v0/get-single-post"
-	RoutePathGetPostsForPublicKey     = "/api/v0/get-posts-for-public-key"
-	RoutePathGetDiamondedPosts        = "/api/v0/get-diamonded-posts"
+	RoutePathGetPostsStateless    = "/api/v0/get-posts-stateless"
+	RoutePathGetSinglePost        = "/api/v0/get-single-post"
+	RoutePathGetPostsForPublicKey = "/api/v0/get-posts-for-public-key"
+	RoutePathGetDiamondedPosts    = "/api/v0/get-diamonded-posts"
+
+	// nft.go
+	RoutePathCreateNFT      = "/api/v0/create-nft"
+	RoutePathUpdateNFT      = "/api/v0/update-nft"
+	RoutePathGetNFTFeed     = "/api/v0/get-nft-feed"
+	RoutePathGetNFTsForUser = "/api/v0/get-nfts-for-user"
+	RoutePathSubmitNFTBid   = "/api/v0/submit-nft-bid"
+	RoutePathAcceptNFTBid   = "/api/v0/accept-nft-bid"
 
 	// media.go
-	RoutePathUploadImage              = "/api/v0/upload-image"
-	RoutePathGetFullTikTokURL         = "/api/v0/get-full-tiktok-url"
+	RoutePathUploadImage      = "/api/v0/upload-image"
+	RoutePathGetFullTikTokURL = "/api/v0/get-full-tiktok-url"
 
 	// message.go
-	RoutePathSendMessageStateless     = "/api/v0/send-message-stateless"
-	RoutePathGetMessagesStateless     = "/api/v0/get-messages-stateless"
-	RoutePathMarkContactMessagesRead  = "/api/v0/mark-contact-messages-read"
-	RoutePathMarkAllMessagesRead 	  = "/api/v0/mark-all-messages-read"
+	RoutePathSendMessageStateless    = "/api/v0/send-message-stateless"
+	RoutePathGetMessagesStateless    = "/api/v0/get-messages-stateless"
+	RoutePathMarkContactMessagesRead = "/api/v0/mark-contact-messages-read"
+	RoutePathMarkAllMessagesRead     = "/api/v0/mark-all-messages-read"
 
 	// verify.go
 	RoutePathSendPhoneNumberVerificationText   = "/api/v0/send-phone-number-verification-text"
@@ -96,15 +105,15 @@ const (
 	// Admin route paths can only be accessed if a user's public key is whitelisted as an admin.
 
 	// admin_node.go
-	RoutePathNodeControl                           = "/api/v0/admin/node-control"
-	RoutePathReprocessBitcoinBlock                 = "/api/v0/admin/reprocess-bitcoin-block"
-	RoutePathAdminGetMempoolStats                  = "/api/v0/admin/get-mempool-stats"
-	RoutePathEvictUnminedBitcoinTxns               = "/api/v0/admin/evict-unmined-bitcoin-txns"
+	RoutePathNodeControl             = "/api/v0/admin/node-control"
+	RoutePathReprocessBitcoinBlock   = "/api/v0/admin/reprocess-bitcoin-block"
+	RoutePathAdminGetMempoolStats    = "/api/v0/admin/get-mempool-stats"
+	RoutePathEvictUnminedBitcoinTxns = "/api/v0/admin/evict-unmined-bitcoin-txns"
 
 	// admin_transaction.go
-	RoutePathGetGlobalParams                       = "/api/v0/admin/get-global-params"
-	RoutePathUpdateGlobalParams                    = "/api/v0/admin/update-global-params"
-	RoutePathSwapIdentity                          = "/api/v0/admin/swap-identity"
+	RoutePathGetGlobalParams    = "/api/v0/admin/get-global-params"
+	RoutePathUpdateGlobalParams = "/api/v0/admin/update-global-params"
+	RoutePathSwapIdentity       = "/api/v0/admin/swap-identity"
 
 	// admin_user.go
 	RoutePathAdminUpdateUserGlobalMetadata         = "/api/v0/admin/update-user-global-metadata"
@@ -116,9 +125,9 @@ const (
 	RoutePathAdminGetUsernameVerificationAuditLogs = "/api/v0/admin/get-username-verification-audit-logs"
 
 	// admin_feed.go
-	RoutePathAdminUpdateGlobalFeed                 = "/api/v0/admin/update-global-feed"
-	RoutePathAdminPinPost                          = "/api/v0/admin/pin-post"
-	RoutePathAdminRemoveNilPosts                   = "/api/v0/admin/remove-nil-posts"
+	RoutePathAdminUpdateGlobalFeed = "/api/v0/admin/update-global-feed"
+	RoutePathAdminPinPost          = "/api/v0/admin/pin-post"
+	RoutePathAdminRemoveNilPosts   = "/api/v0/admin/remove-nil-posts"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -195,11 +204,11 @@ type APIServer struct {
 	SuperAdminPublicKeys []string
 
 	// Wyre
-	WyreUrl string
-	WyreAccountId string
-	WyreApiKey string
-	WyreSecretKey string
-	WyreBTCAddress string
+	WyreUrl         string
+	WyreAccountId   string
+	WyreApiKey      string
+	WyreSecretKey   string
+	WyreBTCAddress  string
 	BuyBitCloutSeed string
 
 	// Signals that the frontend server is in a stopped state
@@ -308,11 +317,11 @@ const (
 
 // Route ...
 type Route struct {
-	Name           string
-	Method         []string
-	Pattern        string
-	HandlerFunc    http.HandlerFunc
-	AccessLevel    AccessLevel
+	Name        string
+	Method      []string
+	Pattern     string
+	HandlerFunc http.HandlerFunc
+	AccessLevel AccessLevel
 }
 
 // InitRoutes ...
@@ -973,7 +982,6 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel Access
 			}
 		}
 
-
 		// We also check super admins, as they have a superset of capabilities.
 		for _, superAdminPubKey := range fes.SuperAdminPublicKeys {
 			if superAdminPubKey == requestData.AdminPublicKey {
@@ -1032,17 +1040,17 @@ func (fes *APIServer) Stop() {
 
 // Amplitude Logging
 type AmplitudeUploadRequestBody struct {
-	ApiKey string `json:"api_key"`
+	ApiKey string           `json:"api_key"`
 	Events []AmplitudeEvent `json:"events"`
 }
 
 type AmplitudeEvent struct {
-	UserId          string `json:"user_id"`
-	EventType       string `json:"event_type"`
+	UserId          string                 `json:"user_id"`
+	EventType       string                 `json:"event_type"`
 	EventProperties map[string]interface{} `json:"event_properties"`
 }
 
-func (fes *APIServer) logAmplitudeEvent(publicKeyBytes string, event string, eventData map[string]interface{})  error {
+func (fes *APIServer) logAmplitudeEvent(publicKeyBytes string, event string, eventData map[string]interface{}) error {
 	if fes.AmplitudeKey == "" {
 		return nil
 	}
@@ -1077,14 +1085,14 @@ func (fes *APIServer) StartSeedBalancesMonitoring() {
 	out:
 		for {
 			select {
-			case <- time.After(1 * time.Minute):
+			case <-time.After(1 * time.Minute):
 				if fes.backendServer.GetStatsdClient() == nil {
 					return
 				}
 				tags := []string{}
 				fes.logBalanceForSeed(fes.StarterBitCloutSeed, "STARTER_BITCLOUT", tags)
 				fes.logBalanceForSeed(fes.BuyBitCloutSeed, "BUY_BITCLOUT", tags)
-			case <- fes.quit:
+			case <-fes.quit:
 				break out
 			}
 		}
@@ -1105,7 +1113,7 @@ func (fes *APIServer) logBalanceForSeed(seed string, seedName string, tags []str
 	}
 }
 
-func (fes *APIServer) getBalanceForSeed(seedPhrase string) (uint64, error){
+func (fes *APIServer) getBalanceForSeed(seedPhrase string) (uint64, error) {
 	seedBytes, err := bip39.NewSeedWithErrorChecking(seedPhrase, "")
 	if err != nil {
 		return 0, fmt.Errorf("GetBalanceForSeed: Error converting mnemonic: %+v", err)
@@ -1125,4 +1133,3 @@ func (fes *APIServer) getBalanceForSeed(seedPhrase string) (uint64, error){
 	}
 	return currentBalanceNanos, nil
 }
-
