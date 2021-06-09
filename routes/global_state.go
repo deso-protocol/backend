@@ -98,7 +98,6 @@ var (
 	// <prefix, username string> -> <VerificationAuditLog>
 	_GlobalStatePrefixUsernameVerificationAuditLog = []byte{5}
 
-
 	// The prefix for accessing the graylisted users.
 	// <prefix, public key> -> <IsGraylisted>
 	_GlobalStatePrefixPublicKeyToGraylistState = []byte{6}
@@ -121,11 +120,23 @@ var (
 	// Keeps a record of all wyre orders so we can see what has been processed or not.
 	_GlobalStatePrefixWyreOrderId = []byte{11}
 
+	// The prefix for accessing the white list audit log of a user.
+	// <prefix, username string> -> <WhitelistAudiLog>
+	_GlobalStatePrefixWhitelistAuditLog = []byte{12}
+
+	// The prefix for accessing the graylist audit log of a user.
+	// <prefix, username string> -> <GraylistAudiLog>
+	_GlobalStatePrefixGraylistAuditLog = []byte{13}
+
+	// The prefix for accessing the blacklist audit log of a user.
+	// <prefix, username string> -> <BlacklistAudiLog>
+	_GlobalStatePrefixBlacklistAuditLog = []byte{14}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
-	// NEXT_TAG: 11
+	// NEXT_TAG: 15
 )
 
 // This struct contains all the metadata associated with a user's public key.
@@ -266,6 +277,13 @@ func GlobalStateKeyForUsernameVerificationAuditLogs(username string) []byte {
 	return key
 }
 
+// Key for accessing the whitelist audit logs associated with a user.
+func GlobalStateKeyForWhitelistAuditLogs(username string) []byte {
+	key := append([]byte{}, _GlobalStatePrefixWhitelistAuditLog...)
+	key = append(key, []byte(strings.ToLower(username))...)
+	return key
+}
+
 // Key for accessing a graylisted user.
 func GlobalStateKeyForGraylistedProfile(profilePubKey []byte) []byte {
 	key := append([]byte{}, _GlobalStatePrefixPublicKeyToGraylistState...)
@@ -273,10 +291,24 @@ func GlobalStateKeyForGraylistedProfile(profilePubKey []byte) []byte {
 	return key
 }
 
+// Key for accessing the graylist audit logs associated with a user.
+func GlobalStateKeyForGraylistAuditLogs(username string) []byte {
+	key := append([]byte{}, _GlobalStatePrefixGraylistAuditLog...)
+	key = append(key, []byte(strings.ToLower(username))...)
+	return key
+}
+
 // Key for accessing a blacklisted user.
 func GlobalStateKeyForBlacklistedProfile(profilePubKey []byte) []byte {
 	key := append([]byte{}, _GlobalStatePrefixPublicKeyToBlacklistState...)
 	key = append(key, profilePubKey...)
+	return key
+}
+
+// Key for accessing the blacklist audit logs associated with a user.
+func GlobalStateKeyForBlacklistAuditLogs(username string) []byte {
+	key := append([]byte{}, _GlobalStatePrefixBlacklistAuditLog...)
+	key = append(key, []byte(strings.ToLower(username))...)
 	return key
 }
 

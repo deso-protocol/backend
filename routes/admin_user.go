@@ -10,6 +10,7 @@ import (
 	"github.com/pkg/errors"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -37,6 +38,8 @@ type AdminUpdateUserGlobalMetadataRequest struct {
 
 	// Remove PhoneNumberMetadata to allow re-registration
 	RemovePhoneNumberMetadata bool `safeForLogging:"true"`
+
+	AdminPublicKey string
 }
 
 // AdminUpdateUserGlobalMetadataResponse ...
@@ -133,6 +136,15 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 		return
 	}
 
+	// Gather relevant information from filter logs
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem getting utxoView: %v", err))
+		return
+	}
+	userPKIDEntry := utxoView.GetPKIDForPublicKey(userPublicKeyBytes)
+	profileEntry := utxoView.GetProfileEntryForPKID(userPKIDEntry.PKID)
+
 	// Now that we have a userMetadata object, update it based on the request.
 	if requestData.IsBlacklistUpdate {
 		userMetadata.RemoveEverywhere = requestData.RemoveEverywhere
@@ -148,6 +160,12 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem deleting from blacklist: %v", err))
 				return
 			}
+		}
+		// We update the logs accordingly
+		err = fes.UpdateFilterAuditLogs(string(profileEntry.Username), userPKIDEntry, Blacklist, !userMetadata.RemoveEverywhere, requestData.AdminPublicKey, utxoView)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating blacklist logs: %v", err))
+			return
 		}
 		// We need to update global state's list of blacklisted users.
 
@@ -167,8 +185,20 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 				return
 			}
 		}
+		// We update the logs accordingly
+		err = fes.UpdateFilterAuditLogs(string(profileEntry.Username), userPKIDEntry, Graylist, !userMetadata.RemoveFromLeaderboard, requestData.AdminPublicKey, utxoView)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating graylist logs: %v", err))
+			return
+		}
 	} else if requestData.IsWhitelistUpdate {
 		userMetadata.WhitelistPosts = requestData.WhitelistPosts
+		// We update the logs accordingly
+		err = fes.UpdateFilterAuditLogs(string(profileEntry.Username), userPKIDEntry, Whitelist, !requestData.WhitelistPosts, requestData.AdminPublicKey, utxoView)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating whitelist logs: %v", err))
+			return
+		}
 	}
 
 	// Encode the updated entry and stick it in the database.
@@ -203,10 +233,10 @@ func (fes *APIServer) getUserMetadataUsernameMaps(numToFetch int) (_publicKeyToU
 	_publicKeyToUsername map[string]string, _err error) {
 	// Seek the global state for the user metadata prefix.
 	seekKey := _GlobalStatePrefixPublicKeyToUserMetadata
-	keys, vals, err := fes.GlobalStateSeek(seekKey, seekKey,0 ,numToFetch,false,true)
+	keys, vals, err := fes.GlobalStateSeek(seekKey, seekKey, 0, numToFetch, false, true)
 	if err != nil {
 		return nil, nil,
-		errors.Wrapf(err, "getUserMetadataUsernameMaps: problem with GlobalStateSeek")
+			errors.Wrapf(err, "getUserMetadataUsernameMaps: problem with GlobalStateSeek")
 	}
 
 	// Sanity check that we got an appropriate number of keys and values.
@@ -332,7 +362,8 @@ func (fes *APIServer) AdminGetUserGlobalMetadata(ww http.ResponseWriter, req *ht
 }
 
 // Add a new audit log record to the history of username verification audit logs.
-func (fes *APIServer) UpdateUsernameVerificationAuditLog(usernameToVerify string, pkidEntryToVerify *lib.PKIDEntry, isRemoval bool, verifierPublicKeyBase58Check string, utxoView *lib.UtxoView) (_err error) {
+func (fes *APIServer) UpdateUsernameVerificationAuditLog(usernameToVerify string, pkidEntryToVerify *lib.PKIDEntry,
+	isRemoval bool, verifierPublicKeyBase58Check string, utxoView *lib.UtxoView) (_err error) {
 	verificationAuditLogs := []VerificationUsernameAuditLog{}
 	// Get the key to look up the current list of audit logs for this username
 	verificationAuditLogKey := GlobalStateKeyForUsernameVerificationAuditLogs(usernameToVerify)
@@ -380,6 +411,97 @@ func (fes *APIServer) UpdateUsernameVerificationAuditLog(usernameToVerify string
 	return nil
 }
 
+// Add a new audit log record to the history of filter audit logs.
+func (fes *APIServer) UpdateFilterAuditLogs(usernameToUpdate string, pkidEntryToUpdate *lib.PKIDEntry, filterType FilterType,
+	isRemoval bool, updaterPublicKeyBase58Check string, utxoView *lib.UtxoView) (_err error) {
+	// Fetch the existing logs from global state
+	filterLogs, err := fes.GetFilterAuditLogs(usernameToUpdate, filterType)
+	if err != nil {
+		return errors.Wrap(err, "UpdateFilterAuditLogs: Failed to call GetFilterAuditLogs")
+	}
+
+	// Decode the updater's public key
+	updaterPublicKeyBytes, _, err := lib.Base58CheckDecode(updaterPublicKeyBase58Check)
+	if err != nil || len(updaterPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		return errors.Wrap(fmt.Errorf("UpdateFilterAuditLogs: Failed to decode verifier public key bytes"), "")
+	}
+	updaterPKID := utxoView.GetPKIDForPublicKey(updaterPublicKeyBytes)
+	updaterProfileEntry := utxoView.GetProfileEntryForPKID(updaterPKID.PKID)
+	updaterUsername := ""
+	if updaterProfileEntry != nil {
+		updaterUsername = string(updaterProfileEntry.Username)
+	}
+	tstamp := uint64(time.Now().UnixNano())
+	newFilterLog := FilterAuditLog{
+		TimestampNanos:  tstamp,
+		Filter:          filterType,
+		UpdaterUsername: updaterUsername,
+		UpdaterPKID:     updaterPKID.PKID,
+		UpdatedUsername: usernameToUpdate,
+		UpdatedPKID:     pkidEntryToUpdate.PKID,
+		IsRemoval:       isRemoval,
+	}
+	// Prepend this new audit log to the list of audit logs.
+	filterLogs = append([]FilterAuditLog{newFilterLog}, filterLogs...)
+	filterLogsBuf := bytes.NewBuffer([]byte{})
+	err = gob.NewEncoder(filterLogsBuf).Encode(filterLogs)
+	if err != nil {
+		return errors.Wrap(err, "UpdateFilterAuditLogs: Failed to gob encode filter logs")
+	}
+
+	// Get the correct filter key
+	filterLogsKey, err := GetFilterLogsKey(usernameToUpdate, filterType)
+	if err != nil {
+		return errors.Wrap(err, "UpdateFilterAuditLogs: Failed to get filter logs")
+	}
+
+	err = fes.GlobalStatePut(filterLogsKey, filterLogsBuf.Bytes())
+	if err != nil {
+		return errors.Wrap(fmt.Errorf("UpdateFilterAuditLogs: Failed to update filter logs"), "")
+	}
+	return nil
+}
+
+// Gives the filter logs key for a specific filter type and username.
+func GetFilterLogsKey(username string, filterType FilterType) (_filterLogsKey []byte, _err error) {
+	var filterLogsKey []byte
+	switch filterType {
+	case Blacklist:
+		filterLogsKey = GlobalStateKeyForBlacklistAuditLogs(username)
+	case Graylist:
+		filterLogsKey = GlobalStateKeyForGraylistAuditLogs(username)
+	case Whitelist:
+		filterLogsKey = GlobalStateKeyForWhitelistAuditLogs(username)
+	default:
+		return nil, fmt.Errorf("GetFilterLogsKey: Invalid filter type: %v", filterType)
+	}
+	return filterLogsKey, nil
+}
+
+// Fetch the filter audit logs for a given username and filter type.
+func (fes *APIServer) GetFilterAuditLogs(username string, filterType FilterType) (_logs []FilterAuditLog, _err error) {
+	filterLogs := []FilterAuditLog{}
+
+	// Get the correct filter key
+	filterLogsKey, err := GetFilterLogsKey(username, filterType)
+	if err != nil {
+		return nil, errors.Wrap(err, "GetFilterAuditLogs: Failed to get filter logs")
+	}
+
+	// Fetch the logs from global state
+	filterLogsBytes, err := fes.GlobalStateGet(filterLogsKey)
+	if err != nil {
+		return nil, errors.Wrap(fmt.Errorf("GetFilterAuditLogs: Failed to fetch filter audit logs from globalstate"), "")
+	}
+	if filterLogsBytes != nil {
+		err = gob.NewDecoder(bytes.NewReader(filterLogsBytes)).Decode(&filterLogs)
+		if err != nil {
+			return nil, errors.Wrap(fmt.Errorf("GetFilterAuditLogs: Failed decoding filter audit logs"), "")
+		}
+	}
+	return filterLogs, nil
+}
+
 // Type used for gob decoding and encoding verification mapping
 type VerifiedUsernameToPKID struct {
 	VerifiedUsernameToPKID map[string]*lib.PKID
@@ -395,6 +517,30 @@ type VerificationUsernameAuditLog struct {
 	VerifiedUsername string
 	VerifiedPKID     *lib.PKID
 	// Indicator of whether this request granted verification or removed verification.
+	IsRemoval bool
+}
+
+type FilterType uint32
+
+const (
+	// The filter type associated with a filter audit log
+	Whitelist FilterType = iota
+	Graylist
+	Blacklist
+)
+
+type FilterAuditLog struct {
+	// Time at which the filter status was granted or removed.
+	TimestampNanos uint64
+	// The filter type being updated
+	Filter FilterType
+	// Username and PKID of the admin who filtered the user.
+	UpdaterUsername string
+	UpdaterPKID     *lib.PKID
+	// The user who was filtered or had their filter removed.
+	UpdatedUsername string
+	UpdatedPKID     *lib.PKID
+	// Indicator of whether this request granted the filter status or removed it.
 	IsRemoval bool
 }
 
@@ -707,6 +853,207 @@ func (fes *APIServer) AdminGetUsernameVerificationAuditLogs(ww http.ResponseWrit
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUsernameVerificationAuditLogs: Problem encoding response as JSON: #{err}"))
+		return
+	}
+}
+
+// AdminGetUserMetadataRequest...
+type AdminGetUserAdminDataRequest struct {
+	UserPublicKeyBase58Check string
+}
+
+// AdminGetUserMetadataResponse...
+type AdminGetUserAdminDataResponse struct {
+	// Profile Data
+	Username string
+
+	// Verifiers
+	IsVerified                 bool
+	LastVerifierPublicKey      string
+	LastVerifyRemoverPublicKey string
+
+	// White/Gray/Black list
+	IsWhitelisted                 bool
+	LastWhitelisterPublicKey      string
+	LastWhitelistRemoverPublicKey string
+	IsGraylisted                  bool
+	LastGraylisterPublicKey       string
+	LastGraylistRemoverPublicKey  string
+	IsBlacklisted                 bool
+	LastBlacklisterPublicKey      string
+	LastBlacklistRemoverPublicKey string
+
+	// Phone number verification
+	PhoneNumber string
+	Email       string
+}
+
+// Get the audit logs for a particular public key and their associated metadata
+func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminGetUserAdminDataRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Gather relevant information for logs
+	userPublicKeyBase58Check := requestData.UserPublicKeyBase58Check
+	userPublicKeyBytes, _, err := lib.Base58CheckDecode(userPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Failed decoding user public key: %v", err))
+		return
+	}
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem getting utxoView: %v", err))
+		return
+	}
+	userPKIDEntry := utxoView.GetPKIDForPublicKey(userPublicKeyBytes)
+	userPKID := userPKIDEntry.PKID
+	profileEntry := utxoView.GetProfileEntryForPKID(userPKIDEntry.PKID)
+	getPublicKeyFromPKID := func(pkid *lib.PKID) string {
+		return lib.PkToString(lib.PKIDToPublicKey(pkid), fes.Params)
+	}
+
+	// Pull the verified map from global state and check if verified.
+	isVerified := false
+	lastVerifierPublicKey := ""
+	lastVerifyRemoverPublicKey := ""
+	if profileEntry != nil {
+		username := strings.ToLower(string(profileEntry.Username))
+		verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+		if err != nil {
+			_AddInternalServerError(ww, fmt.Sprintf("AdminGetUserMetadata: Failed fetching verified map from database: %v", err))
+			return
+		}
+		if verifiedMap == nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: No verified user map in global state."))
+			return
+		}
+		if _, hasEntry := verifiedMap[username]; hasEntry {
+			isVerified = reflect.DeepEqual(verifiedMap[username], userPKID)
+		}
+
+		// Get the verification audit logs from global state.
+		key := GlobalStateKeyForUsernameVerificationAuditLogs(string(profileEntry.Username))
+		verificationUsernameAuditLogBytes, err := fes.GlobalStateGet(key)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem getting audit logs for this username: %v", err))
+			return
+		}
+		verificationAuditLogs := []VerificationUsernameAuditLog{}
+		if verificationUsernameAuditLogBytes != nil {
+			err = gob.NewDecoder(bytes.NewReader(verificationUsernameAuditLogBytes)).Decode(&verificationAuditLogs)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem decoding username verification logs for this user: %v", err))
+				return
+			}
+		}
+
+		// Iterate through the logs to and gather the most recent verification actions on this profile.
+		for ii := range verificationAuditLogs {
+			if !verificationAuditLogs[ii].IsRemoval && lastVerifierPublicKey == "" {
+				lastVerifierPublicKey = getPublicKeyFromPKID(verificationAuditLogs[ii].VerifierPKID)
+			} else if verificationAuditLogs[ii].IsRemoval && lastVerifyRemoverPublicKey == "" {
+				lastVerifyRemoverPublicKey = getPublicKeyFromPKID(verificationAuditLogs[ii].VerifierPKID)
+			}
+		}
+	}
+
+	// Gather userMetadata
+	userMetadata, err := fes.getUserMetadataFromGlobalState(userPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem fetching user metadata: %v", err))
+		return
+	}
+
+	// Get username if a profile exists
+	username := ""
+	if profileEntry != nil {
+		username = string(profileEntry.Username)
+	}
+
+	// Get whitelist information
+	isWhitelisted := userMetadata.WhitelistPosts
+	lastWhitelisterPublicKey := ""
+	lastWhitelistRemoverPublicKey := ""
+	if profileEntry != nil {
+		filterLogs, err := fes.GetFilterAuditLogs(string(profileEntry.Username), Whitelist)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem fetching whitelist logs: %v", err))
+			return
+		}
+		for ii := range filterLogs {
+			if !filterLogs[ii].IsRemoval && lastWhitelisterPublicKey == "" {
+				lastWhitelisterPublicKey = getPublicKeyFromPKID(filterLogs[ii].UpdaterPKID)
+			} else if filterLogs[ii].IsRemoval && lastWhitelistRemoverPublicKey == "" {
+				lastWhitelistRemoverPublicKey = getPublicKeyFromPKID(filterLogs[ii].UpdaterPKID)
+			}
+		}
+	}
+
+	// Gather graylist information
+	isGraylisted := userMetadata.RemoveFromLeaderboard
+	lastGraylisterPublicKey := ""
+	lastGraylistRemoverPublicKey := ""
+	if profileEntry != nil {
+		filterLogs, err := fes.GetFilterAuditLogs(string(profileEntry.Username), Graylist)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem fetching graylist logs: %v", err))
+			return
+		}
+		for ii := range filterLogs {
+			if !filterLogs[ii].IsRemoval && lastGraylisterPublicKey == "" {
+				lastGraylisterPublicKey = getPublicKeyFromPKID(filterLogs[ii].UpdaterPKID)
+			} else if filterLogs[ii].IsRemoval && lastGraylistRemoverPublicKey == "" {
+				lastGraylistRemoverPublicKey = getPublicKeyFromPKID(filterLogs[ii].UpdaterPKID)
+			}
+		}
+	}
+
+	// Gather blacklist information
+	isBlacklisted := userMetadata.RemoveEverywhere
+	lastBlacklisterPublicKey := ""
+	lastBlacklistRemoverPublicKey := ""
+	if profileEntry != nil {
+		filterLogs, err := fes.GetFilterAuditLogs(string(profileEntry.Username), Blacklist)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem fetching whitelist logs: %v", err))
+			return
+		}
+		for ii := range filterLogs {
+			if !filterLogs[ii].IsRemoval && lastBlacklisterPublicKey == "" {
+				lastBlacklisterPublicKey = getPublicKeyFromPKID(filterLogs[ii].UpdaterPKID)
+			} else if filterLogs[ii].IsRemoval && lastBlacklistRemoverPublicKey == "" {
+				lastBlacklistRemoverPublicKey = getPublicKeyFromPKID(filterLogs[ii].UpdaterPKID)
+			}
+		}
+	}
+
+	// Get verified phone/email information
+	phoneNumber := userMetadata.PhoneNumber
+	email := userMetadata.Email
+
+	res := AdminGetUserAdminDataResponse{
+		Username:                      username,
+		IsVerified:                    isVerified,
+		LastVerifierPublicKey:         lastVerifierPublicKey,
+		LastVerifyRemoverPublicKey:    lastVerifyRemoverPublicKey,
+		IsWhitelisted:                 isWhitelisted,
+		LastWhitelisterPublicKey:      lastWhitelisterPublicKey,
+		LastWhitelistRemoverPublicKey: lastWhitelistRemoverPublicKey,
+		IsGraylisted:                  isGraylisted,
+		LastGraylisterPublicKey:       lastGraylisterPublicKey,
+		LastGraylistRemoverPublicKey:  lastGraylistRemoverPublicKey,
+		IsBlacklisted:                 isBlacklisted,
+		LastBlacklisterPublicKey:      lastBlacklisterPublicKey,
+		LastBlacklistRemoverPublicKey: lastBlacklistRemoverPublicKey,
+		PhoneNumber:                   phoneNumber,
+		Email:                         email,
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
