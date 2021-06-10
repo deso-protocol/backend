@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/bitclout/core/lib"
@@ -916,22 +918,26 @@ func (fes *APIServer) augmentProfileEntry(
 	return profileEntryResponse
 }
 
-func (fes *APIServer) _getProfilePictureForPublicKey(publicKey []byte) (string, error) {
-	defaultProfilePicture := "/assets/img/default_profile_pic.png"
+func (fes *APIServer) _getProfilePictureForPublicKey(publicKey []byte) ([]byte, string, error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		return defaultProfilePicture, fmt.Errorf("_getProfilePictureforPublicKey: Error getting utxoView: %v", err)
+		return []byte{}, "", fmt.Errorf("_getProfilePictureforPublicKey: Error getting utxoView: %v", err)
 	}
 
 	profileEntry := utxoView.GetProfileEntryForPublicKey(publicKey)
 	if profileEntry == nil {
-		return defaultProfilePicture, nil
+		return []byte{}, "", fmt.Errorf("_getProfilePictureForPublicKey: Profile not found")
 	}
 	profilePic := string(profileEntry.ProfilePic)
 	if !strings.HasPrefix(profilePic, "data:image/") && !lib.ProfilePicRegex.Match([]byte(profilePic)) {
-		return defaultProfilePicture, nil
+		return []byte{}, "", fmt.Errorf("_getProfilePictureForPublicKey: profile picture is not base64 encoded image")
 	}
-	return profilePic, nil
+	contentTypeEnd := strings.Index(profilePic, ";base64")
+	if contentTypeEnd < 6 {
+		return []byte{}, "", fmt.Errorf("_getProfilePictureForPublicKey: cannot extract content type")
+	}
+	contentType := profilePic[5:contentTypeEnd]
+	return profileEntry.ProfilePic, contentType, nil
 }
 
 type GetSingleProfilePictureRequest struct {
@@ -939,7 +945,7 @@ type GetSingleProfilePictureRequest struct {
 }
 
 type GetSingleProfilePictureResponse struct {
-	ProfilePic string
+	ProfilePic []byte
 }
 
 func (fes *APIServer) GetSingleProfilePicture(ww http.ResponseWriter, req *http.Request) {
@@ -955,12 +961,22 @@ func (fes *APIServer) GetSingleProfilePicture(ww http.ResponseWriter, req *http.
 		return
 	}
 	// We ignore errors here and simply return
-	profilePicture, _ := fes._getProfilePictureForPublicKey(publicKeyBytes)
+	profilePicture, contentType, err := fes._getProfilePictureForPublicKey(publicKeyBytes)
+	if err != nil {
+		_AddNotFoundError(ww, fmt.Sprintf("GetSingleProfilePicture: Profile Picture not founD: %v", err))
+		return
+	}
 
-	if err = json.NewEncoder(ww).Encode(GetSingleProfilePictureResponse{
-		ProfilePic: profilePicture,
-	}); err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("GetSingleProfilePicture: Problem serializing object to JSON: %v", err))
+	profilePictureStr := string(profilePicture)
+	decodedBytes, err := base64.StdEncoding.DecodeString(profilePictureStr[strings.Index(profilePictureStr, ";base64,")+8:])
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfilePicture: Error decoding images bytes: %v", err))
+		return
+	}
+	ww.Header().Set("Content-Type", contentType)
+	ww.Header().Set("Content-Length", strconv.Itoa(len(decodedBytes)))
+	if _, err = ww.Write(decodedBytes); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetSingleProfilePicture: Problem writing profile picture bytes: %v", err))
 		return
 	}
 }
