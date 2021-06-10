@@ -55,6 +55,7 @@ const (
 	RoutePathDeleteIdentities         = "/api/v0/delete-identities"
 	RoutePathGetProfiles              = "/api/v0/get-profiles"
 	RoutePathGetSingleProfile         = "/api/v0/get-single-profile"
+	RoutePathGetSingleProfilePicture  = "/api/v0/get-single-profile-picture"
 	RoutePathGetHodlersForPublicKey   = "/api/v0/get-hodlers-for-public-key"
 	RoutePathGetDiamondsForPublicKey  = "/api/v0/get-diamonds-for-public-key"
 	RoutePathGetFollowsStateless      = "/api/v0/get-follows-stateless"
@@ -457,6 +458,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetSingleProfile,
 			fes.GetSingleProfile,
+			PublicAccess,
+		},
+		{
+			"GetSingleProfilePicture",
+			[]string{"GET"},
+			RoutePathGetSingleProfilePicture + "/{publicKeyBase58Check:[0-9a-zA-Z]{54,55}}",
+			fes.GetSingleProfilePicture,
 			PublicAccess,
 		},
 		{
