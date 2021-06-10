@@ -188,6 +188,10 @@ type SubmitPhoneNumberVerificationCodeRequest struct {
 	VerificationCode     string
 }
 
+type SubmitPhoneNumberVerificationCodeResponse struct {
+	TxnHashHex string
+}
+
 func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := SubmitPhoneNumberVerificationCodeRequest{}
@@ -300,8 +304,17 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 			}
 		}
 
-		if _, err = fes.SendSeedBitClout(userMetadata.PublicKey, amountToSendNanos, false); err != nil {
+		var txnHash *lib.BlockHash
+		txnHash, err = fes.SendSeedBitClout(userMetadata.PublicKey, amountToSendNanos, false)
+		if err != nil {
 			glog.Errorf("SubmitPhoneNumberVerificationCode: Error sending seed BitClout: %v", err)
+		}
+		res := SubmitPhoneNumberVerificationCodeResponse{
+			TxnHashHex: txnHash.String(),
+		}
+		if err = json.NewEncoder(ww).Encode(res); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Problem encoding response: %v", err))
+			return
 		}
 	}
 }
