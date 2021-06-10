@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/dgraph-io/badger/v3"
+	"github.com/gorilla/mux"
 	"io"
 	"net/http"
 	"reflect"
@@ -497,7 +498,6 @@ type ProfileEntryResponse struct {
 	PublicKeyBase58Check string
 	Username             string
 	Description          string
-	ProfilePic           string
 	IsHidden             bool
 	IsReserved           bool
 	IsVerified           bool
@@ -834,12 +834,6 @@ func _profileEntryToResponse(profileEntry *lib.ProfileEntry, params *lib.BitClou
 		return nil
 	}
 
-	var profilePic = string(profileEntry.ProfilePic)
-	// Currently we only support images that are base 64 encoded data URIs.
-	if !strings.HasPrefix(profilePic, "data:image/") && !lib.ProfilePicRegex.Match([]byte(profilePic)) {
-		profilePic = "/assets/img/default_profile_pic.png"
-	}
-
 	coinPriceBitCloutNanos := uint64(0)
 	if profileEntry.CoinsInCirculationNanos != 0 {
 		// The price formula is:
@@ -877,7 +871,6 @@ func _profileEntryToResponse(profileEntry *lib.ProfileEntry, params *lib.BitClou
 		PublicKeyBase58Check:     lib.PkToString(profileEntry.PublicKey, params),
 		Username:                 string(profileEntry.Username),
 		Description:              string(profileEntry.Description),
-		ProfilePic:               profilePic,
 		CoinEntry:                profileEntry.CoinEntry,
 		CoinPriceBitCloutNanos:   coinPriceBitCloutNanos,
 		IsHidden:                 profileEntry.IsHidden,
@@ -926,6 +919,55 @@ func (fes *APIServer) augmentProfileEntry(
 	}
 
 	return profileEntryResponse
+}
+
+func (fes *APIServer) _getProfilePictureForPublicKey(publicKey []byte) (string, error) {
+	defaultProfilePicture := "/assets/img/default_profile_pic.png"
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return defaultProfilePicture, fmt.Errorf("_getProfilePictureforPublicKey: Error getting utxoView: %v", err)
+	}
+
+	profileEntry := utxoView.GetProfileEntryForPublicKey(publicKey)
+	if profileEntry == nil {
+		return defaultProfilePicture, nil
+	}
+	profilePic := string(profileEntry.ProfilePic)
+	if !strings.HasPrefix(profilePic, "data:image/") && !lib.ProfilePicRegex.Match([]byte(profilePic)) {
+		return defaultProfilePicture, nil
+	}
+	return profilePic, nil
+}
+
+type GetSingleProfilePictureRequest struct {
+	PublicKeyBase58Check string `safeForLogging:"true"`
+}
+
+type GetSingleProfilePictureResponse struct {
+	ProfilePic string
+}
+
+func (fes *APIServer) GetSingleProfilePicture(ww http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	publicKeyBase58Check, publicKeyBase58CheckExists := vars["publicKeyBase58Check"]
+	if !publicKeyBase58CheckExists {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfilePicture: Missing public key base 58 check"))
+		return
+	}
+	publicKeyBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfilePicture: Problem decoding user public key: %v", err))
+		return
+	}
+	// We ignore errors here and simply return
+	profilePicture, _ := fes._getProfilePictureForPublicKey(publicKeyBytes)
+
+	if err = json.NewEncoder(ww).Encode(GetSingleProfilePictureResponse{
+		ProfilePic: profilePicture,
+	}); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetSingleProfilePicture: Problem serializing object to JSON: %v", err))
+		return
+	}
 }
 
 type GetSingleProfileRequest struct {
