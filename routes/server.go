@@ -118,6 +118,7 @@ const (
 	RoutePathAdminRemoveVerificationBadge          = "/api/v0/admin/remove-verification-badge"
 	RoutePathAdminGetVerifiedUsers                 = "/api/v0/admin/get-verified-users"
 	RoutePathAdminGetUsernameVerificationAuditLogs = "/api/v0/admin/get-username-verification-audit-logs"
+	RoutePathAdminGetUserAdminData				   = "/api/v0/admin/get-user-admin-data"
 
 	// admin_feed.go
 	RoutePathAdminUpdateGlobalFeed                 = "/api/v0/admin/update-global-feed"
@@ -668,6 +669,14 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			AdminAccess,
 		},
 		// Super Admin routes
+		{
+
+			"AdminGetUserAdminData",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetUserAdminData,
+			fes.AdminGetUserAdminData,
+			SuperAdminAccess,
+		},
 		{
 			"AdminGetUsernameVerificationAuditLogs",
 			[]string{"POST", "OPTIONS"},
