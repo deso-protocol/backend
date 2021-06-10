@@ -162,9 +162,9 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	user.PublicKeysBase58CheckFollowedByUser = publicKeysBase58CheckFollowedByUser
 	pkid := utxoView.GetPKIDForPublicKey(publicKeyBytes)
 	if !skipHodlings {
-		// Get the users that the user hodls and vice versa
-		youHodlMap, hodlYouMap, err := fes.GetHodlingsForPublicKey(
-			pkid, true /*fetchProfiles*/, utxoView)
+		var youHodlMap map[string]*BalanceEntryResponse
+		// Get the users that the user hodls
+		youHodlMap, err = fes.GetYouHodlMap(pkid, true, utxoView)
 		if err != nil {
 			return errors.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err)
 		}
@@ -177,17 +177,8 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		sort.Slice(youHodlList, func(ii, jj int) bool {
 			return youHodlList[ii].CreatorPublicKeyBase58Check > youHodlList[jj].CreatorPublicKeyBase58Check
 		})
-		hodlYouList := []*BalanceEntryResponse{}
-		for _, entryRes := range hodlYouMap {
-			hodlYouList = append(hodlYouList, entryRes)
-		}
-		// Note we sort the hodlYou list by the hodler pk
-		sort.Slice(hodlYouList, func(ii, jj int) bool {
-			return hodlYouList[ii].HODLerPublicKeyBase58Check > hodlYouList[jj].HODLerPublicKeyBase58Check
-		})
 		// Assign the new hodl lists to the user object
 		user.UsersYouHODL = youHodlList
-		user.UsersWhoHODLYou = hodlYouList
 	}
 
 	// Populate fields from userMetadata global state
