@@ -177,8 +177,12 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		sort.Slice(youHodlList, func(ii, jj int) bool {
 			return youHodlList[ii].CreatorPublicKeyBase58Check > youHodlList[jj].CreatorPublicKeyBase58Check
 		})
+
+		var hodlYouMap map[string]*BalanceEntryResponse
+		hodlYouMap, err = fes.GetHodlYouMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView)
 		// Assign the new hodl lists to the user object
 		user.UsersYouHODL = youHodlList
+		user.UsersWhoHODLYouCount = len(hodlYouMap)
 	}
 
 	// Populate fields from userMetadata global state
