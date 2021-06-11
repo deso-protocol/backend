@@ -10,7 +10,6 @@ import (
 
 type Config struct {
 	// Core
-	TXIndex                bool
 	APIPort                uint16
 
 	// Onboarding
@@ -32,6 +31,7 @@ type Config struct {
 	SecureHeaderDevelopment   bool
 	SecureHeaderAllowHosts    []string
 	AdminPublicKeys           []string
+	SuperAdminPublicKeys      []string
 
 	// Analytics + Profiling
 	AmplitudeKey           string
@@ -58,8 +58,6 @@ type Config struct {
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config := Config{}
 
-	// Core
-	config.TXIndex = viper.GetBool("txindex")
 	config.APIPort = uint16(viper.GetUint64("api-port"))
 	if config.APIPort <= 0 {
 		// TODO: pull this out of core. we shouldn't need core's config here
@@ -96,6 +94,7 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.SecureHeaderDevelopment = viper.GetBool("secure-header-development")
 	config.SecureHeaderAllowHosts =  viper.GetStringSlice("secure-header-allow-hosts")
 	config.AdminPublicKeys = viper.GetStringSlice("admin-public-keys")
+	config.SuperAdminPublicKeys = viper.GetStringSlice("super-admin-public-keys")
 
 	// Analytics + Profiling
 	config.AmplitudeKey = viper.GetString("amplitude-key")

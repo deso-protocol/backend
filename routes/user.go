@@ -1,15 +1,18 @@
 package routes
 
 import (
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/dgraph-io/badger/v3"
+	"github.com/gorilla/mux"
 	"io"
 	"net/http"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/bitclout/core/lib"
@@ -161,9 +164,9 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	user.PublicKeysBase58CheckFollowedByUser = publicKeysBase58CheckFollowedByUser
 	pkid := utxoView.GetPKIDForPublicKey(publicKeyBytes)
 	if !skipHodlings {
-		// Get the users that the user hodls and vice versa
-		youHodlMap, hodlYouMap, err := fes.GetHodlingsForPublicKey(
-			pkid, true /*fetchProfiles*/, utxoView)
+		var youHodlMap map[string]*BalanceEntryResponse
+		// Get the users that the user hodls
+		youHodlMap, err = fes.GetYouHodlMap(pkid, true, utxoView)
 		if err != nil {
 			return errors.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err)
 		}
@@ -176,17 +179,12 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		sort.Slice(youHodlList, func(ii, jj int) bool {
 			return youHodlList[ii].CreatorPublicKeyBase58Check > youHodlList[jj].CreatorPublicKeyBase58Check
 		})
-		hodlYouList := []*BalanceEntryResponse{}
-		for _, entryRes := range hodlYouMap {
-			hodlYouList = append(hodlYouList, entryRes)
-		}
-		// Note we sort the hodlYou list by the hodler pk
-		sort.Slice(hodlYouList, func(ii, jj int) bool {
-			return hodlYouList[ii].HODLerPublicKeyBase58Check > hodlYouList[jj].HODLerPublicKeyBase58Check
-		})
+
+		var hodlYouMap map[string]*BalanceEntryResponse
+		hodlYouMap, err = fes.GetHodlYouMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView)
 		// Assign the new hodl lists to the user object
 		user.UsersYouHODL = youHodlList
-		user.UsersWhoHODLYou = hodlYouList
+		user.UsersWhoHODLYouCount = len(hodlYouMap)
 	}
 
 	// Populate fields from userMetadata global state
@@ -230,11 +228,19 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 
 	// Only set User.IsAdmin in GetUsersStateless
 	// We don't want or need to set this on every endpoint that generates a ProfileEntryResponse
-	if len(fes.AdminPublicKeys) == 0 {
+	if len(fes.AdminPublicKeys) == 0 && len(fes.SuperAdminPublicKeys) == 0 {
 		user.IsAdmin = true
+		user.IsSuperAdmin = true
 	} else {
 		for _, k := range fes.AdminPublicKeys {
 			if k == user.PublicKeyBase58Check {
+				user.IsAdmin = true
+				break
+			}
+		}
+		for _, k := range fes.SuperAdminPublicKeys {
+			if k == user.PublicKeyBase58Check {
+				user.IsSuperAdmin = true
 				user.IsAdmin = true
 				break
 			}
@@ -489,7 +495,6 @@ type ProfileEntryResponse struct {
 	PublicKeyBase58Check string
 	Username             string
 	Description          string
-	ProfilePic           string
 	IsHidden             bool
 	IsReserved           bool
 	IsVerified           bool
@@ -826,12 +831,6 @@ func _profileEntryToResponse(profileEntry *lib.ProfileEntry, params *lib.BitClou
 		return nil
 	}
 
-	var profilePic = string(profileEntry.ProfilePic)
-	// Currently we only support images that are base 64 encoded data URIs.
-	if !strings.HasPrefix(profilePic, "data:image/") && !lib.ProfilePicRegex.Match([]byte(profilePic)) {
-		profilePic = "/assets/img/default_profile_pic.png"
-	}
-
 	coinPriceBitCloutNanos := uint64(0)
 	if profileEntry.CoinsInCirculationNanos != 0 {
 		// The price formula is:
@@ -869,7 +868,6 @@ func _profileEntryToResponse(profileEntry *lib.ProfileEntry, params *lib.BitClou
 		PublicKeyBase58Check:     lib.PkToString(profileEntry.PublicKey, params),
 		Username:                 string(profileEntry.Username),
 		Description:              string(profileEntry.Description),
-		ProfilePic:               profilePic,
 		CoinEntry:                profileEntry.CoinEntry,
 		CoinPriceBitCloutNanos:   coinPriceBitCloutNanos,
 		IsHidden:                 profileEntry.IsHidden,
@@ -918,6 +916,69 @@ func (fes *APIServer) augmentProfileEntry(
 	}
 
 	return profileEntryResponse
+}
+
+func (fes *APIServer) _getProfilePictureForPublicKey(publicKey []byte) ([]byte, string, error) {
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return []byte{}, "", fmt.Errorf("_getProfilePictureforPublicKey: Error getting utxoView: %v", err)
+	}
+
+	profileEntry := utxoView.GetProfileEntryForPublicKey(publicKey)
+	if profileEntry == nil {
+		return []byte{}, "", fmt.Errorf("_getProfilePictureForPublicKey: Profile not found")
+	}
+	profilePic := string(profileEntry.ProfilePic)
+	if !strings.HasPrefix(profilePic, "data:image/") && !lib.ProfilePicRegex.Match([]byte(profilePic)) {
+		return []byte{}, "", fmt.Errorf("_getProfilePictureForPublicKey: profile picture is not base64 encoded image")
+	}
+	contentTypeEnd := strings.Index(profilePic, ";base64")
+	if contentTypeEnd < 6 {
+		return []byte{}, "", fmt.Errorf("_getProfilePictureForPublicKey: cannot extract content type")
+	}
+	contentType := profilePic[5:contentTypeEnd]
+	return profileEntry.ProfilePic, contentType, nil
+}
+
+type GetSingleProfilePictureRequest struct {
+	PublicKeyBase58Check string `safeForLogging:"true"`
+}
+
+type GetSingleProfilePictureResponse struct {
+	ProfilePic []byte
+}
+
+func (fes *APIServer) GetSingleProfilePicture(ww http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	publicKeyBase58Check, publicKeyBase58CheckExists := vars["publicKeyBase58Check"]
+	if !publicKeyBase58CheckExists {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfilePicture: Missing public key base 58 check"))
+		return
+	}
+	publicKeyBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfilePicture: Problem decoding user public key: %v", err))
+		return
+	}
+	// We ignore errors here and simply return
+	profilePicture, contentType, err := fes._getProfilePictureForPublicKey(publicKeyBytes)
+	if err != nil {
+		_AddNotFoundError(ww, fmt.Sprintf("GetSingleProfilePicture: Profile Picture not founD: %v", err))
+		return
+	}
+
+	profilePictureStr := string(profilePicture)
+	decodedBytes, err := base64.StdEncoding.DecodeString(profilePictureStr[strings.Index(profilePictureStr, ";base64,")+8:])
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfilePicture: Error decoding images bytes: %v", err))
+		return
+	}
+	ww.Header().Set("Content-Type", contentType)
+	ww.Header().Set("Content-Length", strconv.Itoa(len(decodedBytes)))
+	if _, err = ww.Write(decodedBytes); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetSingleProfilePicture: Problem writing profile picture bytes: %v", err))
+		return
+	}
 }
 
 type GetSingleProfileRequest struct {
@@ -1426,7 +1487,7 @@ func (fes *APIServer) getPublicKeyToProfileEntryMapForFollows(publicKeyBytes []b
 		publicKeyToProfileEntry[followPubKeyBase58Check] = followProfileEntry
 
 		// If we've fetched enough followers and we're not fetching all followers, break.
-		if uint64(len(publicKeyToProfileEntry)) > numToFetch && !fetchAllFollows {
+		if uint64(len(publicKeyToProfileEntry)) >= numToFetch && !fetchAllFollows {
 			break
 		}
 	}
@@ -1857,9 +1918,9 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*TransactionMetadataResponse, *lib.UtxoView, error) {
 	// If the TxIndex flag was not passed to this node then we can't compute
 	// notifications.
-	if fes.TxIndexChain == nil {
+	if fes.TXIndex == nil {
 		return nil, nil, errors.Errorf(
-			"GetNotifications: Cannot be called when TxIndexChain " +
+			"GetNotifications: Cannot be called when TXIndexChain " +
 				"is nil. This error occurs when --txindex was not passed to the program " +
 				"on startup")
 	}
@@ -1898,7 +1959,7 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 	// the end of this loop.
 	for {
 		keysFound, valsFound, err := lib.DBGetPaginatedKeysAndValuesForPrefix(
-			fes.TxIndexChain.DB(), startPrefix, validForPrefix,
+			fes.TXIndex.TXIndexChain.DB(), startPrefix, validForPrefix,
 			maxKeyLen, int(request.NumToFetch), true, /*reverse*/
 			true /*fetchValues*/)
 		if err != nil {
@@ -1912,7 +1973,7 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 
 			// In this case we need to look up the full transaction and convert
 			// it into a proper transaction response.
-			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TxIndexChain.DB(), txID)
+			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txID)
 			if txnMeta == nil {
 				// We should never be missing a transaction for a given txid, but
 				// just continue in this case.
@@ -1962,7 +2023,7 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 	// Get the NextIndex from the db. This will be used to determine whether
 	// or not it's appropriate to fetch txns from the mempool. It will also be
 	// used to assign consistent index values to memppool txns.
-	NextIndexVal := lib.DbGetTxindexNextIndexForPublicKey(fes.TxIndexChain.DB(), pkBytes)
+	NextIndexVal := lib.DbGetTxindexNextIndexForPublicKey(fes.TXIndex.TXIndexChain.DB(), pkBytes)
 	if NextIndexVal == nil {
 		return nil, nil, fmt.Errorf("Unable to get next index for public key: %v", request.PublicKeyBase58Check)
 	}

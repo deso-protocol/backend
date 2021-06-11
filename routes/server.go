@@ -2,9 +2,11 @@ package routes
 
 import (
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
 	fmt "fmt"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/dgrijalva/jwt-go/v4"
+	"github.com/tyler-smith/go-bip39"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -15,11 +17,9 @@ import (
 	"github.com/dgrijalva/jwt-go/v4"
 
 	"github.com/bitclout/core/lib"
-	chainlib "github.com/btcsuite/btcd/blockchain"
 	"github.com/dgraph-io/badger/v3"
 	"github.com/golang/glog"
 	"github.com/kevinburke/twilio-go"
-	"github.com/sasha-s/go-deadlock"
 	muxtrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/gorilla/mux"
 )
 
@@ -58,6 +58,7 @@ const (
 	RoutePathDeleteIdentities         = "/api/v0/delete-identities"
 	RoutePathGetProfiles              = "/api/v0/get-profiles"
 	RoutePathGetSingleProfile         = "/api/v0/get-single-profile"
+	RoutePathGetSingleProfilePicture  = "/api/v0/get-single-profile-picture"
 	RoutePathGetHodlersForPublicKey   = "/api/v0/get-hodlers-for-public-key"
 	RoutePathGetDiamondsForPublicKey  = "/api/v0/get-diamonds-for-public-key"
 	RoutePathGetFollowsStateless      = "/api/v0/get-follows-stateless"
@@ -121,6 +122,7 @@ const (
 	RoutePathAdminRemoveVerificationBadge          = "/api/v0/admin/remove-verification-badge"
 	RoutePathAdminGetVerifiedUsers                 = "/api/v0/admin/get-verified-users"
 	RoutePathAdminGetUsernameVerificationAuditLogs = "/api/v0/admin/get-username-verification-audit-logs"
+	RoutePathAdminGetUserAdminData				   = "/api/v0/admin/get-user-admin-data"
 
 	// admin_feed.go
 	RoutePathAdminUpdateGlobalFeed = "/api/v0/admin/update-global-feed"
@@ -154,14 +156,7 @@ type APIServer struct {
 	// A pointer to the router that handles all requests.
 	router *muxtrace.Router
 
-	// TxIndexLock protects the transaction index. It is only relevant when
-	// --txindex is provided to a node. This is mainly useful for the exchange
-	// API not the frontend API.
-	TxIndexLock deadlock.RWMutex
-	// The txindex has it s own separate Blockchain object. This allows us to
-	// capture more metadata when collecting transactions without interfering
-	// with the goings-on of the main chain.
-	TxIndexChain *lib.Blockchain
+	TXIndex *lib.TXIndex
 
 	// Used for getting/setting the global state. Usually either a db is set OR
 	// a remote node is set-- not both. When a remote node is set, global state
@@ -205,6 +200,8 @@ type APIServer struct {
 
 	// Optional, restricts access to the admin panel to these public keys
 	AdminPublicKeys []string
+	// Admins with higher levels of access
+	SuperAdminPublicKeys []string
 
 	// Wyre
 	WyreUrl string
@@ -213,6 +210,9 @@ type APIServer struct {
 	WyreSecretKey string
 	WyreBTCAddress string
 	BuyBitCloutSeed string
+
+	// Signals that the frontend server is in a stopped state
+	quit chan struct{}
 }
 
 // NewAPIServer ...
@@ -220,7 +220,7 @@ func NewAPIServer(_backendServer *lib.Server,
 	_mempool *lib.BitCloutMempool,
 	_blockchain *lib.Blockchain,
 	_blockProducer *lib.BitCloutBlockProducer,
-	_txindexDB *badger.DB,
+	txIndex *lib.TXIndex,
 	params *lib.BitCloutParams,
 	jsonPort uint16,
 	_minFeeRateNanosPerKB uint64,
@@ -245,6 +245,7 @@ func NewAPIServer(_backendServer *lib.Server,
 	googleBucketName string,
 	compProfileCreation bool,
 	adminPublicKeys []string,
+	superAdminPublicKeys []string,
 	wyreUrl string,
 	wyreAccountId string,
 	wyreApiKey string,
@@ -252,117 +253,6 @@ func NewAPIServer(_backendServer *lib.Server,
 	wyreBTCAddress string,
 	buyBitCloutSeed string,
 ) (*APIServer, error) {
-
-	var txIndexChain *lib.Blockchain
-	if _txindexDB != nil {
-		// See if we have a best chain hash stored in the txindex db.
-		bestBlockHashBeforeInit := lib.DbGetBestHash(_txindexDB, lib.ChainTypeBitCloutBlock)
-
-		// If we haven't initialized the txIndexChain before, set up the
-		// seed mappings.
-		if bestBlockHashBeforeInit == nil {
-
-			// Add the seed balances. Originate them from the architect public key and
-			// set their block as the genesis block.
-			{
-				dummyPk := lib.ArchitectPubKeyBase58Check
-				dummyTxn := &lib.MsgBitCloutTxn{
-					TxInputs:  []*lib.BitCloutInput{},
-					TxOutputs: params.SeedBalances,
-					TxnMeta:   &lib.BlockRewardMetadataa{},
-					PublicKey: lib.MustBase58CheckDecode(dummyPk),
-				}
-				affectedPublicKeys := []*lib.AffectedPublicKey{}
-				totalOutput := uint64(0)
-				for _, seedBal := range params.SeedBalances {
-					affectedPublicKeys = append(affectedPublicKeys, &lib.AffectedPublicKey{
-						PublicKeyBase58Check: lib.PkToString(seedBal.PublicKey, params),
-						Metadata:             "GenesisBlockSeedBalance",
-					})
-					totalOutput += seedBal.AmountNanos
-				}
-				err := lib.DbPutTxindexTransactionMappings(_txindexDB, dummyTxn, params, &lib.TransactionMetadata{
-					TransactorPublicKeyBase58Check: dummyPk,
-					AffectedPublicKeys:             affectedPublicKeys,
-					BlockHashHex:                   lib.GenesisBlockHashHex,
-					TxnIndexInBlock:                uint64(0),
-					// Just set some dummy metadata
-					BasicTransferTxindexMetadata: &lib.BasicTransferTxindexMetadata{
-						TotalInputNanos:  0,
-						TotalOutputNanos: totalOutput,
-						FeeNanos:         0,
-					},
-				})
-				if err != nil {
-					return nil, fmt.Errorf("NewAPIServer: Error initializing seed balances in txindex: %v", err)
-				}
-			}
-
-			// Add the other seed txns to the txn index.
-			for txnIndex, txnHex := range params.SeedTxns {
-				txnBytes, err := hex.DecodeString(txnHex)
-				if err != nil {
-					return nil, fmt.Errorf(
-						"NewAPIServer: Error decoding seed "+
-							"txn HEX: %v, txn index: %v, txn hex: %v",
-						err, txnIndex, txnHex)
-				}
-				txn := &lib.MsgBitCloutTxn{}
-				if err := txn.FromBytes(txnBytes); err != nil {
-					return nil, fmt.Errorf(
-						"NewAPIServer: Error decoding seed "+
-							"txn BYTES: %v, txn index: %v, txn hex: %v",
-						err, txnIndex, txnHex)
-				}
-				err = lib.DbPutTxindexTransactionMappings(_txindexDB, txn, params, &lib.TransactionMetadata{
-					TransactorPublicKeyBase58Check: lib.PkToString(txn.PublicKey, params),
-					// Note that we don't set AffectedPublicKeys for the SeedTxns
-					BlockHashHex:    lib.GenesisBlockHashHex,
-					TxnIndexInBlock: uint64(0),
-					// Just set some dummy metadata
-					BasicTransferTxindexMetadata: &lib.BasicTransferTxindexMetadata{
-						TotalInputNanos:  0,
-						TotalOutputNanos: 0,
-						FeeNanos:         0,
-					},
-				})
-				if err != nil {
-					return nil, fmt.Errorf("NewAPIServer: Error initializing seed txn %v in txindex: %v", txn, err)
-				}
-			}
-		}
-
-		// Ignore all the notifications from the txindex blockchain object
-		txIndexBlockchainNotificationChan := make(chan *lib.ServerMessage, 1000)
-		go func() {
-			for {
-				<-txIndexBlockchainNotificationChan
-			}
-		}()
-
-		// This blockchain object should already be initialized.
-		var err error
-		// Only set a BitcoinManager if we have one. This makes some tests pass.
-		var bitcoinManager *lib.BitcoinManager
-		if _backendServer != nil && _backendServer.GetBitcoinManager() != nil {
-			bitcoinManager = _backendServer.GetBitcoinManager()
-		}
-		// Note that we *DONT* pass _backendServer here because the server
-		// is already tied to the to the main blockchain.
-		txIndexChain, err = lib.NewBlockchain(
-			[]string{}, 0,
-			params, chainlib.NewMedianTime(), _txindexDB,
-			bitcoinManager, nil)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"NewAPIServer: Error initializing TxIndex on APIServer: %v", err)
-		}
-
-		// At this point, we should have set up a blockchain object for our
-		// txindex, and initialized all of the seed txns and seed balances
-		// correctly. Attaching blocks to our txnindex blockchain or adding
-		// txns to our txindex should work smoothly now.
-	}
 
 	if globalStateDB == nil && globalStateRemoteNode == "" {
 		return nil, fmt.Errorf(
@@ -378,7 +268,7 @@ func NewAPIServer(_backendServer *lib.Server,
 		mempool:                             _mempool,
 		blockchain:                          _blockchain,
 		blockProducer:                       _blockProducer,
-		TxIndexChain:                        txIndexChain,
+		TXIndex:                             txIndex,
 		Params:                              params,
 		JSONPort:                            jsonPort,
 		MinFeeRateNanosPerKB:                _minFeeRateNanosPerKB,
@@ -403,6 +293,7 @@ func NewAPIServer(_backendServer *lib.Server,
 		GoogleBucketName:                    googleBucketName,
 		IsCompProfileCreation:               compProfileCreation,
 		AdminPublicKeys:                     adminPublicKeys,
+		SuperAdminPublicKeys:                superAdminPublicKeys,
 		WyreUrl:                             wyreUrl,
 		WyreAccountId:                       wyreAccountId,
 		WyreApiKey:                          wyreApiKey,
@@ -411,8 +302,18 @@ func NewAPIServer(_backendServer *lib.Server,
 		BuyBitCloutSeed:                     buyBitCloutSeed,
 	}
 
+	fes.StartSeedBalancesMonitoring()
+
 	return fes, nil
 }
+
+type AccessLevel int
+
+const (
+	PublicAccess AccessLevel = iota
+	AdminAccess
+	SuperAdminAccess
+)
 
 // Route ...
 type Route struct {
@@ -420,7 +321,7 @@ type Route struct {
 	Method         []string
 	Pattern        string
 	HandlerFunc    http.HandlerFunc
-	CheckPublicKey bool
+	AccessLevel    AccessLevel
 }
 
 // InitRoutes ...
@@ -434,7 +335,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			"/",
 			fes.Index,
-			false,
+			PublicAccess,
 		},
 
 		{
@@ -442,7 +343,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathHealthCheck,
 			fes.HealthCheck,
-			false,
+			PublicAccess,
 		},
 
 		// Routes for populating various UI elements.
@@ -451,7 +352,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetExchangeRate,
 			fes.GetExchangeRate,
-			false,
+			PublicAccess,
 		},
 
 		// Route for sending BitClout
@@ -460,7 +361,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathSendBitClout,
 			fes.SendBitClout,
-			false,
+			PublicAccess,
 		},
 
 		// Route for burning Bitcoin for BitClout
@@ -469,7 +370,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathBurnBitcoin,
 			fes.BurnBitcoinStateless,
-			false,
+			PublicAccess,
 		},
 
 		// Route for submitting signed transactions for network broadcast
@@ -478,7 +379,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathSubmitTransaction,
 			fes.SubmitTransaction,
-			false,
+			PublicAccess,
 		},
 
 		// Temporary route to wipe seedinfo cookies
@@ -487,7 +388,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathDeleteIdentities,
 			fes.DeleteIdentities,
-			false,
+			PublicAccess,
 		},
 
 		// Endpoint to trigger the reprocessing of a particular Bitcoin block.
@@ -496,7 +397,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET", "POST", "OPTIONS"},
 			RoutePathReprocessBitcoinBlock + "/{blockHashHexOrblockHeight:[0-9abcdefABCDEF]+}",
 			fes.ReprocessBitcoinBlock,
-			false,
+			PublicAccess,
 		},
 		// Endpoint to trigger granting a user a verified badge
 
@@ -506,35 +407,35 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetUsersStateless,
 			fes.GetUsersStateless,
-			false,
+			PublicAccess,
 		},
 		{
 			"SendPhoneNumberVerificationText",
 			[]string{"POST", "OPTIONS"},
 			RoutePathSendPhoneNumberVerificationText,
 			fes.SendPhoneNumberVerificationText,
-			false,
+			PublicAccess,
 		},
 		{
 			"SubmitPhoneNumberVerificationCode",
 			[]string{"POST", "OPTIONS"},
 			RoutePathSubmitPhoneNumberVerificationCode,
 			fes.SubmitPhoneNumberVerificationCode,
-			false,
+			PublicAccess,
 		},
 		{
 			"UploadImage",
 			[]string{"POST", "OPTIONS"},
 			RoutePathUploadImage,
 			fes.UploadImage,
-			false,
+			PublicAccess,
 		},
 		{
 			"SubmitPost",
 			[]string{"POST", "OPTIONS"},
 			RoutePathSubmitPost,
 			fes.SubmitPost,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetPostsStateless",
@@ -542,14 +443,14 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			RoutePathGetPostsStateless,
 			fes.GetPostsStateless,
 			// CheckSecret: No need to check the secret since this is a read-only endpoint.
-			false,
+			PublicAccess,
 		},
 		{
 			"UpdateProfile",
 			[]string{"POST", "OPTIONS"},
 			RoutePathUpdateProfile,
 			fes.UpdateProfile,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetProfiles",
@@ -557,112 +458,119 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			RoutePathGetProfiles,
 			fes.GetProfiles,
 			// CheckSecret: No need to check the secret since this is a read-only endpoint.
-			false,
+			PublicAccess,
 		},
 		{
 			"GetSingleProfile",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetSingleProfile,
 			fes.GetSingleProfile,
-			false,
+			PublicAccess,
+		},
+		{
+			"GetSingleProfilePicture",
+			[]string{"GET"},
+			RoutePathGetSingleProfilePicture + "/{publicKeyBase58Check:[0-9a-zA-Z]{54,55}}",
+			fes.GetSingleProfilePicture,
+			PublicAccess,
 		},
 		{
 			"GetPostsForPublicKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetPostsForPublicKey,
 			fes.GetPostsForPublicKey,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetDiamondsForPublicKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetDiamondsForPublicKey,
 			fes.GetDiamondsForPublicKey,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetDiamondedPosts",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetDiamondedPosts,
 			fes.GetDiamondedPosts,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetHodlersForPublicKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetHodlersForPublicKey,
 			fes.GetHodlersForPublicKey,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetFollowsStateless",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetFollowsStateless,
 			fes.GetFollowsStateless,
-			false,
+			PublicAccess,
 		},
 		{
 			"CreateFollowTxnStateless",
 			[]string{"POST", "OPTIONS"},
 			RoutePathCreateFollowTxnStateless,
 			fes.CreateFollowTxnStateless,
-			false,
+			PublicAccess,
 		},
 		{
 			"CreateLikeStateless",
 			[]string{"POST", "OPTIONS"},
 			RoutePathCreateLikeStateless,
 			fes.CreateLikeStateless,
-			false,
+			PublicAccess,
 		},
 		{
 			"BuyOrSellCreatorCoin",
 			[]string{"POST", "OPTIONS"},
 			RoutePathBuyOrSellCreatorCoin,
 			fes.BuyOrSellCreatorCoin,
-			false,
+			PublicAccess,
 		},
 		{
 			"TransferCreatorCoin",
 			[]string{"POST", "OPTIONS"},
 			RoutePathTransferCreatorCoin,
 			fes.TransferCreatorCoin,
-			false,
+			PublicAccess,
 		},
 		{
 			"SendDiamonds",
 			[]string{"POST", "OPTIONS"},
 			RoutePathSendDiamonds,
 			fes.SendDiamonds,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetNotifications",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetNotifications,
 			fes.GetNotifications,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetAppState",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetAppState,
 			fes.GetAppState,
-			false,
+			PublicAccess,
 		},
 		{
 			"UpdateUserGlobalMetadata",
 			[]string{"POST", "OPTIONS"},
 			RoutePathUpdateUserGlobalMetadata,
 			fes.UpdateUserGlobalMetadata,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetUserGlobalMetadata",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetUserGlobalMetadata,
 			fes.GetUserGlobalMetadata,
-			false,
+			PublicAccess,
 		},
 
 		// Begin all /admin routes
@@ -673,128 +581,136 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathNodeControl,
 			fes.NodeControl,
-			true,
+			AdminAccess,
 		},
 		{
 			"AdminUpdateUserGlobalMetadata",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateUserGlobalMetadata,
 			fes.AdminUpdateUserGlobalMetadata,
-			true,
+			AdminAccess,
 		},
 		{
 			"AdminGetVerifiedUsers",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminGetVerifiedUsers,
 			fes.AdminGetVerifiedUsers,
-			true, // Check Secret
-		},
-		{
-			"AdminGetUsernameVerificationAuditLogs",
-			[]string{"POST", "OPTIONS"},
-			RoutePathAdminGetUsernameVerificationAuditLogs,
-			fes.AdminGetUsernameVerificationAuditLogs,
-			true, // Check Secret
-		},
-		{
-			"AdminGrantVerificationBadge",
-			[]string{"POST", "OPTIONS"},
-			RoutePathAdminGrantVerificationBadge,
-			fes.AdminGrantVerificationBadge,
-			true, // Check Secret
-		},
-		{
-			"AdminRemoveVerificationBadge",
-			[]string{"POST", "OPTIONS"},
-			RoutePathAdminRemoveVerificationBadge,
-			fes.AdminRemoveVerificationBadge,
-			true, // Check Secret
+			AdminAccess, // Check Secret
 		},
 		{
 			"AdminGetAllUserGlobalMetadata",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminGetAllUserGlobalMetadata,
 			fes.AdminGetAllUserGlobalMetadata,
-			true,
+			AdminAccess,
 		},
 		{
 			"AdminGetUserGlobalMetadata",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminGetUserGlobalMetadata,
 			fes.AdminGetUserGlobalMetadata,
-			true,
+			AdminAccess,
 		},
 		{
 			"AdminUpdateGlobalFeed",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateGlobalFeed,
 			fes.AdminUpdateGlobalFeed,
-			true,
+			AdminAccess,
 		},
 		{
 			"AdminPinPost",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminPinPost,
 			fes.AdminPinPost,
-			true, // CheckSecret
-		},
-		{
-			"AdminRemoveNilPosts",
-			[]string{"POST", "OPTIONS"},
-			RoutePathAdminRemoveNilPosts,
-			fes.AdminRemoveNilPosts,
-			true,
+			AdminAccess, // CheckSecret
 		},
 		{
 			"AdminGetMempoolStats",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminGetMempoolStats,
 			fes.AdminGetMempoolStats,
-			true,
-		},
-		{
-			"SwapIdentity",
-			[]string{"POST", "OPTIONS"},
-			RoutePathSwapIdentity,
-			fes.SwapIdentity,
-			true,
-		},
-		{
-			"UpdateGlobalParams",
-			[]string{"POST", "OPTIONS"},
-			RoutePathUpdateGlobalParams,
-			fes.UpdateGlobalParams,
-			true,
+			AdminAccess,
 		},
 		{
 			"GetGlobalParams",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetGlobalParams,
 			fes.GetGlobalParams,
-			true,
-		},
-		{
-			"EvictUnminedBitcoinTxns",
-			[]string{"POST", "OPTIONS"},
-			RoutePathEvictUnminedBitcoinTxns,
-			fes.EvictUnminedBitcoinTxns,
-			true,
+			AdminAccess,
 		},
 		{
 			"GetWyreWalletOrdersForPublicKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetWyreWalletOrdersForPublicKey,
 			fes.GetWyreWalletOrdersForPublicKey,
-			true,
+			AdminAccess,
+		},
+		// Super Admin routes
+		{
+
+			"AdminGetUserAdminData",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetUserAdminData,
+			fes.AdminGetUserAdminData,
+			SuperAdminAccess,
+		},
+		{
+			"AdminGetUsernameVerificationAuditLogs",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetUsernameVerificationAuditLogs,
+			fes.AdminGetUsernameVerificationAuditLogs,
+			SuperAdminAccess,
+		},
+		{
+			"AdminGrantVerificationBadge",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGrantVerificationBadge,
+			fes.AdminGrantVerificationBadge,
+			SuperAdminAccess,
+		},
+		{
+			"AdminRemoveVerificationBadge",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminRemoveVerificationBadge,
+			fes.AdminRemoveVerificationBadge,
+			SuperAdminAccess,
+		},
+		{
+			"SwapIdentity",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSwapIdentity,
+			fes.SwapIdentity,
+			SuperAdminAccess,
+		},
+		{
+			"UpdateGlobalParams",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateGlobalParams,
+			fes.UpdateGlobalParams,
+			SuperAdminAccess,
+		},
+		{
+			"EvictUnminedBitcoinTxns",
+			[]string{"POST", "OPTIONS"},
+			RoutePathEvictUnminedBitcoinTxns,
+			fes.EvictUnminedBitcoinTxns,
+			SuperAdminAccess,
+		},
+		{
+			"AdminRemoveNilPosts",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminRemoveNilPosts,
+			fes.AdminRemoveNilPosts,
+			SuperAdminAccess,
 		},
 		// End all /admin routes
-
 		{
 			"GetSinglePost",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetSinglePost,
 			fes.GetSinglePost,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetLikesForPost",
@@ -829,14 +745,14 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathBlockPublicKey,
 			fes.BlockPublicKey,
-			false,
+			PublicAccess,
 		},
 		{
 			"BlockGetTxn",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetTxn,
 			fes.GetTxn,
-			false,
+			PublicAccess,
 		},
 
 		// message.go
@@ -845,28 +761,28 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathSendMessageStateless,
 			fes.SendMessageStateless,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetMessagesStateless",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetMessagesStateless,
 			fes.GetMessagesStateless,
-			false,
+			PublicAccess,
 		},
 		{
 			"MarkContactMessagesRead",
 			[]string{"POST", "OPTIONS"},
 			RoutePathMarkContactMessagesRead,
 			fes.MarkContactMessagesRead,
-			false,
+			PublicAccess,
 		},
 		{
 			"MarkAllMessagesRead",
 			[]string{"POST", "OPTIONS"},
 			RoutePathMarkAllMessagesRead,
 			fes.MarkAllMessagesRead,
-			false,
+			PublicAccess,
 		},
 
 		// Paths for the mining pool
@@ -875,14 +791,14 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetBlockTemplate,
 			fes.GetBlockTemplate,
-			false,
+			PublicAccess,
 		},
 		{
 			"SubmitBlock",
 			[]string{"POST", "OPTIONS"},
 			RoutePathSubmitBlock,
 			fes.SubmitBlock,
-			false,
+			PublicAccess,
 		},
 
 		{
@@ -890,7 +806,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetFullTikTokURL,
 			fes.GetFullTikTokURL,
-			false,
+			PublicAccess,
 		},
 
 		// Paths for wyre
@@ -899,21 +815,23 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetWyreWalletOrderQuotation,
 			fes.GetWyreWalletOrderQuotation,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetWyreWalletOrderReservation",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetWyreWalletOrderReservation,
 			fes.GetWyreWalletOrderReservation,
-			false,
+			PublicAccess,
 		},
 		{
+			// Make sure you only allow access to Wyre IPs for this endpoint, otherwise anybody can take all the funds from
+			// the public key that sends BitClout. WHITELIST WYRE IPs.
 			"WyreWalletOrderSubscription",
 			[]string{"POST", "OPTIONS"},
 			RoutePathWyreWalletOrderSubscription,
 			fes.WyreWalletOrderSubscription,
-			false,
+			PublicAccess,
 		},
 	}
 
@@ -945,8 +863,8 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		// last.
 
 		// Anyone can access the admin panel if no public keys exist
-		if route.CheckPublicKey && len(fes.AdminPublicKeys) > 0 {
-			handler = fes.CheckAdminPublicKey(handler)
+		if route.AccessLevel != PublicAccess && (len(fes.AdminPublicKeys) > 0 || len(fes.SuperAdminPublicKeys) > 0) {
+			handler = fes.CheckAdminPublicKey(handler, route.AccessLevel)
 		}
 		handler = Logger(handler, route.Name)
 		handler = AddHeaders(handler, fes.AccessControlAllowOrigins)
@@ -1057,7 +975,7 @@ type AdminRequest struct {
 }
 
 // CheckSecret ...
-func (fes *APIServer) CheckAdminPublicKey(inner http.Handler) http.Handler {
+func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel AccessLevel) http.Handler {
 	return http.HandlerFunc(func(ww http.ResponseWriter, req *http.Request) {
 		requestData := AdminRequest{}
 
@@ -1096,15 +1014,33 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler) http.Handler {
 			return
 		}
 
-		for _, adminPubKey := range fes.AdminPublicKeys {
-			if adminPubKey == requestData.AdminPublicKey {
+		// If this a regular admin endpoint, we iterate through all the admin public keys.
+		if AccessLevel == AdminAccess {
+			for _, adminPubKey := range fes.AdminPublicKeys {
+				if adminPubKey == requestData.AdminPublicKey {
+					// We found a match, serve the request
+					inner.ServeHTTP(ww, req)
+					return
+				}
+			}
+		}
+
+
+		// We also check super admins, as they have a superset of capabilities.
+		for _, superAdminPubKey := range fes.SuperAdminPublicKeys {
+			if superAdminPubKey == requestData.AdminPublicKey {
 				// We found a match, serve the request
 				inner.ServeHTTP(ww, req)
 				return
 			}
 		}
 
-		_AddBadRequestError(ww, "CheckAdminPublicKey: Not an admin")
+		adminType := "an admin"
+		if AccessLevel == SuperAdminAccess {
+			adminType = "a superadmin"
+		}
+		_AddBadRequestError(ww, fmt.Sprintf("CheckAdminPublicKey: Not %v", adminType))
+		return
 	})
 }
 
@@ -1130,23 +1066,6 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 func (fes *APIServer) Start() {
 	fes.initState()
 
-	if fes.TxIndexChain != nil {
-		glog.Info("Starting txindex update thread because --txindex was passed. " +
-			"Waiting for node to fully sync...")
-
-		// Run a loop to continuously update the txindex. Note that this is a noop
-		// except when run the first time or when a new block has arrived.
-		go func() {
-			for {
-				fes.tryUpdateTxindex()
-				time.Sleep(1 * time.Second)
-			}
-		}()
-	} else {
-		glog.Info("NOT starting txindex update thread because --txindex was NOT " +
-			"passed. This means some API endpoints that rely on --txindex will not work.")
-	}
-
 	glog.Infof("Listening to NON-SSL JSON API connections on port :%d", fes.JSONPort)
 	glog.Error(http.ListenAndServe(fmt.Sprintf(":%d", fes.JSONPort), fes.router))
 }
@@ -1157,19 +1076,105 @@ func (fes *APIServer) initState() {
 	fes.router = fes.NewRouter()
 }
 
-func (fes *APIServer) tryUpdateTxindex() {
-	// If the node is not fully synced, don't do an update.
-	if fes.blockchain.ChainState() != lib.SyncStateFullyCurrent {
-		glog.Debugf("tryUpdateTxindex: Waiting for node to sync before updating txindex.")
-		return
-	}
-	// If the node is fully synced, then try an update.
-	if err := fes.UpdateTxindex(); err != nil {
-		glog.Error(fmt.Errorf("tryUpdateTxindex: Problem running update: %v", err))
-	}
-}
-
 // Stop...
 func (fes *APIServer) Stop() {
 	glog.Info("APIServer.Stop: Gracefully shutting down APIServer")
+	close(fes.quit)
 }
+
+// Amplitude Logging
+type AmplitudeUploadRequestBody struct {
+	ApiKey string `json:"api_key"`
+	Events []AmplitudeEvent `json:"events"`
+}
+
+type AmplitudeEvent struct {
+	UserId          string `json:"user_id"`
+	EventType       string `json:"event_type"`
+	EventProperties map[string]interface{} `json:"event_properties"`
+}
+
+func (fes *APIServer) logAmplitudeEvent(publicKeyBytes string, event string, eventData map[string]interface{})  error {
+	if fes.AmplitudeKey == "" {
+		return nil
+	}
+	headers := map[string][]string{
+		"Content-Type": {"application/json"},
+		"Accept":       {"*/*"},
+	}
+	events := []AmplitudeEvent{{UserId: publicKeyBytes, EventType: event, EventProperties: eventData}}
+	ampBody := AmplitudeUploadRequestBody{ApiKey: fes.AmplitudeKey, Events: events}
+	payload, err := json.Marshal(ampBody)
+	if err != nil {
+		return err
+	}
+	data := bytes.NewBuffer(payload)
+	req, err := http.NewRequest("POST", "https://api2.amplitude.com/2/httpapi", data)
+	if err != nil {
+		return err
+	}
+	req.Header = headers
+
+	client := &http.Client{}
+	_, err = client.Do(req)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// Monitor balances for starter bitclout seed and buy bitclout seed
+func (fes *APIServer) StartSeedBalancesMonitoring() {
+	go func() {
+	out:
+		for {
+			select {
+			case <- time.After(1 * time.Minute):
+				if fes.backendServer.GetStatsdClient() == nil {
+					return
+				}
+				tags := []string{}
+				fes.logBalanceForSeed(fes.StarterBitCloutSeed, "STARTER_BITCLOUT", tags)
+				fes.logBalanceForSeed(fes.BuyBitCloutSeed, "BUY_BITCLOUT", tags)
+			case <- fes.quit:
+				break out
+			}
+		}
+	}()
+}
+
+func (fes *APIServer) logBalanceForSeed(seed string, seedName string, tags []string) {
+	if seed == "" {
+		return
+	}
+	balance, err := fes.getBalanceForSeed(seed)
+	if err != nil {
+		glog.Errorf("LogBalanceForSeed: Error getting balance for %v seed", seedName)
+		return
+	}
+	if err = fes.backendServer.GetStatsdClient().Gauge(fmt.Sprintf("%v_BALANCE", seedName), float64(balance), tags, 1); err != nil {
+		glog.Errorf("LogBalanceForSeed: Error logging balance to datadog for %v seed", seedName)
+	}
+}
+
+func (fes *APIServer) getBalanceForSeed(seedPhrase string) (uint64, error){
+	seedBytes, err := bip39.NewSeedWithErrorChecking(seedPhrase, "")
+	if err != nil {
+		return 0, fmt.Errorf("GetBalanceForSeed: Error converting mnemonic: %+v", err)
+	}
+
+	pubKey, _, _, err := lib.ComputeKeysFromSeed(seedBytes, 0, fes.Params)
+	if err != nil {
+		return 0, fmt.Errorf("GetBalanceForSeed: Error computing keys from seed: %+v", err)
+	}
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return 0, fmt.Errorf("GetBalanceForSeed: Error getting UtxoView: %v", err)
+	}
+	currentBalanceNanos, err := GetBalanceForPublicKeyUsingUtxoView(pubKey.SerializeCompressed(), utxoView)
+	if err != nil {
+		return 0, fmt.Errorf("GetBalanceForSeed: Error getting balance: %v", err)
+	}
+	return currentBalanceNanos, nil
+}
+

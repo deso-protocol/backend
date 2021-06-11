@@ -46,11 +46,6 @@ func init() {
 	coreCmd.SetupRunFlags(runCmd)
 
 	// Add all the backend flags
-	runCmd.PersistentFlags().Bool("txindex", false,
-		"When set to true, the node will generate an index mapping transaction "+
-			"ids to transaction information. This enables the use of certain API calls "+
-			"like ones that allow the lookup of particular transactions by their ID. "+
-			"Defaults to false because the index can be large.")
 	runCmd.PersistentFlags().Uint64("api-port", 0,
 		"When set, determines the port on which this node will listen for json "+
 			"requests. If unset, the port will default to what is present in the BitCloutParams set.")
@@ -114,6 +109,16 @@ func init() {
 	// Images
 	runCmd.PersistentFlags().String("gcp-credentials-path", "", "Google credentials to images bucket")
 	runCmd.PersistentFlags().String("gcp-bucket-name", "", "Name of bucket to store images")
+
+	// Admin
+	runCmd.PersistentFlags().StringSlice("admin-public-keys", []string{},
+		"A list of public keys which gives users access to the admin panel. "+
+			"If no keys are specified anyone can access the admin panel. You can add a space "+
+			"and a comment after every public key and leave a note about who the public key belongs to.")
+	runCmd.PersistentFlags().StringSlice("super-admin-public-keys", []string{},
+		"A list of public keys which gives users access to the super admin panel. "+
+			"If no keys are specified anyone can access the super admin panel. You can add a space "+
+			"and a comment after every public key and leave a note about who the public key belongs to.")
 
 	// Wyre
 	runCmd.PersistentFlags().String("wyre-account-id", "", "Wyre Account ID")

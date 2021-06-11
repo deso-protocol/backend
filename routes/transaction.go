@@ -174,7 +174,7 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 		}
 
 		// Only whitelist posts for users that are auto-whitelisted and the post is not a comment or a vanilla reclout.
-		if userMetadata.WhitelistPosts && len(postEntry.ParentStakeID) > 0 && (postEntry.IsQuotedReclout || postEntry.RecloutedPostHash == nil) {
+		if userMetadata.WhitelistPosts && len(postEntry.ParentStakeID) == 0 && (postEntry.IsQuotedReclout || postEntry.RecloutedPostHash == nil) {
 			minTimestampNanos := time.Now().UTC().AddDate(0, 0, -1).UnixNano() // last 24 hours
 			_, dbPostAndCommentHashes, _, err := lib.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
 				fes.blockchain.DB(), updaterPublicKeyBytes, false /*fetchEntries*/, uint64(minTimestampNanos), 0, /*maxTimestampNanos*/
@@ -184,20 +184,22 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 			}
 
 			// Collect all the posts the user made in the last 24 hours.
-			lastDaysPostEntries := []*lib.PostEntry{}
+			maxAutoWhitelistPostsPerDay := 5
+			postEntriesInLastDay := 0
 			for _, dbPostOrCommentHash := range dbPostAndCommentHashes {
-				postEntry := utxoView.GetPostEntryForPostHash(dbPostOrCommentHash)
-				if len(postEntry.ParentStakeID) == 0 {
-					lastDaysPostEntries = append(lastDaysPostEntries, postEntry)
+				if existingPostEntry := utxoView.GetPostEntryForPostHash(dbPostOrCommentHash); len(existingPostEntry.ParentStakeID) == 0 {
+					postEntriesInLastDay += 1
+				}
+				if maxAutoWhitelistPostsPerDay >= postEntriesInLastDay {
+					break
 				}
 			}
 
 			// If the whitelited user has made <5 posts in the last 24hrs add this post to the feed.
-			if len(lastDaysPostEntries) < 5 {
+			if postEntriesInLastDay < maxAutoWhitelistPostsPerDay {
 				dbKey := GlobalStateKeyForTstampPostHash(postEntry.TimestampNanos, postHash)
 				// Encode the post entry and stick it in the database.
-				err = fes.GlobalStatePut(dbKey, []byte{1})
-				if err != nil {
+				if err = fes.GlobalStatePut(dbKey, []byte{1}); err != nil {
 					return errors.Errorf("Problem adding post to global state: %v", err)
 				}
 			}
@@ -295,6 +297,12 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	// Get the public key.
+	profilePublicKey := updaterPublicKeyBytes
+	if requestData.ProfilePublicKeyBase58Check != "" {
+		profilePublicKey = profilePublicKeyBytess
+	}
+
 	if len(requestData.NewUsername) > 0 && (strings.Index(requestData.NewUsername, "BC") == 0 ||
 		strings.Index(requestData.NewUsername, "tBC") == 0) {
 		_AddBadRequestError(ww, fmt.Sprintf(
@@ -343,20 +351,20 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 
 		utxoView.GetProfileEntryForUsername([]byte(requestData.NewUsername))
 		if existingProfile, usernameExists := utxoView.ProfileUsernameToProfileEntry[lib.MakeUsernameMapKey([]byte(requestData.NewUsername))]; usernameExists && !existingProfile.IsDeleted() {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"UpdateProfile: Username %v already exists", string(existingProfile.Username)))
-			return
+			// Check that the existing profile does not belong to the profile public key
+			if utxoView.GetPKIDForPublicKey(profilePublicKey) != utxoView.GetPKIDForPublicKey(existingProfile.PublicKey) {
+				_AddBadRequestError(ww, fmt.Sprintf(
+					"UpdateProfile: Username %v already exists", string(existingProfile.Username)))
+				return
+			}
+
 		}
 		if !lib.UsernameRegex.Match([]byte(requestData.NewUsername)) {
 			_AddBadRequestError(ww, lib.RuleErrorInvalidUsername.Error())
 			return
 		}
 	}
-	// Get the public key.
-	profilePublicKey := updaterPublicKeyBytes
-	if requestData.ProfilePublicKeyBase58Check != "" {
-		profilePublicKey = profilePublicKeyBytess
-	}
+
 	additionalFees, err := fes.CompProfileCreation(profilePublicKey, userMetadata, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, err.Error())

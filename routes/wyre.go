@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"github.com/bitclout/core/lib"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/fatih/structs"
+	"github.com/golang/glog"
 	"io"
 	"io/ioutil"
 	"math"
@@ -106,6 +108,8 @@ type WyreTransferDetails struct {
 	Id        string      `json:"id"`
 }
 
+// Make sure you only allow access to Wyre IPs for this endpoint, otherwise anybody can take all the funds from
+// the public key that sends BitClout. WHITELIST WYRE IPs.
 func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *http.Request) {
 	// If this node has not integrated with Wyre, bail immediately.
 	if !fes.IsConfiguredForWyre() {
@@ -122,9 +126,18 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 	}
 
 	orderId := wyreWalletOrderWebhookRequest.OrderId
+	orderIdBytes := []byte(orderId)
+	err := fes.GlobalStatePut(GlobalStateKeyForWyreOrderID(orderIdBytes), []byte{1})
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: Error saving orderId to global state"))
+		return
+	}
 	referenceId := wyreWalletOrderWebhookRequest.ReferenceId
 	referenceIdSplit := strings.Split(referenceId, ":")
 	publicKey := referenceIdSplit[0]
+	if err = fes.logAmplitudeEvent(publicKey, fmt.Sprintf("wyre : buy : subscription : %v", strings.ToLower(wyreWalletOrderWebhookRequest.OrderStatus)), structs.Map(wyreWalletOrderWebhookRequest)); err != nil {
+		glog.Errorf("WyreWalletOrderSubscription: Error logging payload to amplitude: %v", err)
+	}
 	timestamp, err := strconv.ParseUint(referenceIdSplit[1], 10, 64)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: Error parsing timestamp as uint64 from referenceId: %v", err))
@@ -150,6 +163,9 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 		newMetadataObj.BitCloutPurchasedNanos = currentWyreWalletOrderMetadata.BitCloutPurchasedNanos
 		newMetadataObj.BasicTransferTxnBlockHash = currentWyreWalletOrderMetadata.BasicTransferTxnBlockHash
 	}
+	// Update global state before all transfer logic is completed so we have a record of the last webhook payload
+	// received in the event of an error when paying out BitClout.
+	fes.UpdateWyreGlobalState(ww, publicKeyBytes, timestamp, newMetadataObj)
 
 	// If there is a transferId, we need to get the transfer details, update the new metadata object and pay out
 	// bitclout if it has not been paid out yet.
@@ -187,7 +203,7 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 			bitcloutToSend := uint64(float64(satsPurchased) * float64(lib.NanosPerUnit) / (conversionRateAfterFee))
 
 			// Make sure this order hasn't been paid out, then mark it as paid out.
-			wyreOrderIdKey := GlobalStateKeyForWyreOrderIDProcessed([]byte(orderId))
+			wyreOrderIdKey := GlobalStateKeyForWyreOrderIDProcessed(orderIdBytes)
 			// We expect badger to return a key not found error if BitClout has been paid out for this order.
 			// If it does not return an error, BitClout has already been paid out, so we skip ahead.
 			val, _ := fes.GlobalStateGet(wyreOrderIdKey)
@@ -216,7 +232,7 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 			}
 		}
 	}
-	// Update global state
+	// Update global state after all transfer logic is completed.
 	fes.UpdateWyreGlobalState(ww, publicKeyBytes, timestamp, newMetadataObj)
 }
 
@@ -318,6 +334,8 @@ func (fes *APIServer) UpdateWyreGlobalState(ww http.ResponseWriter, publicKeyByt
 
 type WalletOrderQuotationRequest struct {
 	SourceAmount float64
+	Country string
+	SourceCurrency string
 }
 
 type WyreWalletOrderQuotationPayload struct {
@@ -350,8 +368,8 @@ func (fes *APIServer) GetWyreWalletOrderQuotation(ww http.ResponseWriter, req *h
 		Dest: fmt.Sprintf("bitcoin:%v", fes.WyreBTCAddress),
 		AmountIncludeFees: true,
 		DestCurrency: "BTC",
-		SourceCurrency: "USD",
-		Country: "US",
+		SourceCurrency: wyreWalletOrderQuotationRequest.SourceCurrency,
+		Country: wyreWalletOrderQuotationRequest.Country,
 		WalletType: "DEBIT_CARD",
 		SourceAmount: fmt.Sprintf("%f", wyreWalletOrderQuotationRequest.SourceAmount),
 	}
@@ -372,6 +390,8 @@ func (fes *APIServer) GetWyreWalletOrderQuotation(ww http.ResponseWriter, req *h
 type WalletOrderReservationRequest struct {
 	SourceAmount float64
 	ReferenceId string
+	Country string
+	SourceCurrency string
 }
 
 type WyreWalletOrderReservationPayload struct {
@@ -408,8 +428,8 @@ func (fes *APIServer) GetWyreWalletOrderReservation(ww http.ResponseWriter, req 
 		Dest: fes.GetBTCAddress(),
 		AmountIncludeFees: true,
 		DestCurrency: "BTC",
-		SourceCurrency: "USD",
-		Country: "US",
+		SourceCurrency: wyreWalletOrderReservationRequest.SourceCurrency,
+		Country: wyreWalletOrderReservationRequest.Country,
 		PaymentMethod: "debit-card",
 		SourceAmount: fmt.Sprintf("%f", wyreWalletOrderReservationRequest.SourceAmount),
 		LockFields: []string{"dest", "destCurrency"},
@@ -610,12 +630,7 @@ func (fes *APIServer) GetWyreWalletOrdersForPublicKey(ww http.ResponseWriter, re
 }
 
 func (fes *APIServer) IsConfiguredForWyre() bool {
-	return fes.WyreBTCAddress != "" &&
-		fes.WyreUrl != "" &&
-		fes.WyreAccountId != "" &&
-		fes.WyreSecretKey != "" &&
-		fes.WyreApiKey != "" &&
-		fes.BuyBitCloutSeed != ""
+	return fes.WyreUrl != ""
 }
 
 type WyreWalletOrderMetadataResponse struct {
@@ -634,7 +649,7 @@ type WyreWalletOrderMetadataResponse struct {
 	Timestamp *time.Time
 }
 
-func WyreWalletOrderMetadataToResponse(metadata *WyreWalletOrderMetadata) (*WyreWalletOrderMetadataResponse) {
+func WyreWalletOrderMetadataToResponse(metadata *WyreWalletOrderMetadata) *WyreWalletOrderMetadataResponse {
 	orderMetadataResponse := WyreWalletOrderMetadataResponse{
 		LatestWyreTrackWalletOrderResponse: metadata.LatestWyreTrackWalletOrderResponse,
 		LatestWyreWalletOrderWebhookPayload: metadata.LatestWyreWalletOrderWebhookPayload,
@@ -648,7 +663,7 @@ func WyreWalletOrderMetadataToResponse(metadata *WyreWalletOrderMetadata) (*Wyre
 	return &orderMetadataResponse
 }
 
-func getTimestampFromReferenceId(referenceId string) (*time.Time) {
+func getTimestampFromReferenceId(referenceId string) *time.Time {
 	splits := strings.Split(referenceId, ":")
 	uint64Timestamp, err := strconv.ParseUint(splits[1], 10,  64)
 	if err != nil {
