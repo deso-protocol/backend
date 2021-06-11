@@ -56,6 +56,7 @@ const (
 	RoutePathDeleteIdentities         = "/api/v0/delete-identities"
 	RoutePathGetProfiles              = "/api/v0/get-profiles"
 	RoutePathGetSingleProfile         = "/api/v0/get-single-profile"
+	RoutePathGetSingleProfilePicture  = "/api/v0/get-single-profile-picture"
 	RoutePathGetHodlersForPublicKey   = "/api/v0/get-hodlers-for-public-key"
 	RoutePathGetDiamondsForPublicKey  = "/api/v0/get-diamonds-for-public-key"
 	RoutePathGetFollowsStateless      = "/api/v0/get-follows-stateless"
@@ -123,6 +124,7 @@ const (
 	RoutePathAdminRemoveVerificationBadge          = "/api/v0/admin/remove-verification-badge"
 	RoutePathAdminGetVerifiedUsers                 = "/api/v0/admin/get-verified-users"
 	RoutePathAdminGetUsernameVerificationAuditLogs = "/api/v0/admin/get-username-verification-audit-logs"
+	RoutePathAdminGetUserAdminData				   = "/api/v0/admin/get-user-admin-data"
 
 	// admin_feed.go
 	RoutePathAdminUpdateGlobalFeed = "/api/v0/admin/update-global-feed"
@@ -468,6 +470,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"GetSingleProfilePicture",
+			[]string{"GET"},
+			RoutePathGetSingleProfilePicture + "/{publicKeyBase58Check:[0-9a-zA-Z]{54,55}}",
+			fes.GetSingleProfilePicture,
+			PublicAccess,
+		},
+		{
 			"GetPostsForPublicKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetPostsForPublicKey,
@@ -640,6 +649,14 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			AdminAccess,
 		},
 		// Super Admin routes
+		{
+
+			"AdminGetUserAdminData",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetUserAdminData,
+			fes.AdminGetUserAdminData,
+			SuperAdminAccess,
+		},
 		{
 			"AdminGetUsernameVerificationAuditLogs",
 			[]string{"POST", "OPTIONS"},

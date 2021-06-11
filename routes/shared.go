@@ -95,7 +95,7 @@ type User struct {
 	PublicKeysBase58CheckFollowedByUser []string
 
 	UsersYouHODL    []*BalanceEntryResponse
-	UsersWhoHODLYou []*BalanceEntryResponse
+	UsersWhoHODLYouCount int
 
 	// HasPhoneNumber is a computed boolean so we can avoid returning the phone number in the
 	// API response, since phone numbers are sensitive PII.
