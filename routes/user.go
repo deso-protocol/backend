@@ -23,7 +23,7 @@ import (
 // GetUsersRequest ...
 type GetUsersStatelessRequest struct {
 	PublicKeysBase58Check []string `safeForLogging:"true"`
-	SkipHodlings bool `safeForLogging:"true"`
+	SkipForLeaderboard bool `safeForLogging:"true"`
 }
 
 // GetUsersResponse ...
@@ -51,7 +51,7 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 		userList = append(userList, currentUser)
 	}
 
-	globalParams, err := fes.updateUsersStateless(userList, getUsersRequest.SkipHodlings)
+	globalParams, err := fes.updateUsersStateless(userList, getUsersRequest.SkipForLeaderboard)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUsersStateless: Error fetching data for user: %v", err))
 		return
@@ -81,15 +81,20 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 	}
 }
 
-func (fes *APIServer) updateUsersStateless(userList []*User, skipHodlings bool) (*lib.GlobalParamsEntry, error) {
+func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard bool) (*lib.GlobalParamsEntry, error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return nil, fmt.Errorf("updateUserFields: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
 	}
 	globalParams := utxoView.GlobalParamsEntry
+	// Grab verified username map pointer
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+	if err != nil {
+		glog.Errorf(fmt.Sprintf("updateUserFields: Problem fetching verifiedMap: %v", err))
+	}
 	for _, user := range userList {
 		// If we get an error updating the user, log it but don't stop the show.
-		if err = fes.updateUserFieldsStateless(user, utxoView, skipHodlings); err != nil {
+		if err = fes.updateUserFieldsStateless(user, utxoView, skipForLeaderboard, verifiedMap); err != nil {
 			glog.Errorf(fmt.Sprintf("updateUsers: Problem updating user with pk %s: %v", user.PublicKeyBase58Check, err))
 		}
 	}
@@ -97,17 +102,11 @@ func (fes *APIServer) updateUsersStateless(userList []*User, skipHodlings bool) 
 	return globalParams, nil
 }
 
-func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoView, skipHodlings bool) error {
+func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoView, skipForLeaderboard bool, verifiedMap map[string]*lib.PKID) error {
 	// If there's no public key, then return an error. We need a public key on
 	// the user object in order to be able to update the fields.
 	if user.PublicKeyBase58Check == "" {
 		return fmt.Errorf("updateUserFields: Missing PublicKeyBase58Check")
-	}
-
-	// Grab verified username map pointer
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		return errors.Wrapf(err, "updateUserFields: Problem fetching verifiedMap: ")
 	}
 
 	// Decode the public key into bytes.
@@ -124,46 +123,54 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		user.ProfileEntryResponse = profileEntryResponse
 	}
 
-	// Get the UtxoEntries from the augmented view
-	utxoEntries, err := fes.blockchain.GetSpendableUtxosForPublicKey(
-		publicKeyBytes, fes.backendServer.GetMempool(), utxoView)
-	if err != nil {
-		return errors.Wrapf(err, "updateUserFields: Problem getting utxos from view: ")
-	}
-	totalBalanceNanos := uint64(0)
-	unminedBalanceNanos := uint64(0)
-	for _, utxoEntry := range utxoEntries {
-		totalBalanceNanos += utxoEntry.AmountNanos
-		if utxoEntry.BlockHeight > fes.blockchain.BlockTip().Height {
-			unminedBalanceNanos += utxoEntry.AmountNanos
+	// We do not need a user's balance for the leaderboard
+	if !skipForLeaderboard {
+		// Get the UtxoEntries from the augmented view
+		utxoEntries, err := fes.blockchain.GetSpendableUtxosForPublicKey(
+			publicKeyBytes, fes.backendServer.GetMempool(), utxoView)
+		if err != nil {
+			return errors.Wrapf(err, "updateUserFields: Problem getting utxos from view: ")
 		}
+		totalBalanceNanos := uint64(0)
+		unminedBalanceNanos := uint64(0)
+		for _, utxoEntry := range utxoEntries {
+			totalBalanceNanos += utxoEntry.AmountNanos
+			if utxoEntry.BlockHeight > fes.blockchain.BlockTip().Height {
+				unminedBalanceNanos += utxoEntry.AmountNanos
+			}
+		}
+		// Set the user's balance.
+		user.BalanceNanos = totalBalanceNanos
+		user.UnminedBalanceNanos = unminedBalanceNanos
 	}
 
-	// Set the user's balance.
-	user.BalanceNanos = totalBalanceNanos
-	user.UnminedBalanceNanos = unminedBalanceNanos
+	// We do not need follows for the leaderboard
+	if !skipForLeaderboard {
+		// Get the people who the user is following
+		// Note: we may want to revisit this in the future. This might be inefficient if we're obtaining
+		// a lot of users and all their followers.
+		// Set NumToFetch to 0 and fetchAll to true to retrieve all followed public keys.
+		publicKeyToProfileEntry, _, err := fes.getPublicKeyToProfileEntryMapForFollows(
+			publicKeyBytes, false, utxoView, nil, 0, false, true)
+		if err != nil {
+			return errors.Wrapf(err, "GetFollowsStateless: Problem fetching and decrypting follows:")
+		}
+		publicKeysBase58CheckFollowedByUser := make([]string, 0, len(publicKeyToProfileEntry))
+		for k := range publicKeyToProfileEntry {
+			publicKeysBase58CheckFollowedByUser = append(publicKeysBase58CheckFollowedByUser, k)
+		}
+		// Ensure that these show up in the frontend in a consistent order
+		// The frontend needs consistent ordering since app.component.ts does the following
+		// to determine whether any user fields are changed:
+		//   (JSON.stringify(this.appData.loggedInUser) !== JSON.stringify(loggedInUserFound))
+		sort.Strings(publicKeysBase58CheckFollowedByUser)
+		user.PublicKeysBase58CheckFollowedByUser = publicKeysBase58CheckFollowedByUser
+	}
 
-	// Get the people who the user is following
-	// Note: we may want to revisit this in the future. This might be inefficient if we're obtaining
-	// a lot of users and all their followers.
-	// Set NumToFetch to 0 and fetchAll to true to retrieve all followed public keys.
-	publicKeyToProfileEntry, _, err := fes.getPublicKeyToProfileEntryMapForFollows(
-		publicKeyBytes, false, utxoView, nil, 0, false, true)
-	if err != nil {
-		return errors.Wrapf(err, "GetFollowsStateless: Problem fetching and decrypting follows:")
-	}
-	publicKeysBase58CheckFollowedByUser := make([]string, 0, len(publicKeyToProfileEntry))
-	for k := range publicKeyToProfileEntry {
-		publicKeysBase58CheckFollowedByUser = append(publicKeysBase58CheckFollowedByUser, k)
-	}
-	// Ensure that these show up in the frontend in a consistent order
-	// The frontend needs consistent ordering since app.component.ts does the following
-	// to determine whether any user fields are changed:
-	//   (JSON.stringify(this.appData.loggedInUser) !== JSON.stringify(loggedInUserFound))
-	sort.Strings(publicKeysBase58CheckFollowedByUser)
-	user.PublicKeysBase58CheckFollowedByUser = publicKeysBase58CheckFollowedByUser
+
 	pkid := utxoView.GetPKIDForPublicKey(publicKeyBytes)
-	if !skipHodlings {
+	// We don't need hodlings for the leaderboard
+	if !skipForLeaderboard {
 		var youHodlMap map[string]*BalanceEntryResponse
 		// Get the users that the user hodls
 		youHodlMap, err = fes.GetYouHodlMap(pkid, true, utxoView)
@@ -187,26 +194,30 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		user.UsersWhoHODLYouCount = len(hodlYouMap)
 	}
 
-	// Populate fields from userMetadata global state
-	userMetadata, err := fes.getUserMetadataFromGlobalState(user.PublicKeyBase58Check)
-	if err != nil {
-		return errors.Wrap(fmt.Errorf(
-			"updateUserFieldsStateless: Problem with getUserMetadataFromGlobalState: %v", err), "")
-	}
+	// We don't need user metadata from global state for the leaderboard.
+	if !skipForLeaderboard {
+		// Populate fields from userMetadata global state
+		userMetadata, err := fes.getUserMetadataFromGlobalState(user.PublicKeyBase58Check)
+		if err != nil {
+			return errors.Wrap(fmt.Errorf(
+				"updateUserFieldsStateless: Problem with getUserMetadataFromGlobalState: %v", err), "")
+		}
 
-	// HasPhoneNumber is a computed boolean so we can avoid returning the phone number in the
-	// API response, since phone numbers are sensitive PII.
-	user.HasPhoneNumber = userMetadata.PhoneNumber != ""
-	user.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView)
-	if err != nil {
-		return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err), "")
+		// HasPhoneNumber is a computed boolean so we can avoid returning the phone number in the
+		// API response, since phone numbers are sensitive PII.
+		user.HasPhoneNumber = userMetadata.PhoneNumber != ""
+
+		user.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView)
+		if err != nil {
+			return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err), "")
+		}
+		// Get map of public keys user has blocked
+		blockedPubKeys, err := fes.GetBlockedPubKeysForUser(publicKeyBytes)
+		if err != nil {
+			return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem with GetBlockedPubKeysForUser: %v", err), "")
+		}
+		user.BlockedPubKeys = blockedPubKeys
 	}
-	// Get map of public keys user has blocked
-	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(publicKeyBytes)
-	if err != nil {
-		return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem with GetBlockedPubKeysForUser: %v", err), "")
-	}
-	user.BlockedPubKeys = blockedPubKeys
 
 	// Check if the user is blacklisted/graylisted
 	blacklistKey := GlobalStateKeyForBlacklistedProfile(publicKeyBytes[:])
