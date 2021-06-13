@@ -546,3 +546,140 @@ func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 }
+
+type GetNFTFeedRequest struct {
+	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
+}
+
+type GetNFTFeedResponse struct {
+	NFTEntries []*NFTEntryResponse
+}
+
+func (fes *APIServer) GetNFTFeed(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetNFTFeedRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTFeed: Error parsing request body: %v", err))
+		return
+	}
+
+	var readerPublicKeyBytes []byte
+	var err error
+	if requestData.ReaderPublicKeyBase58Check != "" {
+		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetNFTFeed: Problem decoding reader public key: %v", err))
+			return
+		}
+	}
+
+	// Get the NFT bid so we can do a more hardcore validation of the request data.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTFeed: Error getting utxoView: %v", err))
+		return
+	}
+
+	// RPH-FIXME: Get the correct feed of NFTs to show the user.
+	_, _ = readerPublicKeyBytes, utxoView
+
+	// Return all the data associated with the transaction in the response
+	res := GetNFTFeedResponse{}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetNFTFeed: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
+
+type GetNFTsForUserRequest struct {
+	UserPublicKeyBase58Check   string `safeForLogging:"true"`
+	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
+}
+
+type GetNFTsForUserResponse struct {
+	NFTEntries []*NFTEntryResponse
+}
+
+func (fes *APIServer) GetNFTsForUser(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetNFTsForUserRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTsForUser: Error parsing request body: %v", err))
+		return
+	}
+
+	var readerPublicKeyBytes []byte
+	var err error
+	if requestData.ReaderPublicKeyBase58Check != "" {
+		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetNFTsForUser: Problem decoding reader public key: %v", err))
+			return
+		}
+	}
+
+	// Get the NFT bid so we can do a more hardcore validation of the request data.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTsForUser: Error getting utxoView: %v", err))
+		return
+	}
+
+	// RPH-FIXME: Get the correct feed of NFTs to show the user.
+	_, _ = readerPublicKeyBytes, utxoView
+
+	// Return all the data associated with the transaction in the response
+	res := GetNFTsForUserResponse{}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetNFTsForUser: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
+
+type GetNFTBidsForUserRequest struct {
+	UserPublicKeyBase58Check   string `safeForLogging:"true"`
+	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
+}
+
+type GetNFTBidsForUserResponse struct {
+	NFTEntries []*NFTEntryResponse
+}
+
+func (fes *APIServer) GetNFTBidsForUser(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetNFTBidsForUserRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForUser: Error parsing request body: %v", err))
+		return
+	}
+
+	var readerPublicKeyBytes []byte
+	var err error
+	if requestData.ReaderPublicKeyBase58Check != "" {
+		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForUser: Problem decoding reader public key: %v", err))
+			return
+		}
+	}
+
+	// Get the NFT bid so we can do a more hardcore validation of the request data.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForUser: Error getting utxoView: %v", err))
+		return
+	}
+
+	// RPH-FIXME: Get the correct feed of NFTs to show the user.
+	_, _ = readerPublicKeyBytes, utxoView
+
+	// Return all the data associated with the transaction in the response
+	res := GetNFTBidsForUserResponse{}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetNFTBidsForUser: Problem serializing object to JSON: %v", err))
+		return
+	}
+}

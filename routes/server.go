@@ -72,12 +72,13 @@ const (
 	RoutePathGetDiamondedPosts    = "/api/v0/get-diamonded-posts"
 
 	// nft.go
-	RoutePathCreateNFT      = "/api/v0/create-nft"
-	RoutePathUpdateNFT      = "/api/v0/update-nft"
-	RoutePathGetNFTFeed     = "/api/v0/get-nft-feed"
-	RoutePathGetNFTsForUser = "/api/v0/get-nfts-for-user"
-	RoutePathCreateNFTBid   = "/api/v0/create-nft-bid"
-	RoutePathAcceptNFTBid   = "/api/v0/accept-nft-bid"
+	RoutePathCreateNFT         = "/api/v0/create-nft"
+	RoutePathUpdateNFT         = "/api/v0/update-nft"
+	RoutePathGetNFTFeed        = "/api/v0/get-nft-feed"
+	RoutePathGetNFTsForUser    = "/api/v0/get-nfts-for-user"
+	RoutePathGetNFTBidsForUser = "/api/v0/get-nft-bids-for-user"
+	RoutePathCreateNFTBid      = "/api/v0/create-nft-bid"
+	RoutePathAcceptNFTBid      = "/api/v0/accept-nft-bid"
 
 	// media.go
 	RoutePathUploadImage      = "/api/v0/upload-image"
@@ -124,7 +125,7 @@ const (
 	RoutePathAdminRemoveVerificationBadge          = "/api/v0/admin/remove-verification-badge"
 	RoutePathAdminGetVerifiedUsers                 = "/api/v0/admin/get-verified-users"
 	RoutePathAdminGetUsernameVerificationAuditLogs = "/api/v0/admin/get-username-verification-audit-logs"
-	RoutePathAdminGetUserAdminData				   = "/api/v0/admin/get-user-admin-data"
+	RoutePathAdminGetUserAdminData                 = "/api/v0/admin/get-user-admin-data"
 
 	// admin_feed.go
 	RoutePathAdminUpdateGlobalFeed = "/api/v0/admin/update-global-feed"
