@@ -164,7 +164,8 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 	// attach everything to the response
 	response.PostEntryResponse = postEntryResponse
 
-	if len(postHashToModify) == 0 {
+	// Try to whitelist a post if it is not a comment and is not a vanilla reclout.
+	if len(postHashToModify) == 0 && !lib.IsVanillaReclout(postEntry) {
 		// If this is a new post, let's try and auto-whitelist it now that it has been broadcast.
 		// First we need to figure out if the user is whitelisted.
 		userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(updaterPublicKeyBytes, fes.Params))
