@@ -977,7 +977,7 @@ func (fes *APIServer) GetSingleProfilePicture(ww http.ResponseWriter, req *http.
 		// If we can't get the profile picture, we redirect to the fallback.
 		fallbackRoute := req.URL.Query().Get("fallback")
 		if fallbackRoute == "" {
-			_AddNotFoundError(ww, fmt.Sprintf("GetSingleProfilePicture: Profile Picture not founD: %v", err))
+			_AddNotFoundError(ww, fmt.Sprintf("GetSingleProfilePicture: Profile Picture not found: %v", err))
 			return
 		}
 		http.Redirect(ww, req, fallbackRoute, http.StatusFound)
