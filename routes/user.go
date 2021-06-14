@@ -1873,6 +1873,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		postMetadata := txnMeta.Metadata.SubmitPostTxindexMetadata
 		likeMetadata := txnMeta.Metadata.LikeTxindexMetadata
 		transferCreatorCoinMetadata := txnMeta.Metadata.CreatorCoinTransferTxindexMetadata
+		basicTransferMetadata := txnMeta.Metadata.BasicTransferTxindexMetadata
 
 		if postMetadata != nil {
 			addPostForHash(postMetadata.PostHashBeingModifiedHex, userPublicKeyBytes)
@@ -1882,6 +1883,16 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		} else if transferCreatorCoinMetadata != nil {
 			if transferCreatorCoinMetadata.PostHashHex != "" {
 				addPostForHash(transferCreatorCoinMetadata.PostHashHex, userPublicKeyBytes)
+			}
+		} else if basicTransferMetadata != nil {
+			txnOutputs := txnMeta.Metadata.TxnOutputs
+			for _, output := range txnOutputs {
+				txnMeta.TxnOutputResponses = append(
+					txnMeta.TxnOutputResponses,
+					&OutputResponse{
+						PublicKeyBase58Check: lib.PkToString(output.PublicKey, fes.Params),
+						AmountNanos:          output.AmountNanos,
+					})
 			}
 		}
 	}
@@ -2223,9 +2234,10 @@ func TxnIsAssociatedWithPublicKey(txnMeta *lib.TransactionMetadata, publicKeyBas
 }
 
 type TransactionMetadataResponse struct {
-	Metadata *lib.TransactionMetadata
-	Txn      *TransactionResponse
-	Index    int64
+	Metadata           *lib.TransactionMetadata
+	TxnOutputResponses []*OutputResponse
+	Txn                *TransactionResponse
+	Index              int64
 }
 
 type BlockPublicKeyRequest struct {
