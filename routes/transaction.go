@@ -188,7 +188,7 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 			maxAutoWhitelistPostsPerDay := 5
 			postEntriesInLastDay := 0
 			for _, dbPostOrCommentHash := range dbPostAndCommentHashes {
-				if existingPostEntry := utxoView.GetPostEntryForPostHash(dbPostOrCommentHash); len(existingPostEntry.ParentStakeID) == 0 {
+				if existingPostEntry := utxoView.GetPostEntryForPostHash(dbPostOrCommentHash); len(existingPostEntry.ParentStakeID) == 0 && !lib.IsVanillaReclout(existingPostEntry){
 					postEntriesInLastDay += 1
 				}
 				if maxAutoWhitelistPostsPerDay >= postEntriesInLastDay {
