@@ -5,15 +5,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/dgraph-io/badger/v3"
-	"github.com/gorilla/mux"
 	"io"
 	"net/http"
 	"reflect"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/dgraph-io/badger/v3"
+	"github.com/gorilla/mux"
 
 	"github.com/bitclout/core/lib"
 	"github.com/golang/glog"
@@ -23,7 +24,7 @@ import (
 // GetUsersRequest ...
 type GetUsersStatelessRequest struct {
 	PublicKeysBase58Check []string `safeForLogging:"true"`
-	SkipForLeaderboard bool `safeForLogging:"true"`
+	SkipForLeaderboard    bool     `safeForLogging:"true"`
 }
 
 // GetUsersResponse ...
@@ -166,7 +167,6 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		sort.Strings(publicKeysBase58CheckFollowedByUser)
 		user.PublicKeysBase58CheckFollowedByUser = publicKeysBase58CheckFollowedByUser
 	}
-
 
 	pkid := utxoView.GetPKIDForPublicKey(publicKeyBytes)
 	// We don't need hodlings for the leaderboard
@@ -643,9 +643,9 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 		totalToFetch = 1
 	}
 	profileEntriesByPublicKey,
-	postsByProfilePublicKey,
-	postEntryReaderStates,
-	err := fes.GetProfilesByCoinValue(
+		postsByProfilePublicKey,
+		postEntryReaderStates,
+		err := fes.GetProfilesByCoinValue(
 		utxoView, readerPubKey, startPubKey, totalToFetch,
 		getPosts, requestData.ModerationType)
 
@@ -971,10 +971,16 @@ func (fes *APIServer) GetSingleProfilePicture(ww http.ResponseWriter, req *http.
 		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfilePicture: Problem decoding user public key: %v", err))
 		return
 	}
-	// We ignore errors here and simply return
+	// Get the profile picture.
 	profilePicture, contentType, err := fes._getProfilePictureForPublicKey(publicKeyBytes)
 	if err != nil {
-		_AddNotFoundError(ww, fmt.Sprintf("GetSingleProfilePicture: Profile Picture not founD: %v", err))
+		// If we can't get the profile picture, we redirect to the fallback.
+		fallbackRoute := req.URL.Query().Get("fallback")
+		if fallbackRoute == "" {
+			_AddNotFoundError(ww, fmt.Sprintf("GetSingleProfilePicture: Profile Picture not found: %v", err))
+			return
+		}
+		http.Redirect(ww, req, fallbackRoute, http.StatusFound)
 		return
 	}
 
@@ -1223,7 +1229,7 @@ type DiamondSenderSummaryResponse struct {
 	TotalDiamonds       uint64
 	HighestDiamondLevel uint64
 
-	DiamondLevelMap map[uint64]uint64
+	DiamondLevelMap      map[uint64]uint64
 	ProfileEntryResponse *ProfileEntryResponse
 }
 
@@ -1287,7 +1293,7 @@ func (fes *APIServer) GetDiamondsForPublicKey(ww http.ResponseWriter, req *http.
 		diamondSenderSummary := &DiamondSenderSummaryResponse{
 			SenderPublicKeyBase58Check:   lib.PkToString(senderPubKey, fes.Params),
 			ReceiverPublicKeyBase58Check: lib.PkToString(receiverPubKey, fes.Params),
-			DiamondLevelMap: make(map[uint64]uint64),
+			DiamondLevelMap:              make(map[uint64]uint64),
 		}
 		for _, diamondEntry := range diamondEntryList {
 			diamondLevel := uint64(diamondEntry.DiamondLevel)
