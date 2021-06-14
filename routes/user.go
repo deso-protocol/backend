@@ -2001,7 +2001,8 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 
 			// In this case we need to look up the full transaction and convert
 			// it into a proper transaction response.
-			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txID)
+			txnMeta := lib.DbGetTxindexTransactionRefByTxID(
+				fes.TXIndex.TXIndexChain.DB(), txID, fes.Params)
 			if txnMeta == nil {
 				// We should never be missing a transaction for a given txid, but
 				// just continue in this case.
