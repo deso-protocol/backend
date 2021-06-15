@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	fmt "fmt"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/dgrijalva/jwt-go/v4"
 	"github.com/tyler-smith/go-bip39"
 	"io"
 	"io/ioutil"
@@ -717,28 +715,28 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetLikesForPost,
 			fes.GetLikesForPost,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetDiamondsForPost",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetDiamondsForPost,
 			fes.GetDiamondsForPost,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetRecloutsForPost",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetRecloutsForPost,
 			fes.GetRecloutsForPost,
-			false,
+			PublicAccess,
 		},
 		{
 			"GetQuoteRecloutsForPost",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetQuoteRecloutsForPost,
 			fes.GetQuoteRecloutsForPost,
-			false,
+			PublicAccess,
 		},
 		{
 			"BlockPublicKey",
