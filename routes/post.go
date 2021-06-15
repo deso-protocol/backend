@@ -2093,7 +2093,7 @@ func (fes *APIServer) GetQuoteRecloutsForPost(ww http.ResponseWriter, req *http.
 				return
 			}
 			recloutPostEntryResponse.ProfileEntryResponse = profileEntryResponse
-
+			recloutPostEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPublicKeyBytes, recloutPostEntry)
 			// Attach the finished recloutPostEntryResponse.
 			quoteReclouts = append(quoteReclouts, recloutPostEntryResponse)
 		}
