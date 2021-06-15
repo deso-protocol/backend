@@ -2185,16 +2185,10 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 		// Someone liked a post/comment from you. Don't include unlikes
 		return !txnMeta.LikeTxindexMetadata.IsUnlike
 	} else if txnMeta.SubmitPostTxindexMetadata != nil {
-		var notificationPostHash *lib.BlockHash
-		if txnMeta.SubmitPostTxindexMetadata.PostHashBeingModifiedHex != "" {
-			postHashBytes, err := hex.DecodeString(
-				txnMeta.SubmitPostTxindexMetadata.PostHashBeingModifiedHex)
-			if err != nil || len(postHashBytes) != lib.HashSizeBytes {
-				// If this post hash isn't valid, we don't need a notification.
-				return false
-			}
-			notificationPostHash = &lib.BlockHash{}
-			copy(notificationPostHash[:], postHashBytes)
+		notificationPostHash, err := GetPostHashFromPostHashHex(txnMeta.SubmitPostTxindexMetadata.PostHashBeingModifiedHex)
+		if err != nil {
+			// If this post hash isn't valid, we don't need a notification.
+			return false
 		}
 		notificationPostEntry := utxoView.GetPostEntryForPostHash(notificationPostHash)
 		if notificationPostEntry == nil {
