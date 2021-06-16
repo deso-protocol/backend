@@ -96,7 +96,8 @@ func (fes *APIServer) GetExchangeBitCloutPrice() (uint64, error){
 	blockchainPrice := fes.UsdCentsPerBitCloutExchangeRate
 	reservePrice, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
 	if err != nil {
-		return 0, err
+		glog.Errorf("Getting reserve price from global state failed. Only using ticker price: %v", err)
+		reservePrice = 0
 	}
 	if blockchainPrice > reservePrice {
 		return blockchainPrice, nil
