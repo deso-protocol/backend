@@ -60,11 +60,8 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 		satoshisPerUnit = lib.NanosPerUnit / nanosPerSat
 	}
 
-	usdCentsPerBitCloutExchangeRate, err := fes.GetExchangeBitCloutPrice()
-	if err != nil {
-		glog.Errorf("GetExchangeRate: error getting current price of BitClout from exchanges %v", err)
-		usdCentsPerBitCloutExchangeRate = 0
-	}
+	usdCentsPerBitCloutExchangeRate := fes.GetExchangeBitCloutPrice()
+
 	usdCentsPerBitCloutReserveExchangeRate, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
 	if err != nil {
 		glog.Errorf("GetExchangeRate: error getting reserve exchange rate from global state: %v", err)
@@ -92,16 +89,17 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 	}
 }
 
-func (fes *APIServer) GetExchangeBitCloutPrice() (uint64, error){
+func (fes *APIServer) GetExchangeBitCloutPrice() uint64 {
 	blockchainPrice := fes.UsdCentsPerBitCloutExchangeRate
 	reservePrice, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
 	if err != nil {
-		return 0, err
+		glog.Errorf("Getting reserve price from global state failed. Only using ticker price: %v", err)
+		reservePrice = 0
 	}
 	if blockchainPrice > reservePrice {
-		return blockchainPrice, nil
+		return blockchainPrice
 	}
-	return reservePrice, nil
+	return reservePrice
 }
 
 type BlockchainBitCloutTickerResponse struct {
