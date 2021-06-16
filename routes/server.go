@@ -1183,7 +1183,7 @@ func (fes *APIServer) StartSeedBalancesMonitoring() {
 		for {
 			select {
 			case <- time.After(1 * time.Minute):
-				if fes.backendServer.GetStatsdClient() == nil {
+				if fes.backendServer == nil || fes.backendServer.GetStatsdClient() == nil {
 					return
 				}
 				tags := []string{}
