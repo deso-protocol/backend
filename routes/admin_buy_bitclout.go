@@ -17,15 +17,7 @@ type SetUSDCentsToBitCloutExchangeRateResponse struct {
 	USDCentsPerBitClout uint64
 }
 
-func (fes *APIServer) CheckSuperAdminPublicKey(superAdminPublicKey string) bool {
-	for _, publicKey := range fes.SuperAdminPublicKeys {
-		if publicKey == superAdminPublicKey {
-			return true
-		}
-	}
-	return false
-}
-
+// SetUSDCentsToBitCloutReserveExchangeRate sets the minimum price to buy BitClout from this node.
 func (fes *APIServer) SetUSDCentsToBitCloutReserveExchangeRate(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := SetUSDCentsToBitCloutExchangeRateRequest{}
@@ -34,6 +26,7 @@ func (fes *APIServer) SetUSDCentsToBitCloutReserveExchangeRate(ww http.ResponseW
 		return
 	}
 
+	// Put the new value in global state
 	if err := fes.GlobalStatePut(
 		GlobalStateKeyForUSDCentsToBitCloutReserveExchangeRate(),
 		lib.UintToBuf(requestData.USDCentsPerBitClout)); err != nil {
@@ -41,6 +34,7 @@ func (fes *APIServer) SetUSDCentsToBitCloutReserveExchangeRate(ww http.ResponseW
 		return
 	}
 
+	// Force refresh the USD Cent to BitClout exchange rate
 	fes.UpdateUSDCentsToBitCloutExchangeRate()
 
 	res := SetUSDCentsToBitCloutExchangeRateResponse{
@@ -55,7 +49,7 @@ func (fes *APIServer) SetUSDCentsToBitCloutReserveExchangeRate(ww http.ResponseW
 type GetUSDCentsToBitCloutExchangeRateResponse struct {
 	USDCentsPerBitClout uint64
 }
-
+// GetUSDCentsToBitCloutReserveExchangeRate get the current reserve exchange rate
 func (fes *APIServer) GetUSDCentsToBitCloutReserveExchangeRate(ww http.ResponseWriter, req *http.Request) {
 	exchangeRate, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
 	if err != nil {
@@ -72,6 +66,7 @@ func (fes *APIServer) GetUSDCentsToBitCloutReserveExchangeRate(ww http.ResponseW
 	}
 }
 
+// GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState is a helper function to get the current USD cents to BitClout exchange rate
 func (fes *APIServer) GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState() (uint64, error) {
 	val, err := fes.GlobalStateGet(GlobalStateKeyForUSDCentsToBitCloutReserveExchangeRate())
 	if err != nil {
@@ -93,6 +88,7 @@ type SetBuyBitCloutFeeBasisPointsResponse struct {
 	BuyBitCloutFeeBasisPoints uint64
 }
 
+// SetBuyBitCloutFeeBasisPoints sets the percentage fee applied to all BitClout buys on this node.
 func (fes *APIServer) SetBuyBitCloutFeeBasisPoints(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := SetBuyBitCloutFeeBasisPointsRequest{}
@@ -121,6 +117,7 @@ type GetBuyBitCloutFeeBasisPointsResponse struct {
 	BuyBitCloutFeeBasisPoints uint64
 }
 
+// GetBuyBitCloutFeeBasisPoints gets the current value of the buy BitClout fee.
 func (fes *APIServer) GetBuyBitCloutFeeBasisPoints(ww http.ResponseWriter, req *http.Request) {
 	feeBasisPoints, err := fes.GetBuyBitCloutFeeBasisPointsResponseFromGlobalState()
 	if err != nil {
@@ -137,6 +134,7 @@ func (fes *APIServer) GetBuyBitCloutFeeBasisPoints(ww http.ResponseWriter, req *
 	}
 }
 
+// GetBuyBitCloutFeeBasisPointsResponseFromGlobalState is a utility to get the current buy BitClout fee from global state.
 func (fes *APIServer) GetBuyBitCloutFeeBasisPointsResponseFromGlobalState() (uint64, error) {
 	val, err := fes.GlobalStateGet(GlobalStateKeyForBuyBitCloutFeeBasisPoints())
 	if err != nil {
