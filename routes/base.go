@@ -52,12 +52,12 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 	startNanos := readUtxoView.NanosPurchased
 
 	var satoshisPerUnit uint64
-	nanosPerBTC, err := fes.GetNanosFromSats(lib.SatoshisPerBitcoin, 0)
+	nanosPerSat, err := fes.GetNanosFromSats(1, 0)
 	if err != nil {
 		glog.Errorf("GetExchangeRate: error getting BitCloutNanos per BitCoin: %v")
 		satoshisPerUnit =  lib.GetSatoshisPerUnitExchangeRate(startNanos, usdCentsPerBitcoin)
 	} else {
-		satoshisPerUnit = (1 / nanosPerBTC) * (lib.SatoshisPerBitcoin / lib.NanosPerUnit)
+		satoshisPerUnit = lib.NanosPerUnit / nanosPerSat
 	}
 
 	usdCentsPerBitCloutExchangeRate, err := fes.GetExchangeBitCloutPrice()

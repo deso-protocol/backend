@@ -308,6 +308,8 @@ func NewAPIServer(_backendServer *lib.Server,
 	}
 
 	fes.StartSeedBalancesMonitoring()
+	// Call this once upon starting server to ensure we have a good initial value
+	fes.UpdateUSDCentsToBitCloutExchangeRate()
 	fes.StartExchangePriceMonitoring()
 	return fes, nil
 }
