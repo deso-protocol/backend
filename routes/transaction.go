@@ -806,7 +806,7 @@ func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint
 	if err != nil {
 		return 0, err
 	}
-	conversionRateAfterFee := float64(usdCentsPerBitClout) * (1 + (float64(feeBasisPoints) / 100.0))
+	conversionRateAfterFee := float64(usdCentsPerBitClout) * (1 + (float64(feeBasisPoints) / (100.0 * 100.0)))
 	nanosPurchased := uint64(usdCents * float64(lib.NanosPerUnit) / conversionRateAfterFee)
 	return nanosPurchased, nil
 }
