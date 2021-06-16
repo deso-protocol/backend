@@ -106,6 +106,8 @@ const (
 	RoutePathReprocessBitcoinBlock                    = "/api/v0/admin/reprocess-bitcoin-block"
 	RoutePathAdminGetMempoolStats                     = "/api/v0/admin/get-mempool-stats"
 	RoutePathEvictUnminedBitcoinTxns                  = "/api/v0/admin/evict-unmined-bitcoin-txns"
+
+	// admin_buy_bitclout.go
 	RoutePathSetUSDCentsToBitCloutReserveExchangeRate = "/api/v0/admin/set-usd-cents-to-bitclout-reserve-exchange-rate"
 	RoutePathGetUSDCentsToBitCloutReserveExchangeRate = "/api/v0/admin/get-usd-cents-to-bitclout-reserve-exchange-rate"
 	RoutePathSetBuyBitCloutFeeBasisPoints             = "/api/v0/admin/set-buy-bitclout-fee-basis-points"
@@ -357,20 +359,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetExchangeRate,
 			PublicAccess,
 		},
-		// Route for exchanging Bitcoin for BitClout
-		{
-			"ExchangeBitcoin",
-			[]string{"POST", "OPTIONS"},
-			RoutePathExchangeBitcoin,
-			fes.ExchangeBitcoinStateless,
-			PublicAccess,
-		},
 		// Route for sending BitClout
 		{
 			"SendBitClout",
 			[]string{"POST", "OPTIONS"},
 			RoutePathSendBitClout,
 			fes.SendBitClout,
+			PublicAccess,
+		},
+		// Route for exchanging Bitcoin for BitClout
+		{
+			"ExchangeBitcoin",
+			[]string{"POST", "OPTIONS"},
+			RoutePathExchangeBitcoin,
+			fes.ExchangeBitcoinStateless,
 			PublicAccess,
 		},
 
@@ -667,36 +669,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetWyreWalletOrdersForPublicKey,
 			AdminAccess,
 		},
-		{
-			"SetUSDCentsToBitCloutReserveExchangeRate",
-			[]string{"POST", "OPTIONS"},
-			RoutePathSetUSDCentsToBitCloutReserveExchangeRate,
-			fes.SetUSDCentsToBitCloutReserveExchangeRate,
-			SuperAdminAccess,
-		},
-		{
-			"SetBuyBitCloutFeeBasisPoints",
-			[]string{"POST", "OPTIONS"},
-			RoutePathSetBuyBitCloutFeeBasisPoints,
-			fes.SetBuyBitCloutFeeBasisPoints,
-			SuperAdminAccess,
-		},
-		// End all /admin routes
-		// GET endpoints for managing parameters related to Buying BitClout
-		{
-			"GetUSDCentsToBitCloutReserveExchangeRate",
-			[]string{"GET"},
-			RoutePathGetUSDCentsToBitCloutReserveExchangeRate,
-			fes.GetUSDCentsToBitCloutReserveExchangeRate,
-			PublicAccess,
-		},
-		{
-			"GetBuyBitCloutFeeBasisPoints",
-			[]string{"GET"},
-			RoutePathGetBuyBitCloutFeeBasisPoints,
-			fes.GetBuyBitCloutFeeBasisPoints,
-			PublicAccess,
-		},
 		// Super Admin routes
 		{
 
@@ -770,6 +742,21 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			SuperAdminAccess,
 		},
 		// End all /admin routes
+		// GET endpoints for managing parameters related to Buying BitClout
+		{
+			"GetUSDCentsToBitCloutReserveExchangeRate",
+			[]string{"GET"},
+			RoutePathGetUSDCentsToBitCloutReserveExchangeRate,
+			fes.GetUSDCentsToBitCloutReserveExchangeRate,
+			PublicAccess,
+		},
+		{
+			"GetBuyBitCloutFeeBasisPoints",
+			[]string{"GET"},
+			RoutePathGetBuyBitCloutFeeBasisPoints,
+			fes.GetBuyBitCloutFeeBasisPoints,
+			PublicAccess,
+		},
 		{
 			"GetLikesForPost",
 			[]string{"POST", "OPTIONS"},
@@ -918,6 +905,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		}
 		handler = Logger(handler, route.Name)
 		handler = AddHeaders(handler, fes.AccessControlAllowOrigins)
+
 		router.
 			Methods(route.Method...).
 			Path(route.Pattern).
@@ -933,6 +921,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 				Handler(handler)
 		}
 	}
+
 	return router
 }
 

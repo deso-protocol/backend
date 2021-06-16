@@ -553,7 +553,6 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 
 	// If BurnAmountSatoshis is negative, set it to the maximum amount of satoshi
 	// that can be burned while accounting for the fee.
-	// this is actually Sats, so that's good.
 	burnAmountSatoshis := requestData.BurnAmountSatoshis
 	if burnAmountSatoshis < 0 {
 		bitcoinUtxos, err := lib.BlockCypherExtractBitcoinUtxosFromResponse(
@@ -670,10 +669,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 	bitcoinTxnBytes := bitcoinTxnBuffer.Bytes()
 	bitcoinTxnHash := bitcoinTxn.TxHash()
 
-	// Check that bitclout they would get does not exceed dumbledore balance
-	// Use global state price. We're adding USD-CLOUT in global state. super admin only. To compute BTC-CLOUT, use blockchain.com ticker.
-	// make get request to blockchain here to get BTC price.
-	// TODO: do we need to add a fee here?
+	// Check that BitClout purchased they would get does not exceed current balance.
 	var feeBasisPoints uint64
 	feeBasisPoints, err = fes.GetBuyBitCloutFeeBasisPointsResponseFromGlobalState()
 	if err != nil {
@@ -691,7 +687,6 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		return
 	}
 	if balanceInsufficient {
-		// TODO: THIS SHOULD TRIGGER ALERT
 		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: SendBitClout wallet balance is below nanos purchased"))
 		return
 	}

@@ -49,10 +49,16 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 	readUtxoView, _ := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	usdCentsPerBitcoin := readUtxoView.GetCurrentUSDCentsPerBitcoin()
 
-	// Get the nanos left in the tranche and the current rate of exchange.
 	startNanos := readUtxoView.NanosPurchased
-	satoshisPerUnit := lib.GetSatoshisPerUnitExchangeRate(
-		startNanos, usdCentsPerBitcoin)
+
+	var satoshisPerUnit uint64
+	nanosPerBTC, err := fes.GetNanosFromSats(lib.SatoshisPerBitcoin, 0)
+	if err != nil {
+		glog.Errorf("GetExchangeRate: error getting BitCloutNanos per BitCoin: %v")
+		satoshisPerUnit =  lib.GetSatoshisPerUnitExchangeRate(startNanos, usdCentsPerBitcoin)
+	} else {
+		satoshisPerUnit = (1 / nanosPerBTC) * (lib.SatoshisPerBitcoin / lib.NanosPerUnit)
+	}
 
 	usdCentsPerBitCloutExchangeRate, err := fes.GetExchangeBitCloutPrice()
 	if err != nil {
@@ -128,13 +134,16 @@ func (fes *APIServer) UpdateUSDCentsToBitCloutExchangeRate() {
 			"interface %v, response: %v, error: %v", responseData, resp, err)
 		return
 	}
+	// Get the reserve price for this node.
 	reservePrice, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
+	// Use the max of the last trade price and 24H price
 	var usdCentsToBitCloutExchangePrice uint64
 	if responseData.LastTradePrice > responseData.Price24H {
 		usdCentsToBitCloutExchangePrice = uint64(responseData.LastTradePrice * 100)
 	} else {
 		usdCentsToBitCloutExchangePrice = uint64(responseData.Price24H * 100)
 	}
+	// If the max of last trade price and 24H price is less than the reserve price, use the reserve price.
 	if reservePrice > usdCentsToBitCloutExchangePrice {
 		fes.UsdCentsPerBitCloutExchangeRate = reservePrice
 	} else {
@@ -161,7 +170,6 @@ type GetAppStateResponse struct {
 	DiamondLevelMap        map[int64]uint64
 	HasWyreIntegration     bool
 
-	PastDeflationBomb bool
 	// Send back the password stored in our HTTPOnly cookie
 	// so amplitude can track which passwords people are using
 	Password string
@@ -206,7 +214,6 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		CompProfileCreation:                 fes.IsCompProfileCreation,
 		DiamondLevelMap:                     lib.GetBitCloutNanosDiamondLevelMapAtBlockHeight(int64(fes.blockchain.BlockTip().Height)),
 		HasWyreIntegration:                  fes.IsConfiguredForWyre(),
-		PastDeflationBomb:                   uint64(fes.blockchain.BlockTip().Height) > fes.Params.DeflationBombBlockHeight,
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
