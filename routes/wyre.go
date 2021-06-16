@@ -183,7 +183,7 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 		btcPurchased := wyreTrackOrderResponse.DestAmount
 		if btcPurchased > 0 {
 			// BTC Purchased is in whole bitcoins, so multiply it by 10^8 to convert to Satoshis
-			satsPurchased := uint64(btcPurchased * math.Pow(10, 8))
+			satsPurchased := uint64(btcPurchased * lib.SatoshisPerBitcoin)
 			var feeBasisPoints uint64
 			feeBasisPoints, err = fes.GetBuyBitCloutFeeBasisPointsResponseFromGlobalState()
 			if err != nil {

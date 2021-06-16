@@ -103,7 +103,7 @@ func getCoingeckoPrice() (float64, error) {
 }
 
 func getBlockchainDotcomPrice() (float64, error) {
-	URL := "https://blockchain.info/ticker"
+	URL := "https://api.blockchain.com/ticker"
 	req, _ := http.NewRequest("GET", URL, nil)
 
 	client := &http.Client{}

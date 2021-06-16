@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"reflect"
 	"strings"
@@ -796,7 +795,7 @@ func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) (
 		return 0, fmt.Errorf(" Problem getting usd to btc exchange rate: %v", err)
 	}
 	usdCentsPerBitcoin := usdToBTC * 100
-	usdCents := (float64(satoshis) * usdCentsPerBitcoin) / math.Pow(10, 8)
+	usdCents := (float64(satoshis) * usdCentsPerBitcoin) / lib.SatoshisPerBitcoin
 	return fes.GetNanosFromUSDCents(usdCents, feeBasisPoints)
 }
 
@@ -807,7 +806,7 @@ func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint
 	if err != nil {
 		return 0, err
 	}
-	conversionRateAfterFee := float64(usdCentsPerBitClout) * ((100.0 + (float64(feeBasisPoints) / 100.0))/ 100.0)
+	conversionRateAfterFee := float64(usdCentsPerBitClout) * (1 + (float64(feeBasisPoints) / 100.0))
 	nanosPurchased := uint64(usdCents * float64(lib.NanosPerUnit) / conversionRateAfterFee)
 	return nanosPurchased, nil
 }
