@@ -802,10 +802,7 @@ func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) (
 // GetNanosFromUSDCents - convert USD cents to BitClout nanos
 func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint64) (uint64, error){
 	// Get Exchange Price gets the max of price from blockchain.com and the reserve price.
-	usdCentsPerBitClout, err := fes.GetExchangeBitCloutPrice()
-	if err != nil {
-		return 0, err
-	}
+	usdCentsPerBitClout := fes.GetExchangeBitCloutPrice()
 	conversionRateAfterFee := float64(usdCentsPerBitClout) * (1 + (float64(feeBasisPoints) / (100.0 * 100.0)))
 	nanosPurchased := uint64(usdCents * float64(lib.NanosPerUnit) / conversionRateAfterFee)
 	return nanosPurchased, nil
