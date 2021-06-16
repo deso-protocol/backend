@@ -26,7 +26,6 @@ func (fes *APIServer) CheckSuperAdminPublicKey(superAdminPublicKey string) bool 
 	return false
 }
 
-// do we want a special kind of admin to manage these?
 func (fes *APIServer) SetUSDCentsToBitCloutReserveExchangeRate(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := SetUSDCentsToBitCloutExchangeRateRequest{}
@@ -35,18 +34,14 @@ func (fes *APIServer) SetUSDCentsToBitCloutReserveExchangeRate(ww http.ResponseW
 		return
 	}
 
-	// Check if admin is approved to update reserve exchange rate
-	//if !fes.CheckSuperAdminPublicKey(requestData.AdminPublicKey) {
-	//	_AddBadRequestError(ww, "SetUSDCentsToBitCloutReserveExchangeRate: You are not a super admin")
-	//	return
-	//}
-
 	if err := fes.GlobalStatePut(
 		GlobalStateKeyForUSDCentsToBitCloutReserveExchangeRate(),
 		lib.UintToBuf(requestData.USDCentsPerBitClout)); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SetUSDCentsToBitCloutReserveExchangeRate: Problem putting exchange rate in global state: %v", err))
 		return
 	}
+
+	fes.UpdateUSDCentsToBitCloutExchangeRate()
 
 	res := SetUSDCentsToBitCloutExchangeRateResponse{
 		USDCentsPerBitClout: requestData.USDCentsPerBitClout,
@@ -105,12 +100,6 @@ func (fes *APIServer) SetBuyBitCloutFeeBasisPoints(ww http.ResponseWriter, req *
 		_AddBadRequestError(ww, fmt.Sprintf("SetBuyBitCloutFeeBasisPoints: Problem parsing request body: %v", err))
 		return
 	}
-
-	// Check if admin is approved to update reserve exchange rate
-	//if !fes.CheckSuperAdminPublicKey(requestData.AdminPublicKey) {
-	//	_AddBadRequestError(ww, "SetBuyBitCloutFeeBasisPoints: You are not a super admin")
-	//	return
-	//}
 
 	if err := fes.GlobalStatePut(
 		GlobalStateKeyForBuyBitCloutFeeBasisPoints(),

@@ -4,14 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	fmt "fmt"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/dgrijalva/jwt-go/v4"
 	"github.com/tyler-smith/go-bip39"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/dgrijalva/jwt-go/v4"
 
 	"github.com/bitclout/core/lib"
 	"github.com/dgraph-io/badger/v3"
@@ -33,9 +34,9 @@ const (
 
 const (
 	// base.go
-	RoutePathHealthCheck              = "/api/v0/health-check"
-	RoutePathGetExchangeRate          = "/api/v0/get-exchange-rate"
-	RoutePathGetAppState              = "/api/v0/get-app-state"
+	RoutePathHealthCheck     = "/api/v0/health-check"
+	RoutePathGetExchangeRate = "/api/v0/get-exchange-rate"
+	RoutePathGetAppState     = "/api/v0/get-app-state"
 
 	// transaction.go
 	RoutePathGetTxn                   = "/api/v0/get-txn"
@@ -55,6 +56,7 @@ const (
 	RoutePathDeleteIdentities         = "/api/v0/delete-identities"
 	RoutePathGetProfiles              = "/api/v0/get-profiles"
 	RoutePathGetSingleProfile         = "/api/v0/get-single-profile"
+	RoutePathGetSingleProfilePicture  = "/api/v0/get-single-profile-picture"
 	RoutePathGetHodlersForPublicKey   = "/api/v0/get-hodlers-for-public-key"
 	RoutePathGetDiamondsForPublicKey  = "/api/v0/get-diamonds-for-public-key"
 	RoutePathGetFollowsStateless      = "/api/v0/get-follows-stateless"
@@ -64,20 +66,24 @@ const (
 	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
 
 	// post.go
-	RoutePathGetPostsStateless        = "/api/v0/get-posts-stateless"
-	RoutePathGetSinglePost            = "/api/v0/get-single-post"
-	RoutePathGetPostsForPublicKey     = "/api/v0/get-posts-for-public-key"
-	RoutePathGetDiamondedPosts        = "/api/v0/get-diamonded-posts"
+	RoutePathGetPostsStateless       = "/api/v0/get-posts-stateless"
+	RoutePathGetSinglePost           = "/api/v0/get-single-post"
+	RoutePathGetLikesForPost         = "/api/v0/get-likes-for-post"
+	RoutePathGetDiamondsForPost      = "/api/v0/get-diamonds-for-post"
+	RoutePathGetRecloutsForPost      = "/api/v0/get-reclouts-for-post"
+	RoutePathGetQuoteRecloutsForPost = "/api/v0/get-quote-reclouts-for-post"
+	RoutePathGetPostsForPublicKey    = "/api/v0/get-posts-for-public-key"
+	RoutePathGetDiamondedPosts       = "/api/v0/get-diamonded-posts"
 
 	// media.go
-	RoutePathUploadImage              = "/api/v0/upload-image"
-	RoutePathGetFullTikTokURL         = "/api/v0/get-full-tiktok-url"
+	RoutePathUploadImage      = "/api/v0/upload-image"
+	RoutePathGetFullTikTokURL = "/api/v0/get-full-tiktok-url"
 
 	// message.go
-	RoutePathSendMessageStateless     = "/api/v0/send-message-stateless"
-	RoutePathGetMessagesStateless     = "/api/v0/get-messages-stateless"
-	RoutePathMarkContactMessagesRead  = "/api/v0/mark-contact-messages-read"
-	RoutePathMarkAllMessagesRead 	  = "/api/v0/mark-all-messages-read"
+	RoutePathSendMessageStateless    = "/api/v0/send-message-stateless"
+	RoutePathGetMessagesStateless    = "/api/v0/get-messages-stateless"
+	RoutePathMarkContactMessagesRead = "/api/v0/mark-contact-messages-read"
+	RoutePathMarkAllMessagesRead     = "/api/v0/mark-all-messages-read"
 
 	// verify.go
 	RoutePathSendPhoneNumberVerificationText   = "/api/v0/send-phone-number-verification-text"
@@ -106,9 +112,9 @@ const (
 	RoutePathGetBuyBitCloutFeeBasisPoints             = "/api/v0/admin/get-buy-bitclout-fee-basis-points"
 
 	// admin_transaction.go
-	RoutePathGetGlobalParams                       = "/api/v0/admin/get-global-params"
-	RoutePathUpdateGlobalParams                    = "/api/v0/admin/update-global-params"
-	RoutePathSwapIdentity                          = "/api/v0/admin/swap-identity"
+	RoutePathGetGlobalParams    = "/api/v0/admin/get-global-params"
+	RoutePathUpdateGlobalParams = "/api/v0/admin/update-global-params"
+	RoutePathSwapIdentity       = "/api/v0/admin/swap-identity"
 
 	// admin_user.go
 	RoutePathAdminUpdateUserGlobalMetadata         = "/api/v0/admin/update-user-global-metadata"
@@ -121,9 +127,9 @@ const (
 	RoutePathAdminGetUserAdminData				   = "/api/v0/admin/get-user-admin-data"
 
 	// admin_feed.go
-	RoutePathAdminUpdateGlobalFeed                 = "/api/v0/admin/update-global-feed"
-	RoutePathAdminPinPost                          = "/api/v0/admin/pin-post"
-	RoutePathAdminRemoveNilPosts                   = "/api/v0/admin/remove-nil-posts"
+	RoutePathAdminUpdateGlobalFeed = "/api/v0/admin/update-global-feed"
+	RoutePathAdminPinPost          = "/api/v0/admin/pin-post"
+	RoutePathAdminRemoveNilPosts   = "/api/v0/admin/remove-nil-posts"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -207,6 +213,7 @@ type APIServer struct {
 	WyreBTCAddress string
 	BuyBitCloutSeed string
 
+	UsdCentsPerBitCloutExchangeRate uint64
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
 }
@@ -299,7 +306,7 @@ func NewAPIServer(_backendServer *lib.Server,
 	}
 
 	fes.StartSeedBalancesMonitoring()
-
+	fes.StartExchangePriceMonitoring()
 	return fes, nil
 }
 
@@ -459,6 +466,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetSingleProfile,
 			fes.GetSingleProfile,
+			PublicAccess,
+		},
+		{
+			"GetSingleProfilePicture",
+			[]string{"GET"},
+			RoutePathGetSingleProfilePicture + "/{publicKeyBase58Check:[0-9a-zA-Z]{54,55}}",
+			fes.GetSingleProfilePicture,
 			PublicAccess,
 		},
 		{
@@ -653,20 +667,35 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetWyreWalletOrdersForPublicKey,
 			AdminAccess,
 		},
+		{
+			"SetUSDCentsToBitCloutReserveExchangeRate",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSetUSDCentsToBitCloutReserveExchangeRate,
+			fes.SetUSDCentsToBitCloutReserveExchangeRate,
+			SuperAdminAccess,
+		},
+		{
+			"SetBuyBitCloutFeeBasisPoints",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSetBuyBitCloutFeeBasisPoints,
+			fes.SetBuyBitCloutFeeBasisPoints,
+			SuperAdminAccess,
+		},
+		// End all /admin routes
 		// GET endpoints for managing parameters related to Buying BitClout
 		{
 			"GetUSDCentsToBitCloutReserveExchangeRate",
 			[]string{"GET"},
 			RoutePathGetUSDCentsToBitCloutReserveExchangeRate,
 			fes.GetUSDCentsToBitCloutReserveExchangeRate,
-			AdminAccess,
+			PublicAccess,
 		},
 		{
 			"GetBuyBitCloutFeeBasisPoints",
 			[]string{"GET"},
 			RoutePathGetBuyBitCloutFeeBasisPoints,
 			fes.GetBuyBitCloutFeeBasisPoints,
-			AdminAccess,
+			PublicAccess,
 		},
 		// Super Admin routes
 		{
@@ -741,7 +770,41 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			SuperAdminAccess,
 		},
 		// End all /admin routes
-
+		{
+			"GetLikesForPost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetLikesForPost,
+			fes.GetLikesForPost,
+			PublicAccess,
+		},
+		{
+			"GetDiamondsForPost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetDiamondsForPost,
+			fes.GetDiamondsForPost,
+			PublicAccess,
+		},
+		{
+			"GetRecloutsForPost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetRecloutsForPost,
+			fes.GetRecloutsForPost,
+			PublicAccess,
+		},
+		{
+			"GetQuoteRecloutsForPost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetQuoteRecloutsForPost,
+			fes.GetQuoteRecloutsForPost,
+			PublicAccess,
+		},
+		{
+			"BlockPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathBlockPublicKey,
+			fes.BlockPublicKey,
+			PublicAccess,
+		},
 		// message.go
 		{
 			"SendMessageStateless",
@@ -1108,6 +1171,20 @@ func (fes *APIServer) logAmplitudeEvent(publicKeyBytes string, event string, eve
 	return nil
 }
 
+
+func (fes *APIServer) StartExchangePriceMonitoring() {
+	go func() {
+		out:
+			for {
+				select {
+				case <- time.After(10 * time.Second):
+					fes.UpdateUSDCentsToBitCloutExchangeRate()
+				case <- fes.quit:
+					break out
+				}
+			}
+	}()
+}
 // Monitor balances for starter bitclout seed and buy bitclout seed
 func (fes *APIServer) StartSeedBalancesMonitoring() {
 	go func() {

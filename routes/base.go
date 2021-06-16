@@ -1,11 +1,13 @@
 package routes
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/bitclout/core/lib"
 	"github.com/golang/glog"
 	"io"
+	"io/ioutil"
 	"net/http"
 )
 
@@ -52,7 +54,7 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 	satoshisPerUnit := lib.GetSatoshisPerUnitExchangeRate(
 		startNanos, usdCentsPerBitcoin)
 
-	usdCentsPerBitCloutExchangeRate, err := fes.GetExchangePrice()
+	usdCentsPerBitCloutExchangeRate, err := fes.GetExchangeBitCloutPrice()
 	if err != nil {
 		glog.Errorf("GetExchangeRate: error getting current price of BitClout from exchanges %v", err)
 		usdCentsPerBitCloutExchangeRate = 0
@@ -84,10 +86,60 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 	}
 }
 
-func (fes *APIServer) GetExchangePrice() (uint64, error){
-	// TODO: hit blockchain.com api to get current price
-	// Return USD Cents per BitClout
-	return 150 * 100, nil
+func (fes *APIServer) GetExchangeBitCloutPrice() (uint64, error){
+	blockchainPrice := fes.UsdCentsPerBitCloutExchangeRate
+	reservePrice, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
+	if err != nil {
+		return 0, err
+	}
+	if blockchainPrice > reservePrice {
+		return blockchainPrice, nil
+	}
+	return reservePrice, nil
+}
+
+type BlockchainBitCloutTickerResponse struct {
+	Symbol string `json:"symbol"`
+	Price24H float64 `json:"price_24h"`
+	Volume24H float64 `json:"volume_24h"`
+	LastTradePrice float64 `json:"last_trade_price"`
+}
+
+// UpdateUSDCentsToBitCloutExchangeRate updates app state's USD Cents per BitClout value
+func (fes *APIServer) UpdateUSDCentsToBitCloutExchangeRate() {
+	// Get the ticker from Blockchain.com
+	url := "https://api.blockchain.com/v3/exchange/tickers/CLOUT-USD"
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		glog.Errorf("GetExchangePriceFromBlockchain: Problem with HTTP request %s: %v", url, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Decode the response into the appropriate struct.
+	body, _ := ioutil.ReadAll(resp.Body)
+	responseData := &BlockchainBitCloutTickerResponse{}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	if err = decoder.Decode(responseData); err != nil {
+		glog.Errorf("GetExchangePriceFromBlockchain: Problem decoding response JSON into "+
+			"interface %v, response: %v, error: %v", responseData, resp, err)
+		return
+	}
+	reservePrice, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
+	var usdCentsToBitCloutExchangePrice uint64
+	if responseData.LastTradePrice > responseData.Price24H {
+		usdCentsToBitCloutExchangePrice = uint64(responseData.LastTradePrice * 100)
+	} else {
+		usdCentsToBitCloutExchangePrice = uint64(responseData.Price24H * 100)
+	}
+	if reservePrice > usdCentsToBitCloutExchangePrice {
+		fes.UsdCentsPerBitCloutExchangeRate = reservePrice
+	} else {
+		fes.UsdCentsPerBitCloutExchangeRate = usdCentsToBitCloutExchangePrice
+	}
 }
 
 type GetAppStateRequest struct {

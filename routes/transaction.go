@@ -164,7 +164,8 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 	// attach everything to the response
 	response.PostEntryResponse = postEntryResponse
 
-	if len(postHashToModify) == 0 {
+	// Try to whitelist a post if it is not a comment and is not a vanilla reclout.
+	if len(postHashToModify) == 0 && !lib.IsVanillaReclout(postEntry) {
 		// If this is a new post, let's try and auto-whitelist it now that it has been broadcast.
 		// First we need to figure out if the user is whitelisted.
 		userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(updaterPublicKeyBytes, fes.Params))
@@ -187,7 +188,7 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 			maxAutoWhitelistPostsPerDay := 5
 			postEntriesInLastDay := 0
 			for _, dbPostOrCommentHash := range dbPostAndCommentHashes {
-				if existingPostEntry := utxoView.GetPostEntryForPostHash(dbPostOrCommentHash); len(existingPostEntry.ParentStakeID) == 0 {
+				if existingPostEntry := utxoView.GetPostEntryForPostHash(dbPostOrCommentHash); len(existingPostEntry.ParentStakeID) == 0 && !lib.IsVanillaReclout(existingPostEntry){
 					postEntriesInLastDay += 1
 				}
 				if maxAutoWhitelistPostsPerDay >= postEntriesInLastDay {
@@ -806,18 +807,12 @@ func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) (
 
 // GetNanosFromUSDCents - convert USD cents to BitClout nanos
 func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint64) (uint64, error){
-	usdCentsPerBitCloutReservePrice, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
-	if err != nil {
-		return 0, err
-	}
-	usdCentsPerBitClout, err := fes.GetExchangePrice()
+	// Get Exchange Price gets the max of price from blockchain.com and the reserve price.
+	usdCentsPerBitClout, err := fes.GetExchangeBitCloutPrice()
 	if err != nil {
 		return 0, err
 	}
 	conversionRateAfterFee := float64(usdCentsPerBitClout) * ((100.0 + (float64(feeBasisPoints) / 100.0))/ 100.0)
-	if conversionRateAfterFee < float64(usdCentsPerBitCloutReservePrice) {
-		conversionRateAfterFee = float64(usdCentsPerBitCloutReservePrice)
-	}
 	nanosPurchased := uint64(usdCents * float64(lib.NanosPerUnit) / conversionRateAfterFee)
 	return nanosPurchased, nil
 }
