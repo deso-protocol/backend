@@ -127,15 +127,14 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 
 	orderId := wyreWalletOrderWebhookRequest.OrderId
 	orderIdBytes := []byte(orderId)
-	err := fes.GlobalStatePut(GlobalStateKeyForWyreOrderID(orderIdBytes), []byte{1})
-	if err != nil {
+	if err := fes.GlobalStatePut(GlobalStateKeyForWyreOrderID(orderIdBytes), []byte{1}); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: Error saving orderId to global state"))
 		return
 	}
 	referenceId := wyreWalletOrderWebhookRequest.ReferenceId
 	referenceIdSplit := strings.Split(referenceId, ":")
 	publicKey := referenceIdSplit[0]
-	if err = fes.logAmplitudeEvent(publicKey, fmt.Sprintf("wyre : buy : subscription : %v", strings.ToLower(wyreWalletOrderWebhookRequest.OrderStatus)), structs.Map(wyreWalletOrderWebhookRequest)); err != nil {
+	if err := fes.logAmplitudeEvent(publicKey, fmt.Sprintf("wyre : buy : subscription : %v", strings.ToLower(wyreWalletOrderWebhookRequest.OrderStatus)), structs.Map(wyreWalletOrderWebhookRequest)); err != nil {
 		glog.Errorf("WyreWalletOrderSubscription: Error logging payload to amplitude: %v", err)
 	}
 	timestamp, err := strconv.ParseUint(referenceIdSplit[1], 10, 64)
@@ -179,35 +178,42 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 		}
 		newMetadataObj.LatestWyreTrackWalletOrderResponse = wyreTrackOrderResponse
 
-		// Get utxoView to get the current amount of nanos purchased, so we can compute the current price of CLOUT in BTC
-		var utxoView *lib.UtxoView
-		utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error getting utxoview: %v", err))
-			return
-		}
-
 		// If the amount of BTC purchased is greater than 0, compute how much BitClout to pay out if it has not been
 		// paid out yet.
 		btcPurchased := wyreTrackOrderResponse.DestAmount
 		if btcPurchased > 0 {
-			startNanos := utxoView.NanosPurchased
 			// BTC Purchased is in whole bitcoins, so multiply it by 10^8 to convert to Satoshis
-			satsPurchased := uint64(btcPurchased * math.Pow(10, 8))
-			usdCentsPerBitcoin := utxoView.GetCurrentUSDCentsPerBitcoin()
-			// Get the current Satoshis / CLOUT-nano exchange rate
-			satoshisPerUnit := lib.GetSatoshisPerUnitExchangeRate(startNanos, usdCentsPerBitcoin)
+			satsPurchased := uint64(btcPurchased * lib.SatoshisPerBitcoin)
+			var feeBasisPoints uint64
+			feeBasisPoints, err = fes.GetBuyBitCloutFeeBasisPointsResponseFromGlobalState()
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error getting buy bitclout premium basis points from global state: %v", err))
+				return
+			}
+			var nanosPurchased uint64
+			nanosPurchased, err = fes.GetNanosFromSats(satsPurchased, feeBasisPoints)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrdersubscription: error calculating nanos purchased: %v", err))
+				return
+			}
+			var balanceInsufficient bool
+			balanceInsufficient, err = fes.ExceedsSendBitCloutBalance(nanosPurchased)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrdersubscription: Error checking if send bitclout balance is sufficient: %v", err))
+				return
+			}
+			if balanceInsufficient {
+				// TODO: THIS SHOULD TRIGGER ALERT
+				_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrdersubscription: SendBitClout wallet balance is below nanos purchased"))
+				return
+			}
 
-			nodeFeePercentage := float64(1.0)
-			conversionRateAfterFee := float64(satoshisPerUnit) * (100.0 + nodeFeePercentage) / 100.0
-			bitcloutToSend := uint64(float64(satsPurchased) * float64(lib.NanosPerUnit) / (conversionRateAfterFee))
 
 			// Make sure this order hasn't been paid out, then mark it as paid out.
 			wyreOrderIdKey := GlobalStateKeyForWyreOrderIDProcessed(orderIdBytes)
 			// We expect badger to return a key not found error if BitClout has been paid out for this order.
 			// If it does not return an error, BitClout has already been paid out, so we skip ahead.
-			val, _ := fes.GlobalStateGet(wyreOrderIdKey)
-			if val == nil {
+			if val, _ := fes.GlobalStateGet(wyreOrderIdKey); val == nil {
 				// Mark this order as paid out
 				if err = fes.GlobalStatePut(wyreOrderIdKey, []byte{1}); err != nil {
 					_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error marking orderId %v as paid out: %v", orderId, err))
@@ -215,20 +221,19 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 				}
 				// Pay out bitclout to send to the public key
 				var txnHash *lib.BlockHash
-				txnHash, err = fes.SendSeedBitClout(publicKeyBytes, bitcloutToSend, true)
+				txnHash, err = fes.SendSeedBitClout(publicKeyBytes, nanosPurchased, true)
 				if err != nil {
 					_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error paying out bitclout: %v", err))
 					// In the event that sending the bitclout to the public key fails for some reason, we will "unmark"
 					// this order as paid in global state
-					err = fes.GlobalStateDelete(wyreOrderIdKey)
-					if err != nil {
+					if err = fes.GlobalStateDelete(wyreOrderIdKey); err != nil {
 						_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error deleting order id key when failing to payout bitclout: %v", err))
 					}
 					return
 				}
 				// Set the basic transfer txn hash and bitclout purchased nanos of the metadata object
 				newMetadataObj.BasicTransferTxnBlockHash = txnHash
-				newMetadataObj.BitCloutPurchasedNanos = bitcloutToSend
+				newMetadataObj.BitCloutPurchasedNanos = nanosPurchased
 			}
 		}
 	}
