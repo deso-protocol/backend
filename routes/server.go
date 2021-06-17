@@ -42,7 +42,7 @@ const (
 	RoutePathGetTxn                   = "/api/v0/get-txn"
 	RoutePathSubmitTransaction        = "/api/v0/submit-transaction"
 	RoutePathUpdateProfile            = "/api/v0/update-profile"
-	RoutePathBurnBitcoin              = "/api/v0/burn-bitcoin"
+	RoutePathExchangeBitcoin          = "/api/v0/exchange-bitcoin"
 	RoutePathSendBitClout             = "/api/v0/send-bitclout"
 	RoutePathSubmitPost               = "/api/v0/submit-post"
 	RoutePathCreateFollowTxnStateless = "/api/v0/create-follow-txn-stateless"
@@ -66,10 +66,14 @@ const (
 	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
 
 	// post.go
-	RoutePathGetPostsStateless    = "/api/v0/get-posts-stateless"
-	RoutePathGetSinglePost        = "/api/v0/get-single-post"
-	RoutePathGetPostsForPublicKey = "/api/v0/get-posts-for-public-key"
-	RoutePathGetDiamondedPosts    = "/api/v0/get-diamonded-posts"
+	RoutePathGetPostsStateless       = "/api/v0/get-posts-stateless"
+	RoutePathGetSinglePost           = "/api/v0/get-single-post"
+	RoutePathGetLikesForPost         = "/api/v0/get-likes-for-post"
+	RoutePathGetDiamondsForPost      = "/api/v0/get-diamonds-for-post"
+	RoutePathGetRecloutsForPost      = "/api/v0/get-reclouts-for-post"
+	RoutePathGetQuoteRecloutsForPost = "/api/v0/get-quote-reclouts-for-post"
+	RoutePathGetPostsForPublicKey    = "/api/v0/get-posts-for-public-key"
+	RoutePathGetDiamondedPosts       = "/api/v0/get-diamonded-posts"
 
 	// nft.go
 	RoutePathCreateNFT         = "/api/v0/create-nft"
@@ -111,6 +115,12 @@ const (
 	RoutePathReprocessBitcoinBlock   = "/api/v0/admin/reprocess-bitcoin-block"
 	RoutePathAdminGetMempoolStats    = "/api/v0/admin/get-mempool-stats"
 	RoutePathEvictUnminedBitcoinTxns = "/api/v0/admin/evict-unmined-bitcoin-txns"
+
+	// admin_buy_bitclout.go
+	RoutePathSetUSDCentsToBitCloutReserveExchangeRate = "/api/v0/admin/set-usd-cents-to-bitclout-reserve-exchange-rate"
+	RoutePathGetUSDCentsToBitCloutReserveExchangeRate = "/api/v0/admin/get-usd-cents-to-bitclout-reserve-exchange-rate"
+	RoutePathSetBuyBitCloutFeeBasisPoints             = "/api/v0/admin/set-buy-bitclout-fee-basis-points"
+	RoutePathGetBuyBitCloutFeeBasisPoints             = "/api/v0/admin/get-buy-bitclout-fee-basis-points"
 
 	// admin_transaction.go
 	RoutePathGetGlobalParams    = "/api/v0/admin/get-global-params"
@@ -214,6 +224,7 @@ type APIServer struct {
 	WyreBTCAddress  string
 	BuyBitCloutSeed string
 
+	UsdCentsPerBitCloutExchangeRate uint64
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
 }
@@ -306,7 +317,9 @@ func NewAPIServer(_backendServer *lib.Server,
 	}
 
 	fes.StartSeedBalancesMonitoring()
-
+	// Call this once upon starting server to ensure we have a good initial value
+	fes.UpdateUSDCentsToBitCloutExchangeRate()
+	fes.StartExchangePriceMonitoring()
 	return fes, nil
 }
 
@@ -357,7 +370,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetExchangeRate,
 			PublicAccess,
 		},
-
 		// Route for sending BitClout
 		{
 			"SendBitClout",
@@ -366,13 +378,12 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.SendBitClout,
 			PublicAccess,
 		},
-
-		// Route for burning Bitcoin for BitClout
+		// Route for exchanging Bitcoin for BitClout
 		{
-			"BurnBitcoin",
+			"ExchangeBitcoin",
 			[]string{"POST", "OPTIONS"},
-			RoutePathBurnBitcoin,
-			fes.BurnBitcoinStateless,
+			RoutePathExchangeBitcoin,
+			fes.ExchangeBitcoinStateless,
 			PublicAccess,
 		},
 
@@ -575,9 +586,29 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetUserGlobalMetadata,
 			PublicAccess,
 		},
+		{
+			"GetSinglePost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetSinglePost,
+			fes.GetSinglePost,
+			PublicAccess,
+		},
+		{
+			"BlockPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathBlockPublicKey,
+			fes.BlockPublicKey,
+			PublicAccess,
+		},
+		{
+			"BlockGetTxn",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetTxn,
+			fes.GetTxn,
+			PublicAccess,
+		},
 
 		// Begin all /admin routes
-
 		{
 			// Route for all low-level node operations.
 			"NodeControl",
@@ -707,12 +738,62 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.AdminRemoveNilPosts,
 			SuperAdminAccess,
 		},
-		// End all /admin routes
 		{
-			"GetSinglePost",
+			"SetUSDCentsToBitCloutReserveExchangeRate",
 			[]string{"POST", "OPTIONS"},
-			RoutePathGetSinglePost,
-			fes.GetSinglePost,
+			RoutePathSetUSDCentsToBitCloutReserveExchangeRate,
+			fes.SetUSDCentsToBitCloutReserveExchangeRate,
+			SuperAdminAccess,
+		},
+		{
+			"SetBuyBitCloutFeeBasisPoints",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSetBuyBitCloutFeeBasisPoints,
+			fes.SetBuyBitCloutFeeBasisPoints,
+			SuperAdminAccess,
+		},
+		// End all /admin routes
+		// GET endpoints for managing parameters related to Buying BitClout
+		{
+			"GetUSDCentsToBitCloutReserveExchangeRate",
+			[]string{"GET"},
+			RoutePathGetUSDCentsToBitCloutReserveExchangeRate,
+			fes.GetUSDCentsToBitCloutReserveExchangeRate,
+			PublicAccess,
+		},
+		{
+			"GetBuyBitCloutFeeBasisPoints",
+			[]string{"GET"},
+			RoutePathGetBuyBitCloutFeeBasisPoints,
+			fes.GetBuyBitCloutFeeBasisPoints,
+			PublicAccess,
+		},
+		{
+			"GetLikesForPost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetLikesForPost,
+			fes.GetLikesForPost,
+			PublicAccess,
+		},
+		{
+			"GetDiamondsForPost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetDiamondsForPost,
+			fes.GetDiamondsForPost,
+			PublicAccess,
+		},
+		{
+			"GetRecloutsForPost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetRecloutsForPost,
+			fes.GetRecloutsForPost,
+			PublicAccess,
+		},
+		{
+			"GetQuoteRecloutsForPost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetQuoteRecloutsForPost,
+			fes.GetQuoteRecloutsForPost,
 			PublicAccess,
 		},
 		{
@@ -722,14 +803,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.BlockPublicKey,
 			PublicAccess,
 		},
-		{
-			"BlockGetTxn",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetTxn,
-			fes.GetTxn,
-			PublicAccess,
-		},
-
 		// message.go
 		{
 			"SendMessageStateless",
@@ -1097,6 +1170,20 @@ func (fes *APIServer) logAmplitudeEvent(publicKeyBytes string, event string, eve
 	return nil
 }
 
+func (fes *APIServer) StartExchangePriceMonitoring() {
+	go func() {
+	out:
+		for {
+			select {
+			case <-time.After(10 * time.Second):
+				fes.UpdateUSDCentsToBitCloutExchangeRate()
+			case <-fes.quit:
+				break out
+			}
+		}
+	}()
+}
+
 // Monitor balances for starter bitclout seed and buy bitclout seed
 func (fes *APIServer) StartSeedBalancesMonitoring() {
 	go func() {
@@ -1104,7 +1191,7 @@ func (fes *APIServer) StartSeedBalancesMonitoring() {
 		for {
 			select {
 			case <-time.After(1 * time.Minute):
-				if fes.backendServer.GetStatsdClient() == nil {
+				if fes.backendServer == nil || fes.backendServer.GetStatsdClient() == nil {
 					return
 				}
 				tags := []string{}

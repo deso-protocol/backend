@@ -132,11 +132,17 @@ var (
 	// <prefix, username string> -> <BlacklistAudiLog>
 	_GlobalStatePrefixBlacklistAuditLog = []byte{14}
 
+	// Stores the current USD Cents per BitClout reserve exchange rate.
+	// If rate received from exchanges goes below this value, use this value instead.
+	_GlobalStatePrefixUSDCentsToBitCloutReserveExchangeRate = []byte{15}
+
+	_GlobalStatePrefixBuyBitCloutFeeBasisPoints = []byte{16}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
-	// NEXT_TAG: 15
+	// NEXT_TAG: 17
 )
 
 // This struct contains all the metadata associated with a user's public key.
@@ -338,6 +344,16 @@ func GlobalStateKeyForWyreOrderID(orderIdBytes []byte) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixWyreOrderId...)
 	key := append(prefixCopy, orderIdBytes...)
 	return key
+}
+
+func GlobalStateKeyForUSDCentsToBitCloutReserveExchangeRate() []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixUSDCentsToBitCloutReserveExchangeRate...)
+	return prefixCopy
+}
+
+func GlobalStateKeyForBuyBitCloutFeeBasisPoints() []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixBuyBitCloutFeeBasisPoints...)
+	return prefixCopy
 }
 
 
