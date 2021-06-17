@@ -131,7 +131,9 @@ func (fes *APIServer) UploadImage(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	file, fileHeader, err := req.FormFile("file")
-	defer file.Close()
+	if file != nil {
+		defer file.Close()
+	}
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UploadImage: Problem getting file from form data: %v", err))
 		return
