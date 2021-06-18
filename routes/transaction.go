@@ -1085,6 +1085,9 @@ type SubmitPostRequest struct {
 	// When set to true the post will be hidden.
 	IsHidden bool `safeForLogging:"true"`
 
+	// When set to true the post will be added as a pinned post.
+	IsPinned bool `safeForLogging:"true"`
+
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 }
 
@@ -1258,6 +1261,7 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		tstamp,
 		postExtraData,
 		requestData.IsHidden,
+		requestData.IsPinned,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Problem creating transaction: %v", err))
