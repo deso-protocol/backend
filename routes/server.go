@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -214,6 +215,11 @@ type APIServer struct {
 	WyreSecretKey string
 	WyreBTCAddress string
 	BuyBitCloutSeed string
+
+	// This lock is used when sending seed BitClout to avoid a race condition
+	// in which two calls to sending the seed BitClout use the same UTXO,
+	// causing one to error.
+	mtxSeedBitClout sync.RWMutex
 
 	UsdCentsPerBitCloutExchangeRate uint64
 	// Signals that the frontend server is in a stopped state

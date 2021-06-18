@@ -250,6 +250,9 @@ func (fes *APIServer) putUserMetadataInGlobalState(
 }
 
 func (fes *APIServer) SendSeedBitClout(recipientPkBytes []byte, amountNanos uint64, useBuyBitCloutSeed bool) (txnHash *lib.BlockHash, _err error) {
+	fes.mtxSeedBitClout.Lock()
+	defer fes.mtxSeedBitClout.Unlock()
+
 	senderSeed := fes.StarterBitCloutSeed
 	if useBuyBitCloutSeed {
 		senderSeed = fes.BuyBitCloutSeed

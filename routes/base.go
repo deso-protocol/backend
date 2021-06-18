@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/bitclout/core/lib"
 	"github.com/golang/glog"
+	"github.com/montanaflynn/stats"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -111,42 +112,62 @@ type BlockchainBitCloutTickerResponse struct {
 
 // UpdateUSDCentsToBitCloutExchangeRate updates app state's USD Cents per BitClout value
 func (fes *APIServer) UpdateUSDCentsToBitCloutExchangeRate() {
-	// Get the ticker from Blockchain.com
-	url := "https://api.blockchain.com/v3/exchange/tickers/CLOUT-USD"
-	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		glog.Errorf("GetExchangePriceFromBlockchain: Problem with HTTP request %s: %v", url, err)
-		return
-	}
-	defer resp.Body.Close()
+	glog.Infof("Refreshing exchange rate...")
 
-	// Decode the response into the appropriate struct.
-	body, _ := ioutil.ReadAll(resp.Body)
-	responseData := &BlockchainBitCloutTickerResponse{}
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	if err = decoder.Decode(responseData); err != nil {
-		glog.Errorf("GetExchangePriceFromBlockchain: Problem decoding response JSON into "+
-			"interface %v, response: %v, error: %v", responseData, resp, err)
-		return
+	// Get the ticker from Blockchain.com
+	// Do several fetches and take the max
+	//
+	// TODO: This is due to a bug in Blockchain's API that returns random values ~30% of the
+	// time for the last_price field. Once that bug is fixed, this multi-fetching will no
+	// longer be needed.
+	exchangeRatesFetched := []float64{}
+	for ii := 0; ii < 10; ii++ {
+		url := "https://api.blockchain.com/v3/exchange/tickers/CLOUT-USD"
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("Content-Type", "application/json")
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			glog.Errorf("GetExchangePriceFromBlockchain: Problem with HTTP request %s: %v", url, err)
+			return
+		}
+		defer resp.Body.Close()
+
+		// Decode the response into the appropriate struct.
+		body, _ := ioutil.ReadAll(resp.Body)
+		responseData := &BlockchainBitCloutTickerResponse{}
+		decoder := json.NewDecoder(bytes.NewReader(body))
+		if err = decoder.Decode(responseData); err != nil {
+			glog.Errorf("GetExchangePriceFromBlockchain: Problem decoding response JSON into "+
+				"interface %v, response: %v, error: %v", responseData, resp, err)
+			return
+		}
+
+		var usdCentsToBitCloutExchangePrice uint64
+		if responseData.LastTradePrice > responseData.Price24H {
+			usdCentsToBitCloutExchangePrice = uint64(responseData.LastTradePrice * 100)
+		} else {
+			usdCentsToBitCloutExchangePrice = uint64(responseData.Price24H * 100)
+		}
+
+		exchangeRatesFetched = append(exchangeRatesFetched, float64(usdCentsToBitCloutExchangePrice))
 	}
+	blockchainDotComExchangeRate, err := stats.Max(exchangeRatesFetched)
+	if err != nil {
+		glog.Error(err)
+	}
+	glog.Infof("Blockchain exchange rate: %v %v", blockchainDotComExchangeRate, exchangeRatesFetched)
+
 	// Get the reserve price for this node.
 	reservePrice, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
-	// Use the max of the last trade price and 24H price
-	var usdCentsToBitCloutExchangePrice uint64
-	if responseData.LastTradePrice > responseData.Price24H {
-		usdCentsToBitCloutExchangePrice = uint64(responseData.LastTradePrice * 100)
-	} else {
-		usdCentsToBitCloutExchangePrice = uint64(responseData.Price24H * 100)
-	}
 	// If the max of last trade price and 24H price is less than the reserve price, use the reserve price.
-	if reservePrice > usdCentsToBitCloutExchangePrice {
+	if reservePrice > uint64(blockchainDotComExchangeRate) {
 		fes.UsdCentsPerBitCloutExchangeRate = reservePrice
 	} else {
-		fes.UsdCentsPerBitCloutExchangeRate = usdCentsToBitCloutExchangePrice
+		fes.UsdCentsPerBitCloutExchangeRate = uint64(blockchainDotComExchangeRate)
 	}
+
+	glog.Infof("Final exchange rate: %v", fes.UsdCentsPerBitCloutExchangeRate)
 }
 
 type GetAppStateRequest struct {

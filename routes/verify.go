@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/bitclout/core/lib"
-	"github.com/golang/glog"
 	"github.com/nyaruka/phonenumbers"
 	"github.com/pkg/errors"
 )
@@ -307,7 +306,8 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 		var txnHash *lib.BlockHash
 		txnHash, err = fes.SendSeedBitClout(userMetadata.PublicKey, amountToSendNanos, false)
 		if err != nil {
-			glog.Errorf("SubmitPhoneNumberVerificationCode: Error sending seed BitClout: %v", err)
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Error sending seed BitClout: %v", err))
+			return
 		}
 		res := SubmitPhoneNumberVerificationCodeResponse{
 			TxnHashHex: txnHash.String(),

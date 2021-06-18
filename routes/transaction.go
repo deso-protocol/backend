@@ -675,6 +675,10 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error getting buy bitclout premium basis points from global state: %v", err))
 		return
 	}
+
+	// Update the current exchange price.
+	fes.UpdateUSDCentsToBitCloutExchangeRate()
+
 	nanosPurchased, err := fes.GetNanosFromSats(uint64(burnAmountSatoshis), feeBasisPoints)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error computing nanos purchased: %v", err))
