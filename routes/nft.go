@@ -25,6 +25,8 @@ type CreateNFTRequest struct {
 	NFTRoyaltyToCreatorBasisPoints int    `safeForLogging:"true"`
 	NFTRoyaltyToCoinBasisPoints    int    `safeForLogging:"true"`
 	HasUnlockable                  bool   `safeForLogging:"true"`
+	IsForSale                      bool   `safeForLogging:"true"`
+	MinBidAmountNanos              int    `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 }
@@ -68,6 +70,11 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 			0, fes.Params.MaxNFTRoyaltyBasisPoints, requestData.NFTRoyaltyToCreatorBasisPoints))
 		return
 
+	} else if requestData.MinBidAmountNanos < 0 {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"CreateNFT: MinBidAmountNanos must be >= 0, got: %d", requestData.MinBidAmountNanos))
+		return
+
 	} else if requestData.NFTRoyaltyToCoinBasisPoints < 0 || requestData.NFTRoyaltyToCoinBasisPoints > int(fes.Params.MaxNFTRoyaltyBasisPoints) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"CreateNFT: NFTRoyaltyToCoinBasisPoints must be between %d and %d, received: %d",
@@ -108,6 +115,8 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		nftPostHash,
 		uint64(requestData.NumCopies),
 		requestData.HasUnlockable,
+		requestData.IsForSale,
+		uint64(requestData.MinBidAmountNanos),
 		nftFee,
 		uint64(requestData.NFTRoyaltyToCreatorBasisPoints),
 		uint64(requestData.NFTRoyaltyToCoinBasisPoints),
@@ -144,6 +153,7 @@ type UpdateNFTRequest struct {
 	NFTPostHashHex              string `safeForLogging:"true"`
 	SerialNumber                int    `safeForLogging:"true"`
 	IsForSale                   bool   `safeForLogging:"true"`
+	MinBidAmountNanos           int    `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 }
@@ -181,6 +191,11 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 			"UpdateNFT: SerialNumbers must be between %d and %d, received: %d",
 			1, fes.Params.MaxCopiesPerNFT, requestData.SerialNumber))
 		return
+
+	} else if requestData.MinBidAmountNanos < 0 {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"UpdateNFT: MinBidAmountNanos must be >= 0, got: %d", requestData.MinBidAmountNanos))
+		return
 	}
 
 	// Get the PostHash for the NFT.
@@ -217,7 +232,7 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 
 	} else if nftEntry.IsForSale == requestData.IsForSale {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"UpdateNFT: NFT already has IsForFale=%b", requestData.IsForSale))
+			"UpdateNFT: NFT already has IsForSale=%v", requestData.IsForSale))
 		return
 
 	}
@@ -228,6 +243,7 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 		nftPostHash,
 		uint64(requestData.SerialNumber),
 		requestData.IsForSale,
+		uint64(requestData.MinBidAmountNanos),
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateNFT: Problem creating transaction: %v", err))

@@ -4,12 +4,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/core/lib"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/pkg/errors"
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/bitclout/core/lib"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/pkg/errors"
 )
 
 type GetGlobalParamsRequest struct {
@@ -58,8 +59,11 @@ type UpdateGlobalParamsRequest struct {
 	// The new exchange rate to set.
 	USDCentsPerBitcoin int64 `safeForLogging:"true"`
 
-	// The new create profile fee
+	// The fee to create a profile.
 	CreateProfileFeeNanos int64 `safeForLogging:"true"`
+
+	// The fee per copy of an NFT minted.
+	CreateNFTFeeNanos int64 `safeForLogging:"true"`
 
 	// The new minimum fee the network will accept
 	MinimumNetworkFeeNanosPerKB int64 `safeForLogging:"true"`
@@ -122,6 +126,10 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 	if requestData.CreateProfileFeeNanos >= 0 && uint64(requestData.CreateProfileFeeNanos) != utxoView.GlobalParamsEntry.CreateProfileFeeNanos {
 		createProfileFeeNanos = requestData.CreateProfileFeeNanos
 	}
+	createNFTFeeNanos := int64(-1)
+	if requestData.CreateNFTFeeNanos >= 0 && uint64(requestData.CreateNFTFeeNanos) != utxoView.GlobalParamsEntry.CreateNFTFeeNanos {
+		createNFTFeeNanos = requestData.CreateNFTFeeNanos
+	}
 	minimumNetworkFeeNanosPerKb := int64(-1)
 	if requestData.MinimumNetworkFeeNanosPerKB >= 0 && uint64(requestData.MinimumNetworkFeeNanosPerKB) != utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB {
 		minimumNetworkFeeNanosPerKb = requestData.MinimumNetworkFeeNanosPerKB
@@ -132,6 +140,7 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 		updaterPkBytes,
 		usdCentsPerBitcoin,
 		createProfileFeeNanos,
+		createNFTFeeNanos,
 		minimumNetworkFeeNanosPerKb,
 		[]byte{},
 		requestData.MinFeeRateNanosPerKB,
