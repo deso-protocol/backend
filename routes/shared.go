@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/bitclout/core/lib"
 	"github.com/golang/glog"
@@ -267,52 +268,68 @@ func (fes *APIServer) SendSeedBitClout(recipientPkBytes []byte, amountNanos uint
 		return nil, fmt.Errorf("SendSeedBitClout: Error computing keys from seed: %+v", err)
 	}
 
-	// Create the transaction outputs and add the recipient's public key and the
-	// amount we want to pay them
-	txnOutputs := []*lib.BitCloutOutput{}
-	txnOutputs = append(txnOutputs, &lib.BitCloutOutput{
-		PublicKey: recipientPkBytes,
-		// If we get here we know the amount is non-negative.
-		AmountNanos: amountNanos,
-	})
+	sendBitClout := func() (txnHash *lib.BlockHash, _err error) {
+		// Create the transaction outputs and add the recipient's public key and the
+		// amount we want to pay them
+		txnOutputs := []*lib.BitCloutOutput{}
+		txnOutputs = append(txnOutputs, &lib.BitCloutOutput{
+			PublicKey: recipientPkBytes,
+			// If we get here we know the amount is non-negative.
+			AmountNanos: amountNanos,
+		})
 
-	// Assemble the transaction so that inputs can be found and fees can
-	// be computed.
-	txn := &lib.MsgBitCloutTxn{
-		// The inputs will be set below.
-		TxInputs:  []*lib.BitCloutInput{},
-		TxOutputs: txnOutputs,
-		PublicKey: starterPubKey.SerializeCompressed(),
-		TxnMeta:   &lib.BasicTransferMetadata{},
-		// We wait to compute the signature until we've added all the
-		// inputs and change.
+		// Assemble the transaction so that inputs can be found and fees can
+		// be computed.
+		txn := &lib.MsgBitCloutTxn{
+			// The inputs will be set below.
+			TxInputs:  []*lib.BitCloutInput{},
+			TxOutputs: txnOutputs,
+			PublicKey: starterPubKey.SerializeCompressed(),
+			TxnMeta:   &lib.BasicTransferMetadata{},
+			// We wait to compute the signature until we've added all the
+			// inputs and change.
+		}
+
+		// Add inputs to the transaction and do signing, validation, and broadcast
+		// depending on what the user requested.
+		utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+		if err != nil {
+			return nil, err
+		}
+		minFee := fes.MinFeeRateNanosPerKB
+		if utxoView.GlobalParamsEntry != nil && utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB > 0 {
+			minFee = utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB
+		}
+		_, _, _, _, err = fes.blockchain.AddInputsAndChangeToTransaction(txn, minFee, fes.mempool)
+		if err != nil {
+			return nil, fmt.Errorf("SendSeedBitClout: Error adding inputs for seed BitClout: %v", err)
+		}
+
+		txnSignature, err := txn.Sign(starterPrivKey)
+		if err != nil {
+			return nil, fmt.Errorf("SendSeedBitClout: Error adding inputs for seed BitClout: %v", err)
+		}
+		txn.Signature = txnSignature
+
+		err = fes.backendServer.VerifyAndBroadcastTransaction(txn)
+		if err != nil {
+			return nil, fmt.Errorf("SendSeedBitClout: Problem processing starter seed transaction: %v", err)
+		}
+
+		return txn.Hash(), nil
 	}
 
-	// Add inputs to the transaction and do signing, validation, and broadcast
-	// depending on what the user requested.
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	// Here we retry sending BitClout once if there is an error.  This is concerning, but we believe it is safe at this
+	// time as no Clout will be sent if there is an error.  We wait for 5 seconds
+	var hash *lib.BlockHash
+	hash, err = sendBitClout()
 	if err != nil {
-		return nil, err
+		glog.Errorf("SendSeedBitClout: error sending Clout: %v", err)
+		time.Sleep(5 * time.Second)
+		hash, err = sendBitClout()
+		if err != nil {
+			glog.Errorf("SendSeedBitClout: error sending Clout: %v", err)
+		}
 	}
-	minFee := fes.MinFeeRateNanosPerKB
-	if utxoView.GlobalParamsEntry != nil && utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB > 0 {
-		minFee = utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB
-	}
-	_, _, _, _, err = fes.blockchain.AddInputsAndChangeToTransaction(txn, minFee, fes.mempool)
-	if err != nil {
-		return nil, fmt.Errorf("SendSeedBitClout: Error adding inputs for seed BitClout: %v", err)
-	}
-
-	txnSignature, err := txn.Sign(starterPrivKey)
-	if err != nil {
-		return nil, fmt.Errorf("SendSeedBitClout: Error adding inputs for seed BitClout: %v", err)
-	}
-	txn.Signature = txnSignature
-
-	err = fes.backendServer.VerifyAndBroadcastTransaction(txn)
-	if err != nil {
-		return nil, fmt.Errorf("SendSeedBitClout: Problem processing starter seed transaction: %v", err)
-	}
-
-	return txn.Hash(), nil
+	return hash, err
 }
