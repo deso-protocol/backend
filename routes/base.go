@@ -137,7 +137,7 @@ func (fes *APIServer) UpdateUSDCentsToBitCloutExchangeRate() {
 		return
 	}
 	if err = fes.backendServer.GetStatsdClient().Gauge("BLOCKCHAIN_LAST_TRADE_PRICE", responseData.LastTradePrice, []string{}, 1); err != nil {
-		glog.Errorf("GetExchangePriceFromBlockchain: Error logging Last Trade Price of %d to datadog: %v", responseData.LastTradePrice, err)
+		glog.Errorf("GetExchangePriceFromBlockchain: Error logging Last Trade Price of %f to datadog: %v", responseData.LastTradePrice, err)
 	}
 	var usdCentsToBitCloutExchangePrice uint64
 	if responseData.LastTradePrice > responseData.Price24H {
