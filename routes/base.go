@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"time"
 )
 
 // Index ...
@@ -154,16 +155,47 @@ func (fes *APIServer) UpdateUSDCentsToBitCloutExchangeRate() {
 	}
 	glog.Infof("Blockchain exchange rate: %v %v", blockchainDotComExchangeRate, exchangeRatesFetched)
 
+	// Get the current timestamp and append the current last trade price to the LastTradeBitCloutPriceHistory slice
+	timestamp := uint64(time.Now().UnixNano())
+	fes.LastTradeBitCloutPriceHistory = append(fes.LastTradeBitCloutPriceHistory, LastTradePriceHistoryItem{
+		LastTradePrice: uint64(blockchainDotComExchangeRate),
+		Timestamp: timestamp,
+	})
+
+	// Get the max price within the lookback window and remove elements that are no longer valid.
+	maxPrice := fes.getMaxPriceFromHistoryAndCull(timestamp)
+
 	// Get the reserve price for this node.
 	reservePrice, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
 	// If the max of last trade price and 24H price is less than the reserve price, use the reserve price.
-	if reservePrice > uint64(blockchainDotComExchangeRate) {
+	if reservePrice > maxPrice {
 		fes.UsdCentsPerBitCloutExchangeRate = reservePrice
 	} else {
-		fes.UsdCentsPerBitCloutExchangeRate = uint64(blockchainDotComExchangeRate)
+		fes.UsdCentsPerBitCloutExchangeRate = maxPrice
 	}
 
 	glog.Infof("Final exchange rate: %v", fes.UsdCentsPerBitCloutExchangeRate)
+}
+
+// getMaxPriceFromHistoryAndCull removes elements that are outside of the lookback window and return the max price
+// from valid elements.
+func (fes *APIServer) getMaxPriceFromHistoryAndCull(currentTimestamp uint64) uint64 {
+	maxPrice := uint64(0)
+	i := 0
+	for _, priceHistoryItem := range fes.LastTradeBitCloutPriceHistory {
+		tstampDiff := currentTimestamp - priceHistoryItem.Timestamp
+		if tstampDiff <= fes.LastTradePriceLookback {
+			// copy and increment index
+			fes.LastTradeBitCloutPriceHistory[i] = priceHistoryItem
+			i++
+			if priceHistoryItem.LastTradePrice > maxPrice {
+				maxPrice = priceHistoryItem.LastTradePrice
+			}
+		}
+	}
+	// Reduce the slice to only valid elements
+	fes.LastTradeBitCloutPriceHistory = fes.LastTradeBitCloutPriceHistory[:i]
+	return maxPrice
 }
 
 type GetAppStateRequest struct {
