@@ -1174,7 +1174,7 @@ func (fes *APIServer) StartExchangePriceMonitoring() {
 		out:
 			for {
 				select {
-				case <- time.After(10 * time.Second):
+				case <- time.After(5 * time.Second):
 					fes.UpdateUSDCentsToBitCloutExchangeRate()
 				case <- fes.quit:
 					break out
