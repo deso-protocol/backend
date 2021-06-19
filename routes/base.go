@@ -143,12 +143,8 @@ func (fes *APIServer) UpdateUSDCentsToBitCloutExchangeRate() {
 			return
 		}
 
-		var usdCentsToBitCloutExchangePrice uint64
-		if responseData.LastTradePrice > responseData.Price24H {
-			usdCentsToBitCloutExchangePrice = uint64(responseData.LastTradePrice * 100)
-		} else {
-			usdCentsToBitCloutExchangePrice = uint64(responseData.Price24H * 100)
-		}
+		// Return the last trade price.
+		usdCentsToBitCloutExchangePrice := uint64(responseData.LastTradePrice * 100)
 
 		exchangeRatesFetched = append(exchangeRatesFetched, float64(usdCentsToBitCloutExchangePrice))
 	}
