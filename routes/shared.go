@@ -260,11 +260,13 @@ func (fes *APIServer) SendSeedBitClout(recipientPkBytes []byte, amountNanos uint
 	}
 	starterSeedBytes, err := bip39.NewSeedWithErrorChecking(senderSeed, "")
 	if err != nil {
+		glog.Errorf("SendSeedBitClout: error converting mnemonic: %v", err)
 		return nil, fmt.Errorf("SendSeedBitClout: Error converting mnemonic: %+v", err)
 	}
 
 	starterPubKey, starterPrivKey, _, err := lib.ComputeKeysFromSeed(starterSeedBytes, 0, fes.Params)
 	if err != nil {
+		glog.Errorf("SendSeedBitClout: Error computing keys from seed: %v", err)
 		return nil, fmt.Errorf("SendSeedBitClout: Error computing keys from seed: %+v", err)
 	}
 
