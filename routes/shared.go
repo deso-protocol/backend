@@ -326,11 +326,12 @@ func (fes *APIServer) SendSeedBitClout(recipientPkBytes []byte, amountNanos uint
 	var hash *lib.BlockHash
 	hash, err = sendBitClout()
 	if err != nil {
-		glog.Errorf("SendSeedBitClout: error sending Clout: %v", err)
+		publicKeyBase58Check := lib.PkToString(recipientPkBytes, fes.Params)
+		glog.Errorf("SendSeedBitClout: 1st attempt - error sending %d nanos of Clout to public key %v: error - %v", amountNanos, publicKeyBase58Check, err)
 		time.Sleep(5 * time.Second)
 		hash, err = sendBitClout()
 		if err != nil {
-			glog.Errorf("SendSeedBitClout: error sending Clout: %v", err)
+			glog.Errorf("SendSeedBitClout: 2nd attempt - error sending %d nanos of Clout to public key %v: error - %v", amountNanos, publicKeyBase58Check, err)
 		}
 	}
 	return hash, err
