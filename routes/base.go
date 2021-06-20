@@ -181,20 +181,23 @@ func (fes *APIServer) UpdateUSDCentsToBitCloutExchangeRate() {
 // from valid elements.
 func (fes *APIServer) getMaxPriceFromHistoryAndCull(currentTimestamp uint64) uint64 {
 	maxPrice := uint64(0)
-	i := 0
+	// This function culls invalid values (outside of the lookback window) from the LastTradeBitCloutPriceHistory slice
+	// in place, so we need to keep track of the index at which we will place the next valid item.
+	validIndex := 0
 	for _, priceHistoryItem := range fes.LastTradeBitCloutPriceHistory {
 		tstampDiff := currentTimestamp - priceHistoryItem.Timestamp
 		if tstampDiff <= fes.LastTradePriceLookback {
-			// copy and increment index
-			fes.LastTradeBitCloutPriceHistory[i] = priceHistoryItem
-			i++
+			// copy and increment index.  This overwrites invalid values with valid ones in the order valid items
+			// are seen.
+			fes.LastTradeBitCloutPriceHistory[validIndex] = priceHistoryItem
+			validIndex++
 			if priceHistoryItem.LastTradePrice > maxPrice {
 				maxPrice = priceHistoryItem.LastTradePrice
 			}
 		}
 	}
-	// Reduce the slice to only valid elements
-	fes.LastTradeBitCloutPriceHistory = fes.LastTradeBitCloutPriceHistory[:i]
+	// Reduce the slice to only valid elements - all elements up to validIndex are within the lookback window.
+	fes.LastTradeBitCloutPriceHistory = fes.LastTradeBitCloutPriceHistory[:validIndex]
 	return maxPrice
 }
 
