@@ -154,6 +154,11 @@ func (fes *APIServer) UpdateUSDCentsToBitCloutExchangeRate() {
 		glog.Error(err)
 	}
 	glog.Infof("Blockchain exchange rate: %v %v", blockchainDotComExchangeRate, exchangeRatesFetched)
+	if fes.backendServer != nil && fes.backendServer.GetStatsdClient() != nil {
+		if err = fes.backendServer.GetStatsdClient().Gauge("BLOCKCHAIN_LAST_TRADE_PRICE", blockchainDotComExchangeRate, []string{}, 1); err != nil {
+			glog.Errorf("GetExchangePriceFromBlockchain: Error logging Last Trade Price of %f to datadog: %v", blockchainDotComExchangeRate, err)
+		}
+	}
 
 	// Get the current timestamp and append the current last trade price to the LastTradeBitCloutPriceHistory slice
 	timestamp := uint64(time.Now().UnixNano())
