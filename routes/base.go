@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"time"
 )
 
 // Index ...
@@ -153,17 +154,56 @@ func (fes *APIServer) UpdateUSDCentsToBitCloutExchangeRate() {
 		glog.Error(err)
 	}
 	glog.Infof("Blockchain exchange rate: %v %v", blockchainDotComExchangeRate, exchangeRatesFetched)
+	if fes.backendServer != nil && fes.backendServer.GetStatsdClient() != nil {
+		if err = fes.backendServer.GetStatsdClient().Gauge("BLOCKCHAIN_LAST_TRADE_PRICE", blockchainDotComExchangeRate, []string{}, 1); err != nil {
+			glog.Errorf("GetExchangePriceFromBlockchain: Error logging Last Trade Price of %f to datadog: %v", blockchainDotComExchangeRate, err)
+		}
+	}
+
+	// Get the current timestamp and append the current last trade price to the LastTradeBitCloutPriceHistory slice
+	timestamp := uint64(time.Now().UnixNano())
+	fes.LastTradeBitCloutPriceHistory = append(fes.LastTradeBitCloutPriceHistory, LastTradePriceHistoryItem{
+		LastTradePrice: uint64(blockchainDotComExchangeRate),
+		Timestamp: timestamp,
+	})
+
+	// Get the max price within the lookback window and remove elements that are no longer valid.
+	maxPrice := fes.getMaxPriceFromHistoryAndCull(timestamp)
 
 	// Get the reserve price for this node.
 	reservePrice, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
 	// If the max of last trade price and 24H price is less than the reserve price, use the reserve price.
-	if reservePrice > uint64(blockchainDotComExchangeRate) {
+	if reservePrice > maxPrice {
 		fes.UsdCentsPerBitCloutExchangeRate = reservePrice
 	} else {
-		fes.UsdCentsPerBitCloutExchangeRate = uint64(blockchainDotComExchangeRate)
+		fes.UsdCentsPerBitCloutExchangeRate = maxPrice
 	}
 
 	glog.Infof("Final exchange rate: %v", fes.UsdCentsPerBitCloutExchangeRate)
+}
+
+// getMaxPriceFromHistoryAndCull removes elements that are outside of the lookback window and return the max price
+// from valid elements.
+func (fes *APIServer) getMaxPriceFromHistoryAndCull(currentTimestamp uint64) uint64 {
+	maxPrice := uint64(0)
+	// This function culls invalid values (outside of the lookback window) from the LastTradeBitCloutPriceHistory slice
+	// in place, so we need to keep track of the index at which we will place the next valid item.
+	validIndex := 0
+	for _, priceHistoryItem := range fes.LastTradeBitCloutPriceHistory {
+		tstampDiff := currentTimestamp - priceHistoryItem.Timestamp
+		if tstampDiff <= fes.LastTradePriceLookback {
+			// copy and increment index.  This overwrites invalid values with valid ones in the order valid items
+			// are seen.
+			fes.LastTradeBitCloutPriceHistory[validIndex] = priceHistoryItem
+			validIndex++
+			if priceHistoryItem.LastTradePrice > maxPrice {
+				maxPrice = priceHistoryItem.LastTradePrice
+			}
+		}
+	}
+	// Reduce the slice to only valid elements - all elements up to validIndex are within the lookback window.
+	fes.LastTradeBitCloutPriceHistory = fes.LastTradeBitCloutPriceHistory[:validIndex]
+	return maxPrice
 }
 
 type GetAppStateRequest struct {
