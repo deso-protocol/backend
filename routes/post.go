@@ -990,7 +990,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Fetch the commentEntries for the post.
+	// Fetch the commentEntries for the post.submit
 	commentEntries, err := utxoView.GetCommentEntriesForParentStakeID(postHash[:])
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error getting commentEntries: %v: %s", err, requestData.PostHashHex))
@@ -1300,6 +1300,8 @@ type GetPostsForPublicKeyRequest struct {
 	// Number of records to fetch
 	NumToFetch uint64 `safeForLogging:"true"`
 	MediaRequired bool `safeForLogging:"true"`
+
+	MaxPinnedPosts uint64 `safeForLogging:"true"`
 }
 
 // GetPostsForPublicKeyResponse ...
@@ -1363,9 +1365,18 @@ func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Req
 		}
 	}
 
+	// Get Pinned Posts Ordered by time. This also returns a postsIncluded map that we use to ignore
+	// the posts in the next step.
+	pinnedPosts, pinnedPostsIncluded, err := utxoView.GetPinnedPostsForPublicKeyOrderedByTimestamp(publicKeyBytes,
+		requestData.MaxPinnedPosts, requestData.MediaRequired)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsForPublicKey: Problem getting pinned posts: %v", err))
+		return
+	}
 
 	// Get Posts Ordered by time.
-	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash, requestData.NumToFetch, requestData.MediaRequired)
+	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash,
+		pinnedPostsIncluded, requestData.NumToFetch, requestData.MediaRequired)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPostsForPublicKey: Problem getting paginated posts: %v", err))
 		return
@@ -1388,6 +1399,12 @@ func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Req
 			}
 		}
 		posts = posts[startIndex:lib.MinInt(len(posts), startIndex+int(requestData.NumToFetch))]
+	}
+
+	// If this is the first page, we add the pinned posts to the front of the list.
+	if requestData.LastPostHashHex != "" {
+		posts = append(pinnedPosts, posts...)
+		posts = posts[:requestData.NumToFetch]
 	}
 
 	// Convert postEntries to postEntryResponses and fetch PostEntryReaderState for each post.
