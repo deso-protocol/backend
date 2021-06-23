@@ -1365,6 +1365,11 @@ func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Req
 		}
 	}
 
+	if requestData.MaxPinnedPosts >= requestData.NumToFetch {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsForPublicKey: MaxPinnedPosts requested conflicts with number of posts to return."))
+		return
+	}
+
 	// Get Pinned Posts Ordered by time. This also returns a postsIncluded map that we use to ignore
 	// the posts in the next step.
 	pinnedPosts, pinnedPostsIncluded, err := utxoView.GetPinnedPostsForPublicKeyOrderedByTimestamp(publicKeyBytes,
