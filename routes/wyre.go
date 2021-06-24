@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/bitclout/backend/globaldb"
 	"github.com/bitclout/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/fatih/structs"
@@ -20,16 +21,6 @@ import (
 	"strings"
 	"time"
 )
-
-type WyreWalletOrderWebhookPayload struct {
-	// referenceId holds the public key of the user who made initiated the wallet order
-	ReferenceId  string `json:"referenceId"`
-	AccountId    string `json:"accountId"`
-	OrderId      string `json:"orderId"`
-	OrderStatus  string `json:"orderStatus"`
-	TransferId   string `json:"transferId"`
-	FailedReason string `json:"failedReason"`
-}
 
 type WyreWalletOrderFullDetails struct {
 	Id                      string  `json:"id"`
@@ -119,7 +110,7 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 
 	// Decode the request body
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	wyreWalletOrderWebhookRequest := WyreWalletOrderWebhookPayload{}
+	wyreWalletOrderWebhookRequest := globaldb.WyreWalletOrderWebhookPayload{}
 	if err := decoder.Decode(&wyreWalletOrderWebhookRequest); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: Error parsing request body: %v", err))
 		return
@@ -131,47 +122,66 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: Error saving orderId to global state"))
 		return
 	}
+
 	referenceId := wyreWalletOrderWebhookRequest.ReferenceId
 	referenceIdSplit := strings.Split(referenceId, ":")
 	publicKey := referenceIdSplit[0]
 	if err := fes.logAmplitudeEvent(publicKey, fmt.Sprintf("wyre : buy : subscription : %v", strings.ToLower(wyreWalletOrderWebhookRequest.OrderStatus)), structs.Map(wyreWalletOrderWebhookRequest)); err != nil {
 		glog.Errorf("WyreWalletOrderSubscription: Error logging payload to amplitude: %v", err)
 	}
+
 	timestamp, err := strconv.ParseUint(referenceIdSplit[1], 10, 64)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: Error parsing timestamp as uint64 from referenceId: %v", err))
 		return
 	}
+
 	transferId := wyreWalletOrderWebhookRequest.TransferId
 	publicKeyBytes, _, err := lib.Base58CheckDecode(publicKey)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error decoding public key %v: %v", publicKey, err))
 		return
 	}
+
 	// Get the current Wyre Order Metadata from global state
-	currentWyreWalletOrderMetadata, err := fes.GetWyreWalletOrderMetadataFromGlobalState(publicKey, timestamp)
+	var currentWyreWalletOrderMetadata *WyreWalletOrderMetadata
+	if fes.GlobalDB != nil {
+		wyreOrder := fes.GlobalDB.GetWyreOrder(orderId)
+		if wyreOrder != nil {
+			currentWyreWalletOrderMetadata = NewWyreWalletOrderMetadata(wyreOrder)
+		}
+	} else {
+		currentWyreWalletOrderMetadata, err = fes.GetWyreWalletOrderMetadataFromGlobalState(publicKey, timestamp)
+	}
 
 	// Initialize the new Wyre Order Metadata object based on the current wallet order metadata (if it exists)
 	// and the current payload.
 	newMetadataObj := WyreWalletOrderMetadata{
 		LatestWyreWalletOrderWebhookPayload: wyreWalletOrderWebhookRequest,
+		WyreOrderId:                         orderId,
 	}
 
 	if currentWyreWalletOrderMetadata != nil {
 		newMetadataObj.LatestWyreTrackWalletOrderResponse = currentWyreWalletOrderMetadata.LatestWyreTrackWalletOrderResponse
 		newMetadataObj.BitCloutPurchasedNanos = currentWyreWalletOrderMetadata.BitCloutPurchasedNanos
 		newMetadataObj.BasicTransferTxnBlockHash = currentWyreWalletOrderMetadata.BasicTransferTxnBlockHash
+		newMetadataObj.Processed = currentWyreWalletOrderMetadata.Processed
 	}
+
 	// Update global state before all transfer logic is completed so we have a record of the last webhook payload
 	// received in the event of an error when paying out BitClout.
-	fes.UpdateWyreGlobalState(ww, publicKeyBytes, timestamp, newMetadataObj)
+	if fes.GlobalDB != nil {
+		fes.GlobalDB.SaveWyreOrder(newMetadataObj.NewWyreOrder())
+	} else {
+		fes.UpdateWyreGlobalState(ww, publicKeyBytes, timestamp, newMetadataObj)
+	}
 
 	// If there is a transferId, we need to get the transfer details, update the new metadata object and pay out
 	// bitclout if it has not been paid out yet.
 	if transferId != "" {
 		// Get the transfer details from Wyre
 		client := &http.Client{}
-		var wyreTrackOrderResponse *WyreTrackOrderResponse
+		var wyreTrackOrderResponse *globaldb.WyreTrackOrderResponse
 		wyreTrackOrderResponse, err = fes.TrackWalletOrder(client, transferId)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error getting track wallet order response: %v. Webhook payload: %v", err, wyreWalletOrderWebhookRequest))
@@ -212,12 +222,18 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 			wyreOrderIdKey := GlobalStateKeyForWyreOrderIDProcessed(orderIdBytes)
 			// We expect badger to return a key not found error if BitClout has been paid out for this order.
 			// If it does not return an error, BitClout has already been paid out, so we skip ahead.
-			if val, _ := fes.GlobalStateGet(wyreOrderIdKey); val == nil {
+			if fes.GlobalDB == nil {
+				val, _ := fes.GlobalStateGet(wyreOrderIdKey)
+				newMetadataObj.Processed = val != nil
+			}
+
+			if !newMetadataObj.Processed {
 				// Mark this order as paid out
 				if err = fes.GlobalStatePut(wyreOrderIdKey, []byte{1}); err != nil {
 					_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error marking orderId %v as paid out: %v", orderId, err))
 					return
 				}
+
 				// Pay out bitclout to send to the public key
 				var txnHash *lib.BlockHash
 				txnHash, err = fes.SendSeedBitClout(publicKeyBytes, nanosPurchased, true)
@@ -230,14 +246,21 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 					}
 					return
 				}
+
 				// Set the basic transfer txn hash and bitclout purchased nanos of the metadata object
 				newMetadataObj.BasicTransferTxnBlockHash = txnHash
 				newMetadataObj.BitCloutPurchasedNanos = nanosPurchased
+				newMetadataObj.Processed = true
 			}
 		}
 	}
+
 	// Update global state after all transfer logic is completed.
-	fes.UpdateWyreGlobalState(ww, publicKeyBytes, timestamp, newMetadataObj)
+	if fes.GlobalDB != nil {
+		fes.GlobalDB.SaveWyreOrder(newMetadataObj.NewWyreOrder())
+	} else {
+		fes.UpdateWyreGlobalState(ww, publicKeyBytes, timestamp, newMetadataObj)
+	}
 }
 
 func (fes *APIServer) GetFullWalletOrderDetails(client *http.Client, orderId string) (_wyreWalletOrderFullDetails *WyreWalletOrderFullDetails, _err error) {
@@ -272,43 +295,12 @@ func (fes *APIServer) GetTransferDetails(client *http.Client, transferId string)
 	return wyreTransferDetails, nil
 }
 
-type WyreTrackOrderResponse struct {
-	TransferId  string  `json:"transferId"`
-	FeeCurrency string  `json:"feeCurrency"`
-	Fee         float64 `json:"fee"`
-	Fees        struct {
-		BTC float64 `json:"BTC"`
-		USD float64 `json:"USD"`
-	} `json:"fees"`
-	SourceCurrency           string      `json:"sourceCurrency"`
-	DestCurrency             string      `json:"destCurrency"`
-	SourceAmount             float64     `json:"sourceAmount"`
-	DestAmount               float64     `json:"destAmount"`
-	DestSrn                  string      `json:"destSrn"`
-	From                     string      `json:"from"`
-	To                       interface{} `json:"to"`
-	Rate                     float64     `json:"rate"`
-	CustomId                 interface{} `json:"customId"`
-	Status                   interface{} `json:"status"`
-	BlockchainNetworkTx      interface{} `json:"blockchainNetworkTx"`
-	Message                  interface{} `json:"message"`
-	TransferHistoryEntryType string      `json:"transferHistoryEntryType"`
-	SuccessTimeline          []struct {
-		StatusDetails string `json:"statusDetails"`
-		State         string `json:"state"`
-		CreatedAt     int64  `json:"createdAt"`
-	} `json:"successTimeline"`
-	FailedTimeline []interface{} `json:"failedTimeline"`
-	FailureReason  interface{}   `json:"failureReason"`
-	ReversalReason interface{}   `json:"reversalReason"`
-}
-
-func (fes *APIServer) TrackWalletOrder(client *http.Client, transferId string) (_wyreTrackOrderResponse *WyreTrackOrderResponse, _err error) {
+func (fes *APIServer) TrackWalletOrder(client *http.Client, transferId string) (_wyreTrackOrderResponse *globaldb.WyreTrackOrderResponse, _err error) {
 	bodyBytes, err := fes.MakeWyreGetRequest(client, fmt.Sprintf("%v/v2/transfer/%v/track", fes.Config.WyreUrl, transferId))
 	if err != nil {
 		return nil, fmt.Errorf("error tracking transferId %v: %v", transferId, err)
 	}
-	var wyreTrackOrderResponse *WyreTrackOrderResponse
+	var wyreTrackOrderResponse *globaldb.WyreTrackOrderResponse
 	if err = json.Unmarshal(bodyBytes, &wyreTrackOrderResponse); err != nil {
 		return nil, fmt.Errorf("error unmarshaling JSON from transfer details bytes: %v", err)
 	}
@@ -320,6 +312,7 @@ func (fes *APIServer) TrackWalletOrder(client *http.Client, transferId string) (
 	return wyreTrackOrderResponse, nil
 }
 
+// Deprecated
 func (fes *APIServer) UpdateWyreGlobalState(ww http.ResponseWriter, publicKeyBytes []byte, timestampNanos uint64, wyreWalletOrderMetadata WyreWalletOrderMetadata) {
 	// Construct the key for accessing the wyre order metadata
 	globalStateKey := GlobalStateKeyForUserPublicKeyTstampNanosToWyreOrderMetadata(publicKeyBytes, timestampNanos)
@@ -516,12 +509,13 @@ func (fes *APIServer) MakeWyreGetRequest(client *http.Client, url string) (_body
 	return bodyBytes, nil
 }
 
+// Deprecated
 func (fes *APIServer) GetWyreWalletOrderMetadataFromGlobalState(publicKey string, timestamp uint64) (*WyreWalletOrderMetadata, error) {
-	// Decode the public get and get the key to access the Wyre Order Metadata
 	publicKeyBytes, _, err := lib.Base58CheckDecode(publicKey)
 	if err != nil {
 		return nil, err
 	}
+
 	globalStateKey := GlobalStateKeyForUserPublicKeyTstampNanosToWyreOrderMetadata(publicKeyBytes, timestamp)
 
 	// Get Wyre Order Metadata from global state and decode it
@@ -599,29 +593,40 @@ func (fes *APIServer) GetWyreWalletOrdersForPublicKey(ww http.ResponseWriter, re
 		_AddBadRequestError(ww, "GetWyreWalletOrdersForPublicKey: must provide either a public key or username")
 		return
 	}
-	var values [][]byte
-	// 1 + max length of public key + max uint64 bytes length
-	maxKeyLen := 1 + btcec.PubKeyBytesLenCompressed + 8
-	prefix := GlobalStateKeyForUserPublicKeyTstampNanosToWyreOrderMetadata(publicKeyBytes, math.MaxUint64)
-	validPrefix := append(_GlobalStatePrefixUserPublicKeyWyreOrderIdToWyreOrderMetadata, publicKeyBytes...)
-	_, values, err = fes.GlobalStateSeek(prefix, validPrefix, maxKeyLen, 100, true, true)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetWyreWalletOrdersForPublicKey: error getting wyre order metadata from global state"))
-		return
-	}
 
 	res := &GetWyreWalletOrderForPublicKeyResponse{
 		WyreWalletOrderMetadataResponses: []*WyreWalletOrderMetadataResponse{},
 	}
-	for _, wyreOrderMetadataBytes := range values {
-		var wyreOrderMetadata *WyreWalletOrderMetadata
-		err = gob.NewDecoder(bytes.NewReader(wyreOrderMetadataBytes)).Decode(&wyreOrderMetadata)
+
+	if fes.GlobalDB != nil {
+		wyreOrders := fes.GlobalDB.GetWyreOrders(lib.NewPublicKey(publicKeyBytes))
+		for _, wyreOrder := range wyreOrders {
+			wyreOrderMetadata := NewWyreWalletOrderMetadata(wyreOrder)
+			res.WyreWalletOrderMetadataResponses = append(res.WyreWalletOrderMetadataResponses, WyreWalletOrderMetadataToResponse(wyreOrderMetadata))
+		}
+	} else {
+		var values [][]byte
+		// 1 + max length of public key + max uint64 bytes length
+		maxKeyLen := 1 + btcec.PubKeyBytesLenCompressed + 8
+		prefix := GlobalStateKeyForUserPublicKeyTstampNanosToWyreOrderMetadata(publicKeyBytes, math.MaxUint64)
+		validPrefix := append(_GlobalStatePrefixUserPublicKeyWyreOrderIdToWyreOrderMetadata, publicKeyBytes...)
+		_, values, err = fes.GlobalStateSeek(prefix, validPrefix, maxKeyLen, 100, true, true)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetWyreWalletOrdersForPublicKey: error decoding order: %v", wyreOrderMetadataBytes))
+			_AddBadRequestError(ww, fmt.Sprintf("GetWyreWalletOrdersForPublicKey: error getting wyre order metadata from global state"))
 			return
 		}
-		res.WyreWalletOrderMetadataResponses = append(res.WyreWalletOrderMetadataResponses, WyreWalletOrderMetadataToResponse(wyreOrderMetadata))
+
+		for _, wyreOrderMetadataBytes := range values {
+			var wyreOrderMetadata *WyreWalletOrderMetadata
+			err = gob.NewDecoder(bytes.NewReader(wyreOrderMetadataBytes)).Decode(&wyreOrderMetadata)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("GetWyreWalletOrdersForPublicKey: error decoding order: %v", wyreOrderMetadataBytes))
+				return
+			}
+			res.WyreWalletOrderMetadataResponses = append(res.WyreWalletOrderMetadataResponses, WyreWalletOrderMetadataToResponse(wyreOrderMetadata))
+		}
 	}
+
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetWyreWalletOrdersForPublicKey: Problem encoding response as JSON: #{err}"))
 		return
@@ -634,10 +639,10 @@ func (fes *APIServer) IsConfiguredForWyre() bool {
 
 type WyreWalletOrderMetadataResponse struct {
 	// Last payload received from Wyre webhook
-	LatestWyreWalletOrderWebhookPayload WyreWalletOrderWebhookPayload
+	LatestWyreWalletOrderWebhookPayload globaldb.WyreWalletOrderWebhookPayload
 
 	// Track Wallet Order response received based on the last payload received from Wyre Webhook
-	LatestWyreTrackWalletOrderResponse *WyreTrackOrderResponse
+	LatestWyreTrackWalletOrderResponse *globaldb.WyreTrackOrderResponse
 
 	// Amount of BitClout that was sent for this WyreWalletOrder
 	BitCloutPurchasedNanos uint64

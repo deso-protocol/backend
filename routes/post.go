@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"reflect"
 	"sort"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/bitclout/core/lib"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/golang/glog"
 	"github.com/pkg/errors"
 )
 
@@ -66,8 +66,6 @@ type PostEntryResponse struct {
 	IsHidden                   bool
 	ConfirmationBlockHeight    uint32
 	InMempool                  bool
-	StakeEntry                 *StakeEntryResponse
-	StakeEntryStats            *lib.StakeEntryStats
 	// The profile associated with this post.
 	ProfileEntryResponse *ProfileEntryResponse
 	// The comments associated with this post.
@@ -100,42 +98,9 @@ type PostEntryResponse struct {
 	DiamondsFromSender uint64
 }
 
-type StakeEntryResponse struct {
-	TotalPostStake uint64
-	StakeList      []*SingleStakeResponse
-}
-
-type SingleStakeResponse struct {
-	InitialStakeNanos                   uint64
-	BlockHeight                         uint64
-	InitialStakeMultipleBasisPoints     uint64
-	InitialCreatorPercentageBasisPoints uint64
-	RemainingStakeOwedNanos             uint64
-	StakerPublicKeyBase58Check          string
-}
-
 // GetPostsStatelessResponse ...
 type GetPostsStatelessResponse struct {
 	PostsFound []*PostEntryResponse
-}
-
-func _stakeEntryToResponse(stakeEntry *lib.StakeEntry, params *lib.BitCloutParams) *StakeEntryResponse {
-	var stakeListResponse = []*SingleStakeResponse{}
-	for _, singleStakeEntry := range stakeEntry.StakeList {
-		var singleStake = &SingleStakeResponse{
-			InitialStakeNanos:                   singleStakeEntry.InitialStakeNanos,
-			BlockHeight:                         singleStakeEntry.BlockHeight,
-			InitialStakeMultipleBasisPoints:     singleStakeEntry.InitialStakeMultipleBasisPoints,
-			InitialCreatorPercentageBasisPoints: singleStakeEntry.InitialCreatorPercentageBasisPoints,
-			RemainingStakeOwedNanos:             singleStakeEntry.RemainingStakeOwedNanos,
-			StakerPublicKeyBase58Check:          lib.PkToString(singleStakeEntry.PublicKey, params),
-		}
-		stakeListResponse = append(stakeListResponse, singleStake)
-	}
-	return &StakeEntryResponse{
-		TotalPostStake: stakeEntry.TotalPostStake,
-		StakeList:      stakeListResponse,
-	}
 }
 
 // Given a post entry, check if it is reclouting another post and if so, get that post entry as a response.
@@ -237,8 +202,6 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 		IsHidden:                       postEntry.IsHidden,
 		ConfirmationBlockHeight:        postEntry.ConfirmationBlockHeight,
 		InMempool:                      inMempool,
-		StakeEntry:                     _stakeEntryToResponse(postEntry.StakeEntry, params),
-		StakeEntryStats:                lib.GetStakeEntryStats(postEntry.StakeEntry, params),
 		LikeCount:                      postEntry.LikeCount,
 		DiamondCount:                   postEntry.DiamondCount,
 		CommentCount:                   postEntry.CommentCount,
@@ -271,52 +234,6 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 	}
 
 	return res, nil
-}
-
-func (fes *APIServer) GetAllPostEntries(readerPK []byte) (
-	_postEntries []*lib.PostEntry, _commentsByPostHash map[lib.BlockHash][]*lib.PostEntry,
-	_profilesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry,
-	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, err error) {
-
-	// Get a view with all the mempool transactions (used to get all posts / reader state).
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("GetPostsStateless: Error fetching mempool view: %v", err)
-	}
-
-	postEntries, commentsByPostHash, err := utxoView.GetAllPosts()
-	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("GetAllPostEntries: Error fetching posts from view: %v", err)
-	}
-	profileEntries := make(map[lib.PkMapKey]*lib.ProfileEntry)
-	for _, postEntry := range postEntries {
-		{
-			profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
-			if profileEntry != nil {
-				profileEntries[lib.MakePkMapKey(profileEntry.PublicKey)] = profileEntry
-			}
-		}
-
-		// Get the profileEntries for the comments as well
-		commentsFound := commentsByPostHash[*postEntry.PostHash]
-		for _, commentEntry := range commentsFound {
-			profileEntry := utxoView.GetProfileEntryForPublicKey(commentEntry.PosterPublicKey)
-			if profileEntry != nil {
-				profileEntries[lib.MakePkMapKey(profileEntry.PublicKey)] = profileEntry
-			}
-		}
-	}
-	postEntryReaderStates := make(map[lib.BlockHash]*lib.PostEntryReaderState)
-	// Create reader state map. Ie, whether the reader has liked the post, etc.
-	// If nil is passed in as the readerPK, this is skipped.
-	if readerPK != nil {
-		for _, postEntry := range postEntries {
-			postEntryReaderState := utxoView.GetPostEntryReaderState(readerPK, postEntry)
-			postEntryReaderStates[*postEntry.PostHash] = postEntryReaderState
-		}
-	}
-
-	return postEntries, commentsByPostHash, profileEntries, postEntryReaderStates, nil
 }
 
 func (fes *APIServer) GetPostEntriesForFollowFeed(
@@ -831,7 +748,7 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 	postEntryResponses := []*PostEntryResponse{}
 	for _, postEntry := range postEntries {
 		// If the creator who posted postEntry is in the map of blocked pub keys, skip this postEntry
-		if _, ok := blockedPubKeys[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]; !ok {
+		if _, ok := blockedPubKeys[*lib.NewPublicKey(postEntry.PosterPublicKey)]; !ok {
 			var postEntryResponse *PostEntryResponse
 			postEntryResponse, err = fes._postEntryToResponse(postEntry, requestData.AddGlobalFeedBool, fes.Params, utxoView, readerPublicKeyBytes, 2)
 			if err != nil {
@@ -843,7 +760,7 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 				profileEntryFound, fes.Params, verifiedMap, utxoView)
 			commentsFound := commentsByPostHash[*postEntry.PostHash]
 			for _, commentEntry := range commentsFound {
-				if _, ok = blockedPubKeys[lib.PkToString(commentEntry.PosterPublicKey, fes.Params)]; !ok {
+				if _, ok = blockedPubKeys[*lib.NewPublicKey(commentEntry.PosterPublicKey)]; !ok {
 					commentResponse, err := fes._getCommentResponse(commentEntry, profileEntryMap, requestData.AddGlobalFeedBool, verifiedMap, utxoView, readerPublicKeyBytes)
 					if fes._shouldSkipCommentResponse(commentResponse, err) {
 						continue
@@ -888,18 +805,6 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 		sort.Slice(postEntryResponses, func(ii, jj int) bool {
 			return postEntryResponses[ii].TimestampNanos < postEntryResponses[jj].TimestampNanos
 		})
-	} else if requestData.OrderBy == "post_stake" {
-		sort.Slice(postEntryResponses, func(ii, jj int) bool {
-			return postEntryResponses[ii].StakeEntryStats.TotalStakeNanos > postEntryResponses[jj].StakeEntryStats.TotalStakeNanos
-		})
-	} else if requestData.OrderBy == "influencer_stake" {
-		sort.Slice(postEntryResponses, func(ii, jj int) bool {
-			return postEntryResponses[ii].ProfileEntryResponse.StakeEntryStats.TotalStakeNanos > postEntryResponses[jj].ProfileEntryResponse.StakeEntryStats.TotalStakeNanos
-		})
-	} else if requestData.OrderBy == "influencer_post_stake" {
-		sort.Slice(postEntryResponses, func(ii, jj int) bool {
-			return postEntryResponses[ii].ProfileEntryResponse.StakeEntryStats.TotalPostStakeNanos > postEntryResponses[jj].ProfileEntryResponse.StakeEntryStats.TotalPostStakeNanos
-		})
 	} else if requestData.OrderBy == "last_comment" {
 		sort.Slice(postEntryResponses, func(ii, jj int) bool {
 			lastCommentTimeii := uint64(0)
@@ -911,27 +816,6 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 				lastCommentTimejj = postEntryResponses[jj].Comments[len(postEntryResponses[jj].Comments)-1].TimestampNanos
 			}
 			return lastCommentTimeii > lastCommentTimejj
-		})
-	} else if requestData.OrderBy == "time_decayed_post_stake" {
-		_computeTimeDecayedPostStake := func(postEntryRes *PostEntryResponse) float64 {
-			nowNanos := time.Now().UnixNano()
-
-			decayFactorii := math.Pow(2, float64(nowNanos-int64(postEntryRes.TimestampNanos))/float64(24*60*60*1000000000))
-			return float64(postEntryRes.StakeEntryStats.TotalStakeNanos) / decayFactorii
-		}
-
-		// For every 24 hours that have passed since this post was made,
-		// divide the amount of stake by 2.
-		sort.Slice(postEntryResponses, func(ii, jj int) bool {
-			postStakeii := _computeTimeDecayedPostStake(postEntryResponses[ii])
-			postStakejj := _computeTimeDecayedPostStake(postEntryResponses[jj])
-
-			// If there's a tie, break it with the raw timestamp.
-			if postStakeii == postStakejj {
-				return postEntryResponses[ii].TimestampNanos > postEntryResponses[jj].TimestampNanos
-			}
-
-			return postStakeii > postStakejj
 		})
 	}
 
@@ -1025,7 +909,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Get users blocked by creator of root post.
-	var rootBlockedPublicKeys map[string]struct{}
+	var rootBlockedPublicKeys map[lib.PublicKey]struct{}
 	// If we were able to get all parents back to the root post that started this thread, get the public keys blocked
 	// by the user who posted the root post. If we did not get the post that started this thread, do not use the blocked
 	// public keys of creator of the first post in parentPostEntries to filter out comments. truncatedTree will only be
@@ -1062,18 +946,18 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	// Determine whether or not the posters of the "single post" we are fetching is blocked by the reader.  If the
 	// poster of the single post is blocked, we will want to include the single post, but not any of the comments
 	// created by the poster that are children of this "single post".
-	_, isCurrentPosterBlocked := blockedPublicKeys[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]
+	_, isCurrentPosterBlocked := blockedPublicKeys[*lib.NewPublicKey(postEntry.PosterPublicKey)]
 	for _, commentEntry := range commentEntries {
 		pkMapKey := lib.MakePkMapKey(commentEntry.PosterPublicKey)
 		// Remove comments that are blocked by either the reader or the poster of the root post
-		if _, ok := blockedPublicKeys[lib.PkToString(commentEntry.PosterPublicKey, fes.Params)]; !ok && profilePubKeyMap[pkMapKey] == nil {
+		if _, ok := blockedPublicKeys[*lib.NewPublicKey(commentEntry.PosterPublicKey)]; !ok && profilePubKeyMap[pkMapKey] == nil {
 			profilePubKeyMap[pkMapKey] = commentEntry.PosterPublicKey
 		}
 	}
 	for _, parentPostEntry := range parentPostEntries {
 		pkMapKey := lib.MakePkMapKey(parentPostEntry.PosterPublicKey)
 		// Remove parents that are blocked by either the reader or the poster of the root post
-		if _, ok := blockedPublicKeys[lib.PkToString(parentPostEntry.PosterPublicKey, fes.Params)]; !ok && profilePubKeyMap[pkMapKey] == nil {
+		if _, ok := blockedPublicKeys[*lib.NewPublicKey(parentPostEntry.PosterPublicKey)]; !ok && profilePubKeyMap[pkMapKey] == nil {
 			profilePubKeyMap[pkMapKey] = parentPostEntry.PosterPublicKey
 		}
 	}
@@ -1565,7 +1449,7 @@ func (fes *APIServer) GetDiamondedPosts(ww http.ResponseWriter, req *http.Reques
 			postEntryResponse.PostEntryReaderState = postEntryReaderState
 			postEntryResponse.DiamondsFromSender = uint64(diamondEntry.DiamondLevel)
 			if postEntry.ParentStakeID != nil && len(postEntry.ParentStakeID) == lib.HashSizeBytes {
-				parentPostEntry := utxoView.GetPostEntryForPostHash(lib.StakeIDToHash(postEntry.ParentStakeID))
+				parentPostEntry := utxoView.GetPostEntryForPostHash(lib.NewBlockHash(postEntry.ParentStakeID))
 				if parentPostEntry == nil {
 					_AddBadRequestError(ww, fmt.Sprintf(
 						"GetDiamondedPosts: Problem getting parent post with postHash %v for postEntry with hash %v",
@@ -2168,4 +2052,190 @@ func GetPostHashFromPostHashHex(postHashHex string) (*lib.BlockHash, error) {
 	postHash = &lib.BlockHash{}
 	copy(postHash[:], postHashBytes)
 	return postHash, nil
+}
+
+func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, startAfterPostHash *lib.BlockHash, publicKey []byte, numToFetch int, skipHidden bool, mediaRequired bool) (
+	_postEntries []*lib.PostEntry, _err error) {
+	// Get the people who follow publicKey
+	// Note: GetFollowEntriesForPublicKey also loads them into the view
+	followEntries, err := bav.GetFollowEntriesForPublicKey(publicKey, false /* getEntriesFollowingPublicKey */)
+
+	if err != nil {
+		return nil, errors.Wrapf(
+			err, "GetPostsForFollowFeedForPublicKey: Problem fetching FollowEntries from augmented UtxoView: ")
+	}
+
+	// Extract the followed pub keys from the follow entries.
+	followedPubKeysMap := make(map[lib.PkMapKey][]byte)
+	for _, followEntry := range followEntries {
+		// Each follow entry needs to be converted back to a public key to stay consistent with
+		// the old logic.
+		pubKeyForPKID := bav.GetPublicKeyForPKID(followEntry.FollowedPKID)
+		if len(pubKeyForPKID) == 0 {
+			glog.Errorf("GetPostsForFollowFeedForPublicKey found PKID %v that "+
+				"does not have public key mapping; this should never happen",
+				lib.PkToString(followEntry.FollowedPKID[:], bav.Params))
+			continue
+		}
+		followedPubKeysMap[lib.MakePkMapKey(pubKeyForPKID)] = pubKeyForPKID
+	}
+
+	// Filter out any restricted pub keys.
+	filteredPubKeysMap, err := fes.FilterOutRestrictedPubKeysFromMap(followedPubKeysMap, publicKey, "")
+	if err != nil {
+		return nil, errors.Wrapf(err, "GetPostsForFollowFeedForPublicKey: Problem filtering out restricted public keys: ")
+	}
+
+	minTimestampNanos := uint64(time.Now().UTC().AddDate(0, 0, -2).UnixNano()) // two days ago
+	// For each of these pub keys, get their posts, and load them into the view too
+	for _, followedPubKey := range filteredPubKeysMap {
+
+		_, dbPostAndCommentHashes, _, err := lib.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
+			bav.Handle, followedPubKey, false /*fetchEntries*/, minTimestampNanos, 0, /*maxTimestampNanos*/
+		)
+		if err != nil {
+			return nil, errors.Wrapf(err, "GetPostsForFollowFeedForPublicKey: Problem fetching PostEntry's from db: ")
+		}
+
+		// Iterate through the entries found in the db and force the view to load them.
+		// This fills in any gaps in the view so that, after this, the view should contain
+		// the union of what it had before plus what was in the db.
+		for _, dbPostOrCommentHash := range dbPostAndCommentHashes {
+			bav.GetPostEntryForPostHash(dbPostOrCommentHash)
+		}
+	}
+
+	// Iterate over the view. Put all posts authored by people you follow into an array
+	var postEntriesForFollowFeed []*lib.PostEntry
+	for _, postEntry := range bav.PostHashToPostEntry {
+		// Ignore deleted or hidden posts and any comments.
+		if postEntry.IsDeleted() || (postEntry.IsHidden && skipHidden) || len(postEntry.ParentStakeID) != 0 {
+			continue
+		}
+
+		// mediaRequired set to determine if we only want posts that include media and ignore posts without
+		if mediaRequired && !postEntry.HasMedia() {
+			continue
+		}
+
+		if _, isFollowedByUser := followedPubKeysMap[lib.MakePkMapKey(postEntry.PosterPublicKey)]; isFollowedByUser {
+			postEntriesForFollowFeed = append(postEntriesForFollowFeed, postEntry)
+		}
+	}
+
+	// Sort the post entries by time (newest to oldest)
+	sort.Slice(postEntriesForFollowFeed, func(ii, jj int) bool {
+		return postEntriesForFollowFeed[ii].TimestampNanos > postEntriesForFollowFeed[jj].TimestampNanos
+	})
+
+	var startIndex = 0
+	if startAfterPostHash != nil {
+		var indexOfStartAfterPostHash int
+		// Find the index of the starting post so that we can paginate the result
+		for index, postEntry := range postEntriesForFollowFeed {
+			if *postEntry.PostHash == *startAfterPostHash {
+				indexOfStartAfterPostHash = index
+				break
+			}
+		}
+		// the first element of our new slice should be the element AFTER startAfterPostHash
+		startIndex = indexOfStartAfterPostHash + 1
+	}
+
+	endIndex := lib.MinInt((startIndex + numToFetch), len(postEntriesForFollowFeed))
+
+	return postEntriesForFollowFeed[startIndex:endIndex], nil
+}
+
+// Fetches all the posts from the db starting with a given postHash, up to numToFetch.
+// This is then joined with mempool and all posts are returned.  Because the mempool may contain
+// post changes, the number of posts returned in the map is not guaranteed to be numToFetch.
+func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.BlockHash, readerPK []byte, numToFetch int, skipHidden bool, skipVanillaReclout bool) (
+	_corePosts []*lib.PostEntry, _commentsByPostHash map[lib.BlockHash][]*lib.PostEntry, _err error) {
+
+	var startPost *lib.PostEntry
+	if startPostHash != nil {
+		startPost = bav.GetPostEntryForPostHash(startPostHash)
+	}
+
+	var startTstampNanos uint64
+	if startPost != nil {
+		startTstampNanos = startPost.TimestampNanos
+	}
+
+	allCorePosts := []*lib.PostEntry{}
+	addedPostHashes := make(map[lib.BlockHash]struct{})
+	skipFirstPost := false
+	for len(allCorePosts) < numToFetch {
+		// Start by fetching the posts we have in the db.
+		dbPostHashes, _, _, err := lib.DBGetPaginatedPostsOrderedByTime(
+			bav.Handle, startTstampNanos, startPostHash, numToFetch, false /*fetchEntries*/, true)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "GetAllProfiles: Problem fetching ProfileEntrys from db: ")
+		}
+
+		// If we have not found any new post hashes, we exist
+		if len(dbPostHashes) == 0 || (len(dbPostHashes) == 1 && skipFirstPost) {
+			break
+		}
+		skipFirstPost = true
+
+		// Iterate through the entries found in the db and force the view to load them.
+		// This fills in any gaps in the view so that, after this, the view should contain
+		// the union of what it had before plus what was in the db.
+		for _, dbPostHash := range dbPostHashes {
+			bav.GetPostEntryForPostHash(dbPostHash)
+		}
+		startPostHash = dbPostHashes[len(dbPostHashes)-1]
+		startTstampNanos = bav.GetPostEntryForPostHash(startPostHash).TimestampNanos
+
+		// Cycle through all the posts and store a map of the PubKeys so we can filter out those
+		// that are restricted later.
+		postEntryPubKeyMap := make(map[lib.PkMapKey][]byte)
+		for _, postEntry := range bav.PostHashToPostEntry {
+			// Ignore deleted / rolled-back / hidden posts.
+			if postEntry.IsDeleted() || (postEntry.IsHidden && skipHidden) {
+				continue
+			}
+
+			// We make sure that the post isn't a comment.
+			if len(postEntry.ParentStakeID) == 0 {
+				postEntryPubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] = postEntry.PosterPublicKey
+			}
+		}
+
+		// Filter restricted public keys out of the posts.
+		filteredPostEntryPubKeyMap, err := fes.FilterOutRestrictedPubKeysFromMap(postEntryPubKeyMap, readerPK, "leaderboard")
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "GetAllProfiles: Problem filtering restricted profiles from map: ")
+		}
+
+		// At this point, all the posts should be loaded into the view.
+
+		for _, postEntry := range bav.PostHashToPostEntry {
+
+			// Ignore deleted or rolled-back posts. Skip vanilla reclout posts if skipVanillaReclout is true.
+			if postEntry.IsDeleted() || (postEntry.IsHidden && skipHidden) || (lib.IsVanillaReclout(postEntry) && skipVanillaReclout) {
+				continue
+			}
+
+			// If this post has already been added to the list of all core posts, we skip it.
+			if _, postAdded := addedPostHashes[*postEntry.PostHash]; postAdded {
+				continue
+			}
+
+			// Make sure this isn't a comment and then make sure the public key isn't restricted.
+			if len(postEntry.ParentStakeID) == 0 {
+				if filteredPostEntryPubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] == nil {
+					continue
+				}
+				allCorePosts = append(allCorePosts, postEntry)
+				addedPostHashes[*postEntry.PostHash] = struct{}{}
+			}
+		}
+	}
+	// We no longer return comments with the posts.  Too inefficient.
+	commentsByPostHash := make(map[lib.BlockHash][]*lib.PostEntry)
+
+	return allCorePosts, commentsByPostHash, nil
 }

@@ -3,7 +3,7 @@ package routes
 import (
 	"bytes"
 	"encoding/json"
-	fmt "fmt"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -11,16 +11,20 @@ import (
 	"sync"
 	"time"
 
+	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/bitclout/backend/config"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/dgrijalva/jwt-go/v4"
-	"github.com/tyler-smith/go-bip39"
-
+	"github.com/bitclout/backend/globaldb"
+	"github.com/bitclout/backend/graph"
+	"github.com/bitclout/backend/graph/generated"
 	"github.com/bitclout/core/lib"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/dgraph-io/badger/v3"
+	"github.com/dgrijalva/jwt-go/v4"
 	"github.com/golang/glog"
 	"github.com/kevinburke/twilio-go"
-	muxtrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/gorilla/mux"
+	"github.com/tyler-smith/go-bip39"
+	"gopkg.in/DataDog/dd-trace-go.v1/contrib/gorilla/mux"
 )
 
 const (
@@ -179,15 +183,20 @@ type APIServer struct {
 	MinFeeRateNanosPerKB uint64
 
 	// A pointer to the router that handles all requests.
-	router *muxtrace.Router
+	router *mux.Router
 
 	TXIndex *lib.TXIndex
+
+	Postgres *lib.Postgres
 
 	// Used for getting/setting the global state. Usually either a db is set OR
 	// a remote node is set-- not both. When a remote node is set, global state
 	// is set and fetched from that node. Otherwise, it is set/fetched from the
 	// db. This makes it easy to run a local node in development.
 	GlobalStateDB *badger.DB
+
+	// Global State DB using badger is being replaced with Global DB using postgres
+	GlobalDB *globaldb.GlobalDB
 
 	// Optional, may be empty. Used for Twilio integration
 	Twilio *twilio.Client
@@ -225,6 +234,8 @@ func NewAPIServer(
 	_blockchain *lib.Blockchain,
 	_blockProducer *lib.BitCloutBlockProducer,
 	txIndex *lib.TXIndex,
+	postgres *lib.Postgres,
+	globalDB *globaldb.GlobalDB,
 	params *lib.BitCloutParams,
 	config *config.Config,
 	minFeeRateNanosPerKB uint64,
@@ -248,12 +259,16 @@ func NewAPIServer(
 		blockchain:                    _blockchain,
 		blockProducer:                 _blockProducer,
 		TXIndex:                       txIndex,
+		Postgres:                      postgres,
+		GlobalDB:                      globalDB,
 		Params:                        params,
 		Config:                        config,
+		MinFeeRateNanosPerKB:          minFeeRateNanosPerKB,
 		GlobalStateDB:                 globalStateDB,
 		Twilio:                        twilio,
 		BlockCypherAPIKey:             blockCypherAPIKey,
 		LastTradeBitCloutPriceHistory: []LastTradePriceHistoryItem{},
+
 		// We consider last trade prices from the last hour when determining the current price of BitClout.
 		// This helps prevents attacks that attempt to purchase $CLOUT at below market value.
 		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
@@ -288,7 +303,7 @@ type Route struct {
 // Note: Be very careful when editing existing routes in this list.
 // This *must* be kept in-sync with the backend-api.service.ts file in the
 // frontend code. If not, then requests will fail.
-func (fes *APIServer) NewRouter() *muxtrace.Router {
+func (fes *APIServer) NewRouter() *mux.Router {
 	var FrontendRoutes = []Route{
 		{
 			"Index",
@@ -979,7 +994,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		},
 	}
 
-	router := muxtrace.NewRouter().StrictSlash(true)
+	router := mux.NewRouter().StrictSlash(true)
 
 	// Set secure headers
 	secureMiddleware := lib.InitializeSecureMiddleware(
@@ -1028,6 +1043,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 				Handler(handler)
 		}
 	}
+
+	// Setup GraphQL
+	resolver := &graph.Resolver{
+		Postgres: fes.Postgres,
+		Server:   fes.backendServer,
+	}
+	graphServer := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: resolver}))
+	graphHandler := graph.Middleware(graphServer, resolver)
+	graphHandler = Logger(graphHandler, "/api/graphql")
+	graphHandler = AddHeaders(graphHandler, fes.Config.AccessControlAllowOrigins)
+	router.Path("/api/graphql").Handler(graphHandler)
+
+	// Setup GraphQL playground
+	router.Path("/api/play").Handler(playground.Handler("GraphQL playground", "/api/graphql"))
 
 	return router
 }

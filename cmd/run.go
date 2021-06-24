@@ -85,6 +85,10 @@ func init() {
 	runCmd.PersistentFlags().String("global-state-remote-secret", "",
 		"When a remote node is being used to set/fetch global state, a secret "+
 			"is also required to restrict access.")
+	runCmd.PersistentFlags().String("global-state-postgres-uri", "",
+		"The postgres database to use for global state. Defaults to postgres-uri. Global state"+
+			"is used to manage things like user data, e.g. emails, that should not be duplicated across"+
+			"multiple nodes and are not stored in consensus.")
 
 	// Web Security
 	runCmd.PersistentFlags().StringSlice("access-control-allow-origins", []string{"*"},

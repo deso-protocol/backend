@@ -198,7 +198,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 		}
 
 		// Skip if it's a blocked user
-		if _, blocked := blockedPubKeysForUser[otherPartyPublicKeyBase58Check]; blocked {
+		if _, blocked := blockedPubKeysForUser[*lib.NewPublicKey(otherPartyPublicKeyBytes)]; blocked {
 			continue
 		}
 
