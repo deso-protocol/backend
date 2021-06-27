@@ -616,7 +616,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		uint64(burnAmountSatoshis),
 		uint64(requestData.FeeRateSatoshisPerKB),
 		pubKey,
-		fes.WyreBTCAddress,
+		fes.BuyBitCloutBTCAddress,
 		fes.Params,
 		utxoSource)
 
