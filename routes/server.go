@@ -213,7 +213,7 @@ type APIServer struct {
 	WyreAccountId string
 	WyreApiKey string
 	WyreSecretKey string
-	WyreBTCAddress string
+	BuyBitCloutBTCAddress string
 	BuyBitCloutSeed string
 
 	// This lock is used when sending seed BitClout to avoid a race condition
@@ -271,7 +271,7 @@ func NewAPIServer(_backendServer *lib.Server,
 	wyreAccountId string,
 	wyreApiKey string,
 	wyreSecretKey string,
-	wyreBTCAddress string,
+	buyBitCloutBTCAddress string,
 	buyBitCloutSeed string,
 ) (*APIServer, error) {
 
@@ -319,7 +319,7 @@ func NewAPIServer(_backendServer *lib.Server,
 		WyreAccountId:                       wyreAccountId,
 		WyreApiKey:                          wyreApiKey,
 		WyreSecretKey:                       wyreSecretKey,
-		WyreBTCAddress:                      wyreBTCAddress,
+		BuyBitCloutBTCAddress:               buyBitCloutBTCAddress,
 		BuyBitCloutSeed:                     buyBitCloutSeed,
 		LastTradeBitCloutPriceHistory:       []LastTradePriceHistoryItem{},
 		// We consider last trade prices from the last hour when determining the current price of BitClout.
