@@ -423,23 +423,23 @@ type TransactionResponse struct {
 	TransactionIDBase58Check string
 	// The raw hex of the transaction data. This can be fully-constructed from
 	// the human-readable portions of this object.
-	RawTransactionHex string
+	RawTransactionHex string `json:",omitempty"`
 	// The inputs and outputs for this transaction.
-	Inputs  []*InputResponse
-	Outputs []*OutputResponse
+	Inputs  []*InputResponse `json:",omitempty"`
+	Outputs []*OutputResponse `json:",omitempty"`
 	// The signature of the transaction in hex format.
-	SignatureHex string
+	SignatureHex string `json:",omitempty"`
 	// Will always be “0” for basic transfers
-	TransactionType string
+	TransactionType string `json:",omitempty"`
 	// TODO: Create a TransactionMeta portion for the response.
 
 	// The hash of the block in which this transaction was mined. If the
 	// transaction is unconfirmed, this field will be empty. To look up
 	// how many confirmations a transaction has, simply plug this value
 	// into the "block" endpoint.
-	BlockHashHex string
+	BlockHashHex string `json:",omitempty"`
 
-	TransactionMetadata *lib.TransactionMetadata
+	TransactionMetadata *lib.TransactionMetadata `json:",omitempty"`
 }
 
 // TransactionInfoResponse contains information about the transaction
@@ -720,6 +720,8 @@ type APITransactionInfoRequest struct {
 	// with “BC”) to get transaction IDs for. When set,
 	// TransactionIDBase58Check is ignored.
 	PublicKeyBase58Check string
+
+	IDsOnly bool
 }
 
 // APITransactionInfoResponse specifies the response for a call to the
@@ -799,16 +801,21 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		res := &APITransactionInfoResponse{}
 		res.Transactions = []*TransactionResponse{}
 		for _, poolTx := range poolTxns {
-			txnMeta, err := lib.ConnectTxnAndComputeTransactionMetadata(
-				poolTx.Tx, utxoView, &lib.BlockHash{} /*Block hash*/, nextBlockHeight,
-				uint64(0) /*txnIndexInBlock*/)
-			if err != nil {
-				APIAddError(ww, fmt.Sprintf("Update: Error connecting "+
-					"txn for mempool request: %v: %v", poolTx.Tx, err))
-				return
+			if transactionInfoRequest.IDsOnly {
+				res.Transactions = append(res.Transactions,
+					&TransactionResponse{ TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params) })
+			} else {
+				txnMeta, err := lib.ConnectTxnAndComputeTransactionMetadata(
+					poolTx.Tx, utxoView, &lib.BlockHash{} /*Block hash*/, nextBlockHeight,
+					uint64(0) /*txnIndexInBlock*/)
+				if err != nil {
+					APIAddError(ww, fmt.Sprintf("Update: Error connecting "+
+						"txn for mempool request: %v: %v", poolTx.Tx, err))
+					return
+				}
+				res.Transactions = append(res.Transactions,
+					APITransactionToResponse(poolTx.Tx, txnMeta, fes.Params))
 			}
-			res.Transactions = append(res.Transactions,
-				APITransactionToResponse(poolTx.Tx, txnMeta, fes.Params))
 		}
 
 		// At this point, all the transactions should have been added to the request.
@@ -945,17 +952,21 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	// Process all the transactions found and add them to the response.
 	for _, txHash := range txHashes {
 		txIDString := lib.PkToString(txHash[:], fes.Params)
-		// In this case we need to look up the full transaction and convert
-		// it into a proper transaction response.
-		fullTxn, txnMeta := lib.DbGetTxindexFullTransactionByTxID(
-			fes.TXIndex.TXIndexChain.DB(), fes.blockchain.DB(), txHash)
-		if fullTxn == nil || txnMeta == nil {
-			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem looking up "+
-				"transaction with TxID: %v; this should never happen", txIDString))
-			return
+		if transactionInfoRequest.IDsOnly {
+			res.Transactions = append(res.Transactions, &TransactionResponse{ TransactionIDBase58Check: txIDString })
+		} else {
+			// In this case we need to look up the full transaction and convert
+			// it into a proper transaction response.
+			fullTxn, txnMeta := lib.DbGetTxindexFullTransactionByTxID(
+				fes.TXIndex.TXIndexChain.DB(), fes.blockchain.DB(), txHash)
+			if fullTxn == nil || txnMeta == nil {
+				APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem looking up "+
+					"transaction with TxID: %v; this should never happen", txIDString))
+				return
+			}
+			res.Transactions = append(res.Transactions,
+				APITransactionToResponse(fullTxn, txnMeta, fes.Params))
 		}
-		res.Transactions = append(res.Transactions,
-			APITransactionToResponse(fullTxn, txnMeta, fes.Params))
 	}
 
 	// Get all the txns from the mempool.
@@ -1004,6 +1015,10 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		}
 		// Finally, add the transaction to our list if it's relevant
 		if isRelevantTxn {
+			if transactionInfoRequest.IDsOnly {
+				res.Transactions = append(res.Transactions,
+					&TransactionResponse{ TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params) })
+			}
 			res.Transactions = append(res.Transactions,
 				APITransactionToResponse(poolTx.Tx, txnMeta, fes.Params))
 		}
