@@ -135,12 +135,15 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 		minimumNetworkFeeNanosPerKb = requestData.MinimumNetworkFeeNanosPerKB
 	}
 
+	maxCopiesPerNFT := int64(-1)
+
 	// Try and create the update txn for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateUpdateGlobalParamsTxn(
 		updaterPkBytes,
 		usdCentsPerBitcoin,
 		createProfileFeeNanos,
 		createNFTFeeNanos,
+		maxCopiesPerNFT,
 		minimumNetworkFeeNanosPerKb,
 		[]byte{},
 		requestData.MinFeeRateNanosPerKB,

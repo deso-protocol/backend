@@ -49,6 +49,13 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Grab a view (needed for getting global params, etc).
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Error getting utxoView: %v", err))
+		return
+	}
+
 	// Validate the requestData.
 	if requestData.NFTPostHashHex == "" {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Must include NFTPostHashHex"))
@@ -58,10 +65,10 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Must include UpdaterPublicKeyBase58Check"))
 		return
 
-	} else if requestData.NumCopies <= 0 || requestData.NumCopies > int(fes.Params.MaxCopiesPerNFT) {
+	} else if requestData.NumCopies <= 0 || requestData.NumCopies > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"CreateNFT: NumCopies must be between %d and %d, received: %d",
-			1, fes.Params.MaxCopiesPerNFT, requestData.NumCopies))
+			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.NumCopies))
 		return
 
 	} else if requestData.NFTRoyaltyToCreatorBasisPoints < 0 || requestData.NFTRoyaltyToCreatorBasisPoints > int(fes.Params.MaxNFTRoyaltyBasisPoints) {
@@ -100,13 +107,7 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Calculate the fee for creating the NFT.
 	// RPH-FIXME: Calculate the correct NFT fee here.
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Error getting utxoView: %v", err))
-		return
-	}
 	nftFee := utxoView.GlobalParamsEntry.CreateNFTFeeNanos
 
 	// Try and create the create NFT txn for the user.
@@ -177,6 +178,12 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateNFT: Error getting utxoView: %v", err))
+		return
+	}
+
 	// Do a simple validation of the requestData.
 	if requestData.NFTPostHashHex == "" {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateNFT: Must include NFTPostHashHex"))
@@ -186,10 +193,10 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateNFT: Must include UpdaterPublicKeyBase58Check"))
 		return
 
-	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(fes.Params.MaxCopiesPerNFT) {
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"UpdateNFT: SerialNumbers must be between %d and %d, received: %d",
-			1, fes.Params.MaxCopiesPerNFT, requestData.SerialNumber))
+			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.SerialNumber))
 		return
 
 	} else if requestData.MinBidAmountNanos < 0 {
@@ -217,11 +224,6 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Get the NFT in question so we can do a more hardcore validation of the request data.
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("UpdateNFT: Error getting utxoView: %v", err))
-		return
-	}
 	nftKey := lib.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
 	nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
 	if nftEntry == nil {
@@ -304,6 +306,12 @@ func (fes *APIServer) CreateNFTBid(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateNFTBid: Error getting utxoView: %v", err))
+		return
+	}
+
 	// Do a simple validation of the requestData.
 	if requestData.NFTPostHashHex == "" {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFTBid: Must include NFTPostHashHex"))
@@ -313,10 +321,10 @@ func (fes *APIServer) CreateNFTBid(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFTBid: Must include UpdaterPublicKeyBase58Check"))
 		return
 
-	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(fes.Params.MaxCopiesPerNFT) {
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"CreateNFTBid: SerialNumbers must be between %d and %d, received: %d",
-			1, fes.Params.MaxCopiesPerNFT, requestData.SerialNumber))
+			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.SerialNumber))
 		return
 
 	} else if requestData.BidAmountNanos < 0 {
@@ -344,11 +352,6 @@ func (fes *APIServer) CreateNFTBid(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Get the NFT in question so we can do a more hardcore validation of the request data.
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateNFTBid: Error getting utxoView: %v", err))
-		return
-	}
 	if requestData.SerialNumber != 0 {
 		nftKey := lib.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
 		nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
@@ -451,6 +454,12 @@ func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTBid: Error getting utxoView: %v", err))
+		return
+	}
+
 	// Do a simple validation of the requestData.
 	if requestData.NFTPostHashHex == "" {
 		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTBid: Must include NFTPostHashHex"))
@@ -461,10 +470,10 @@ func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
 			"AcceptNFTBid: Must include UpdaterPublicKeyBase58Check and BidderPublicKeyBase58Check"))
 		return
 
-	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(fes.Params.MaxCopiesPerNFT) {
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"AcceptNFTBid: SerialNumbers must be between %d and %d, received: %d",
-			1, fes.Params.MaxCopiesPerNFT, requestData.SerialNumber))
+			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.SerialNumber))
 		return
 
 	} else if requestData.BidAmountNanos < 0 {
@@ -499,11 +508,6 @@ func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Get the NFT bid so we can do a more hardcore validation of the request data.
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTBid: Error getting utxoView: %v", err))
-		return
-	}
 	bidderPKID := utxoView.GetPKIDForPublicKey(bidderPublicKeyBytes)
 	if bidderPKID == nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
