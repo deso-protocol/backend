@@ -423,23 +423,23 @@ type TransactionResponse struct {
 	TransactionIDBase58Check string
 	// The raw hex of the transaction data. This can be fully-constructed from
 	// the human-readable portions of this object.
-	RawTransactionHex string
+	RawTransactionHex string `json:",omitempty"`
 	// The inputs and outputs for this transaction.
-	Inputs  []*InputResponse
-	Outputs []*OutputResponse
+	Inputs  []*InputResponse `json:",omitempty"`
+	Outputs []*OutputResponse `json:",omitempty"`
 	// The signature of the transaction in hex format.
-	SignatureHex string
+	SignatureHex string `json:",omitempty"`
 	// Will always be “0” for basic transfers
-	TransactionType string
+	TransactionType string `json:",omitempty"`
 	// TODO: Create a TransactionMeta portion for the response.
 
 	// The hash of the block in which this transaction was mined. If the
 	// transaction is unconfirmed, this field will be empty. To look up
 	// how many confirmations a transaction has, simply plug this value
 	// into the "block" endpoint.
-	BlockHashHex string
+	BlockHashHex string `json:",omitempty"`
 
-	TransactionMetadata *lib.TransactionMetadata
+	TransactionMetadata *lib.TransactionMetadata `json:",omitempty"`
 }
 
 // TransactionInfoResponse contains information about the transaction
