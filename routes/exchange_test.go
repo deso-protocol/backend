@@ -1373,8 +1373,9 @@ func TestAPI(t *testing.T) {
 				require.NoError(err, "Problem decoding response")
 			}
 			assert.Equal("", transactionInfoRes.Error)
-			assert.Equal(1, len(transactionInfoRes.TransactionIDs))
-			assert.Equal(lib.PkToString(firstBlockTxn.Hash()[:], apiServer.Params), transactionInfoRes.TransactionIDs[0])
+			assert.Equal(1, len(transactionInfoRes.Transactions))
+			assert.Equal(lib.PkToString(firstBlockTxn.Hash()[:], apiServer.Params),
+				transactionInfoRes.Transactions[0].TransactionIDBase58Check)
 		}
 
 		// Roll back the change we made to the chain.
