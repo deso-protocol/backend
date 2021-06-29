@@ -1018,9 +1018,10 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			if transactionInfoRequest.IDsOnly {
 				res.Transactions = append(res.Transactions,
 					&TransactionResponse{ TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params) })
+			} else {
+				res.Transactions = append(res.Transactions,
+					APITransactionToResponse(poolTx.Tx, txnMeta, fes.Params))
 			}
-			res.Transactions = append(res.Transactions,
-				APITransactionToResponse(poolTx.Tx, txnMeta, fes.Params))
 		}
 	}
 
