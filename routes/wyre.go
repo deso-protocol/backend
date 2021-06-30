@@ -370,7 +370,7 @@ func (fes *APIServer) GetWyreWalletOrderQuotation(ww http.ResponseWriter, req *h
 	// Make and marshal the payload
 	body := WyreWalletOrderQuotationPayload{
 		AccountId: fes.WyreAccountId,
-		Dest: fmt.Sprintf("bitcoin:%v", fes.WyreBTCAddress),
+		Dest: fmt.Sprintf("bitcoin:%v", fes.BuyBitCloutBTCAddress),
 		AmountIncludeFees: true,
 		DestCurrency: "BTC",
 		SourceCurrency: wyreWalletOrderQuotationRequest.SourceCurrency,
@@ -558,7 +558,7 @@ func (fes *APIServer) SetWyreRequestHeaders(req *http.Request, dataBytes []byte)
 }
 
 func (fes *APIServer) GetBTCAddress() string {
-	return fmt.Sprintf("bitcoin:%v", fes.WyreBTCAddress)
+	return fmt.Sprintf("bitcoin:%v", fes.BuyBitCloutBTCAddress)
 }
 
 type GetWyreWalletOrderForPublicKeyRequest struct {

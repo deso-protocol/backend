@@ -1007,6 +1007,8 @@ type GetSingleProfileRequest struct {
 
 type GetSingleProfileResponse struct {
 	Profile *ProfileEntryResponse
+	IsBlacklisted bool
+	IsGraylisted bool
 }
 
 // GetSingleProfile...
@@ -1026,8 +1028,9 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 
 	// Get profile entry by public key.  If public key not provided, get profileEntry by username.
 	var profileEntry *lib.ProfileEntry
+	var publicKeyBytes []byte
 	if requestData.PublicKeyBase58Check != "" {
-		var publicKeyBytes []byte
+
 		publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Problem decoding user public key: %v", err))
@@ -1036,34 +1039,41 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 		profileEntry = utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
 	} else {
 		profileEntry = utxoView.GetProfileEntryForUsername([]byte(requestData.Username))
+		publicKeyBytes = profileEntry.PublicKey
 	}
 	// Return an error if we failed to find a profile entry
 	if profileEntry == nil {
 		_AddNotFoundError(ww, fmt.Sprintf("GetSingleProfile: could not find profile for username or public key: %v, %v", requestData.Username, requestData.PublicKeyBase58Check))
 		return
 	}
-	filteredPubKeys, err := fes.FilterOutRestrictedPubKeysFromList([][]byte{profileEntry.PublicKey}, nil, "")
+	// Grab verified username map pointer
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Error filtering out blacklisted users: %v, %v, %v", err, requestData.Username, requestData.PublicKeyBase58Check))
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: could not get verified map: %v", err))
 		return
 	}
-	var res GetSingleProfileResponse
-	// If this public key/username has been blacklisted, we do not return the profile.
-	if len(filteredPubKeys) != 1 {
-		res = GetSingleProfileResponse{
-			Profile: nil,
-		}
-	} else {
-		// Grab verified username map pointer
-		verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: could not get verified map: %v", err))
-			return
-		}
-		profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
-		res = GetSingleProfileResponse{
-			Profile: profileEntryResponse,
-		}
+	profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+	res := GetSingleProfileResponse{
+		Profile: profileEntryResponse,
+	}
+	// Check if the user is blacklisted/graylisted
+	blacklistKey := GlobalStateKeyForBlacklistedProfile(publicKeyBytes[:])
+	userBlacklistState, err := fes.GlobalStateGet(blacklistKey)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Problem getting blacklist: %v", err))
+		return
+	}
+	if reflect.DeepEqual(userBlacklistState, lib.IsBlacklisted) {
+		res.IsBlacklisted = true
+	}
+	graylistKey := GlobalStateKeyForGraylistedProfile(publicKeyBytes[:])
+	userGraylistState, err := fes.GlobalStateGet(graylistKey)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Problem getting graylist: %v", err))
+		return
+	}
+	if reflect.DeepEqual(userGraylistState, lib.IsGraylisted) {
+		res.IsGraylisted = true
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetSingleProfile: Problem serializing object to JSON: %v", err))
