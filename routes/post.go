@@ -80,7 +80,7 @@ type PostEntryResponse struct {
 	InGlobalFeed *bool `json:",omitempty"`
 	// True if this post hash hex is pinned to profile page.
 	IsPinned *bool `json:",omitempty"`
-	// True if this post hash hex is in pinned globally.
+	// True if this post hash hex is in pinned to the global feed.
 	IsGlobalPinned *bool `json:",omitempty"`
 	// PostExtraData stores an arbitrary map of attributes of a PostEntry
 	PostExtraData     map[string]string
@@ -239,7 +239,7 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 		RecloutCount:               postEntry.RecloutCount,
 		QuoteRecloutCount:          postEntry.QuoteRecloutCount,
 		IsPinned:                   &postEntry.IsPinned,
-		IsGlobalPinned: 			&postEntry.IsGlobalPinned,
+		IsGlobalPinned:             &postEntry.IsGlobalPinned,
 		PostExtraData:              postEntryResponseExtraData,
 	}
 
@@ -993,7 +993,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Fetch the commentEntries for the post.submit
+	// Fetch the commentEntries for the post.
 	commentEntries, err := utxoView.GetCommentEntriesForParentStakeID(postHash[:])
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error getting commentEntries: %v: %s", err, requestData.PostHashHex))
@@ -1304,6 +1304,9 @@ type GetPostsForPublicKeyRequest struct {
 	NumToFetch uint64 `safeForLogging:"true"`
 	MediaRequired bool `safeForLogging:"true"`
 
+	// MaxPinnedPosts is the number of pinned posts to fetch and prepend
+	// to the returned posts. This parameter is specified on the frontend
+	// so developers can choose how many pinned posts to request depending on the frontend.
 	MaxPinnedPosts uint64 `safeForLogging:"true"`
 }
 
