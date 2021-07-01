@@ -517,6 +517,27 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"UpdateNFT",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateNFT,
+			fes.UpdateNFT,
+			PublicAccess,
+		},
+		{
+			"CreateNFTBid",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateNFTBid,
+			fes.CreateNFTBid,
+			PublicAccess,
+		},
+		{
+			"AcceptNFTBid",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAcceptNFTBid,
+			fes.AcceptNFTBid,
+			PublicAccess,
+		},
+		{
 			"GetHodlersForPublicKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetHodlersForPublicKey,
