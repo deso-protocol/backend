@@ -510,6 +510,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"CreateNFT",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateNFT,
+			fes.CreateNFT,
+			PublicAccess,
+		},
+		{
 			"GetHodlersForPublicKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetHodlersForPublicKey,
