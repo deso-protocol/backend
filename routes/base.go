@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"github.com/bitclout/core/lib"
 	"github.com/golang/glog"
+	"github.com/montanaflynn/stats"
 	"io"
 	"io/ioutil"
 	"net/http"
+	"time"
 )
 
 // Index ...
@@ -111,42 +113,97 @@ type BlockchainBitCloutTickerResponse struct {
 
 // UpdateUSDCentsToBitCloutExchangeRate updates app state's USD Cents per BitClout value
 func (fes *APIServer) UpdateUSDCentsToBitCloutExchangeRate() {
-	// Get the ticker from Blockchain.com
-	url := "https://api.blockchain.com/v3/exchange/tickers/CLOUT-USD"
-	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		glog.Errorf("GetExchangePriceFromBlockchain: Problem with HTTP request %s: %v", url, err)
-		return
-	}
-	defer resp.Body.Close()
+	glog.Infof("Refreshing exchange rate...")
 
-	// Decode the response into the appropriate struct.
-	body, _ := ioutil.ReadAll(resp.Body)
-	responseData := &BlockchainBitCloutTickerResponse{}
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	if err = decoder.Decode(responseData); err != nil {
-		glog.Errorf("GetExchangePriceFromBlockchain: Problem decoding response JSON into "+
-			"interface %v, response: %v, error: %v", responseData, resp, err)
-		return
+	// Get the ticker from Blockchain.com
+	// Do several fetches and take the max
+	//
+	// TODO: This is due to a bug in Blockchain's API that returns random values ~30% of the
+	// time for the last_price field. Once that bug is fixed, this multi-fetching will no
+	// longer be needed.
+	exchangeRatesFetched := []float64{}
+	for ii := 0; ii < 10; ii++ {
+		url := "https://api.blockchain.com/v3/exchange/tickers/CLOUT-USD"
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("Content-Type", "application/json")
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			glog.Errorf("GetExchangePriceFromBlockchain: Problem with HTTP request %s: %v", url, err)
+			return
+		}
+		defer resp.Body.Close()
+
+		// Decode the response into the appropriate struct.
+		body, _ := ioutil.ReadAll(resp.Body)
+		responseData := &BlockchainBitCloutTickerResponse{}
+		decoder := json.NewDecoder(bytes.NewReader(body))
+		if err = decoder.Decode(responseData); err != nil {
+			glog.Errorf("GetExchangePriceFromBlockchain: Problem decoding response JSON into "+
+				"interface %v, response: %v, error: %v", responseData, resp, err)
+			return
+		}
+
+		// Return the last trade price.
+		usdCentsToBitCloutExchangePrice := uint64(responseData.LastTradePrice * 100)
+
+		exchangeRatesFetched = append(exchangeRatesFetched, float64(usdCentsToBitCloutExchangePrice))
 	}
+	blockchainDotComExchangeRate, err := stats.Max(exchangeRatesFetched)
+	if err != nil {
+		glog.Error(err)
+	}
+	glog.Infof("Blockchain exchange rate: %v %v", blockchainDotComExchangeRate, exchangeRatesFetched)
+	if fes.backendServer != nil && fes.backendServer.GetStatsdClient() != nil {
+		if err = fes.backendServer.GetStatsdClient().Gauge("BLOCKCHAIN_LAST_TRADE_PRICE", blockchainDotComExchangeRate, []string{}, 1); err != nil {
+			glog.Errorf("GetExchangePriceFromBlockchain: Error logging Last Trade Price of %f to datadog: %v", blockchainDotComExchangeRate, err)
+		}
+	}
+
+	// Get the current timestamp and append the current last trade price to the LastTradeBitCloutPriceHistory slice
+	timestamp := uint64(time.Now().UnixNano())
+	fes.LastTradeBitCloutPriceHistory = append(fes.LastTradeBitCloutPriceHistory, LastTradePriceHistoryItem{
+		LastTradePrice: uint64(blockchainDotComExchangeRate),
+		Timestamp: timestamp,
+	})
+
+	// Get the max price within the lookback window and remove elements that are no longer valid.
+	maxPrice := fes.getMaxPriceFromHistoryAndCull(timestamp)
+
 	// Get the reserve price for this node.
 	reservePrice, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
-	// Use the max of the last trade price and 24H price
-	var usdCentsToBitCloutExchangePrice uint64
-	if responseData.LastTradePrice > responseData.Price24H {
-		usdCentsToBitCloutExchangePrice = uint64(responseData.LastTradePrice * 100)
-	} else {
-		usdCentsToBitCloutExchangePrice = uint64(responseData.Price24H * 100)
-	}
 	// If the max of last trade price and 24H price is less than the reserve price, use the reserve price.
-	if reservePrice > usdCentsToBitCloutExchangePrice {
+	if reservePrice > maxPrice {
 		fes.UsdCentsPerBitCloutExchangeRate = reservePrice
 	} else {
-		fes.UsdCentsPerBitCloutExchangeRate = usdCentsToBitCloutExchangePrice
+		fes.UsdCentsPerBitCloutExchangeRate = maxPrice
 	}
+
+	glog.Infof("Final exchange rate: %v", fes.UsdCentsPerBitCloutExchangeRate)
+}
+
+// getMaxPriceFromHistoryAndCull removes elements that are outside of the lookback window and return the max price
+// from valid elements.
+func (fes *APIServer) getMaxPriceFromHistoryAndCull(currentTimestamp uint64) uint64 {
+	maxPrice := uint64(0)
+	// This function culls invalid values (outside of the lookback window) from the LastTradeBitCloutPriceHistory slice
+	// in place, so we need to keep track of the index at which we will place the next valid item.
+	validIndex := 0
+	for _, priceHistoryItem := range fes.LastTradeBitCloutPriceHistory {
+		tstampDiff := currentTimestamp - priceHistoryItem.Timestamp
+		if tstampDiff <= fes.LastTradePriceLookback {
+			// copy and increment index.  This overwrites invalid values with valid ones in the order valid items
+			// are seen.
+			fes.LastTradeBitCloutPriceHistory[validIndex] = priceHistoryItem
+			validIndex++
+			if priceHistoryItem.LastTradePrice > maxPrice {
+				maxPrice = priceHistoryItem.LastTradePrice
+			}
+		}
+	}
+	// Reduce the slice to only valid elements - all elements up to validIndex are within the lookback window.
+	fes.LastTradeBitCloutPriceHistory = fes.LastTradeBitCloutPriceHistory[:validIndex]
+	return maxPrice
 }
 
 type GetAppStateRequest struct {

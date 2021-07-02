@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -217,16 +218,31 @@ type APIServer struct {
 	SuperAdminPublicKeys []string
 
 	// Wyre
-	WyreUrl         string
-	WyreAccountId   string
-	WyreApiKey      string
-	WyreSecretKey   string
-	WyreBTCAddress  string
+	WyreUrl string
+	WyreAccountId string
+	WyreApiKey string
+	WyreSecretKey string
+	BuyBitCloutBTCAddress string
 	BuyBitCloutSeed string
 
+	// This lock is used when sending seed BitClout to avoid a race condition
+	// in which two calls to sending the seed BitClout use the same UTXO,
+	// causing one to error.
+	mtxSeedBitClout sync.RWMutex
+
 	UsdCentsPerBitCloutExchangeRate uint64
+
+	// List of prices retrieved.  This is culled everytime we update the current price.
+	LastTradeBitCloutPriceHistory []LastTradePriceHistoryItem
+	// How far back do we consider trade prices when we set the current price of $CLOUT in nanoseconds
+	LastTradePriceLookback uint64
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
+}
+
+type LastTradePriceHistoryItem struct {
+	LastTradePrice uint64
+	Timestamp uint64
 }
 
 // NewAPIServer ...
@@ -264,7 +280,7 @@ func NewAPIServer(_backendServer *lib.Server,
 	wyreAccountId string,
 	wyreApiKey string,
 	wyreSecretKey string,
-	wyreBTCAddress string,
+	buyBitCloutBTCAddress string,
 	buyBitCloutSeed string,
 ) (*APIServer, error) {
 
@@ -312,8 +328,12 @@ func NewAPIServer(_backendServer *lib.Server,
 		WyreAccountId:                       wyreAccountId,
 		WyreApiKey:                          wyreApiKey,
 		WyreSecretKey:                       wyreSecretKey,
-		WyreBTCAddress:                      wyreBTCAddress,
+		BuyBitCloutBTCAddress:               buyBitCloutBTCAddress,
 		BuyBitCloutSeed:                     buyBitCloutSeed,
+		LastTradeBitCloutPriceHistory:       []LastTradePriceHistoryItem{},
+		// We consider last trade prices from the last hour when determining the current price of BitClout.
+		// This helps prevents attacks that attempt to purchase $CLOUT at below market value.
+		LastTradePriceLookback:              uint64(time.Hour.Nanoseconds()),
 	}
 
 	fes.StartSeedBalancesMonitoring()
