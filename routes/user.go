@@ -2381,15 +2381,21 @@ func (fes *APIServer) IsFollowingPublicKey(ww http.ResponseWriter, req *http.Req
 
 	followEntries := []*lib.FollowEntry{}
 	followEntries, err = utxoView.GetFollowEntriesForPublicKey(userPublicKeyBytes, false)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("IsFollowingPublicKey: Error fetching data for user: %v", err))
+		return
+	}
 
 	for _, followEntry := range followEntries {
-		// get the profile entry for each follower pubkey
 		var followPKID *lib.PKID
 		followPKID = followEntry.FollowedPKID
 
 		// Convert the followPKID to a public key using the view. The followPubKey should never
 		// be nil.
 		followPubKey := utxoView.GetPublicKeyForPKID(followPKID)
+		if len(followPubKey) == 0 {
+			_AddBadRequestError(ww, fmt.Sprintf("IsFollowingPublicKey: found PKID %v that does not have a public key mapping; this should never happen", lib.PkToString(followEntry.FollowedPKID[:], fes.Params)))
+		}
 		followPubKeyBase58Check := lib.PkToString(followPubKey, fes.Params)
 
 		if followPubKeyBase58Check == requestData.IsFollowingPublicKeyBase58Check {
