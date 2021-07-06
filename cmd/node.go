@@ -85,7 +85,7 @@ func (node *Node) Start() {
 		node.Config.WyreAccountId,
 		node.Config.WyreApiKey,
 		node.Config.WyreSecretKey,
-		node.Config.WyreBTCAddress,
+		node.Config.BuyBitCloutBTCAddress,
 		node.Config.BuyBitCloutSeed,
 	)
 	if err != nil {

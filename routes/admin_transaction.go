@@ -25,6 +25,12 @@ type GetGlobalParamsResponse struct {
 
 	// The current minimum fee the network will accept
 	MinimumNetworkFeeNanosPerKB uint64 `safeForLogging:"true"`
+
+	// The fee per copy of an NFT minted.
+	CreateNFTFeeNanos uint64 `safeForLogging:"true"`
+
+	// The maximum number of copies a single NFT can have.
+	MaxCopiesPerNFT uint64 `safeForLogging:"true"`
 }
 
 func (fes *APIServer) GetGlobalParams(ww http.ResponseWriter, req *http.Request) {
@@ -41,11 +47,14 @@ func (fes *APIServer) GetGlobalParams(ww http.ResponseWriter, req *http.Request)
 		_AddBadRequestError(ww, fmt.Sprintf("GetGlobalParams: Error getting utxoView: %v", err))
 		return
 	}
+	globalParamsEntry := utxoView.GlobalParamsEntry
 	// Return all the data associated with the transaction in the response
 	res := GetGlobalParamsResponse{
-		USDCentsPerBitcoin:          utxoView.GlobalParamsEntry.USDCentsPerBitcoin,
-		CreateProfileFeeNanos:       utxoView.GlobalParamsEntry.CreateProfileFeeNanos,
-		MinimumNetworkFeeNanosPerKB: utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB,
+		USDCentsPerBitcoin:          globalParamsEntry.USDCentsPerBitcoin,
+		CreateProfileFeeNanos:       globalParamsEntry.CreateProfileFeeNanos,
+		MinimumNetworkFeeNanosPerKB: globalParamsEntry.MinimumNetworkFeeNanosPerKB,
+		CreateNFTFeeNanos:           globalParamsEntry.CreateNFTFeeNanos,
+		MaxCopiesPerNFT:             globalParamsEntry.MaxCopiesPerNFT,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetGlobalParams: Problem encoding response as JSON: %v", err))
@@ -64,6 +73,9 @@ type UpdateGlobalParamsRequest struct {
 
 	// The fee per copy of an NFT minted.
 	CreateNFTFeeNanos int64 `safeForLogging:"true"`
+
+	// The maximum number of copies a single NFT can have.
+	MaxCopiesPerNFT int64 `safeForLogging:"true"`
 
 	// The new minimum fee the network will accept
 	MinimumNetworkFeeNanosPerKB int64 `safeForLogging:"true"`
@@ -136,6 +148,9 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 	}
 
 	maxCopiesPerNFT := int64(-1)
+	if requestData.MaxCopiesPerNFT >= 0 && uint64(requestData.MaxCopiesPerNFT) != utxoView.GlobalParamsEntry.MaxCopiesPerNFT {
+		maxCopiesPerNFT = requestData.MaxCopiesPerNFT
+	}
 
 	// Try and create the update txn for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateUpdateGlobalParamsTxn(

@@ -1352,6 +1352,31 @@ func TestAPI(t *testing.T) {
 			assert.Equal(0, len(transactionInfoRes.Transactions[0].Inputs))
 			assert.Equal(1, len(transactionInfoRes.Transactions[0].Outputs))
 		}
+		{
+			// Test IDs only
+			transactionInfoRequest := &APITransactionInfoRequest{
+				PublicKeyBase58Check: senderPkString,
+				IDsOnly: true,
+			}
+			jsonRequest, err := json.Marshal(transactionInfoRequest)
+			require.NoError(err)
+			request, _ := http.NewRequest(
+				"POST", RoutePathAPITransactionInfo, bytes.NewBuffer(jsonRequest))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			apiServer.router.ServeHTTP(response, request)
+			assert.Equal(200, response.Code, "200 response expected")
+
+			decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+			transactionInfoRes := APITransactionInfoResponse{}
+			if err := decoder.Decode(&transactionInfoRes); err != nil {
+				require.NoError(err, "Problem decoding response")
+			}
+			assert.Equal("", transactionInfoRes.Error)
+			assert.Equal(1, len(transactionInfoRes.Transactions))
+			assert.Equal(lib.PkToString(firstBlockTxn.Hash()[:], apiServer.Params),
+				transactionInfoRes.Transactions[0].TransactionIDBase58Check)
+		}
 
 		// Roll back the change we made to the chain.
 		apiServer.blockchain.SetBestChain(oldBestChain)

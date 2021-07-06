@@ -51,7 +51,7 @@ type Config struct {
 	WyreAccountId          string
 	WyreApiKey             string
 	WyreSecretKey          string
-	WyreBTCAddress         string
+	BuyBitCloutBTCAddress  string
 	BuyBitCloutSeed        string
 }
 
@@ -113,8 +113,10 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.WyreAccountId = viper.GetString("wyre-account-id")
 	config.WyreApiKey = viper.GetString("wyre-api-key")
 	config.WyreSecretKey = viper.GetString("wyre-secret-key")
-	config.WyreBTCAddress = viper.GetString("wyre-btc-address")
-	// Seed from which BitClout will be sent for orders placed through Wyre
+
+	// BTC address to send all Bitcoin received from Wyre purchases and "Buy With BTC" purchases.
+	config.BuyBitCloutBTCAddress = viper.GetString("buy-bitclout-btc-address")
+	// Seed from which BitClout will be sent for orders placed through Wyre and "Buy With BTC" purchases"
 	config.BuyBitCloutSeed = viper.GetString("buy-bitclout-seed")
 	return &config
 }
