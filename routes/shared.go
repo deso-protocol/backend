@@ -64,6 +64,9 @@ type MessageEntryResponse struct {
 
 	// Whether or not the user is the sender of the message.
 	IsSender bool
+
+	// Indicate if message was encrypted using shared secret
+	V2 bool
 }
 
 type MessageContactResponse struct {
