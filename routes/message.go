@@ -299,6 +299,11 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			}
 		}
 
+		V2 := false
+		if messageEntry.Version == 2{
+			V2 = true
+		}
+
 		// By now we know this messageEntry is meant to be included in the response.
 		messageEntryRes := &MessageEntryResponse{
 			SenderPublicKeyBase58Check:    lib.PkToString(messageEntry.SenderPublicKey, fes.Params),
@@ -306,6 +311,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			EncryptedText:                 hex.EncodeToString(messageEntry.EncryptedText),
 			TstampNanos:                   messageEntry.TstampNanos,
 			IsSender:                      !reflect.DeepEqual(messageEntry.RecipientPublicKey, publicKeyBytes),
+			V2:                            V2,
 		}
 		contactEntry, _ := contactMap[lib.PkToString(otherPartyPublicKeyBytes, fes.Params)]
 		contactEntry.Messages = append(contactEntry.Messages, messageEntryRes)
@@ -440,6 +446,7 @@ type SendMessageStatelessRequest struct {
 	SenderPublicKeyBase58Check    string `safeForLogging:"true"`
 	RecipientPublicKeyBase58Check string `safeForLogging:"true"`
 	MessageText                   string
+	EncryptedMessageText          string
 	MinFeeRateNanosPerKB          uint64 `safeForLogging:"true"`
 }
 
@@ -483,7 +490,8 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 	// Try and create the message for the user.
 	tstamp := uint64(time.Now().UnixNano())
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreatePrivateMessageTxn(
-		senderPkBytes, recipientPkBytes, requestData.MessageText,
+		senderPkBytes, recipientPkBytes,
+		requestData.MessageText, requestData.EncryptedMessageText,
 		tstamp,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
 	if err != nil {
