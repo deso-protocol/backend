@@ -77,13 +77,14 @@ const (
 	RoutePathGetDiamondedPosts       = "/api/v0/get-diamonded-posts"
 
 	// nft.go
-	RoutePathCreateNFT         = "/api/v0/create-nft"
-	RoutePathUpdateNFT         = "/api/v0/update-nft"
-	RoutePathGetNFTFeed        = "/api/v0/get-nft-feed"
-	RoutePathGetNFTsForUser    = "/api/v0/get-nfts-for-user"
-	RoutePathGetNFTBidsForUser = "/api/v0/get-nft-bids-for-user"
-	RoutePathCreateNFTBid      = "/api/v0/create-nft-bid"
-	RoutePathAcceptNFTBid      = "/api/v0/accept-nft-bid"
+	RoutePathCreateNFT             = "/api/v0/create-nft"
+	RoutePathUpdateNFT             = "/api/v0/update-nft"
+	RoutePathGetNFTFeed            = "/api/v0/get-nft-feed"
+	RoutePathGetNFTsForUser        = "/api/v0/get-nfts-for-user"
+	RoutePathGetNFTBidsForUser     = "/api/v0/get-nft-bids-for-user"
+	RoutePathCreateNFTBid          = "/api/v0/create-nft-bid"
+	RoutePathAcceptNFTBid          = "/api/v0/accept-nft-bid"
+	RoutePathGetNFTBidsForNFTPost  = "/api/v0/get-nft-bids-for-nft-post"
 
 	// media.go
 	RoutePathUploadImage      = "/api/v0/upload-image"
@@ -555,6 +556,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAcceptNFTBid,
 			fes.AcceptNFTBid,
+			PublicAccess,
+		},
+		{
+			"GetNFTBidsForNFTPost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTBidsForNFTPost,
+			fes.GetNFTBidsForNFTPost,
+			PublicAccess,
+		},
+		{
+			"GetNFTsForUser",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTsForUser,
+			fes.GetNFTsForUser,
 			PublicAccess,
 		},
 		{
