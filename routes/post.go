@@ -1266,7 +1266,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	})
 
 	commentEntryResponseLength := uint32(len(commentEntryResponseList))
-	// If a user provide a default or -ve limit, default to 10
+	// If a client provides a default(0) or -ve limit, default to 10
 	if requestData.CommentLimit <= 0 {
 		requestData.CommentLimit = 10
 	} 
