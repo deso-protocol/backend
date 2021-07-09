@@ -1266,6 +1266,10 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	})
 
 	commentEntryResponseLength := uint32(len(commentEntryResponseList))
+	// If a user provide a default or -ve limit, default to 10
+	if requestData.CommentLimit <= 0 {
+		requestData.CommentLimit = 10
+	} 
 	// Slice the comments from the offset up to either the end of the slice or the offset + limit, whichever is smaller.
 	maxIdx := lib.MinUint32(commentEntryResponseLength, requestData.CommentOffset+requestData.CommentLimit)
 	var comments []*PostEntryResponse
