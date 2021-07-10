@@ -4,10 +4,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/bitclout/core/lib"
 	"io"
 	"net/http"
-
-	"github.com/bitclout/core/lib"
 )
 
 type NFTEntryResponse struct {
@@ -624,6 +623,7 @@ func (fes *APIServer) GetNFTFeed(ww http.ResponseWriter, req *http.Request) {
 type GetNFTsForUserRequest struct {
 	UserPublicKeyBase58Check   string `safeForLogging:"true"`
 	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
+	IsForSale *bool `safeForLogging:"true"`
 }
 
 type NFTEntryAndPostEntryResponse struct {
@@ -672,14 +672,26 @@ func (fes *APIServer) GetNFTsForUser(ww http.ResponseWriter, req *http.Request) 
 	// RPH-FIXME: Get the correct feed of NFTs to show the user.
 	// Return all the data associated with the transaction in the response
 	res := GetNFTsForUserResponse{
-		NFTsMap: map[string]*NFTEntryAndPostEntryResponse{},
+		NFTsMap: make(map[string]*NFTEntryAndPostEntryResponse),
 	}
 	pkid := utxoView.GetPKIDForPublicKey(userPublicKey)
 
 	nftEntries := utxoView.GetNFTEntriesForPKID(pkid.PKID)
 
+	filteredNFTEntries := []*lib.NFTEntry{}
+	if requestData.IsForSale != nil {
+		checkForSale := *requestData.IsForSale
+		for _, nftEntry := range nftEntries {
+			if checkForSale == nftEntry.IsForSale {
+				filteredNFTEntries = append(filteredNFTEntries, nftEntry)
+			}
+		}
+	} else {
+		copy(nftEntries, filteredNFTEntries)
+	}
+
 	postHashToEntryResponseMap := make(map[*lib.BlockHash]*PostEntryResponse)
-	for _, nftEntry := range nftEntries {
+	for _, nftEntry := range filteredNFTEntries {
 		postEntryResponse := postHashToEntryResponseMap[nftEntry.NFTPostHash]
 		if postEntryResponse == nil {
 			postEntry := utxoView.GetPostEntryForPostHash(nftEntry.NFTPostHash)
@@ -698,9 +710,8 @@ func (fes *APIServer) GetNFTsForUser(ww http.ResponseWriter, req *http.Request) 
 		}
 		res.NFTsMap[postEntryResponse.PostHashHex].NFTEntryResponses = append(
 			res.NFTsMap[postEntryResponse.PostHashHex].NFTEntryResponses,
-			fes._nftEntryToResponse(nftEntry, postEntryResponse, utxoView))
+			fes._nftEntryToResponse(nftEntry, nil, utxoView))
 	}
-
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetNFTsForUser: Problem serializing object to JSON: %v", err))
