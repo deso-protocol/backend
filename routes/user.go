@@ -2415,13 +2415,13 @@ func (fes *APIServer) IsFollowingPublicKey(ww http.ResponseWriter, req *http.Req
 }
 
 type IsHodlingPublicKeyRequest struct {
-	PublicKeyBase58Check            string
-	IsHodlingPublicKeyBase58Check	string
+	PublicKeyBase58Check          string
+	IsHodlingPublicKeyBase58Check string
 }
 
 type IsHodlingPublicKeyResponse struct {
-	IsHodling 		bool
-	BalanceEntry 	*BalanceEntryResponse	
+	IsHodling    bool
+	BalanceEntry *BalanceEntryResponse	
 }
 
 func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Request) {
@@ -2481,8 +2481,8 @@ func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Reque
 	}
 
 	res := IsHodlingPublicKeyResponse{
-		IsHodling: 		IsHodling,
-		BalanceEntry:	BalanceEntry,
+		IsHodling:    IsHodling,
+		BalanceEntry: BalanceEntry,
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
