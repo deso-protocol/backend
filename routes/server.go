@@ -65,6 +65,7 @@ const (
 	RoutePathUpdateUserGlobalMetadata = "/api/v0/update-user-global-metadata"
 	RoutePathGetNotifications         = "/api/v0/get-notifications"
 	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
+	RoutePathIsFollowingPublicKey     = "/api/v0/is-following-public-key"
 
 	// post.go
 	RoutePathGetPostsStateless       = "/api/v0/get-posts-stateless"
@@ -618,6 +619,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetTxn,
 			PublicAccess,
 		},
+		{
+			"IsFollowingPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathIsFollowingPublicKey,
+			fes.IsFollowingPublicKey,
+			PublicAccess,
+		},
 
 		// Begin all /admin routes
 		{
@@ -1118,7 +1126,11 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 		return pubKey.ToECDSA(), nil
 	})
 
-	return token.Valid, err
+	if err != nil {
+		return false, err
+	}
+
+	return token.Valid, nil
 }
 
 // Start ...
@@ -1250,4 +1262,3 @@ func (fes *APIServer) getBalanceForSeed(seedPhrase string) (uint64, error){
 	}
 	return currentBalanceNanos, nil
 }
-

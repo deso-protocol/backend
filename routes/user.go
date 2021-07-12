@@ -2331,3 +2331,85 @@ func (fes *APIServer) BlockPublicKey(ww http.ResponseWriter, req *http.Request) 
 		return
 	}
 }
+
+type IsFollowingPublicKeyRequest struct {
+	PublicKeyBase58Check            string
+	IsFollowingPublicKeyBase58Check string
+}
+
+type IsFolllowingPublicKeyResponse struct {
+	IsFollowing bool
+}
+
+func (fes *APIServer) IsFollowingPublicKey(ww http.ResponseWriter, req *http.Request) {
+
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := IsFollowingPublicKeyRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"IsFollowingPublicKey: Problem parsing request body: %v", err))
+		return
+	}
+
+	var userPublicKeyBytes []byte
+	var err error
+	userPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+	if err != nil || len(userPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"IsFollowingPublicKey: Problem decoding user public key %s: %v",
+			requestData.PublicKeyBase58Check, err))
+		return
+	}
+
+	// Get the public key for the user to check
+	var isFollowingPublicKeyBytes []byte
+	isFollowingPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.IsFollowingPublicKeyBase58Check)
+	if err != nil || len(isFollowingPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"IsFollowingPublicKey: Problem decoding public key to check %s: %v",
+			requestData.IsFollowingPublicKeyBase58Check, err))
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("IsFollowingPublicKey Error getting view: %v", err))
+		return
+	}
+
+	var isFollowing = false
+
+	followEntries := []*lib.FollowEntry{}
+	followEntries, err = utxoView.GetFollowEntriesForPublicKey(userPublicKeyBytes, false)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("IsFollowingPublicKey: Error fetching data for user: %v", err))
+		return
+	}
+
+	for _, followEntry := range followEntries {
+		var followPKID *lib.PKID
+		followPKID = followEntry.FollowedPKID
+
+		// Convert the followPKID to a public key using the view. The followPubKey should never
+		// be nil.
+		followPubKey := utxoView.GetPublicKeyForPKID(followPKID)
+		if len(followPubKey) == 0 {
+			_AddBadRequestError(ww, fmt.Sprintf("IsFollowingPublicKey: found PKID %v that does not have a public key mapping; this should never happen", lib.PkToString(followEntry.FollowedPKID[:], fes.Params)))
+		}
+		followPubKeyBase58Check := lib.PkToString(followPubKey, fes.Params)
+
+		if followPubKeyBase58Check == requestData.IsFollowingPublicKeyBase58Check {
+			isFollowing = true
+			break
+		}
+	}
+
+	res := IsFolllowingPublicKeyResponse{
+		IsFollowing: isFollowing,
+	}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("IsFollowingPublicKey: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
