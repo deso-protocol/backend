@@ -2464,20 +2464,10 @@ func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Reque
 	var IsHodling = false
 	var BalanceEntry *BalanceEntryResponse
 
-	pkid := utxoView.GetPKIDForPublicKey(userPublicKeyBytes)
-	youHodlMap, err := fes.GetYouHodlMap(pkid, false, utxoView)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"IsHodlingPublicKey: Could not find HODLers for pub key: %v", requestData.PublicKeyBase58Check))
-		return
-	}
-
-	for _, hodl := range youHodlMap {
-		if hodl.CreatorPublicKeyBase58Check == requestData.IsHodlingPublicKeyBase58Check {
-			BalanceEntry = hodl
-			IsHodling = true
-			break
-		}
+	hodlBalanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(userPublicKeyBytes, isHodlingPublicKeyBytes)
+	if hodlBalanceEntry != nil {
+		BalanceEntry = _balanceEntryToResponse(hodlBalanceEntry, hodlBalanceEntry.BalanceNanos, nil, fes.Params, utxoView, nil)
+		IsHodling = true
 	}
 
 	res := IsHodlingPublicKeyResponse{
