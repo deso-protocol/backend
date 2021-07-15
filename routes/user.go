@@ -2386,3 +2386,71 @@ func (fes *APIServer) IsFollowingPublicKey(ww http.ResponseWriter, req *http.Req
 		return
 	}
 }
+
+type IsHodlingPublicKeyRequest struct {
+	PublicKeyBase58Check          string
+	IsHodlingPublicKeyBase58Check string
+}
+
+type IsHodlingPublicKeyResponse struct {
+	IsHodling    bool
+	BalanceEntry *BalanceEntryResponse	
+}
+
+func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Request) {
+
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := IsHodlingPublicKeyRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"IsHodlingPublicKey: Problem parsing request body: %v", err))
+		return
+	}
+
+	var userPublicKeyBytes []byte
+	var err error
+	userPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+	if err != nil || len(userPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"IsHodlingPublicKey: Problem decoding user public key %s: %v",
+			requestData.PublicKeyBase58Check, err))
+		return
+	}
+
+	// Get the public key for the user to check
+	var isHodlingPublicKeyBytes []byte
+	isHodlingPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.IsHodlingPublicKeyBase58Check)
+	if err != nil || len(isHodlingPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"IsHodlingPublicKey: Problem decoding public key to check %s: %v",
+			requestData.IsHodlingPublicKeyBase58Check, err))
+		return
+	}
+
+	var utxoView *lib.UtxoView
+	utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("IsHodlingPublicKey: Error getting utxoView: %v", err))
+		return
+	}
+
+	var IsHodling = false
+	var BalanceEntry *BalanceEntryResponse
+
+	hodlBalanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(userPublicKeyBytes, isHodlingPublicKeyBytes)
+	if hodlBalanceEntry != nil {
+		BalanceEntry = _balanceEntryToResponse(hodlBalanceEntry, hodlBalanceEntry.BalanceNanos, nil, fes.Params, utxoView, nil)
+		IsHodling = true
+	}
+
+	res := IsHodlingPublicKeyResponse{
+		IsHodling:    IsHodling,
+		BalanceEntry: BalanceEntry,
+	}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("IsHodlingPublicKey: Problem serializing object to JSON: %v", err))
+		return
+	}
+
+}
