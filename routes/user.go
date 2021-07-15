@@ -2374,6 +2374,7 @@ func (fes *APIServer) IsFollowingPublicKey(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
+	// Get the FollowEntry from the view.
 	followEntry := utxoView.GetFollowEntryForFollowerPublicKeyCreatorPublicKey(userPublicKeyBytes, isFollowingPublicKeyBytes)
 
 	res := IsFolllowingPublicKeyResponse{
