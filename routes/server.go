@@ -51,6 +51,7 @@ const (
 	RoutePathBuyOrSellCreatorCoin     = "/api/v0/buy-or-sell-creator-coin"
 	RoutePathTransferCreatorCoin      = "/api/v0/transfer-creator-coin"
 	RoutePathSendDiamonds             = "/api/v0/send-diamonds"
+	RoutePathAuthorizeDerivedKey      = "/api/v0/authorize-derived-key"
 
 	// user.go
 	RoutePathGetUsersStateless        = "/api/v0/get-users-stateless"
@@ -568,6 +569,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathSendDiamonds,
 			fes.SendDiamonds,
+			PublicAccess,
+		},
+		{
+			"AuthorizeDerivedKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAuthorizeDerivedKey,
+			fes.AuthorizeDerivedKey,
 			PublicAccess,
 		},
 		{
