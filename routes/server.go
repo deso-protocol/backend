@@ -77,14 +77,14 @@ const (
 	RoutePathGetDiamondedPosts       = "/api/v0/get-diamonded-posts"
 
 	// nft.go
-	RoutePathCreateNFT             = "/api/v0/create-nft"
-	RoutePathUpdateNFT             = "/api/v0/update-nft"
-	RoutePathGetNFTFeed            = "/api/v0/get-nft-feed"
-	RoutePathGetNFTsForUser        = "/api/v0/get-nfts-for-user"
-	RoutePathGetNFTBidsForUser     = "/api/v0/get-nft-bids-for-user"
-	RoutePathCreateNFTBid          = "/api/v0/create-nft-bid"
-	RoutePathAcceptNFTBid          = "/api/v0/accept-nft-bid"
-	RoutePathGetNFTBidsForNFTPost  = "/api/v0/get-nft-bids-for-nft-post"
+	RoutePathCreateNFT            = "/api/v0/create-nft"
+	RoutePathUpdateNFT            = "/api/v0/update-nft"
+	RoutePathGetNFTFeed           = "/api/v0/get-nft-feed"
+	RoutePathGetNFTsForUser       = "/api/v0/get-nfts-for-user"
+	RoutePathGetNFTBidsForUser    = "/api/v0/get-nft-bids-for-user"
+	RoutePathCreateNFTBid         = "/api/v0/create-nft-bid"
+	RoutePathAcceptNFTBid         = "/api/v0/accept-nft-bid"
+	RoutePathGetNFTBidsForNFTPost = "/api/v0/get-nft-bids-for-nft-post"
 
 	// media.go
 	RoutePathUploadImage      = "/api/v0/upload-image"
@@ -143,6 +143,10 @@ const (
 	RoutePathAdminUpdateGlobalFeed = "/api/v0/admin/update-global-feed"
 	RoutePathAdminPinPost          = "/api/v0/admin/pin-post"
 	RoutePathAdminRemoveNilPosts   = "/api/v0/admin/remove-nil-posts"
+
+	// admin_nft.go
+	RoutePathAdminGetNFTDrop    = "/api/v0/admin/get-nft-drop"
+	RoutePathAdminUpdateNFTDrop = "/api/v0/admin/update-nft-drop"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -219,12 +223,12 @@ type APIServer struct {
 	SuperAdminPublicKeys []string
 
 	// Wyre
-	WyreUrl string
-	WyreAccountId string
-	WyreApiKey string
-	WyreSecretKey string
+	WyreUrl               string
+	WyreAccountId         string
+	WyreApiKey            string
+	WyreSecretKey         string
 	BuyBitCloutBTCAddress string
-	BuyBitCloutSeed string
+	BuyBitCloutSeed       string
 
 	// This lock is used when sending seed BitClout to avoid a race condition
 	// in which two calls to sending the seed BitClout use the same UTXO,
@@ -243,7 +247,7 @@ type APIServer struct {
 
 type LastTradePriceHistoryItem struct {
 	LastTradePrice uint64
-	Timestamp uint64
+	Timestamp      uint64
 }
 
 // NewAPIServer ...
@@ -334,7 +338,7 @@ func NewAPIServer(_backendServer *lib.Server,
 		LastTradeBitCloutPriceHistory:       []LastTradePriceHistoryItem{},
 		// We consider last trade prices from the last hour when determining the current price of BitClout.
 		// This helps prevents attacks that attempt to purchase $CLOUT at below market value.
-		LastTradePriceLookback:              uint64(time.Hour.Nanoseconds()),
+		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
 	}
 
 	fes.StartSeedBalancesMonitoring()
@@ -741,6 +745,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetWyreWalletOrdersForPublicKey,
 			fes.GetWyreWalletOrdersForPublicKey,
+			AdminAccess,
+		},
+		{
+			"AdminGetNFTDrop",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetNFTDrop,
+			fes.AdminGetNFTDrop,
+			AdminAccess,
+		},
+		{
+			"AdminUpdateNFTDrop",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateNFTDrop,
+			fes.AdminUpdateNFTDrop,
 			AdminAccess,
 		},
 		// Super Admin routes
