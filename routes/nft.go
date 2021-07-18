@@ -118,8 +118,7 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// RPH-FIXME: Calculate the correct NFT fee here.
-	nftFee := utxoView.GlobalParamsEntry.CreateNFTFeeNanos
+	nftFee := utxoView.GlobalParamsEntry.CreateNFTFeeNanos * uint64(requestData.NumCopies)
 
 	// Try and create the create NFT txn for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateCreateNFTTxn(

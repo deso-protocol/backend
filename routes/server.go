@@ -125,7 +125,9 @@ const (
 	RoutePathGetBuyBitCloutFeeBasisPoints             = "/api/v0/admin/get-buy-bitclout-fee-basis-points"
 
 	// admin_transaction.go
-	RoutePathGetGlobalParams    = "/api/v0/admin/get-global-params"
+	RoutePathGetGlobalParams    = "/api/v0/get-global-params"
+	// Eventually we will deprecate the admin endpoint since it does not need to be protected.
+	RoutePathAdminGetGlobalParams    = "/api/v0/admin/get-global-params"
 	RoutePathUpdateGlobalParams = "/api/v0/admin/update-global-params"
 	RoutePathSwapIdentity       = "/api/v0/admin/swap-identity"
 
@@ -393,6 +395,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetExchangeRate,
 			fes.GetExchangeRate,
+			PublicAccess,
+		},
+		{
+			"GetGlobalParams",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetGlobalParams,
+			fes.GetGlobalParams,
 			PublicAccess,
 		},
 		// Route for sending BitClout
@@ -734,9 +743,9 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			AdminAccess,
 		},
 		{
-			"GetGlobalParams",
+			"AdminGetGlobalParams",
 			[]string{"POST", "OPTIONS"},
-			RoutePathGetGlobalParams,
+			RoutePathAdminGetGlobalParams,
 			fes.GetGlobalParams,
 			AdminAccess,
 		},
