@@ -23,6 +23,8 @@ type AdminGetNFTDropResponse struct {
 	Posts     []*PostEntryResponse
 }
 
+// Check global state and get the latest drop entry if available.
+// If no drop entry is found in global state, returns a default-initialized NFTDropEntry.
 func (fes *APIServer) GetLatestNFTDropEntry() (_dropEntry *NFTDropEntry, _err error) {
 	seekKey := _GlobalStatePrefixNFTDropNumberToNFTDropEntry
 	maxKeyLen := 9 // These keys are 1 prefix byte + 8 bytes for the uint64 drop number.
