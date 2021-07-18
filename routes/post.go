@@ -78,8 +78,10 @@ type PostEntryResponse struct {
 	PostEntryReaderState *lib.PostEntryReaderState
 	// True if this post hash hex is in the global feed.
 	InGlobalFeed *bool `json:",omitempty"`
-	// True if this post hash hex is pinned to the global feed.
+	// True if this post hash hex is pinned to profile page.
 	IsPinned *bool `json:",omitempty"`
+	// True if this post hash hex is in pinned to the global feed.
+	IsGlobalPinned *bool `json:",omitempty"`
 	// PostExtraData stores an arbitrary map of attributes of a PostEntry
 	PostExtraData     map[string]string
 	CommentCount      uint64
@@ -237,6 +239,7 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 		RecloutCount:               postEntry.RecloutCount,
 		QuoteRecloutCount:          postEntry.QuoteRecloutCount,
 		IsPinned:                   &postEntry.IsPinned,
+		IsGlobalPinned:             &postEntry.IsGlobalPinned,
 		PostExtraData:              postEntryResponseExtraData,
 	}
 
@@ -677,7 +680,7 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 				copy(postHash[:], dbKeyBytes[1+len(maxBigEndianUint64Bytes):][:])
 				postEntry := utxoView.GetPostEntryForPostHash(postHash)
 				if postEntry != nil {
-					postEntry.IsPinned = true
+					postEntry.IsGlobalPinned = true
 					pinnedPostEntries = append(pinnedPostEntries, postEntry)
 				}
 			}
@@ -1300,6 +1303,11 @@ type GetPostsForPublicKeyRequest struct {
 	// Number of records to fetch
 	NumToFetch uint64 `safeForLogging:"true"`
 	MediaRequired bool `safeForLogging:"true"`
+
+	// MaxPinnedPosts is the number of pinned posts to fetch and prepend
+	// to the returned posts. This parameter is specified on the frontend
+	// so developers can choose how many pinned posts to request depending on the frontend.
+	MaxPinnedPosts uint64 `safeForLogging:"true"`
 }
 
 // GetPostsForPublicKeyResponse ...
@@ -1363,13 +1371,30 @@ func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Req
 		}
 	}
 
+	if requestData.MaxPinnedPosts >= requestData.NumToFetch {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsForPublicKey: MaxPinnedPosts requested conflicts with number of posts to return."))
+		return
+	}
+
+	// Get Pinned Posts Ordered by time. This also returns a postsIncluded map that we use to ignore
+	// the posts in the next step.
+	pinnedPosts, pinnedPostsIncluded, err := utxoView.GetPinnedPostsForPublicKeyOrderedByTimestamp(publicKeyBytes,
+		requestData.MaxPinnedPosts, requestData.MediaRequired)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsForPublicKey: Problem getting pinned posts: %v", err))
+		return
+	}
 
 	// Get Posts Ordered by time.
-	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash, requestData.NumToFetch, requestData.MediaRequired)
+	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash,
+		pinnedPostsIncluded, requestData.NumToFetch, requestData.MediaRequired)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPostsForPublicKey: Problem getting paginated posts: %v", err))
 		return
 	}
+
+	// Set IsPinned to false for all posts outside of the pinned set
+	for ii := range posts { posts[ii].IsPinned = false }
 
 	sort.Slice(posts, func(ii, jj int) bool {
 		return posts[ii].TimestampNanos > posts[jj].TimestampNanos
@@ -1388,6 +1413,14 @@ func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Req
 			}
 		}
 		posts = posts[startIndex:lib.MinInt(len(posts), startIndex+int(requestData.NumToFetch))]
+	}
+
+	// If this is the first page, we add the pinned posts to the front of the list.
+	if requestData.LastPostHashHex == "" {
+		posts = append(pinnedPosts, posts...)
+		if len(posts) > int(requestData.NumToFetch) {
+			posts = posts[:requestData.NumToFetch]
+		}
 	}
 
 	// Convert postEntries to postEntryResponses and fetch PostEntryReaderState for each post.
