@@ -711,11 +711,13 @@ func (fes *APIServer) GetNFTsForUser(ww http.ResponseWriter, req *http.Request) 
 				_AddBadRequestError(ww, fmt.Sprintf("GetNFTsForUser: Problem converting post entry to response: %v", err))
 				return
 			}
-			if _, exists := publicKeyToProfileEntryResponse[postEntryResponse.PosterPublicKeyBase58Check]; !exists {
+			if peResponse, exists := publicKeyToProfileEntryResponse[postEntryResponse.PosterPublicKeyBase58Check]; !exists {
 				profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
 				profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedUsernameMap, utxoView)
 				postEntryResponse.ProfileEntryResponse = profileEntryResponse
 				publicKeyToProfileEntryResponse[postEntryResponse.PosterPublicKeyBase58Check] = profileEntryResponse
+			} else {
+				postEntryResponse.ProfileEntryResponse = peResponse
 			}
 			postHashToEntryResponseMap[nftEntry.NFTPostHash] = postEntryResponse
 		}
