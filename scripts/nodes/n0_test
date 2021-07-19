@@ -25,6 +25,7 @@ rm /tmp/main.*.log
   --glog-vmodule="*api*=0,*bitcoin_manager*=2,*balance*=0,*frontend*=0,*peer*=0,*addr*=0,*network*=0,*utils*=0,*connection*=0,*main*=0,server*=0,*mempool*=0,*miner*=0,*blockchain*=0,*block_producer*=1" \
   --add-ips=localhost:19000 \
   --testnet=true  \
+  --regtest \
   --api-port=18001 \
   --protocol-port=18000 \
   --txindex \
