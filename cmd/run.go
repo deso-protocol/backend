@@ -16,8 +16,8 @@ import (
 var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run the server",
-	Long: `...`,
-	Run: Run,
+	Long:  `...`,
+	Run:   Run,
 }
 
 func Run(cmd *cobra.Command, args []string) {

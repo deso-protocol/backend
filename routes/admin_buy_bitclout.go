@@ -10,7 +10,7 @@ import (
 
 type SetUSDCentsToBitCloutExchangeRateRequest struct {
 	USDCentsPerBitClout uint64
-	AdminPublicKey string
+	AdminPublicKey      string
 }
 
 type SetUSDCentsToBitCloutExchangeRateResponse struct {
@@ -49,6 +49,7 @@ func (fes *APIServer) SetUSDCentsToBitCloutReserveExchangeRate(ww http.ResponseW
 type GetUSDCentsToBitCloutExchangeRateResponse struct {
 	USDCentsPerBitClout uint64
 }
+
 // GetUSDCentsToBitCloutReserveExchangeRate get the current reserve exchange rate
 func (fes *APIServer) GetUSDCentsToBitCloutReserveExchangeRate(ww http.ResponseWriter, req *http.Request) {
 	exchangeRate, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
@@ -72,7 +73,7 @@ func (fes *APIServer) GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState() 
 	if err != nil {
 		return 0, fmt.Errorf("Problem getting bitclout to usd exchange rate from global state: %v", err)
 	}
-	usdCentsPerBitClout, bytesRead :=  lib.Uvarint(val)
+	usdCentsPerBitClout, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {
 		return 0, fmt.Errorf("Problem reading bytes from global state: %v", err)
 	}
@@ -81,7 +82,7 @@ func (fes *APIServer) GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState() 
 
 type SetBuyBitCloutFeeBasisPointsRequest struct {
 	BuyBitCloutFeeBasisPoints uint64
-	AdminPublicKey string
+	AdminPublicKey            string
 }
 
 type SetBuyBitCloutFeeBasisPointsResponse struct {
@@ -140,7 +141,7 @@ func (fes *APIServer) GetBuyBitCloutFeeBasisPointsResponseFromGlobalState() (uin
 	if err != nil {
 		return 0, fmt.Errorf("Problem getting buy bitclout premium basis points from global state: %v", err)
 	}
-	feeBasisPoints, bytesRead :=  lib.Uvarint(val)
+	feeBasisPoints, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {
 		return 0, fmt.Errorf("Problem reading bytes from global state: %v", err)
 	}

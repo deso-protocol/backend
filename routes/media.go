@@ -34,7 +34,7 @@ func (fes *APIServer) GetGCSClient(ctx context.Context) (*storage.Client, error)
 	}
 }
 
-func (fes *APIServer) uploadSingleImage(image string, extension string) (_imageURL string, _err error){
+func (fes *APIServer) uploadSingleImage(image string, extension string) (_imageURL string, _err error) {
 	// Set up gcp storage client
 	ctx := context.Background()
 	client, err := fes.GetGCSClient(ctx)
@@ -91,7 +91,6 @@ func resizeAndConvertFromEncodedImageContent(encodedImageContent string, maxDim 
 		return nil, err
 	}
 	img := bimg.NewImage(imgBytes)
-
 
 	// resize the image
 	resizedImage, err := _resizeImage(img, maxDim)
@@ -199,7 +198,7 @@ func preprocessExtraData(extraData map[string]string) map[string][]byte {
 	return extraDataProcessed
 }
 
-func _resizeImage(imageObj *bimg.Image, maxDim uint) (_imgObj *bimg.Image, _err error){
+func _resizeImage(imageObj *bimg.Image, maxDim uint) (_imgObj *bimg.Image, _err error) {
 	// Get the width and height.
 	imgSize, err := imageObj.Size()
 	if err != nil {

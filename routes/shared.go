@@ -98,7 +98,7 @@ type User struct {
 
 	PublicKeysBase58CheckFollowedByUser []string
 
-	UsersYouHODL    []*BalanceEntryResponse
+	UsersYouHODL         []*BalanceEntryResponse
 	UsersWhoHODLYouCount int
 
 	// HasPhoneNumber is a computed boolean so we can avoid returning the phone number in the
@@ -114,7 +114,7 @@ type User struct {
 
 	// Is this user blacklisted/graylisted
 	IsBlacklisted bool
-	IsGraylisted bool
+	IsGraylisted  bool
 }
 
 type BalanceEntryResponse struct {
@@ -134,8 +134,6 @@ type BalanceEntryResponse struct {
 
 	ProfileEntryResponse *ProfileEntryResponse
 }
-
-
 
 func (fes *APIServer) GetBalanceForPublicKey(publicKeyBytes []byte) (
 	_balanceNanos uint64, _err error) {

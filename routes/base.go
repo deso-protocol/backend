@@ -57,7 +57,7 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 	nanosPerSat, err := fes.GetNanosFromSats(1, 0)
 	if err != nil {
 		glog.Errorf("GetExchangeRate: error getting BitCloutNanos per BitCoin: %v", err)
-		satoshisPerUnit =  lib.GetSatoshisPerUnitExchangeRate(startNanos, usdCentsPerBitcoin)
+		satoshisPerUnit = lib.GetSatoshisPerUnitExchangeRate(startNanos, usdCentsPerBitcoin)
 	} else {
 		satoshisPerUnit = lib.NanosPerUnit / nanosPerSat
 	}
@@ -77,12 +77,12 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 	}
 
 	res := &GetExchangeRateResponse{
-		SatoshisPerBitCloutExchangeRate: satoshisPerUnit,
-		NanosSold:                       startNanos,
-		USDCentsPerBitcoinExchangeRate:  usdCentsPerBitcoin,
-		USDCentsPerBitCloutExchangeRate: usdCentsPerBitCloutExchangeRate,
+		SatoshisPerBitCloutExchangeRate:        satoshisPerUnit,
+		NanosSold:                              startNanos,
+		USDCentsPerBitcoinExchangeRate:         usdCentsPerBitcoin,
+		USDCentsPerBitCloutExchangeRate:        usdCentsPerBitCloutExchangeRate,
 		USDCentsPerBitCloutReserveExchangeRate: usdCentsPerBitCloutReserveExchangeRate,
-		BuyBitCloutFeeBasisPoints: feeBasisPoints,
+		BuyBitCloutFeeBasisPoints:              feeBasisPoints,
 	}
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
@@ -105,9 +105,9 @@ func (fes *APIServer) GetExchangeBitCloutPrice() uint64 {
 }
 
 type BlockchainBitCloutTickerResponse struct {
-	Symbol string `json:"symbol"`
-	Price24H float64 `json:"price_24h"`
-	Volume24H float64 `json:"volume_24h"`
+	Symbol         string  `json:"symbol"`
+	Price24H       float64 `json:"price_24h"`
+	Volume24H      float64 `json:"volume_24h"`
 	LastTradePrice float64 `json:"last_trade_price"`
 }
 
@@ -164,7 +164,7 @@ func (fes *APIServer) UpdateUSDCentsToBitCloutExchangeRate() {
 	timestamp := uint64(time.Now().UnixNano())
 	fes.LastTradeBitCloutPriceHistory = append(fes.LastTradeBitCloutPriceHistory, LastTradePriceHistoryItem{
 		LastTradePrice: uint64(blockchainDotComExchangeRate),
-		Timestamp: timestamp,
+		Timestamp:      timestamp,
 	})
 
 	// Get the max price within the lookback window and remove elements that are no longer valid.

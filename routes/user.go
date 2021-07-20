@@ -1006,9 +1006,9 @@ type GetSingleProfileRequest struct {
 }
 
 type GetSingleProfileResponse struct {
-	Profile *ProfileEntryResponse
+	Profile       *ProfileEntryResponse
 	IsBlacklisted bool
-	IsGraylisted bool
+	IsGraylisted  bool
 }
 
 // GetSingleProfile...
@@ -2394,7 +2394,7 @@ type IsHodlingPublicKeyRequest struct {
 
 type IsHodlingPublicKeyResponse struct {
 	IsHodling    bool
-	BalanceEntry *BalanceEntryResponse	
+	BalanceEntry *BalanceEntryResponse
 }
 
 func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Request) {

@@ -356,7 +356,6 @@ func GlobalStateKeyForBuyBitCloutFeeBasisPoints() []byte {
 	return prefixCopy
 }
 
-
 type GlobalStatePutRemoteRequest struct {
 	Key   []byte
 	Value []byte

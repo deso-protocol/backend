@@ -42,7 +42,7 @@ type GetPostsStatelessRequest struct {
 	GetPostsForGlobalWhitelist bool `safeForLogging:"true"`
 
 	// This gets posts sorted by clout
-	GetPostsByClout             bool   `safeForLogging:"true"`
+	GetPostsByClout bool `safeForLogging:"true"`
 
 	// This only gets posts that include media, like photos and videos
 	MediaRequired bool `safeForLogging:"true"`
@@ -740,7 +740,6 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 		}
 	}
 
-
 	// Default to 50 posts fetched.
 	numToFetch := 50
 	if requestData.NumToFetch != 0 {
@@ -1298,8 +1297,8 @@ type GetPostsForPublicKeyRequest struct {
 	// PostHashHex of the last post from the previous page
 	LastPostHashHex string `safeForLogging:"true"`
 	// Number of records to fetch
-	NumToFetch uint64 `safeForLogging:"true"`
-	MediaRequired bool `safeForLogging:"true"`
+	NumToFetch    uint64 `safeForLogging:"true"`
+	MediaRequired bool   `safeForLogging:"true"`
 }
 
 // GetPostsForPublicKeyResponse ...
@@ -1362,7 +1361,6 @@ func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Req
 			return
 		}
 	}
-
 
 	// Get Posts Ordered by time.
 	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash, requestData.NumToFetch, requestData.MediaRequired)
@@ -1672,7 +1670,6 @@ func (fes *APIServer) GetLikesForPost(ww http.ResponseWriter, req *http.Request)
 		pkMapKey := lib.MakePkMapKey(pubKey)
 		pkMapToFilter[pkMapKey] = pubKey
 	}
-
 
 	var filteredPkMap map[lib.PkMapKey][]byte
 	if addReaderPublicKey := utxoView.GetLikedByReader(readerPublicKeyBytes, postHash); addReaderPublicKey {

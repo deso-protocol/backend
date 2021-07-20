@@ -105,10 +105,10 @@ const (
 	// Admin route paths can only be accessed if a user's public key is whitelisted as an admin.
 
 	// admin_node.go
-	RoutePathNodeControl                              = "/api/v0/admin/node-control"
-	RoutePathReprocessBitcoinBlock                    = "/api/v0/admin/reprocess-bitcoin-block"
-	RoutePathAdminGetMempoolStats                     = "/api/v0/admin/get-mempool-stats"
-	RoutePathEvictUnminedBitcoinTxns                  = "/api/v0/admin/evict-unmined-bitcoin-txns"
+	RoutePathNodeControl             = "/api/v0/admin/node-control"
+	RoutePathReprocessBitcoinBlock   = "/api/v0/admin/reprocess-bitcoin-block"
+	RoutePathAdminGetMempoolStats    = "/api/v0/admin/get-mempool-stats"
+	RoutePathEvictUnminedBitcoinTxns = "/api/v0/admin/evict-unmined-bitcoin-txns"
 
 	// admin_buy_bitclout.go
 	RoutePathSetUSDCentsToBitCloutReserveExchangeRate = "/api/v0/admin/set-usd-cents-to-bitclout-reserve-exchange-rate"
@@ -129,7 +129,7 @@ const (
 	RoutePathAdminRemoveVerificationBadge          = "/api/v0/admin/remove-verification-badge"
 	RoutePathAdminGetVerifiedUsers                 = "/api/v0/admin/get-verified-users"
 	RoutePathAdminGetUsernameVerificationAuditLogs = "/api/v0/admin/get-username-verification-audit-logs"
-	RoutePathAdminGetUserAdminData				   = "/api/v0/admin/get-user-admin-data"
+	RoutePathAdminGetUserAdminData                 = "/api/v0/admin/get-user-admin-data"
 
 	// admin_feed.go
 	RoutePathAdminUpdateGlobalFeed = "/api/v0/admin/update-global-feed"
@@ -211,12 +211,12 @@ type APIServer struct {
 	SuperAdminPublicKeys []string
 
 	// Wyre
-	WyreUrl string
-	WyreAccountId string
-	WyreApiKey string
-	WyreSecretKey string
+	WyreUrl               string
+	WyreAccountId         string
+	WyreApiKey            string
+	WyreSecretKey         string
 	BuyBitCloutBTCAddress string
-	BuyBitCloutSeed string
+	BuyBitCloutSeed       string
 
 	// This lock is used when sending seed BitClout to avoid a race condition
 	// in which two calls to sending the seed BitClout use the same UTXO,
@@ -235,7 +235,7 @@ type APIServer struct {
 
 type LastTradePriceHistoryItem struct {
 	LastTradePrice uint64
-	Timestamp uint64
+	Timestamp      uint64
 }
 
 // NewAPIServer ...
@@ -326,7 +326,7 @@ func NewAPIServer(_backendServer *lib.Server,
 		LastTradeBitCloutPriceHistory:       []LastTradePriceHistoryItem{},
 		// We consider last trade prices from the last hour when determining the current price of BitClout.
 		// This helps prevents attacks that attempt to purchase $CLOUT at below market value.
-		LastTradePriceLookback:              uint64(time.Hour.Nanoseconds()),
+		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
 	}
 
 	fes.StartSeedBalancesMonitoring()
@@ -346,11 +346,11 @@ const (
 
 // Route ...
 type Route struct {
-	Name           string
-	Method         []string
-	Pattern        string
-	HandlerFunc    http.HandlerFunc
-	AccessLevel    AccessLevel
+	Name        string
+	Method      []string
+	Pattern     string
+	HandlerFunc http.HandlerFunc
+	AccessLevel AccessLevel
 }
 
 // InitRoutes ...
@@ -1100,7 +1100,6 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel Access
 			}
 		}
 
-
 		// We also check super admins, as they have a superset of capabilities.
 		for _, superAdminPubKey := range fes.SuperAdminPublicKeys {
 			if superAdminPubKey == requestData.AdminPublicKey {
@@ -1163,17 +1162,17 @@ func (fes *APIServer) Stop() {
 
 // Amplitude Logging
 type AmplitudeUploadRequestBody struct {
-	ApiKey string `json:"api_key"`
+	ApiKey string           `json:"api_key"`
 	Events []AmplitudeEvent `json:"events"`
 }
 
 type AmplitudeEvent struct {
-	UserId          string `json:"user_id"`
-	EventType       string `json:"event_type"`
+	UserId          string                 `json:"user_id"`
+	EventType       string                 `json:"event_type"`
 	EventProperties map[string]interface{} `json:"event_properties"`
 }
 
-func (fes *APIServer) logAmplitudeEvent(publicKeyBytes string, event string, eventData map[string]interface{})  error {
+func (fes *APIServer) logAmplitudeEvent(publicKeyBytes string, event string, eventData map[string]interface{}) error {
 	if fes.AmplitudeKey == "" {
 		return nil
 	}
@@ -1202,34 +1201,34 @@ func (fes *APIServer) logAmplitudeEvent(publicKeyBytes string, event string, eve
 	return nil
 }
 
-
 func (fes *APIServer) StartExchangePriceMonitoring() {
 	go func() {
-		out:
-			for {
-				select {
-				case <- time.After(10 * time.Second):
-					fes.UpdateUSDCentsToBitCloutExchangeRate()
-				case <- fes.quit:
-					break out
-				}
+	out:
+		for {
+			select {
+			case <-time.After(10 * time.Second):
+				fes.UpdateUSDCentsToBitCloutExchangeRate()
+			case <-fes.quit:
+				break out
 			}
+		}
 	}()
 }
+
 // Monitor balances for starter bitclout seed and buy bitclout seed
 func (fes *APIServer) StartSeedBalancesMonitoring() {
 	go func() {
 	out:
 		for {
 			select {
-			case <- time.After(1 * time.Minute):
+			case <-time.After(1 * time.Minute):
 				if fes.backendServer == nil || fes.backendServer.GetStatsdClient() == nil {
 					return
 				}
 				tags := []string{}
 				fes.logBalanceForSeed(fes.StarterBitCloutSeed, "STARTER_BITCLOUT", tags)
 				fes.logBalanceForSeed(fes.BuyBitCloutSeed, "BUY_BITCLOUT", tags)
-			case <- fes.quit:
+			case <-fes.quit:
 				break out
 			}
 		}
@@ -1250,7 +1249,7 @@ func (fes *APIServer) logBalanceForSeed(seed string, seedName string, tags []str
 	}
 }
 
-func (fes *APIServer) getBalanceForSeed(seedPhrase string) (uint64, error){
+func (fes *APIServer) getBalanceForSeed(seedPhrase string) (uint64, error) {
 	seedBytes, err := bip39.NewSeedWithErrorChecking(seedPhrase, "")
 	if err != nil {
 		return 0, fmt.Errorf("GetBalanceForSeed: Error converting mnemonic: %+v", err)

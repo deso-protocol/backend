@@ -57,7 +57,7 @@ func (fes *APIServer) GetBlockTemplate(ww http.ResponseWriter, req *http.Request
 
 	if fes.blockProducer == nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetBlockTemplate: This node is not running a block producer. "+
-				"Restart it with --max_block_templates_to_cache > 0"))
+			"Restart it with --max_block_templates_to_cache > 0"))
 		return
 	}
 
@@ -70,9 +70,9 @@ func (fes *APIServer) GetBlockTemplate(ww http.ResponseWriter, req *http.Request
 
 	// Reject requests for v0 headers to phase them out.
 	if requestData.HeaderVersion == lib.HeaderVersion0 {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBlockTemplate: Error: Header version v0 not supported. " +
-				"Please upgrade your miner to request v1 headers, and to hash " +
-				"with CloutHashV1"))
+		_AddBadRequestError(ww, fmt.Sprintf("GetBlockTemplate: Error: Header version v0 not supported. "+
+			"Please upgrade your miner to request v1 headers, and to hash "+
+			"with CloutHashV1"))
 		return
 	}
 
@@ -126,7 +126,7 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 
 	if fes.blockProducer == nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitBlock: This node is not running a block producer. "+
-				"Restart it with --max_block_templates_to_cache > 0"))
+			"Restart it with --max_block_templates_to_cache > 0"))
 		return
 	}
 
@@ -180,7 +180,7 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 		isMainChain, isOrphan, err)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("ERROR calling ProcessBlock: isMainChain=(%v), isOrphan=(%v), err=(%v)",
-				isMainChain, isOrphan, err))
+			isMainChain, isOrphan, err))
 		return
 	}
 
@@ -207,4 +207,3 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 }
-
