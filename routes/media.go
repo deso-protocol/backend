@@ -27,8 +27,8 @@ import (
 // GetGCSClient ...
 func (fes *APIServer) GetGCSClient(ctx context.Context) (*storage.Client, error) {
 	// If we have credentials, use them.  Otherwise, return a client without authentication.
-	if fes.GoogleApplicationCredentials != "" {
-		return storage.NewClient(ctx, option.WithCredentialsFile(fes.GoogleApplicationCredentials))
+	if fes.Config.GCPCredentialsPath != "" {
+		return storage.NewClient(ctx, option.WithCredentialsFile(fes.Config.GCPCredentialsPath))
 	} else {
 		return storage.NewClient(ctx, option.WithoutAuthentication())
 	}
@@ -42,7 +42,7 @@ func (fes *APIServer) uploadSingleImage(image string, extension string) (_imageU
 		return "", err
 	}
 	defer client.Close()
-	bucketName := fes.GoogleBucketName
+	bucketName := fes.Config.GCPBucketName
 	var dec io.Reader
 	var imageFileName string
 
@@ -68,7 +68,7 @@ func (fes *APIServer) uploadSingleImage(image string, extension string) (_imageU
 	if err = wc.Close(); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("https://%v/%v", fes.GoogleBucketName, imageFileName), nil
+	return fmt.Sprintf("https://%v/%v", fes.Config.GCPBucketName, imageFileName), nil
 }
 
 func getEncodedImageContent(encodedImageString string) string {

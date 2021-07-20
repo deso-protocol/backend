@@ -245,7 +245,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	hasStarterBitCloutSeed := false
-	if fes.StarterBitCloutSeed != "" {
+	if fes.Config.StarterBitcloutSeed != "" {
 		hasStarterBitCloutSeed = true
 	}
 
@@ -257,16 +257,16 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	res := &GetAppStateResponse{
-		AmplitudeKey:                        fes.AmplitudeKey,
-		AmplitudeDomain:                     fes.AmplitudeDomain,
-		ShowProcessingSpinners:              fes.ShowProcessingSpinners,
-		MinSatoshisBurnedForProfileCreation: fes.MinSatoshisBurnedForProfileCreation,
+		AmplitudeKey:                        fes.Config.AmplitudeKey,
+		AmplitudeDomain:                     fes.Config.AmplitudeDomain,
+		ShowProcessingSpinners:              fes.Config.ShowProcessingSpinners,
+		MinSatoshisBurnedForProfileCreation: fes.Config.MinSatoshisForProfile,
 		IsTestnet:                           fes.Params.NetworkType == lib.NetworkType_TESTNET,
-		SupportEmail:                        fes.SupportEmail,
+		SupportEmail:                        fes.Config.SupportEmail,
 		HasTwilioAPIKey:                     hasTwilioAPIKey,
 		HasStarterBitCloutSeed:              hasStarterBitCloutSeed,
 		CreateProfileFeeNanos:               utxoView.GlobalParamsEntry.CreateProfileFeeNanos,
-		CompProfileCreation:                 fes.IsCompProfileCreation,
+		CompProfileCreation:                 fes.Config.CompProfileCreation,
 		DiamondLevelMap:                     lib.GetBitCloutNanosDiamondLevelMapAtBlockHeight(int64(fes.blockchain.BlockTip().Height)),
 		HasWyreIntegration:                  fes.IsConfiguredForWyre(),
 	}

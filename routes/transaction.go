@@ -420,7 +420,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 
 	// Only comp create profile fee if frontend server has both twilio and starter bitclout seed configured and the user
 	// has verified their profile.
-	if !fes.IsCompProfileCreation || fes.StarterBitCloutSeed == "" || fes.Twilio == nil || userMetadata.PhoneNumber == "" {
+	if !fes.Config.CompProfileCreation || fes.Config.StarterBitcloutSeed == "" || fes.Twilio == nil || userMetadata.PhoneNumber == "" {
 		return additionalFees, nil
 	}
 	var phoneNumberMetadata *PhoneNumberMetadata
@@ -442,9 +442,9 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 		return additionalFees, nil
 	}
 	// Find the minimum starter bit clout amount
-	minStarterBitCloutNanos := fes.StarterBitCloutAmountNanos
-	if len(fes.StarterBitCloutPrefixExceptionMap) > 0 {
-		for _, starterBitClout := range fes.StarterBitCloutPrefixExceptionMap {
+	minStarterBitCloutNanos := fes.Config.StarterBitcloutNanos
+	if len(fes.Config.StarterPrefixNanosMap) > 0 {
+		for _, starterBitClout := range fes.Config.StarterPrefixNanosMap {
 			if starterBitClout < minStarterBitCloutNanos {
 				minStarterBitCloutNanos = starterBitClout
 			}
@@ -530,7 +530,7 @@ type ExchangeBitcoinResponse struct {
 
 // ExchangeBitcoinStateless ...
 func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http.Request) {
-	if fes.BuyBitCloutSeed == "" {
+	if fes.Config.BuyBitCloutSeed == "" {
 		_AddBadRequestError(ww, "ExchangeBitcoinStateless: This node is not configured to sell BitClout for Bitcoin")
 		return
 	}
@@ -615,7 +615,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		uint64(burnAmountSatoshis),
 		uint64(requestData.FeeRateSatoshisPerKB),
 		pubKey,
-		fes.BuyBitCloutBTCAddress,
+		fes.Config.BuyBitCloutBTCAddress,
 		fes.Params,
 		utxoSource)
 
@@ -812,7 +812,7 @@ func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint
 
 // ExceedsSendBitCloutBalance - Check if nanosPurchased is greater than the balance of the BuyBitClout wallet.
 func (fes *APIServer) ExceedsSendBitCloutBalance(nanosPurchased uint64) (bool, error) {
-	buyBitCloutSeedBalance, err := fes.getBalanceForSeed(fes.BuyBitCloutSeed)
+	buyBitCloutSeedBalance, err := fes.getBalanceForSeed(fes.Config.BuyBitCloutSeed)
 	if err != nil {
 		return false, fmt.Errorf("Error getting buy bitclout balance: %v", err)
 	}

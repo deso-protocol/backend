@@ -6,6 +6,8 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/sendgrid/sendgrid-go"
+	"github.com/sendgrid/sendgrid-go/helpers/mail"
 	"io"
 	"net/http"
 	"net/url"
@@ -13,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/bitclout/core/lib"
+	"github.com/golang/glog"
 	"github.com/nyaruka/phonenumbers"
 	"github.com/pkg/errors"
 )
@@ -92,7 +95,7 @@ func (fes *APIServer) SendPhoneNumberVerificationText(ww http.ResponseWriter, re
 	data = url.Values{}
 	data.Add("To", phoneNumber)
 	data.Add("Channel", "sms")
-	_, err = fes.Twilio.Verify.Verifications.Create(ctx, fes.TwilioVerifyServiceId, data)
+	_, err = fes.Twilio.Verify.Verifications.Create(ctx, fes.Config.TwilioVerifyServiceID, data)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendPhoneNumberVerificationText: Error with SendSMS: %v", err))
 		return
@@ -217,7 +220,7 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 	data := url.Values{}
 	data.Add("Code", requestData.VerificationCode)
 	data.Add("To", requestData.PhoneNumber)
-	checkPhoneNumberResponse, err := fes.Twilio.Verify.Verifications.Check(ctx, fes.TwilioVerifyServiceId, data)
+	checkPhoneNumberResponse, err := fes.Twilio.Verify.Verifications.Check(ctx, fes.Config.TwilioVerifyServiceID, data)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendPhoneNumberVerificationText: Error with SendSMS: %v", err))
 		return
@@ -276,8 +279,8 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 	/**************************************************************/
 	// Send the user starter BitClout, if we haven't already sent it
 	/**************************************************************/
-	if settingPhoneNumberForFirstTime && fes.StarterBitCloutSeed != "" {
-		amountToSendNanos := fes.StarterBitCloutAmountNanos
+	if settingPhoneNumberForFirstTime && fes.Config.StarterBitcloutSeed != "" {
+		amountToSendNanos := fes.Config.StarterBitcloutNanos
 
 		if len(requestData.PhoneNumber) == 0 || requestData.PhoneNumber[0] != '+' {
 			_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Phone number must start with a plus sign"))
@@ -288,14 +291,14 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 			// We sort the country codes by size, with the longest prefix
 			// first so that we match on the longest prefix when we iterate.
 			sortedPrefixExceptionMap := []string{}
-			for countryCodePrefix := range fes.StarterBitCloutPrefixExceptionMap {
+			for countryCodePrefix := range fes.Config.StarterPrefixNanosMap {
 				sortedPrefixExceptionMap = append(sortedPrefixExceptionMap, countryCodePrefix)
 			}
 			sort.Slice(sortedPrefixExceptionMap, func(ii, jj int) bool {
 				return len(sortedPrefixExceptionMap[ii]) > len(sortedPrefixExceptionMap[jj])
 			})
 			for _, countryPrefix := range sortedPrefixExceptionMap {
-				amountForPrefix := fes.StarterBitCloutPrefixExceptionMap[countryPrefix]
+				amountForPrefix := fes.Config.StarterPrefixNanosMap[countryPrefix]
 				if strings.Contains(requestData.PhoneNumber, countryPrefix) {
 					amountToSendNanos = amountForPrefix
 					break
@@ -317,4 +320,95 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 			return
 		}
 	}
+}
+
+type VerifyEmailRequest struct {
+	PublicKey string
+	EmailHash string
+}
+
+func (fes *APIServer) VerifyEmail(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := VerifyEmailRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Problem parsing request body: %v", err))
+		return
+	}
+
+	userPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.PublicKey)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("VerifyEmail: Invalid public key: %v", err))
+		return
+	}
+
+	// Now that we have a public key, update the global state object.
+	userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("VerifyEmail: Problem with getUserMetadataFromGlobalState: %v", err))
+		return
+	}
+
+	validHash := fes.verifyEmailHash(userMetadata.Email, requestData.PublicKey)
+	if requestData.EmailHash != validHash {
+		_AddBadRequestError(ww, fmt.Sprintf("VerifyEmail: Invalid hash: %s", requestData.EmailHash))
+		return
+	}
+
+	userMetadata.EmailVerified = true
+
+	err = fes.putUserMetadataInGlobalState(userMetadata)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("VerifyEmail: Failed to save user: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) sendVerificationEmail(emailAddress string, publicKey string) {
+	if !fes.IsConfiguredForSendgrid() {
+		return
+	}
+
+	email := mail.NewV3Mail()
+	email.SetTemplateID(fes.Config.SendgridConfirmEmailId)
+
+	from := mail.NewEmail(fes.Config.SendgridFromName, fes.Config.SendgridFromEmail)
+	email.SetFrom(from)
+
+	p := mail.NewPersonalization()
+	tos := []*mail.Email{
+		mail.NewEmail("", emailAddress),
+	}
+	p.AddTos(tos...)
+
+	hash := fes.verifyEmailHash(emailAddress, publicKey)
+	confirmUrl := fmt.Sprintf("%s/verify-email/%s/%s", fes.Config.SendgridDomain, publicKey, hash)
+	p.SetDynamicTemplateData("confirm_url", confirmUrl)
+	email.AddPersonalizations(p)
+
+	fes.sendEmail(email)
+}
+
+func (fes *APIServer) verifyEmailHash(emailAddress string, publicKey string) string {
+	hashBytes := []byte(emailAddress)
+	hashBytes = append(hashBytes, []byte(publicKey)...)
+	hashBytes = append(hashBytes, []byte(fes.Config.SendgridSalt)...)
+	return lib.Sha256DoubleHash(hashBytes).String()
+}
+
+func (fes *APIServer) sendEmail(email *mail.SGMailV3) {
+	if !fes.IsConfiguredForSendgrid() {
+		return
+	}
+
+	request := sendgrid.GetRequest(fes.Config.SendgridApiKey, "/v3/mail/send", "https://api.sendgrid.com")
+	request.Method = "POST"
+	request.Body = mail.GetRequestBody(email)
+	response, err := sendgrid.API(request)
+	if err != nil {
+		glog.Error("%v: %v", err, response)
+	}
+}
+
+func (fes *APIServer) IsConfiguredForSendgrid() bool {
+	return fes.Config.SendgridApiKey != ""
 }

@@ -1,4 +1,4 @@
-package cmd
+package config
 
 import (
 	"fmt"
@@ -53,6 +53,14 @@ type Config struct {
 	WyreSecretKey         string
 	BuyBitCloutBTCAddress string
 	BuyBitCloutSeed       string
+
+	// Emails
+	SendgridApiKey         string
+	SendgridDomain         string
+	SendgridSalt           string
+	SendgridFromName       string
+	SendgridFromEmail      string
+	SendgridConfirmEmailId string
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -118,5 +126,14 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.BuyBitCloutBTCAddress = viper.GetString("buy-bitclout-btc-address")
 	// Seed from which BitClout will be sent for orders placed through Wyre and "Buy With BTC" purchases"
 	config.BuyBitCloutSeed = viper.GetString("buy-bitclout-seed")
+
+	// Email
+	config.SendgridApiKey = viper.GetString("sendgrid-api-key")
+	config.SendgridDomain = viper.GetString("sendgrid-domain")
+	config.SendgridSalt = viper.GetString("sendgrid-salt")
+	config.SendgridFromName = viper.GetString("sendgrid-from-name")
+	config.SendgridFromEmail = viper.GetString("sendgrid-from-email")
+	config.SendgridConfirmEmailId = viper.GetString("sendgrid-confirm-email-id")
+
 	return &config
 }
