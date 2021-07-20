@@ -85,6 +85,7 @@ const (
 	RoutePathAcceptNFTBid         = "/api/v0/accept-nft-bid"
 	RoutePathGetNFTBidsForNFTPost = "/api/v0/get-nft-bids-for-nft-post"
 	RoutePathGetNFTMarketplace    = "/api/v0/get-nft-marketplace"
+	RoutePathGetNFTCollectionSummary = "/api/v0/get-nft-collection-summary"
 
 	// media.go
 	RoutePathUploadImage      = "/api/v0/upload-image"
@@ -590,6 +591,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetNFTsForUser,
 			fes.GetNFTsForUser,
+			PublicAccess,
+		},
+		{
+			"GetNFTBidsForUser",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTBidsForUser,
+			fes.GetNFTBidsForUser,
+			PublicAccess,
+		},
+		{
+			"GetNFTCollectionSummary",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTCollectionSummary,
+			fes.GetNFTCollectionSummary,
 			PublicAccess,
 		},
 		{
