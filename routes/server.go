@@ -65,6 +65,8 @@ const (
 	RoutePathUpdateUserGlobalMetadata = "/api/v0/update-user-global-metadata"
 	RoutePathGetNotifications         = "/api/v0/get-notifications"
 	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
+	RoutePathIsFollowingPublicKey     = "/api/v0/is-following-public-key"
+	RoutePathIsHodlingPublicKey       = "/api/v0/is-hodling-public-key"
 
 	// post.go
 	RoutePathGetPostsStateless       = "/api/v0/get-posts-stateless"
@@ -226,12 +228,12 @@ type APIServer struct {
 	SuperAdminPublicKeys []string
 
 	// Wyre
-	WyreUrl               string
-	WyreAccountId         string
-	WyreApiKey            string
-	WyreSecretKey         string
+	WyreUrl string
+	WyreAccountId string
+	WyreApiKey string
+	WyreSecretKey string
 	BuyBitCloutBTCAddress string
-	BuyBitCloutSeed       string
+	BuyBitCloutSeed string
 
 	// This lock is used when sending seed BitClout to avoid a race condition
 	// in which two calls to sending the seed BitClout use the same UTXO,
@@ -250,7 +252,7 @@ type APIServer struct {
 
 type LastTradePriceHistoryItem struct {
 	LastTradePrice uint64
-	Timestamp      uint64
+	Timestamp uint64
 }
 
 // NewAPIServer ...
@@ -341,7 +343,7 @@ func NewAPIServer(_backendServer *lib.Server,
 		LastTradeBitCloutPriceHistory:       []LastTradePriceHistoryItem{},
 		// We consider last trade prices from the last hour when determining the current price of BitClout.
 		// This helps prevents attacks that attempt to purchase $CLOUT at below market value.
-		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
+		LastTradePriceLookback:              uint64(time.Hour.Nanoseconds()),
 	}
 
 	fes.StartSeedBalancesMonitoring()
@@ -703,6 +705,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetTxn,
 			fes.GetTxn,
+			PublicAccess,
+		},
+		{
+			"IsFollowingPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathIsFollowingPublicKey,
+			fes.IsFollowingPublicKey,
+			PublicAccess,
+		},
+		{
+			"IsHodlingPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathIsHodlingPublicKey,
+			fes.IsHodlingPublicKey,
 			PublicAccess,
 		},
 
@@ -1218,7 +1234,11 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 		return pubKey.ToECDSA(), nil
 	})
 
-	return token.Valid, err
+	if err != nil {
+		return false, err
+	}
+
+	return token.Valid, nil
 }
 
 // Start ...
