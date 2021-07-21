@@ -21,9 +21,9 @@ import (
 )
 
 const (
-	globalStateSharedSecret    = "abcdef"
-	testJSONPort               = uint16(17001)
-	testMinFeeRateNanosPerKB   = uint64(1000)
+	globalStateSharedSecret  = "abcdef"
+	testJSONPort             = uint16(17001)
+	testMinFeeRateNanosPerKB = uint64(1000)
 
 	// go run transaction_util.go --manual_entropy_hex=0,1
 	senderPkString      = "tBCKXFJEDSF7Thcc6BUBcB6kicE5qzmLbAtvFf9LfKSXN4LwFt36oX"
@@ -35,7 +35,7 @@ const (
 	moneyPrivString = "tbc2yg6BS7we86H8WUF2xSAmnyJ1x63ZqXaiDkE2mostsxpfmCZiB"
 
 	blockSignerSeed = "essence camp ghost remove document vault ladder swim pupil index apart ring"
-	blockSignerPk = "BC1YLiQ86kwXUy3nfK391xht7N72UmbFY6bGrUsds1A7QKZrs4jJsxo"
+	blockSignerPk   = "BC1YLiQ86kwXUy3nfK391xht7N72UmbFY6bGrUsds1A7QKZrs4jJsxo"
 )
 
 func GetTestBadgerDb() (_db *badger.DB, _dir string) {
@@ -198,7 +198,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 		globalStateDB, globalStateRemoteNode, "",
 		[]string{}, false, []string{},
 		"", "", false, nil, "", 0,
-		"", "", "", "", false, []string{"adminpublickey"}, []string{},"", "", "", "", "", "")
+		"", "", "", "", false, []string{"adminpublickey"}, []string{}, "", "", "", "", "", "")
 	require.NoError(err)
 
 	// Calling initState() initializes the state of the APIServer and the router as well.
@@ -230,9 +230,9 @@ func TestAPI(t *testing.T) {
 		// Run this test as mainnet.
 		apiServer.Params = &lib.BitCloutMainnetParams
 		keyPairRequest := &APIKeyPairRequest{
-			Mnemonic:    "elegant express swarm mercy divorce conduct actor brain critic subject fit broom",
-			ExtraText:   "extra text",
-			Index:       0,
+			Mnemonic:  "elegant express swarm mercy divorce conduct actor brain critic subject fit broom",
+			ExtraText: "extra text",
+			Index:     0,
 		}
 		jsonRequest, err := json.Marshal(keyPairRequest)
 		require.NoError(err)
@@ -264,9 +264,9 @@ func TestAPI(t *testing.T) {
 		// Run this test as mainnet.
 		apiServer.Params = &lib.BitCloutMainnetParams
 		keyPairRequest := &APIKeyPairRequest{
-			Mnemonic:    "elegant express swarm mercy divorce conduct actor brain critic subject fit broom",
-			ExtraText:   "extra text",
-			Index:       5,
+			Mnemonic:  "elegant express swarm mercy divorce conduct actor brain critic subject fit broom",
+			ExtraText: "extra text",
+			Index:     5,
 		}
 		jsonRequest, err := json.Marshal(keyPairRequest)
 		require.NoError(err)
@@ -295,9 +295,9 @@ func TestAPI(t *testing.T) {
 	// Index=0, Testnet
 	{
 		keyPairRequest := &APIKeyPairRequest{
-			Mnemonic:    "elegant express swarm mercy divorce conduct actor brain critic subject fit broom",
-			ExtraText:   "extra text",
-			Index:       0,
+			Mnemonic:  "elegant express swarm mercy divorce conduct actor brain critic subject fit broom",
+			ExtraText: "extra text",
+			Index:     0,
 		}
 		jsonRequest, err := json.Marshal(keyPairRequest)
 		require.NoError(err)
@@ -324,9 +324,9 @@ func TestAPI(t *testing.T) {
 	// Index=5, Testnet
 	{
 		keyPairRequest := &APIKeyPairRequest{
-			Mnemonic:    "elegant express swarm mercy divorce conduct actor brain critic subject fit broom",
-			ExtraText:   "extra text",
-			Index:       5,
+			Mnemonic:  "elegant express swarm mercy divorce conduct actor brain critic subject fit broom",
+			ExtraText: "extra text",
+			Index:     5,
 		}
 		jsonRequest, err := json.Marshal(keyPairRequest)
 		require.NoError(err)
@@ -356,8 +356,8 @@ func TestAPI(t *testing.T) {
 		// Run this test as mainnet.
 		apiServer.Params = &lib.BitCloutMainnetParams
 		keyPairRequest := &APIKeyPairRequest{
-			Mnemonic:    "trial economy dentist mistake engage enact blur segment helmet evoke taste bulb",
-			Index:       0,
+			Mnemonic: "trial economy dentist mistake engage enact blur segment helmet evoke taste bulb",
+			Index:    0,
 		}
 		jsonRequest, err := json.Marshal(keyPairRequest)
 		require.NoError(err)
@@ -389,8 +389,8 @@ func TestAPI(t *testing.T) {
 		// Run this test as mainnet.
 		apiServer.Params = &lib.BitCloutMainnetParams
 		keyPairRequest := &APIKeyPairRequest{
-			Mnemonic:    "trial economy dentist mistake engage enact blur segment helmet evoke taste bulb",
-			Index:       1019,
+			Mnemonic: "trial economy dentist mistake engage enact blur segment helmet evoke taste bulb",
+			Index:    1019,
 		}
 		jsonRequest, err := json.Marshal(keyPairRequest)
 		require.NoError(err)
@@ -1356,7 +1356,7 @@ func TestAPI(t *testing.T) {
 			// Test IDs only
 			transactionInfoRequest := &APITransactionInfoRequest{
 				PublicKeyBase58Check: senderPkString,
-				IDsOnly: true,
+				IDsOnly:              true,
 			}
 			jsonRequest, err := json.Marshal(transactionInfoRequest)
 			require.NoError(err)

@@ -10,17 +10,17 @@ import (
 
 type Config struct {
 	// Core
-	APIPort                uint16
+	APIPort uint16
 
 	// Onboarding
-	StarterBitcloutSeed    string
-	StarterBitcloutNanos   uint64
-	StarterPrefixNanosMap  map[string]uint64
-	TwilioAccountSID       string
-	TwilioAuthToken        string
-	TwilioVerifyServiceID  string
-	CompProfileCreation    bool
-	MinSatoshisForProfile  uint64
+	StarterBitcloutSeed   string
+	StarterBitcloutNanos  uint64
+	StarterPrefixNanosMap map[string]uint64
+	TwilioAccountSID      string
+	TwilioAuthToken       string
+	TwilioVerifyServiceID string
+	CompProfileCreation   bool
+	MinSatoshisForProfile uint64
 
 	// Global State
 	GlobalStateRemoteNode   string
@@ -34,25 +34,25 @@ type Config struct {
 	SuperAdminPublicKeys      []string
 
 	// Analytics + Profiling
-	AmplitudeKey           string
-	AmplitudeDomain        string
-	DatadogProfiler        bool
+	AmplitudeKey    string
+	AmplitudeDomain string
+	DatadogProfiler bool
 
 	// User Interface
 	SupportEmail           string
 	ShowProcessingSpinners bool
 
 	// Images
-	GCPCredentialsPath     string
-	GCPBucketName          string
+	GCPCredentialsPath string
+	GCPBucketName      string
 
 	// Wyre
-	WyreUrl                string
-	WyreAccountId          string
-	WyreApiKey             string
-	WyreSecretKey          string
-	BuyBitCloutBTCAddress  string
-	BuyBitCloutSeed        string
+	WyreUrl               string
+	WyreAccountId         string
+	WyreApiKey            string
+	WyreSecretKey         string
+	BuyBitCloutBTCAddress string
+	BuyBitCloutSeed       string
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -92,7 +92,7 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	// Web Security
 	config.AccessControlAllowOrigins = viper.GetStringSlice("access-control-allow-origins")
 	config.SecureHeaderDevelopment = viper.GetBool("secure-header-development")
-	config.SecureHeaderAllowHosts =  viper.GetStringSlice("secure-header-allow-hosts")
+	config.SecureHeaderAllowHosts = viper.GetStringSlice("secure-header-allow-hosts")
 	config.AdminPublicKeys = viper.GetStringSlice("admin-public-keys")
 	config.SuperAdminPublicKeys = viper.GetStringSlice("super-admin-public-keys")
 

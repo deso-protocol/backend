@@ -10,13 +10,12 @@ import (
 	"path/filepath"
 )
 
-
 type Node struct {
 	APIServer   *routes.APIServer
 	GlobalState *badger.DB
 	Config      *Config
 
-	CoreNode    *coreCmd.Node
+	CoreNode *coreCmd.Node
 }
 
 func NewNode(config *Config, coreNode *coreCmd.Node) *Node {
