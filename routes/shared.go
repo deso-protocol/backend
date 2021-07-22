@@ -106,6 +106,8 @@ type User struct {
 	HasPhoneNumber   bool
 	CanCreateProfile bool
 	BlockedPubKeys   map[string]struct{}
+	HasEmail         bool
+	EmailVerified    bool
 
 	// Is this user an admin
 	IsAdmin bool
