@@ -392,7 +392,7 @@ func (fes *APIServer) verifyEmailHash(emailAddress string, publicKey string) str
 	hashBytes := []byte(emailAddress)
 	hashBytes = append(hashBytes, []byte(publicKey)...)
 	hashBytes = append(hashBytes, []byte(fes.Config.SendgridSalt)...)
-	return lib.Sha256DoubleHash(hashBytes).String()
+	return lib.Sha256DoubleHash(hashBytes).String()[:8]
 }
 
 func (fes *APIServer) sendEmail(email *mail.SGMailV3) {
