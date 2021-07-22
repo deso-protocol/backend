@@ -352,7 +352,6 @@ func (fes *APIServer) ResendVerifyEmail(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	// Now that we have a public key, update the global state object.
 	userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("ResendVerifyEmail: Problem with getUserMetadataFromGlobalState: %v", err))
