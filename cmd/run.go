@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/bitclout/backend/config"
 	coreCmd "github.com/bitclout/core/cmd"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -27,8 +28,8 @@ func Run(cmd *cobra.Command, args []string) {
 	coreNode.Start()
 
 	// Start the backend node
-	config := LoadConfig(coreConfig)
-	node := NewNode(config, coreNode)
+	nodeConfig := config.LoadConfig(coreConfig)
+	node := NewNode(nodeConfig, coreNode)
 	node.Start()
 
 	shutdownListener := make(chan os.Signal)
@@ -127,6 +128,15 @@ func init() {
 	runCmd.PersistentFlags().String("wyre-secret-key", "", "Wyre Secret Key")
 	runCmd.PersistentFlags().String("buy-bitclout-btc-address", "", "BTC Address for all Wyre Wallet Orders and 'Buy With BTC' purchases")
 	runCmd.PersistentFlags().String("buy-bitclout-seed", "", "Seed phrase from which BitClout will be sent for orders placed through Wyre and 'Buy With BTC' purchases")
+
+	// Email
+	runCmd.PersistentFlags().String("sendgrid-api-key", "", "Sendgrid API key")
+	runCmd.PersistentFlags().String("sendgrid-domain", "", "Sendgrid domain")
+	runCmd.PersistentFlags().String("sendgrid-salt", "", "Sendgrid salt for encoding data in emails")
+	runCmd.PersistentFlags().String("sendgrid-from-name", "", "Sendgrid from name")
+	runCmd.PersistentFlags().String("sendgrid-from-email", "", "Sendgrid from email")
+	runCmd.PersistentFlags().String("sendgrid-confirm-email-id", "", "Sendgrid confirmation email template ID")
+
 	runCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
 		viper.BindPFlag(flag.Name, flag)
 	})

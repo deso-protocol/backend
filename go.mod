@@ -28,6 +28,8 @@ require (
 	github.com/nyaruka/phonenumbers v1.0.69
 	github.com/pkg/errors v0.9.1
 	github.com/sasha-s/go-deadlock v0.2.0
+	github.com/sendgrid/rest v2.6.4+incompatible // indirect
+	github.com/sendgrid/sendgrid-go v3.10.0+incompatible // indirect
 	github.com/spf13/cobra v1.1.3
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.7.1

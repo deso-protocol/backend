@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	fmt "fmt"
+	"github.com/bitclout/backend/config"
 	"github.com/tyler-smith/go-bip39"
 	"io"
 	"io/ioutil"
@@ -91,6 +92,7 @@ const (
 	// verify.go
 	RoutePathSendPhoneNumberVerificationText   = "/api/v0/send-phone-number-verification-text"
 	RoutePathSubmitPhoneNumberVerificationCode = "/api/v0/submit-phone-number-verification-code"
+	RoutePathVerifyEmail                       = "/api/v0/verify-email"
 
 	// wyre.go
 	RoutePathGetWyreWalletOrderQuotation     = "/api/v0/get-wyre-wallet-order-quotation"
@@ -145,20 +147,10 @@ type APIServer struct {
 	mempool       *lib.BitCloutMempool
 	blockchain    *lib.Blockchain
 	blockProducer *lib.BitCloutBlockProducer
+	Params        *lib.BitCloutParams
+	Config        *config.Config
 
-	Params               *lib.BitCloutParams
-	SharedSecret         string
-	JSONPort             uint16
 	MinFeeRateNanosPerKB uint64
-
-	// This info is used to send "starter" BitClout to newly-created accounts.
-	// This allows them to create profiles, among other things, without having
-	// to buy BitClout first.
-	StarterBitCloutSeed        string
-	StarterBitCloutAmountNanos uint64
-
-	// Map of country code strings to the amount of start BitClout to issue.
-	StarterBitCloutPrefixExceptionMap map[string]uint64
 
 	// A pointer to the router that handles all requests.
 	router *muxtrace.Router
@@ -169,54 +161,14 @@ type APIServer struct {
 	// a remote node is set-- not both. When a remote node is set, global state
 	// is set and fetched from that node. Otherwise, it is set/fetched from the
 	// db. This makes it easy to run a local node in development.
-	GlobalStateDB                     *badger.DB
-	GlobalStateRemoteNode             string
-	GlobalStateRemoteNodeSharedSecret string
-
-	AccessControlAllowOrigins           []string
-	SecureHeaderMiddlewareIsDevelopment bool
-	SecureHeaderMiddlewareAllowedHost   []string
-
-	// Optional, may be empty. Used for client-side user instrumentation
-	AmplitudeKey    string
-	AmplitudeDomain string
-
-	// Whether or not to show processing spinners for unmined transactions in the UI.
-	ShowProcessingSpinners bool
+	GlobalStateDB *badger.DB
 
 	// Optional, may be empty. Used for Twilio integration
-	Twilio                *twilio.Client
-	TwilioVerifyServiceId string
-
-	// Optional. Used for gating profile creation.
-	MinSatoshisBurnedForProfileCreation uint64
-
-	// Optional. Show a support email to end users
-	SupportEmail string
+	Twilio *twilio.Client
 
 	// When set, BlockCypher is used to add extra security to BitcoinExchange
 	// transactions.
 	BlockCypherAPIKey string
-
-	// Google image storage environment variables
-	GoogleApplicationCredentials string
-	GoogleBucketName             string
-
-	// Optional. If true and twilio and starter bitclout seed configured, node will comp profile creation.
-	IsCompProfileCreation bool
-
-	// Optional, restricts access to the admin panel to these public keys
-	AdminPublicKeys []string
-	// Admins with higher levels of access
-	SuperAdminPublicKeys []string
-
-	// Wyre
-	WyreUrl               string
-	WyreAccountId         string
-	WyreApiKey            string
-	WyreSecretKey         string
-	BuyBitCloutBTCAddress string
-	BuyBitCloutSeed       string
 
 	// This lock is used when sending seed BitClout to avoid a race condition
 	// in which two calls to sending the seed BitClout use the same UTXO,
@@ -239,45 +191,21 @@ type LastTradePriceHistoryItem struct {
 }
 
 // NewAPIServer ...
-func NewAPIServer(_backendServer *lib.Server,
+func NewAPIServer(
+	_backendServer *lib.Server,
 	_mempool *lib.BitCloutMempool,
 	_blockchain *lib.Blockchain,
 	_blockProducer *lib.BitCloutBlockProducer,
 	txIndex *lib.TXIndex,
 	params *lib.BitCloutParams,
-	jsonPort uint16,
-	_minFeeRateNanosPerKB uint64,
-	_starterBitCloutSeed string,
-	_starterBitCloutAmountNanos uint64,
-	_starterBitCloutPrefixExceptionMap map[string]uint64,
+	config *config.Config,
+	minFeeRateNanosPerKB uint64,
 	globalStateDB *badger.DB,
-	globalStateRemoteNode string,
-	globalStateRemoteNodeSharedSecret string,
-	accessControlAllowOrigins []string,
-	secureHeaderMiddlewareIsDevelopment bool,
-	secureHeaderMiddlewareAllowedHost []string,
-	amplitudeKey string,
-	amplitudeDomain string,
-	showProcessingSpinners bool,
 	twilio *twilio.Client,
-	twilioVerifyServiceId string,
-	minSatoshisBurnedForProfileCreation uint64,
-	supportEmail string,
 	blockCypherAPIKey string,
-	googleApplicationCredentials string,
-	googleBucketName string,
-	compProfileCreation bool,
-	adminPublicKeys []string,
-	superAdminPublicKeys []string,
-	wyreUrl string,
-	wyreAccountId string,
-	wyreApiKey string,
-	wyreSecretKey string,
-	buyBitCloutBTCAddress string,
-	buyBitCloutSeed string,
 ) (*APIServer, error) {
 
-	if globalStateDB == nil && globalStateRemoteNode == "" {
+	if globalStateDB == nil && config.GlobalStateRemoteNode == "" {
 		return nil, fmt.Errorf(
 			"NewAPIServer: Error: A globalStateDB or a globalStateRemoteNode is required")
 	}
@@ -287,43 +215,17 @@ func NewAPIServer(_backendServer *lib.Server,
 		// the backendServer. Right now it's here because it was the easiest
 		// way to give the APIServer the ability to add transactions
 		// to the mempool and relay them to peers.
-		backendServer:                       _backendServer,
-		mempool:                             _mempool,
-		blockchain:                          _blockchain,
-		blockProducer:                       _blockProducer,
-		TXIndex:                             txIndex,
-		Params:                              params,
-		JSONPort:                            jsonPort,
-		MinFeeRateNanosPerKB:                _minFeeRateNanosPerKB,
-		StarterBitCloutSeed:                 _starterBitCloutSeed,
-		StarterBitCloutAmountNanos:          _starterBitCloutAmountNanos,
-		StarterBitCloutPrefixExceptionMap:   _starterBitCloutPrefixExceptionMap,
-		GlobalStateDB:                       globalStateDB,
-		GlobalStateRemoteNode:               globalStateRemoteNode,
-		GlobalStateRemoteNodeSharedSecret:   globalStateRemoteNodeSharedSecret,
-		AccessControlAllowOrigins:           accessControlAllowOrigins,
-		SecureHeaderMiddlewareIsDevelopment: secureHeaderMiddlewareIsDevelopment,
-		SecureHeaderMiddlewareAllowedHost:   secureHeaderMiddlewareAllowedHost,
-		AmplitudeKey:                        amplitudeKey,
-		AmplitudeDomain:                     amplitudeDomain,
-		ShowProcessingSpinners:              showProcessingSpinners,
-		Twilio:                              twilio,
-		TwilioVerifyServiceId:               twilioVerifyServiceId,
-		MinSatoshisBurnedForProfileCreation: minSatoshisBurnedForProfileCreation,
-		SupportEmail:                        supportEmail,
-		BlockCypherAPIKey:                   blockCypherAPIKey,
-		GoogleApplicationCredentials:        googleApplicationCredentials,
-		GoogleBucketName:                    googleBucketName,
-		IsCompProfileCreation:               compProfileCreation,
-		AdminPublicKeys:                     adminPublicKeys,
-		SuperAdminPublicKeys:                superAdminPublicKeys,
-		WyreUrl:                             wyreUrl,
-		WyreAccountId:                       wyreAccountId,
-		WyreApiKey:                          wyreApiKey,
-		WyreSecretKey:                       wyreSecretKey,
-		BuyBitCloutBTCAddress:               buyBitCloutBTCAddress,
-		BuyBitCloutSeed:                     buyBitCloutSeed,
-		LastTradeBitCloutPriceHistory:       []LastTradePriceHistoryItem{},
+		backendServer:                 _backendServer,
+		mempool:                       _mempool,
+		blockchain:                    _blockchain,
+		blockProducer:                 _blockProducer,
+		TXIndex:                       txIndex,
+		Params:                        params,
+		Config:                        config,
+		GlobalStateDB:                 globalStateDB,
+		Twilio:                        twilio,
+		BlockCypherAPIKey:             blockCypherAPIKey,
+		LastTradeBitCloutPriceHistory: []LastTradePriceHistoryItem{},
 		// We consider last trade prices from the last hour when determining the current price of BitClout.
 		// This helps prevents attacks that attempt to purchase $CLOUT at below market value.
 		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
@@ -634,6 +536,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.IsHodlingPublicKey,
 			PublicAccess,
 		},
+		{
+			"VerifyEmail",
+			[]string{"POST", "OPTIONS"},
+			RoutePathVerifyEmail,
+			fes.VerifyEmail,
+			PublicAccess,
+		},
 
 		// Begin all /admin routes
 		{
@@ -914,8 +823,8 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 
 	// Set secure headers
 	secureMiddleware := lib.InitializeSecureMiddleware(
-		fes.SecureHeaderMiddlewareAllowedHost,
-		fes.SecureHeaderMiddlewareIsDevelopment,
+		fes.Config.SecureHeaderAllowHosts,
+		fes.Config.SecureHeaderDevelopment,
 		lib.SECURE_MIDDLEWARE_RESTRICTIVE_CONTENT_SECURITY_POLICY,
 	)
 	router.Use(secureMiddleware.Handler)
@@ -938,11 +847,11 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		// last.
 
 		// Anyone can access the admin panel if no public keys exist
-		if route.AccessLevel != PublicAccess && (len(fes.AdminPublicKeys) > 0 || len(fes.SuperAdminPublicKeys) > 0) {
+		if route.AccessLevel != PublicAccess && (len(fes.Config.AdminPublicKeys) > 0 || len(fes.Config.SuperAdminPublicKeys) > 0) {
 			handler = fes.CheckAdminPublicKey(handler, route.AccessLevel)
 		}
 		handler = Logger(handler, route.Name)
-		handler = AddHeaders(handler, fes.AccessControlAllowOrigins)
+		handler = AddHeaders(handler, fes.Config.AccessControlAllowOrigins)
 
 		router.
 			Methods(route.Method...).
@@ -1091,7 +1000,7 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel Access
 
 		// If this a regular admin endpoint, we iterate through all the admin public keys.
 		if AccessLevel == AdminAccess {
-			for _, adminPubKey := range fes.AdminPublicKeys {
+			for _, adminPubKey := range fes.Config.AdminPublicKeys {
 				if adminPubKey == requestData.AdminPublicKey {
 					// We found a match, serve the request
 					inner.ServeHTTP(ww, req)
@@ -1101,7 +1010,7 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel Access
 		}
 
 		// We also check super admins, as they have a superset of capabilities.
-		for _, superAdminPubKey := range fes.SuperAdminPublicKeys {
+		for _, superAdminPubKey := range fes.Config.SuperAdminPublicKeys {
 			if superAdminPubKey == requestData.AdminPublicKey {
 				// We found a match, serve the request
 				inner.ServeHTTP(ww, req)
@@ -1144,8 +1053,8 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 func (fes *APIServer) Start() {
 	fes.initState()
 
-	glog.Infof("Listening to NON-SSL JSON API connections on port :%d", fes.JSONPort)
-	glog.Error(http.ListenAndServe(fmt.Sprintf(":%d", fes.JSONPort), fes.router))
+	glog.Infof("Listening to NON-SSL JSON API connections on port :%d", fes.Config.APIPort)
+	glog.Error(http.ListenAndServe(fmt.Sprintf(":%d", fes.Config.APIPort), fes.router))
 }
 
 // A helper function to initialize the APIServer. Useful for testing.
@@ -1173,7 +1082,7 @@ type AmplitudeEvent struct {
 }
 
 func (fes *APIServer) logAmplitudeEvent(publicKeyBytes string, event string, eventData map[string]interface{}) error {
-	if fes.AmplitudeKey == "" {
+	if fes.Config.AmplitudeKey == "" {
 		return nil
 	}
 	headers := map[string][]string{
@@ -1181,7 +1090,7 @@ func (fes *APIServer) logAmplitudeEvent(publicKeyBytes string, event string, eve
 		"Accept":       {"*/*"},
 	}
 	events := []AmplitudeEvent{{UserId: publicKeyBytes, EventType: event, EventProperties: eventData}}
-	ampBody := AmplitudeUploadRequestBody{ApiKey: fes.AmplitudeKey, Events: events}
+	ampBody := AmplitudeUploadRequestBody{ApiKey: fes.Config.AmplitudeKey, Events: events}
 	payload, err := json.Marshal(ampBody)
 	if err != nil {
 		return err
@@ -1226,8 +1135,8 @@ func (fes *APIServer) StartSeedBalancesMonitoring() {
 					return
 				}
 				tags := []string{}
-				fes.logBalanceForSeed(fes.StarterBitCloutSeed, "STARTER_BITCLOUT", tags)
-				fes.logBalanceForSeed(fes.BuyBitCloutSeed, "BUY_BITCLOUT", tags)
+				fes.logBalanceForSeed(fes.Config.StarterBitcloutSeed, "STARTER_BITCLOUT", tags)
+				fes.logBalanceForSeed(fes.Config.BuyBitCloutSeed, "BUY_BITCLOUT", tags)
 			case <-fes.quit:
 				break out
 			}

@@ -159,6 +159,9 @@ type UserMetadata struct {
 	// Email address for a user to receive email notifications at.
 	Email string
 
+	// Has the email been verified
+	EmailVerified bool
+
 	// E.164 format phone number for a user to receive text notifications at.
 	PhoneNumber string
 
@@ -401,15 +404,15 @@ func (fes *APIServer) CreateGlobalStatePutRequest(key []byte, value []byte) (
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
-		fes.GlobalStateRemoteNode, RoutePathGlobalStatePutRemote,
-		GlobalStateSharedSecretParam, fes.GlobalStateRemoteNodeSharedSecret)
+		fes.Config.GlobalStateRemoteNode, RoutePathGlobalStatePutRemote,
+		GlobalStateSharedSecretParam, fes.Config.GlobalStateRemoteSecret)
 
 	return url, json_data, nil
 }
 
 func (fes *APIServer) GlobalStatePut(key []byte, value []byte) error {
 	// If we have a remote node then use that node to fulfill this request.
-	if fes.GlobalStateRemoteNode != "" {
+	if fes.Config.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is hard to exercise in a test.
 
 		url, json_data, err := fes.CreateGlobalStatePutRequest(key, value)
@@ -486,15 +489,15 @@ func (fes *APIServer) CreateGlobalStateGetRequest(key []byte) (
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
-		fes.GlobalStateRemoteNode, RoutePathGlobalStateGetRemote,
-		GlobalStateSharedSecretParam, fes.GlobalStateRemoteNodeSharedSecret)
+		fes.Config.GlobalStateRemoteNode, RoutePathGlobalStateGetRemote,
+		GlobalStateSharedSecretParam, fes.Config.GlobalStateRemoteSecret)
 
 	return url, json_data, nil
 }
 
 func (fes *APIServer) GlobalStateGet(key []byte) (value []byte, _err error) {
 	// If we have a remote node then use that node to fulfill this request.
-	if fes.GlobalStateRemoteNode != "" {
+	if fes.Config.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
 		url, json_data, err := fes.CreateGlobalStateGetRequest(key)
@@ -587,15 +590,15 @@ func (fes *APIServer) CreateGlobalStateBatchGetRequest(keyList [][]byte) (
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
-		fes.GlobalStateRemoteNode, RoutePathGlobalStateBatchGetRemote,
-		GlobalStateSharedSecretParam, fes.GlobalStateRemoteNodeSharedSecret)
+		fes.Config.GlobalStateRemoteNode, RoutePathGlobalStateBatchGetRemote,
+		GlobalStateSharedSecretParam, fes.Config.GlobalStateRemoteSecret)
 
 	return url, json_data, nil
 }
 
 func (fes *APIServer) GlobalStateBatchGet(keyList [][]byte) (value [][]byte, _err error) {
 	// If we have a remote node then use that node to fulfill this request.
-	if fes.GlobalStateRemoteNode != "" {
+	if fes.Config.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
 		url, json_data, err := fes.CreateGlobalStateBatchGetRequest(keyList)
@@ -665,8 +668,8 @@ func (fes *APIServer) CreateGlobalStateDeleteRequest(key []byte) (
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
-		fes.GlobalStateRemoteNode, RoutePathGlobalStateDeleteRemote,
-		GlobalStateSharedSecretParam, fes.GlobalStateRemoteNodeSharedSecret)
+		fes.Config.GlobalStateRemoteNode, RoutePathGlobalStateDeleteRemote,
+		GlobalStateSharedSecretParam, fes.Config.GlobalStateRemoteSecret)
 
 	return url, json_data, nil
 }
@@ -697,7 +700,7 @@ func (fes *APIServer) GlobalStateDeleteRemote(ww http.ResponseWriter, rr *http.R
 
 func (fes *APIServer) GlobalStateDelete(key []byte) error {
 	// If we have a remote node then use that node to fulfill this request.
-	if fes.GlobalStateRemoteNode != "" {
+	if fes.Config.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
 		url, json_data, err := fes.CreateGlobalStateDeleteRequest(key)
@@ -759,8 +762,8 @@ func (fes *APIServer) CreateGlobalStateSeekRequest(startPrefix []byte, validForP
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
-		fes.GlobalStateRemoteNode, RoutePathGlobalStateSeekRemote,
-		GlobalStateSharedSecretParam, fes.GlobalStateRemoteNodeSharedSecret)
+		fes.Config.GlobalStateRemoteNode, RoutePathGlobalStateSeekRemote,
+		GlobalStateSharedSecretParam, fes.Config.GlobalStateRemoteSecret)
 
 	return url, json_data, nil
 }
@@ -804,7 +807,7 @@ func (fes *APIServer) GlobalStateSeek(startPrefix []byte, validForPrefix []byte,
 	_keysFound [][]byte, _valsFound [][]byte, _err error) {
 
 	// If we have a remote node then use that node to fulfill this request.
-	if fes.GlobalStateRemoteNode != "" {
+	if fes.Config.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
 		url, json_data, err := fes.CreateGlobalStateSeekRequest(
