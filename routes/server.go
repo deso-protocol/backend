@@ -92,6 +92,7 @@ const (
 	// verify.go
 	RoutePathSendPhoneNumberVerificationText   = "/api/v0/send-phone-number-verification-text"
 	RoutePathSubmitPhoneNumberVerificationCode = "/api/v0/submit-phone-number-verification-code"
+	RoutePathResendVerifyEmail                 = "/api/v0/resend-verify-email"
 	RoutePathVerifyEmail                       = "/api/v0/verify-email"
 
 	// wyre.go
@@ -534,6 +535,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathIsHodlingPublicKey,
 			fes.IsHodlingPublicKey,
+			PublicAccess,
+		},
+		{
+			"ResendVerifyEmail",
+			[]string{"POST", "OPTIONS"},
+			RoutePathResendVerifyEmail,
+			fes.ResendVerifyEmail,
 			PublicAccess,
 		},
 		{

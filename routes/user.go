@@ -204,8 +204,10 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		}
 
 		// HasPhoneNumber is a computed boolean so we can avoid returning the phone number in the
-		// API response, since phone numbers are sensitive PII.
+		// API response, since phone numbers are sensitive PII. Same for emails.
 		user.HasPhoneNumber = userMetadata.PhoneNumber != ""
+		user.HasEmail = userMetadata.Email != ""
+		user.EmailVerified = userMetadata.EmailVerified
 
 		user.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView)
 		if err != nil {

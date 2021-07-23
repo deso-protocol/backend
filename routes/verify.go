@@ -322,6 +322,50 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 	}
 }
 
+type ResendVerifyEmailRequest struct {
+	PublicKey string
+	JWT       string
+}
+
+func (fes *APIServer) ResendVerifyEmail(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := ResendVerifyEmailRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("ResendVerifyEmail: Problem parsing request body: %v", err))
+		return
+	}
+
+	if !fes.IsConfiguredForSendgrid() {
+		_AddBadRequestError(ww, "ResendVerifyEmail: Sendgrid not configured")
+		return
+	}
+
+	isValid, err := fes.ValidateJWT(requestData.PublicKey, requestData.JWT)
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("ResendVerifyEmail: Invalid token: %v", err))
+		return
+	}
+
+	userPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.PublicKey)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("ResendVerifyEmail: Invalid public key: %v", err))
+		return
+	}
+
+	userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("ResendVerifyEmail: Problem with getUserMetadataFromGlobalState: %v", err))
+		return
+	}
+
+	if userMetadata.Email == "" {
+		_AddBadRequestError(ww, "ResendVerifyEmail: Email missing")
+		return
+	}
+
+	fes.sendVerificationEmail(userMetadata.Email, requestData.PublicKey)
+}
+
 type VerifyEmailRequest struct {
 	PublicKey string
 	EmailHash string
@@ -331,7 +375,7 @@ func (fes *APIServer) VerifyEmail(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := VerifyEmailRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Problem parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("VerifyEmail: Problem parsing request body: %v", err))
 		return
 	}
 
@@ -364,10 +408,6 @@ func (fes *APIServer) VerifyEmail(ww http.ResponseWriter, req *http.Request) {
 }
 
 func (fes *APIServer) sendVerificationEmail(emailAddress string, publicKey string) {
-	if !fes.IsConfiguredForSendgrid() {
-		return
-	}
-
 	email := mail.NewV3Mail()
 	email.SetTemplateID(fes.Config.SendgridConfirmEmailId)
 
