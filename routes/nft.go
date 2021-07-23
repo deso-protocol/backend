@@ -13,17 +13,17 @@ import (
 )
 
 type NFTEntryResponse struct {
-	OwnerPublicKeyBase58Check string                `safeForLogging:"true"`
-	ProfileEntryResponse      *ProfileEntryResponse `json:",omitempty"`
-	PostEntryResponse         *PostEntryResponse    `json:",omitempty"`
-	SerialNumber              uint64                `safeForLogging:"true"`
-	IsForSale                 bool                  `safeForLogging:"true"`
-	MinBidAmountNanos         uint64                `safeForLogging:"true"`
-	LastAcceptedBidAmountNanos uint64               `safeForLogging:"true"`
+	OwnerPublicKeyBase58Check  string                `safeForLogging:"true"`
+	ProfileEntryResponse       *ProfileEntryResponse `json:",omitempty"`
+	PostEntryResponse          *PostEntryResponse    `json:",omitempty"`
+	SerialNumber               uint64                `safeForLogging:"true"`
+	IsForSale                  bool                  `safeForLogging:"true"`
+	MinBidAmountNanos          uint64                `safeForLogging:"true"`
+	LastAcceptedBidAmountNanos uint64                `safeForLogging:"true"`
 
 	// These fields are only populated when the reader is the owner.
-	LastOwnerPublicKeyBase58Check *string           `json:",omitempty"`
-	EncryptedUnlockableText   *string               `json:",omitempty"`
+	LastOwnerPublicKeyBase58Check *string `json:",omitempty"`
+	EncryptedUnlockableText       *string `json:",omitempty"`
 }
 
 type NFTCollectionResponse struct {
@@ -38,7 +38,7 @@ type NFTCollectionResponse struct {
 type NFTBidEntryResponse struct {
 	PublicKeyBase58Check string
 	ProfileEntryResponse *ProfileEntryResponse `json:",omitempty"`
-	PostHashHex *string `json:",omitempty"`
+	PostHashHex          *string               `json:",omitempty"`
 	// likely nil if included in a list of NFTBidEntryResponses for a single NFT
 	PostEntryResponse *PostEntryResponse `json:",omitempty"`
 	SerialNumber      uint64             `safeForLogging:"true"`
@@ -598,19 +598,19 @@ func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
-type GetNFTMarketplaceRequest struct {
+type GetNFTShowcaseRequest struct {
 	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
 }
 
-type GetNFTMarketplaceResponse struct {
+type GetNFTShowcaseResponse struct {
 	NFTCollections []*NFTCollectionResponse
 }
 
-func (fes *APIServer) GetNFTMarketplace(ww http.ResponseWriter, req *http.Request) {
+func (fes *APIServer) GetNFTShowcase(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := GetNFTMarketplaceRequest{}
+	requestData := GetNFTShowcaseRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetNFTMarketplace: Error parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTShowcase: Error parsing request body: %v", err))
 		return
 	}
 
@@ -619,14 +619,14 @@ func (fes *APIServer) GetNFTMarketplace(ww http.ResponseWriter, req *http.Reques
 	if requestData.ReaderPublicKeyBase58Check != "" {
 		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetNFTMarketplace: Problem decoding reader public key: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("GetNFTShowcase: Problem decoding reader public key: %v", err))
 			return
 		}
 	}
 
 	dropEntry, err := fes.GetLatestNFTDropEntry()
 	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("GetNFTMarketplace: Problem getting latest drop: %v", err))
+		_AddInternalServerError(ww, fmt.Sprintf("GetNFTShowcase: Problem getting latest drop: %v", err))
 		return
 	}
 
@@ -644,7 +644,7 @@ func (fes *APIServer) GetNFTMarketplace(ww http.ResponseWriter, req *http.Reques
 			dropEntry, err = fes.GetNFTDropEntry(dropNumToFetch)
 			if err != nil {
 				_AddInternalServerError(ww, fmt.Sprintf(
-					"GetNFTMarketplace: Problem getting drop #%d: %v", dropNumToFetch, err))
+					"GetNFTShowcase: Problem getting drop #%d: %v", dropNumToFetch, err))
 				return
 			}
 		}
@@ -653,7 +653,7 @@ func (fes *APIServer) GetNFTMarketplace(ww http.ResponseWriter, req *http.Reques
 	// Now that we have the drop entry, fetch the NFTs.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetNFTMarketplace: Error getting utxoView: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTShowcase: Error getting utxoView: %v", err))
 		return
 	}
 
@@ -671,7 +671,7 @@ func (fes *APIServer) GetNFTMarketplace(ww http.ResponseWriter, req *http.Reques
 	for _, nftHash := range dropEntry.NFTHashes {
 		postEntry := utxoView.GetPostEntryForPostHash(nftHash)
 		if postEntry == nil {
-			_AddInternalServerError(ww, fmt.Sprint("GetNFTMarketplace: Found nil post entry for NFT hash."))
+			_AddInternalServerError(ww, fmt.Sprint("GetNFTShowcase: Found nil post entry for NFT hash."))
 			return
 		}
 
@@ -681,7 +681,7 @@ func (fes *APIServer) GetNFTMarketplace(ww http.ResponseWriter, req *http.Reques
 		postEntryResponse, err := fes._postEntryToResponse(
 			postEntry, false, fes.Params, utxoView, readerPublicKeyBytes, 2)
 		if err != nil {
-			_AddInternalServerError(ww, fmt.Sprint("GetNFTMarketplace: Found invalid post entry for NFT hash."))
+			_AddInternalServerError(ww, fmt.Sprint("GetNFTShowcase: Found invalid post entry for NFT hash."))
 			return
 		}
 
@@ -690,12 +690,51 @@ func (fes *APIServer) GetNFTMarketplace(ww http.ResponseWriter, req *http.Reques
 	}
 
 	// Return all the data associated with the transaction in the response
-	res := GetNFTMarketplaceResponse{
+	res := GetNFTShowcaseResponse{
 		NFTCollections: nftCollectionResponses,
 	}
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("GetNFTMarketplace: Problem serializing object to JSON: %v", err))
+		_AddInternalServerError(ww, fmt.Sprintf("GetNFTShowcase: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
+
+type GetNextNFTShowcaseRequest struct{}
+
+type GetNextNFTShowcaseResponse struct {
+	NextNFTShowcaseTstamp uint64
+}
+
+func (fes *APIServer) GetNextNFTShowcase(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetNextNFTShowcaseRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNextNFTShowcase: Error parsing request body: %v", err))
+		return
+	}
+
+	dropEntry, err := fes.GetLatestNFTDropEntry()
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetNextNFTShowcase: Problem getting latest drop: %v", err))
+		return
+	}
+
+	var nextNFTShowcaseTstamp uint64
+
+	currentTime := uint64(time.Now().UnixNano())
+	if dropEntry.DropTstampNanos > currentTime && dropEntry.IsActive {
+		// If there is a pending+active drop, return its timestamp.
+		nextNFTShowcaseTstamp = dropEntry.DropTstampNanos
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := GetNextNFTShowcaseResponse{
+		NextNFTShowcaseTstamp: nextNFTShowcaseTstamp,
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetNextNFTShowcase: Problem serializing object to JSON: %v", err))
 		return
 	}
 }
@@ -824,9 +863,9 @@ type GetNFTBidsForUserRequest struct {
 }
 
 type GetNFTBidsForUserResponse struct {
-	NFTBidEntries []*NFTBidEntryResponse
+	NFTBidEntries                              []*NFTBidEntryResponse
 	PublicKeyBase58CheckToProfileEntryResponse map[string]*ProfileEntryResponse
-	PostHashHexToPostEntryResponse map[string]*PostEntryResponse
+	PostHashHexToPostEntryResponse             map[string]*PostEntryResponse
 }
 
 func (fes *APIServer) GetNFTBidsForUser(ww http.ResponseWriter, req *http.Request) {
@@ -895,7 +934,7 @@ func (fes *APIServer) GetNFTBidsForUser(ww http.ResponseWriter, req *http.Reques
 			}
 			if _, peExists := publicKeytoProfileEntryResponse[newPostEntryResponse.PosterPublicKeyBase58Check]; !peExists {
 				profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
-				peResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap,  utxoView)
+				peResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
 				publicKeytoProfileEntryResponse[newPostEntryResponse.PosterPublicKeyBase58Check] = peResponse
 				//newPostEntryResponse.ProfileEntryResponse = peResponse
 			} else {
@@ -1003,12 +1042,12 @@ func (fes *APIServer) GetNFTBidsForNFTPost(ww http.ResponseWriter, req *http.Req
 }
 
 type GetNFTCollectionSummaryRequest struct {
-	PostHashHex string
+	PostHashHex                string
 	ReaderPublicKeyBase58Check string
 }
 
 type GetNFTCollectionSummaryResponse struct {
-	NFTCollectionResponse *NFTCollectionResponse
+	NFTCollectionResponse          *NFTCollectionResponse
 	SerialNumberToNFTEntryResponse map[uint64]*NFTEntryResponse
 }
 
@@ -1065,13 +1104,13 @@ func (fes *APIServer) GetNFTCollectionSummary(ww http.ResponseWriter, req *http.
 	if requestData.ReaderPublicKeyBase58Check != "" {
 		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetNFTMarketplace: Problem decoding reader public key: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("GetNFTCollectionSummary: Problem decoding reader public key: %v", err))
 			return
 		}
 		readerPKID = utxoView.GetPKIDForPublicKey(readerPublicKeyBytes).PKID
 	}
 	res := &GetNFTCollectionSummaryResponse{
-		NFTCollectionResponse: fes._nftEntryToNFTCollectionResponse(nftEntry, postEntry.PosterPublicKey, postEntryResponse, utxoView, verifiedMap, readerPKID),
+		NFTCollectionResponse:          fes._nftEntryToNFTCollectionResponse(nftEntry, postEntry.PosterPublicKey, postEntryResponse, utxoView, verifiedMap, readerPKID),
 		SerialNumberToNFTEntryResponse: make(map[uint64]*NFTEntryResponse),
 	}
 
@@ -1081,7 +1120,7 @@ func (fes *APIServer) GetNFTCollectionSummary(ww http.ResponseWriter, req *http.
 		res.SerialNumberToNFTEntryResponse[serialNumber] = fes._nftEntryToResponse(serialNumberNFTEntry, nil, utxoView, verifiedMap, true, readerPKID)
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("GetNFTBidsForNFTPost: Problem serializing object to JSON: %v", err))
+		_AddInternalServerError(ww, fmt.Sprintf("GetNFTCollectionSummary: Problem serializing object to JSON: %v", err))
 		return
 	}
 }
@@ -1118,9 +1157,9 @@ func (fes *APIServer) _nftEntryToResponse(nftEntry *lib.NFTEntry, postEntryRespo
 		IsForSale:                 nftEntry.IsForSale,
 		MinBidAmountNanos:         nftEntry.MinBidAmountNanos,
 
-		EncryptedUnlockableText:    encryptedUnlockableText,
+		EncryptedUnlockableText:       encryptedUnlockableText,
 		LastOwnerPublicKeyBase58Check: lastOwnerPublicKeyBase58Check,
-		LastAcceptedBidAmountNanos: nftEntry.LastAcceptedBidAmountNanos,
+		LastAcceptedBidAmountNanos:    nftEntry.LastAcceptedBidAmountNanos,
 	}
 }
 
@@ -1158,11 +1197,11 @@ func (fes *APIServer) _nftEntryToNFTCollectionResponse(
 		nftEntry.NFTPostHash)
 
 	return &NFTCollectionResponse{
-		ProfileEntryResponse:  profileEntryResponse,
-		PostEntryResponse:     postEntryResponse,
-		HighestBidAmountNanos: highestBidAmountNanos,
-		LowestBidAmountNanos:  lowestBidAmountNanos,
-		NumCopiesForSale:      numCopiesForSale,
+		ProfileEntryResponse:   profileEntryResponse,
+		PostEntryResponse:      postEntryResponse,
+		HighestBidAmountNanos:  highestBidAmountNanos,
+		LowestBidAmountNanos:   lowestBidAmountNanos,
+		NumCopiesForSale:       numCopiesForSale,
 		AvailableSerialNumbers: serialNumbersForSale,
 	}
 }
@@ -1185,7 +1224,7 @@ func (fes *APIServer) _bidEntryToResponse(bidEntry *lib.NFTBidEntry, postEntryRe
 	}
 
 	return &NFTBidEntryResponse{
-		PostHashHex: 		  postHashHex,
+		PostHashHex:          postHashHex,
 		PublicKeyBase58Check: publicKeyBase58Check,
 		ProfileEntryResponse: profileEntryResponse,
 		PostEntryResponse:    postEntryResponse,

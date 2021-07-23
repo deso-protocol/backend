@@ -79,14 +79,15 @@ const (
 	RoutePathGetDiamondedPosts       = "/api/v0/get-diamonded-posts"
 
 	// nft.go
-	RoutePathCreateNFT            = "/api/v0/create-nft"
-	RoutePathUpdateNFT            = "/api/v0/update-nft"
-	RoutePathGetNFTsForUser       = "/api/v0/get-nfts-for-user"
-	RoutePathGetNFTBidsForUser    = "/api/v0/get-nft-bids-for-user"
-	RoutePathCreateNFTBid         = "/api/v0/create-nft-bid"
-	RoutePathAcceptNFTBid         = "/api/v0/accept-nft-bid"
-	RoutePathGetNFTBidsForNFTPost = "/api/v0/get-nft-bids-for-nft-post"
-	RoutePathGetNFTMarketplace    = "/api/v0/get-nft-marketplace"
+	RoutePathCreateNFT               = "/api/v0/create-nft"
+	RoutePathUpdateNFT               = "/api/v0/update-nft"
+	RoutePathGetNFTsForUser          = "/api/v0/get-nfts-for-user"
+	RoutePathGetNFTBidsForUser       = "/api/v0/get-nft-bids-for-user"
+	RoutePathCreateNFTBid            = "/api/v0/create-nft-bid"
+	RoutePathAcceptNFTBid            = "/api/v0/accept-nft-bid"
+	RoutePathGetNFTBidsForNFTPost    = "/api/v0/get-nft-bids-for-nft-post"
+	RoutePathGetNFTShowcase          = "/api/v0/get-nft-showcase"
+	RoutePathGetNextNFTShowcase      = "/api/v0/get-next-nft-showcase"
 	RoutePathGetNFTCollectionSummary = "/api/v0/get-nft-collection-summary"
 
 	// media.go
@@ -128,11 +129,11 @@ const (
 	RoutePathGetBuyBitCloutFeeBasisPoints             = "/api/v0/admin/get-buy-bitclout-fee-basis-points"
 
 	// admin_transaction.go
-	RoutePathGetGlobalParams    = "/api/v0/get-global-params"
+	RoutePathGetGlobalParams = "/api/v0/get-global-params"
 	// Eventually we will deprecate the admin endpoint since it does not need to be protected.
-	RoutePathAdminGetGlobalParams    = "/api/v0/admin/get-global-params"
-	RoutePathUpdateGlobalParams = "/api/v0/admin/update-global-params"
-	RoutePathSwapIdentity       = "/api/v0/admin/swap-identity"
+	RoutePathAdminGetGlobalParams = "/api/v0/admin/get-global-params"
+	RoutePathUpdateGlobalParams   = "/api/v0/admin/update-global-params"
+	RoutePathSwapIdentity         = "/api/v0/admin/swap-identity"
 
 	// admin_user.go
 	RoutePathAdminUpdateUserGlobalMetadata         = "/api/v0/admin/update-user-global-metadata"
@@ -582,10 +583,17 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
-			"GetNFTMarketplace",
+			"GetNFTShowcase",
 			[]string{"POST", "OPTIONS"},
-			RoutePathGetNFTMarketplace,
-			fes.GetNFTMarketplace,
+			RoutePathGetNFTShowcase,
+			fes.GetNFTShowcase,
+			PublicAccess,
+		},
+		{
+			"GetNextNFTShowcase",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNextNFTShowcase,
+			fes.GetNextNFTShowcase,
 			PublicAccess,
 		},
 		{
