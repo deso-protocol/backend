@@ -91,6 +91,7 @@ type PostEntryResponse struct {
 	// NFT info.
 	IsNFT                          bool
 	NumNFTCopies                   uint64
+	NumNFTCopiesForSale            uint64
 	HasUnlockable                  bool
 	NFTRoyaltyToCreatorBasisPoints uint64
 	NFTRoyaltyToCoinBasisPoints    uint64
@@ -246,6 +247,7 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 		IsPinned:                       &postEntry.IsPinned,
 		IsNFT:                          postEntry.IsNFT,
 		NumNFTCopies:                   postEntry.NumNFTCopies,
+		NumNFTCopiesForSale:            postEntry.NumNFTCopiesForSale,
 		HasUnlockable:                  postEntry.HasUnlockable,
 		NFTRoyaltyToCreatorBasisPoints: postEntry.NFTRoyaltyToCreatorBasisPoints,
 		NFTRoyaltyToCoinBasisPoints:    postEntry.NFTRoyaltyToCoinBasisPoints,
