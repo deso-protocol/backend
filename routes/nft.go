@@ -21,6 +21,8 @@ type NFTEntryResponse struct {
 	MinBidAmountNanos          uint64                `safeForLogging:"true"`
 	LastAcceptedBidAmountNanos uint64                `safeForLogging:"true"`
 
+	HighestBidAmountNanos uint64 `safeForLogging:"true"`
+	LowestBidAmountNanos uint64 `safeForLogging:"true"`
 	// These fields are only populated when the reader is the owner.
 	LastOwnerPublicKeyBase58Check *string `json:",omitempty"`
 	EncryptedUnlockableText       *string `json:",omitempty"`
@@ -43,6 +45,11 @@ type NFTBidEntryResponse struct {
 	PostEntryResponse *PostEntryResponse `json:",omitempty"`
 	SerialNumber      uint64             `safeForLogging:"true"`
 	BidAmountNanos    uint64             `safeForLogging:"true"`
+
+	// What is the highest bid and the lowest bid on this serial number
+	HighestBidAmountNanos *uint64 `json:",omitempty"`
+	LowestBidAmountNanos *uint64 `json:",omitempty"`
+
 }
 
 type CreateNFTRequest struct {
@@ -816,7 +823,7 @@ func (fes *APIServer) GetNFTsForUser(ww http.ResponseWriter, req *http.Request) 
 			}
 		}
 	} else {
-		copy(nftEntries, filteredNFTEntries)
+		filteredNFTEntries = nftEntries
 	}
 
 	postHashToEntryResponseMap := make(map[*lib.BlockHash]*PostEntryResponse)
@@ -936,13 +943,10 @@ func (fes *APIServer) GetNFTBidsForUser(ww http.ResponseWriter, req *http.Reques
 				profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
 				peResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
 				publicKeytoProfileEntryResponse[newPostEntryResponse.PosterPublicKeyBase58Check] = peResponse
-				//newPostEntryResponse.ProfileEntryResponse = peResponse
-			} else {
-				//newPostEntryResponse.ProfileEntryResponse = profileEntryResponse
 			}
 			postHashToPostEntryResponse[postHashHex] = newPostEntryResponse
 		}
-		res.NFTBidEntries = append(res.NFTBidEntries, fes._bidEntryToResponse(bidEntry, nil, verifiedMap, utxoView, true))
+		res.NFTBidEntries = append(res.NFTBidEntries, fes._bidEntryToResponse(bidEntry, nil, verifiedMap, utxoView, true, true))
 	}
 
 	res.PublicKeyBase58CheckToProfileEntryResponse = publicKeytoProfileEntryResponse
@@ -1032,7 +1036,7 @@ func (fes *APIServer) GetNFTBidsForNFTPost(ww http.ResponseWriter, req *http.Req
 		for _, bidEntry := range bidEntries {
 			// We don't need to send the PostHash in the response since we know all these bids belong to the same PostHashHex
 			bidEntry.NFTPostHash = nil
-			res.BidEntryResponses = append(res.BidEntryResponses, fes._bidEntryToResponse(bidEntry, nil, verifiedMap, utxoView, false))
+			res.BidEntryResponses = append(res.BidEntryResponses, fes._bidEntryToResponse(bidEntry, nil, verifiedMap, utxoView, false, false))
 		}
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
@@ -1149,6 +1153,7 @@ func (fes *APIServer) _nftEntryToResponse(nftEntry *lib.NFTEntry, postEntryRespo
 			lastOwnerPublicKeyBase58Check = &lastOwnerPublicKeyBase58CheckVal
 		}
 	}
+	highBid, lowBid := utxoView.GetHighAndLowBidsForNFTSerialNumber(nftEntry.NFTPostHash, nftEntry.SerialNumber)
 	return &NFTEntryResponse{
 		OwnerPublicKeyBase58Check: publicKeyBase58Check,
 		ProfileEntryResponse:      profileEntryResponse,
@@ -1156,6 +1161,9 @@ func (fes *APIServer) _nftEntryToResponse(nftEntry *lib.NFTEntry, postEntryRespo
 		SerialNumber:              nftEntry.SerialNumber,
 		IsForSale:                 nftEntry.IsForSale,
 		MinBidAmountNanos:         nftEntry.MinBidAmountNanos,
+
+		HighestBidAmountNanos: highBid,
+		LowestBidAmountNanos: lowBid,
 
 		EncryptedUnlockableText:       encryptedUnlockableText,
 		LastOwnerPublicKeyBase58Check: lastOwnerPublicKeyBase58Check,
@@ -1206,7 +1214,7 @@ func (fes *APIServer) _nftEntryToNFTCollectionResponse(
 	}
 }
 
-func (fes *APIServer) _bidEntryToResponse(bidEntry *lib.NFTBidEntry, postEntryResponse *PostEntryResponse, verifiedUsernameMap map[string]*lib.PKID, utxoView *lib.UtxoView, skipProfileEntryResponse bool) *NFTBidEntryResponse {
+func (fes *APIServer) _bidEntryToResponse(bidEntry *lib.NFTBidEntry, postEntryResponse *PostEntryResponse, verifiedUsernameMap map[string]*lib.PKID, utxoView *lib.UtxoView, skipProfileEntryResponse bool, includeHighAndLowBids bool) *NFTBidEntryResponse {
 	profileEntry := utxoView.GetProfileEntryForPKID(bidEntry.BidderPKID)
 	var profileEntryResponse *ProfileEntryResponse
 	var publicKeyBase58Check string
@@ -1222,6 +1230,14 @@ func (fes *APIServer) _bidEntryToResponse(bidEntry *lib.NFTBidEntry, postEntryRe
 		postHashHexString := hex.EncodeToString(bidEntry.NFTPostHash[:])
 		postHashHex = &postHashHexString
 	}
+	var highBid *uint64
+	var lowBid *uint64
+
+	if includeHighAndLowBids {
+		highBidVal, lowBidVal := utxoView.GetHighAndLowBidsForNFTSerialNumber(bidEntry.NFTPostHash, bidEntry.SerialNumber)
+		highBid = &highBidVal
+		lowBid = &lowBidVal
+	}
 
 	return &NFTBidEntryResponse{
 		PostHashHex:          postHashHex,
@@ -1230,5 +1246,8 @@ func (fes *APIServer) _bidEntryToResponse(bidEntry *lib.NFTBidEntry, postEntryRe
 		PostEntryResponse:    postEntryResponse,
 		SerialNumber:         bidEntry.SerialNumber,
 		BidAmountNanos:       bidEntry.BidAmountNanos,
+
+		HighestBidAmountNanos: highBid,
+		LowestBidAmountNanos: lowBid,
 	}
 }
