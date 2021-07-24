@@ -50,6 +50,8 @@ type NFTBidEntryResponse struct {
 	HighestBidAmountNanos *uint64 `json:",omitempty"`
 	LowestBidAmountNanos *uint64 `json:",omitempty"`
 
+	// Current balance of this bidder.
+	BidderBalanceNanos uint64
 }
 
 type CreateNFTRequest struct {
@@ -1218,11 +1220,13 @@ func (fes *APIServer) _bidEntryToResponse(bidEntry *lib.NFTBidEntry, postEntryRe
 	profileEntry := utxoView.GetProfileEntryForPKID(bidEntry.BidderPKID)
 	var profileEntryResponse *ProfileEntryResponse
 	var publicKeyBase58Check string
+	var publicKey []byte
 	if profileEntry != nil && !skipProfileEntryResponse {
+		publicKey = profileEntry.PublicKey
 		profileEntryResponse = _profileEntryToResponse(profileEntry, fes.Params, verifiedUsernameMap, utxoView)
 		publicKeyBase58Check = profileEntryResponse.PublicKeyBase58Check
 	} else {
-		publicKey := utxoView.GetPublicKeyForPKID(bidEntry.BidderPKID)
+		publicKey = utxoView.GetPublicKeyForPKID(bidEntry.BidderPKID)
 		publicKeyBase58Check = lib.PkToString(publicKey, fes.Params)
 	}
 	var postHashHex *string
@@ -1239,6 +1243,9 @@ func (fes *APIServer) _bidEntryToResponse(bidEntry *lib.NFTBidEntry, postEntryRe
 		lowBid = &lowBidVal
 	}
 
+	// We ignore the error in this case and assume the bidder's balance is 0.
+	bidderBalanceNanos, _ := utxoView.GetBitcloutBalanceNanosForPublicKey(publicKey)
+
 	return &NFTBidEntryResponse{
 		PostHashHex:          postHashHex,
 		PublicKeyBase58Check: publicKeyBase58Check,
@@ -1249,5 +1256,6 @@ func (fes *APIServer) _bidEntryToResponse(bidEntry *lib.NFTBidEntry, postEntryRe
 
 		HighestBidAmountNanos: highBid,
 		LowestBidAmountNanos: lowBid,
+		BidderBalanceNanos: bidderBalanceNanos,
 	}
 }
