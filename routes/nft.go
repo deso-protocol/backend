@@ -1131,6 +1131,76 @@ func (fes *APIServer) GetNFTCollectionSummary(ww http.ResponseWriter, req *http.
 	}
 }
 
+type GetNFTEntriesForPostHashRequest struct {
+	PostHashHex                string
+	ReaderPublicKeyBase58Check string
+}
+
+type GetNFTEntriesForPostHashResponse struct {
+	NFTEntryResponses []*NFTEntryResponse
+}
+
+func (fes *APIServer) GetNFTEntriesForPostHash(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetNFTEntriesForPostHashRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTEntriesForPostHash: Error parsing request body: %v", err))
+		return
+	}
+
+	// Decode the postHash.
+	postHash := &lib.BlockHash{}
+	if requestData.PostHashHex != "" {
+		var postHashBytes []byte
+		postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
+		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
+			_AddBadRequestError(ww, fmt.Sprintf("GetNFTEntriesForPostHash: Error parsing post hash %v: %v",
+				requestData.PostHashHex, err))
+			return
+		}
+		copy(postHash[:], postHashBytes)
+	} else {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTEntriesForPostHash: Request missing PostHashHex"))
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTEntriesForPostHash: Error getting utxoView: %v", err))
+		return
+	}
+	postEntry := utxoView.GetPostEntryForPostHash(postHash)
+	if !postEntry.IsNFT {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTEntriesForPostHash: cannot get nft collection summary for post that is not an NFT"))
+		return
+	}
+
+	var readerPublicKeyBytes []byte
+	var readerPKID *lib.PKID
+	if requestData.ReaderPublicKeyBase58Check != "" {
+		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetNFTCollectionSummary: Problem decoding reader public key: %v", err))
+			return
+		}
+		readerPKID = utxoView.GetPKIDForPublicKey(readerPublicKeyBytes).PKID
+	}
+
+	res := &GetNFTEntriesForPostHashResponse{
+		NFTEntryResponses: []*NFTEntryResponse{},
+	}
+
+	for ii := uint64(1); ii <= postEntry.NumNFTCopies; ii++ {
+		serialNumberKey := lib.MakeNFTKey(postEntry.PostHash, ii)
+		nftEntry := utxoView.GetNFTEntryForNFTKey(&serialNumberKey)
+		res.NFTEntryResponses = append(res.NFTEntryResponses, fes._nftEntryToResponse(nftEntry, nil, utxoView, nil, true, readerPKID))
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetNFTEntriesForPostHash: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
+
 func (fes *APIServer) _nftEntryToResponse(nftEntry *lib.NFTEntry, postEntryResponse *PostEntryResponse, utxoView *lib.UtxoView, verifiedUsernameMap map[string]*lib.PKID, skipProfileEntryResponse bool, readerPKID *lib.PKID) *NFTEntryResponse {
 	profileEntry := utxoView.GetProfileEntryForPKID(nftEntry.OwnerPKID)
 	var profileEntryResponse *ProfileEntryResponse
