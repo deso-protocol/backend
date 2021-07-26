@@ -67,6 +67,46 @@ func (fes *APIServer) GetNFTDropEntry(nftDropNumber uint64) (_dropEntry *NFTDrop
 	return dropEntry, nil
 }
 
+func (fes *APIServer) GetPostsForNFTDropEntry(dropEntryToReturn *NFTDropEntry,
+) (_posts []*PostEntryResponse, _err error) {
+	profileEntryResponseMap := make(map[lib.PkMapKey]*ProfileEntryResponse)
+	var postEntryResponses []*PostEntryResponse
+
+	// Grab a view (needed for getting global params, etc).
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return nil, fmt.Errorf("AdminGetPostsForNFTDropEntry: Error getting utxoView: %v", err)
+	}
+
+	for _, postHash := range dropEntryToReturn.NFTHashes {
+		postEntry := utxoView.GetPostEntryForPostHash(postHash)
+		postEntryResponse, err := fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, nil, 2)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"AdminGetPostsForNFTDropEntry: Error building postEntryResponse: %v, %s", err, postHash.String())
+		}
+
+		// Add the profile entry to the post entry.
+		profileEntryResponse, entryFound := profileEntryResponseMap[lib.MakePkMapKey(postEntry.PosterPublicKey)]
+		if !entryFound {
+			// If we didn't find the entry in our map, we need to make it...
+			profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
+			if profileEntry == nil {
+				// If we didn't find a profile entry, skip this post.
+				continue
+			} else {
+				profileEntryResponse = _profileEntryToResponse(profileEntry, fes.Params, nil, utxoView)
+				profileEntryResponseMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] = profileEntryResponse
+			}
+		}
+		postEntryResponse.ProfileEntryResponse = profileEntryResponse
+
+		postEntryResponses = append(postEntryResponses, postEntryResponse)
+	}
+
+	return postEntryResponses, nil
+}
+
 func (fes *APIServer) AdminGetNFTDrop(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := AdminGetNFTDropRequest{}
@@ -95,40 +135,11 @@ func (fes *APIServer) AdminGetNFTDrop(ww http.ResponseWriter, req *http.Request)
 
 	// Note that "dropEntryToReturn" can be nil if there are no entries in global state.
 	var postEntryResponses []*PostEntryResponse
-	profileEntryResponseMap := make(map[lib.PkMapKey]*ProfileEntryResponse)
 	if dropEntryToReturn != nil {
-		// Grab a view (needed for getting global params, etc).
-		utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+		postEntryResponses, err = fes.GetPostsForNFTDropEntry(dropEntryToReturn)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminGetNFTDrop: Error getting utxoView: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("AdminGetNFTDrop: : %v", err))
 			return
-		}
-
-		for _, postHash := range dropEntryToReturn.NFTHashes {
-			postEntry := utxoView.GetPostEntryForPostHash(postHash)
-			postEntryResponse, err := fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, nil, 2)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf(
-					"AdminGetNFTDrop: Error building postEntryResponse: %v, %s", err, postHash.String()))
-				return
-			}
-
-			// Add the profile entry to the post entry.
-			profileEntryResponse, entryFound := profileEntryResponseMap[lib.MakePkMapKey(postEntry.PosterPublicKey)]
-			if !entryFound {
-				// If we didn't find the entry in our map, we need to make it...
-				profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
-				if profileEntry == nil {
-					// If we didn't find a profile entry, skip this post.
-					continue
-				} else {
-					profileEntryResponse = _profileEntryToResponse(profileEntry, fes.Params, nil, utxoView)
-					profileEntryResponseMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] = profileEntryResponse
-				}
-			}
-			postEntryResponse.ProfileEntryResponse = profileEntryResponse
-
-			postEntryResponses = append(postEntryResponses, postEntryResponse)
 		}
 	}
 
@@ -154,6 +165,7 @@ type AdminUpdateNFTDropRequest struct {
 
 type AdminUpdateNFTDropResponse struct {
 	DropEntry *NFTDropEntry
+	Posts     []*PostEntryResponse
 }
 
 func (fes *APIServer) AdminUpdateNFTDrop(ww http.ResponseWriter, req *http.Request) {
@@ -317,9 +329,17 @@ func (fes *APIServer) AdminUpdateNFTDrop(ww http.ResponseWriter, req *http.Reque
 		return
 	}
 
+	// Note that "dropEntryToReturn" can be nil if there are no entries in global state.
+	postEntryResponses, err := fes.GetPostsForNFTDropEntry(updatedDropEntry)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetNFTDrop: : %v", err))
+		return
+	}
+
 	// Return all the data associated with the transaction in the response
 	res := AdminUpdateNFTDropResponse{
 		DropEntry: updatedDropEntry,
+		Posts:     postEntryResponses,
 	}
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
