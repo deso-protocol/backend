@@ -131,6 +131,8 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateUpdateGlobalParamsTxn(
 		updaterPkBytes,
 		usdCentsPerBitcoin,
+		0,
+		0,
 		createProfileFeeNanos,
 		minimumNetworkFeeNanosPerKb,
 		[]byte{},
