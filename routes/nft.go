@@ -927,7 +927,7 @@ func (fes *APIServer) GetNFTBidsForUser(ww http.ResponseWriter, req *http.Reques
 
 	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForNFTPost: Error getting verified user map: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForUser: Error getting verified user map: %v", err))
 		return
 	}
 
@@ -938,7 +938,7 @@ func (fes *APIServer) GetNFTBidsForUser(ww http.ResponseWriter, req *http.Reques
 			var newPostEntryResponse *PostEntryResponse
 			newPostEntryResponse, err = fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, readerPublicKeyBytes, 2)
 			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForNFTPost: Error getting PostEntryResponse: %v", err))
+				_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForUser: Error getting PostEntryResponse: %v", err))
 				return
 			}
 			if _, peExists := publicKeytoProfileEntryResponse[newPostEntryResponse.PosterPublicKeyBase58Check]; !peExists {
@@ -975,7 +975,7 @@ func (fes *APIServer) GetNFTBidsForNFTPost(ww http.ResponseWriter, req *http.Req
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetNFTBidsForNFTPostRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBidsForNFTPost: Error parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForNFTPost: Error parsing request body: %v", err))
 		return
 	}
 
@@ -984,7 +984,7 @@ func (fes *APIServer) GetNFTBidsForNFTPost(ww http.ResponseWriter, req *http.Req
 	if requestData.ReaderPublicKeyBase58Check != "" {
 		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetBidsForNFTPost: Problem decoding reader public key: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForNFTPost: Problem decoding reader public key: %v", err))
 			return
 		}
 	}
@@ -1180,7 +1180,7 @@ func (fes *APIServer) GetNFTEntriesForPostHash(ww http.ResponseWriter, req *http
 	if requestData.ReaderPublicKeyBase58Check != "" {
 		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetNFTCollectionSummary: Problem decoding reader public key: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("GetNFTEntriesForPostHash: Problem decoding reader public key: %v", err))
 			return
 		}
 		readerPKID = utxoView.GetPKIDForPublicKey(readerPublicKeyBytes).PKID
