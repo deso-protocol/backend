@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/bitclout/backend/config"
 	"github.com/bitclout/core/lib"
 	chainlib "github.com/btcsuite/btcd/blockchain"
 	"io"
@@ -176,29 +177,24 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	if globalStateRemoteNode == "" {
 		globalStateDB, _ = GetTestBadgerDb()
 	}
+	publicConfig := &config.Config{
+		APIPort:                 testJSONPort,
+		GlobalStateRemoteNode:   globalStateRemoteNode,
+		GlobalStateRemoteSecret: globalStateSharedSecret,
+	}
 	publicApiServer, err := NewAPIServer(
-		nil, mempool,
-		chain, miner.BlockProducer, txIndex, params, testJSONPort,
-		testMinFeeRateNanosPerKB, "", 20000,
-		nil,
-		globalStateDB, globalStateRemoteNode, globalStateSharedSecret,
-		[]string{}, false, []string{},
-		"", "", false, nil, "", 0,
-		"", "", "", "", false, []string{}, []string{}, "", "", "", "", "", "")
+		nil, mempool, chain, miner.BlockProducer, txIndex, params, publicConfig,
+		2000, globalStateDB, nil, "")
 	require.NoError(err)
 
 	// Calling initState() initializes the state of the APIServer and the router as well.
 	publicApiServer.initState()
 
+	privateConfig := publicConfig
+	privateConfig.AdminPublicKeys = []string{"adminpublickey"}
 	privateApiServer, err := NewAPIServer(
-		nil, mempool,
-		chain, miner.BlockProducer, txIndex, params, testJSONPort,
-		testMinFeeRateNanosPerKB, "", 20000,
-		nil,
-		globalStateDB, globalStateRemoteNode, "",
-		[]string{}, false, []string{},
-		"", "", false, nil, "", 0,
-		"", "", "", "", false, []string{"adminpublickey"}, []string{}, "", "", "", "", "", "")
+		nil, mempool, chain, miner.BlockProducer, txIndex, params, privateConfig,
+		2000, globalStateDB, nil, "")
 	require.NoError(err)
 
 	// Calling initState() initializes the state of the APIServer and the router as well.

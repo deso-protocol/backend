@@ -106,6 +106,8 @@ type User struct {
 	HasPhoneNumber   bool
 	CanCreateProfile bool
 	BlockedPubKeys   map[string]struct{}
+	HasEmail         bool
+	EmailVerified    bool
 
 	// Is this user an admin
 	IsAdmin bool
@@ -255,9 +257,9 @@ func (fes *APIServer) SendSeedBitClout(recipientPkBytes []byte, amountNanos uint
 	fes.mtxSeedBitClout.Lock()
 	defer fes.mtxSeedBitClout.Unlock()
 
-	senderSeed := fes.StarterBitCloutSeed
+	senderSeed := fes.Config.StarterBitcloutSeed
 	if useBuyBitCloutSeed {
-		senderSeed = fes.BuyBitCloutSeed
+		senderSeed = fes.Config.BuyBitCloutSeed
 	}
 	starterSeedBytes, err := bip39.NewSeedWithErrorChecking(senderSeed, "")
 	if err != nil {
