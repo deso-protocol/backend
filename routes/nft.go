@@ -1190,9 +1190,8 @@ func (fes *APIServer) GetNFTEntriesForPostHash(ww http.ResponseWriter, req *http
 		NFTEntryResponses: []*NFTEntryResponse{},
 	}
 
-	for ii := uint64(1); ii <= postEntry.NumNFTCopies; ii++ {
-		serialNumberKey := lib.MakeNFTKey(postEntry.PostHash, ii)
-		nftEntry := utxoView.GetNFTEntryForNFTKey(&serialNumberKey)
+	nftEntries := utxoView.GetNFTEntriesForPostHash(postHash)
+	for _, nftEntry := range nftEntries {
 		res.NFTEntryResponses = append(res.NFTEntryResponses, fes._nftEntryToResponse(nftEntry, nil, utxoView, nil, true, readerPKID))
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
