@@ -1883,6 +1883,8 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		postMetadata := txnMeta.Metadata.SubmitPostTxindexMetadata
 		likeMetadata := txnMeta.Metadata.LikeTxindexMetadata
 		transferCreatorCoinMetadata := txnMeta.Metadata.CreatorCoinTransferTxindexMetadata
+		nftBidMetadata := txnMeta.Metadata.NFTBidTxindexMetadata
+		acceptNFTBidMetadata := txnMeta.Metadata.AcceptNFTBidTxindexMetadata
 		basicTransferMetadata := txnMeta.Metadata.BasicTransferTxindexMetadata
 
 		if postMetadata != nil {
@@ -1894,6 +1896,10 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 			if transferCreatorCoinMetadata.PostHashHex != "" {
 				addPostForHash(transferCreatorCoinMetadata.PostHashHex, userPublicKeyBytes)
 			}
+		} else if nftBidMetadata != nil {
+			addPostForHash(nftBidMetadata.NFTPostHashHex, userPublicKeyBytes)
+		} else if acceptNFTBidMetadata != nil {
+			addPostForHash(acceptNFTBidMetadata.NFTPostHashHex, userPublicKeyBytes)
 		} else if basicTransferMetadata != nil {
 			txnOutputs := txnMeta.Metadata.TxnOutputs
 			for _, output := range txnOutputs {
@@ -2216,6 +2222,12 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 		return true
 	} else if txnMeta.BitcoinExchangeTxindexMetadata != nil {
 		// You got some BitClout from a BitcoinExchange txn
+		return true
+	} else if txnMeta.NFTBidTxindexMetadata != nil {
+		// Someone bid on your NFT
+		return true
+	} else if txnMeta.AcceptNFTBidTxindexMetadata != nil {
+		// Someone accepted your bid for an NFT
 		return true
 	} else if txnMeta.TxnType == lib.TxnTypeBasicTransfer.String() {
 		// Someone paid you

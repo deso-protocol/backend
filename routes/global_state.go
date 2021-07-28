@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/core/lib"
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/bitclout/core/lib"
 
 	"github.com/dgraph-io/badger/v3"
 	"github.com/nyaruka/phonenumbers"
@@ -138,12 +139,22 @@ var (
 
 	_GlobalStatePrefixBuyBitCloutFeeBasisPoints = []byte{16}
 
+	// NFT drop info.
+	_GlobalStatePrefixNFTDropNumberToNFTDropEntry = []byte{17}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
-	// NEXT_TAG: 17
+	// NEXT_TAG: 18
 )
+
+type NFTDropEntry struct {
+	IsActive        bool
+	DropNumber      uint64
+	DropTstampNanos uint64
+	NFTHashes       []*lib.BlockHash
+}
 
 // This struct contains all the metadata associated with a user's public key.
 type UserMetadata struct {
@@ -230,6 +241,13 @@ type WyreWalletOrderMetadata struct {
 
 	// BlockHash of the transaction for sending the BitClout
 	BasicTransferTxnBlockHash *lib.BlockHash
+}
+
+func GlobalStateKeyForNFTDropEntry(dropNumber uint64) []byte {
+	dropNumBytes := lib.EncodeUint64(uint64(dropNumber))
+	keyBytes := _GlobalStatePrefixNFTDropNumberToNFTDropEntry
+	keyBytes = append(keyBytes, dropNumBytes...)
+	return keyBytes
 }
 
 // countryCode is a string like 'US' (Note: the phonenumbers lib calls this a "region code")

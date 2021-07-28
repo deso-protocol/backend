@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	fmt "fmt"
-	"github.com/bitclout/backend/config"
-	"github.com/tyler-smith/go-bip39"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -13,8 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bitclout/backend/config"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/dgrijalva/jwt-go/v4"
+	"github.com/tyler-smith/go-bip39"
 
 	"github.com/bitclout/core/lib"
 	"github.com/dgraph-io/badger/v3"
@@ -79,6 +79,19 @@ const (
 	RoutePathGetPostsForPublicKey    = "/api/v0/get-posts-for-public-key"
 	RoutePathGetDiamondedPosts       = "/api/v0/get-diamonded-posts"
 
+	// nft.go
+	RoutePathCreateNFT               = "/api/v0/create-nft"
+	RoutePathUpdateNFT               = "/api/v0/update-nft"
+	RoutePathGetNFTsForUser          = "/api/v0/get-nfts-for-user"
+	RoutePathGetNFTBidsForUser       = "/api/v0/get-nft-bids-for-user"
+	RoutePathCreateNFTBid            = "/api/v0/create-nft-bid"
+	RoutePathAcceptNFTBid            = "/api/v0/accept-nft-bid"
+	RoutePathGetNFTBidsForNFTPost    = "/api/v0/get-nft-bids-for-nft-post"
+	RoutePathGetNFTShowcase          = "/api/v0/get-nft-showcase"
+	RoutePathGetNextNFTShowcase      = "/api/v0/get-next-nft-showcase"
+	RoutePathGetNFTCollectionSummary = "/api/v0/get-nft-collection-summary"
+	RoutePathGetNFTEntriesForPostHash = "/api/v0/get-nft-entries-for-nft-post"
+
 	// media.go
 	RoutePathUploadImage      = "/api/v0/upload-image"
 	RoutePathGetFullTikTokURL = "/api/v0/get-full-tiktok-url"
@@ -120,9 +133,11 @@ const (
 	RoutePathGetBuyBitCloutFeeBasisPoints             = "/api/v0/admin/get-buy-bitclout-fee-basis-points"
 
 	// admin_transaction.go
-	RoutePathGetGlobalParams    = "/api/v0/admin/get-global-params"
-	RoutePathUpdateGlobalParams = "/api/v0/admin/update-global-params"
-	RoutePathSwapIdentity       = "/api/v0/admin/swap-identity"
+	RoutePathGetGlobalParams = "/api/v0/get-global-params"
+	// Eventually we will deprecate the admin endpoint since it does not need to be protected.
+	RoutePathAdminGetGlobalParams = "/api/v0/admin/get-global-params"
+	RoutePathUpdateGlobalParams   = "/api/v0/admin/update-global-params"
+	RoutePathSwapIdentity         = "/api/v0/admin/swap-identity"
 
 	// admin_user.go
 	RoutePathAdminUpdateUserGlobalMetadata         = "/api/v0/admin/update-user-global-metadata"
@@ -138,6 +153,10 @@ const (
 	RoutePathAdminUpdateGlobalFeed = "/api/v0/admin/update-global-feed"
 	RoutePathAdminPinPost          = "/api/v0/admin/pin-post"
 	RoutePathAdminRemoveNilPosts   = "/api/v0/admin/remove-nil-posts"
+
+	// admin_nft.go
+	RoutePathAdminGetNFTDrop    = "/api/v0/admin/get-nft-drop"
+	RoutePathAdminUpdateNFTDrop = "/api/v0/admin/update-nft-drop"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -286,6 +305,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetExchangeRate,
 			PublicAccess,
 		},
+		{
+			"GetGlobalParams",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetGlobalParams,
+			fes.GetGlobalParams,
+			PublicAccess,
+		},
 		// Route for sending BitClout
 		{
 			"SendBitClout",
@@ -423,6 +449,83 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetDiamondedPosts,
 			fes.GetDiamondedPosts,
+			PublicAccess,
+		},
+		{
+			"CreateNFT",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateNFT,
+			fes.CreateNFT,
+			PublicAccess,
+		},
+		{
+			"UpdateNFT",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateNFT,
+			fes.UpdateNFT,
+			PublicAccess,
+		},
+		{
+			"CreateNFTBid",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateNFTBid,
+			fes.CreateNFTBid,
+			PublicAccess,
+		},
+		{
+			"AcceptNFTBid",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAcceptNFTBid,
+			fes.AcceptNFTBid,
+			PublicAccess,
+		},
+		{
+			"GetNFTBidsForNFTPost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTBidsForNFTPost,
+			fes.GetNFTBidsForNFTPost,
+			PublicAccess,
+		},
+		{
+			"GetNFTShowcase",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTShowcase,
+			fes.GetNFTShowcase,
+			PublicAccess,
+		},
+		{
+			"GetNextNFTShowcase",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNextNFTShowcase,
+			fes.GetNextNFTShowcase,
+			PublicAccess,
+		},
+		{
+			"GetNFTsForUser",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTsForUser,
+			fes.GetNFTsForUser,
+			PublicAccess,
+		},
+		{
+			"GetNFTBidsForUser",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTBidsForUser,
+			fes.GetNFTBidsForUser,
+			PublicAccess,
+		},
+		{
+			"GetNFTCollectionSummary",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTCollectionSummary,
+			fes.GetNFTCollectionSummary,
+			PublicAccess,
+		},
+		{
+			"GetNFTEntriesForPostHash",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTEntriesForPostHash,
+			fes.GetNFTEntriesForPostHash,
 			PublicAccess,
 		},
 		{
@@ -611,9 +714,9 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			AdminAccess,
 		},
 		{
-			"GetGlobalParams",
+			"AdminGetGlobalParams",
 			[]string{"POST", "OPTIONS"},
-			RoutePathGetGlobalParams,
+			RoutePathAdminGetGlobalParams,
 			fes.GetGlobalParams,
 			AdminAccess,
 		},
@@ -622,6 +725,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetWyreWalletOrdersForPublicKey,
 			fes.GetWyreWalletOrdersForPublicKey,
+			AdminAccess,
+		},
+		{
+			"AdminGetNFTDrop",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetNFTDrop,
+			fes.AdminGetNFTDrop,
+			AdminAccess,
+		},
+		{
+			"AdminUpdateNFTDrop",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateNFTDrop,
+			fes.AdminUpdateNFTDrop,
 			AdminAccess,
 		},
 		// Super Admin routes
