@@ -452,3 +452,69 @@ func (fes *APIServer) sendEmail(email *mail.SGMailV3) {
 func (fes *APIServer) IsConfiguredForSendgrid() bool {
 	return fes.Config.SendgridApiKey != ""
 }
+
+//
+// JUMIO
+//
+
+type JumioInitRequest struct {
+	CustomerInternalReference string `json:"customerInternalReference"`
+	UserReference             string `json:"userReference"`
+}
+
+type JumioInitResponse struct {
+	RedirectURL          string `json:"redirectUrl"`
+	TransactionReference string `json:"transactionReference"`
+}
+
+type JumioBeginRequest struct {
+	PublicKey string
+	JWT       string
+}
+
+type JumioBeginResponse struct {
+	URL string
+}
+
+func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
+	initData := &JumioInitRequest{
+		CustomerInternalReference: "test",
+		UserReference:             "test",
+	}
+	jsonData, err := json.Marshal(initData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: JSON invalid: %v", err))
+		return
+	}
+
+	req, err = http.NewRequest("POST", "https://netverify.com/api/v4/initiate", bytes.NewBuffer(jsonData))
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Request creation failed: %v", err))
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth("", "") // TODO: Move these to config values
+
+	postRes, err := http.DefaultClient.Do(req)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Request failed: %v", err))
+		return
+	}
+
+	jumioInit := JumioInitResponse{}
+	err = json.NewDecoder(postRes.Body).Decode(&jumioInit)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Decode failed: %v", err))
+		return
+	}
+	postRes.Body.Close()
+
+	res := JumioBeginResponse{
+		URL: jumioInit.RedirectURL,
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Encode failed: %v", err))
+		return
+	}
+}

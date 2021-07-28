@@ -94,6 +94,7 @@ const (
 	RoutePathSubmitPhoneNumberVerificationCode = "/api/v0/submit-phone-number-verification-code"
 	RoutePathResendVerifyEmail                 = "/api/v0/resend-verify-email"
 	RoutePathVerifyEmail                       = "/api/v0/verify-email"
+	RoutePathJumioBegin                        = "/api/v0/jumio-begin"
 
 	// wyre.go
 	RoutePathGetWyreWalletOrderQuotation     = "/api/v0/get-wyre-wallet-order-quotation"
@@ -549,6 +550,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathVerifyEmail,
 			fes.VerifyEmail,
+			PublicAccess,
+		},
+		{
+			"JumioBegin",
+			[]string{"POST", "OPTIONS"},
+			RoutePathJumioBegin,
+			fes.JumioBegin,
 			PublicAccess,
 		},
 
