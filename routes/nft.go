@@ -100,6 +100,10 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 	} else if requestData.UpdaterPublicKeyBase58Check == "" {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Must include UpdaterPublicKeyBase58Check"))
 		return
+	} else if utxoView.GlobalParamsEntry.MaxCopiesPerNFT == 0 {
+		_AddBadRequestError(ww,
+			"NFT minting has not been enabled yet. Check back soon :)")
+		return
 
 	} else if requestData.NumCopies <= 0 || requestData.NumCopies > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
