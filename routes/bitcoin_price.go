@@ -12,19 +12,19 @@ import (
 )
 
 type CoinbaseResponse struct {
-	Data struct{
+	Data struct {
 		Amount string `json:"amount"`
 	} `json:"data"`
 }
 
 type CoingeckoResponse struct {
-	Bitcoin struct{
+	Bitcoin struct {
 		USD float64 `json:"usd"`
 	} `json:"bitcoin"`
 }
 
 type BlockchainDotcomResponse struct {
-	USD struct{
+	USD struct {
 		FifteenMinutePrice float64 `json:"15m"`
 	} `json:"USD"`
 }
@@ -34,8 +34,8 @@ type GeminiResponse struct {
 }
 
 type KrakenResponse struct {
-	Result struct{
-		Ticker struct{
+	Result struct {
+		Ticker struct {
 			LastPriceList []string `json:"c"`
 		} `json:"XXBTZUSD"`
 	} `json:"result"`
@@ -54,7 +54,7 @@ func getCoinbasePrice() (float64, error) {
 
 	body, _ := ioutil.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return 0, fmt.Errorf("Error getting price: " +
+		return 0, fmt.Errorf("Error getting price: "+
 			"Status code: %v: %v", resp.StatusCode, string(body))
 	}
 
@@ -87,7 +87,7 @@ func getCoingeckoPrice() (float64, error) {
 
 	body, _ := ioutil.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return 0, fmt.Errorf("Error getting price: " +
+		return 0, fmt.Errorf("Error getting price: "+
 			"Status code: %v: %v", resp.StatusCode, string(body))
 	}
 
@@ -115,7 +115,7 @@ func getBlockchainDotcomPrice() (float64, error) {
 
 	body, _ := ioutil.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return 0, fmt.Errorf("Error getting price: " +
+		return 0, fmt.Errorf("Error getting price: "+
 			"Status code: %v: %v", resp.StatusCode, string(body))
 	}
 
@@ -143,7 +143,7 @@ func getGeminiPrice() (float64, error) {
 
 	body, _ := ioutil.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return 0, fmt.Errorf("Error getting price: " +
+		return 0, fmt.Errorf("Error getting price: "+
 			"Status code: %v: %v", resp.StatusCode, string(body))
 	}
 
@@ -176,7 +176,7 @@ func getKrakenPrice() (float64, error) {
 
 	body, _ := ioutil.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return 0, fmt.Errorf("Error getting price: " +
+		return 0, fmt.Errorf("Error getting price: "+
 			"Status code: %v: %v", resp.StatusCode, string(body))
 	}
 
@@ -204,13 +204,12 @@ func CalcMedian(numbers []float64) float64 {
 
 	mNumber := len(numbers) / 2
 
-	if len(numbers) % 2 == 0 {
+	if len(numbers)%2 == 0 {
 		return numbers[mNumber]
 	}
 
 	return (numbers[mNumber-1] + numbers[mNumber]) / 2
 }
-
 
 func GetUSDToBTCPrice() (float64, error) {
 	amounts := []float64{}

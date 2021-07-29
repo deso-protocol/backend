@@ -1,4 +1,4 @@
-package cmd
+package config
 
 import (
 	"fmt"
@@ -10,17 +10,17 @@ import (
 
 type Config struct {
 	// Core
-	APIPort                uint16
+	APIPort uint16
 
 	// Onboarding
-	StarterBitcloutSeed    string
-	StarterBitcloutNanos   uint64
-	StarterPrefixNanosMap  map[string]uint64
-	TwilioAccountSID       string
-	TwilioAuthToken        string
-	TwilioVerifyServiceID  string
-	CompProfileCreation    bool
-	MinSatoshisForProfile  uint64
+	StarterBitcloutSeed   string
+	StarterBitcloutNanos  uint64
+	StarterPrefixNanosMap map[string]uint64
+	TwilioAccountSID      string
+	TwilioAuthToken       string
+	TwilioVerifyServiceID string
+	CompProfileCreation   bool
+	MinSatoshisForProfile uint64
 
 	// Global State
 	GlobalStateRemoteNode   string
@@ -34,25 +34,33 @@ type Config struct {
 	SuperAdminPublicKeys      []string
 
 	// Analytics + Profiling
-	AmplitudeKey           string
-	AmplitudeDomain        string
-	DatadogProfiler        bool
+	AmplitudeKey    string
+	AmplitudeDomain string
+	DatadogProfiler bool
 
 	// User Interface
 	SupportEmail           string
 	ShowProcessingSpinners bool
 
 	// Images
-	GCPCredentialsPath     string
-	GCPBucketName          string
+	GCPCredentialsPath string
+	GCPBucketName      string
 
 	// Wyre
-	WyreUrl                string
-	WyreAccountId          string
-	WyreApiKey             string
-	WyreSecretKey          string
-	BuyBitCloutBTCAddress  string
-	BuyBitCloutSeed        string
+	WyreUrl               string
+	WyreAccountId         string
+	WyreApiKey            string
+	WyreSecretKey         string
+	BuyBitCloutBTCAddress string
+	BuyBitCloutSeed       string
+
+	// Emails
+	SendgridApiKey         string
+	SendgridDomain         string
+	SendgridSalt           string
+	SendgridFromName       string
+	SendgridFromEmail      string
+	SendgridConfirmEmailId string
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -92,7 +100,7 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	// Web Security
 	config.AccessControlAllowOrigins = viper.GetStringSlice("access-control-allow-origins")
 	config.SecureHeaderDevelopment = viper.GetBool("secure-header-development")
-	config.SecureHeaderAllowHosts =  viper.GetStringSlice("secure-header-allow-hosts")
+	config.SecureHeaderAllowHosts = viper.GetStringSlice("secure-header-allow-hosts")
 	config.AdminPublicKeys = viper.GetStringSlice("admin-public-keys")
 	config.SuperAdminPublicKeys = viper.GetStringSlice("super-admin-public-keys")
 
@@ -118,5 +126,14 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.BuyBitCloutBTCAddress = viper.GetString("buy-bitclout-btc-address")
 	// Seed from which BitClout will be sent for orders placed through Wyre and "Buy With BTC" purchases"
 	config.BuyBitCloutSeed = viper.GetString("buy-bitclout-seed")
+
+	// Email
+	config.SendgridApiKey = viper.GetString("sendgrid-api-key")
+	config.SendgridDomain = viper.GetString("sendgrid-domain")
+	config.SendgridSalt = viper.GetString("sendgrid-salt")
+	config.SendgridFromName = viper.GetString("sendgrid-from-name")
+	config.SendgridFromEmail = viper.GetString("sendgrid-from-email")
+	config.SendgridConfirmEmailId = viper.GetString("sendgrid-confirm-email-id")
+
 	return &config
 }

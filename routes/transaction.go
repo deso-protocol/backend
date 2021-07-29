@@ -187,7 +187,7 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 			maxAutoWhitelistPostsPerDay := 5
 			postEntriesInLastDay := 0
 			for _, dbPostOrCommentHash := range dbPostAndCommentHashes {
-				if existingPostEntry := utxoView.GetPostEntryForPostHash(dbPostOrCommentHash); len(existingPostEntry.ParentStakeID) == 0 && !lib.IsVanillaReclout(existingPostEntry){
+				if existingPostEntry := utxoView.GetPostEntryForPostHash(dbPostOrCommentHash); len(existingPostEntry.ParentStakeID) == 0 && !lib.IsVanillaReclout(existingPostEntry) {
 					postEntriesInLastDay += 1
 				}
 				if maxAutoWhitelistPostsPerDay >= postEntriesInLastDay {
@@ -208,7 +208,6 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 
 	return nil
 }
-
 
 // UpdateProfileRequest ...
 type UpdateProfileRequest struct {
@@ -421,7 +420,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 
 	// Only comp create profile fee if frontend server has both twilio and starter bitclout seed configured and the user
 	// has verified their profile.
-	if !fes.IsCompProfileCreation || fes.StarterBitCloutSeed == "" || fes.Twilio == nil || userMetadata.PhoneNumber == "" {
+	if !fes.Config.CompProfileCreation || fes.Config.StarterBitcloutSeed == "" || fes.Twilio == nil || userMetadata.PhoneNumber == "" {
 		return additionalFees, nil
 	}
 	var phoneNumberMetadata *PhoneNumberMetadata
@@ -443,9 +442,9 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 		return additionalFees, nil
 	}
 	// Find the minimum starter bit clout amount
-	minStarterBitCloutNanos := fes.StarterBitCloutAmountNanos
-	if len(fes.StarterBitCloutPrefixExceptionMap) > 0 {
-		for _, starterBitClout := range fes.StarterBitCloutPrefixExceptionMap {
+	minStarterBitCloutNanos := fes.Config.StarterBitcloutNanos
+	if len(fes.Config.StarterPrefixNanosMap) > 0 {
+		for _, starterBitClout := range fes.Config.StarterPrefixNanosMap {
 			if starterBitClout < minStarterBitCloutNanos {
 				minStarterBitCloutNanos = starterBitClout
 			}
@@ -531,7 +530,7 @@ type ExchangeBitcoinResponse struct {
 
 // ExchangeBitcoinStateless ...
 func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http.Request) {
-	if fes.BuyBitCloutSeed == "" {
+	if fes.Config.BuyBitCloutSeed == "" {
 		_AddBadRequestError(ww, "ExchangeBitcoinStateless: This node is not configured to sell BitClout for Bitcoin")
 		return
 	}
@@ -616,7 +615,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		uint64(burnAmountSatoshis),
 		uint64(requestData.FeeRateSatoshisPerKB),
 		pubKey,
-		fes.BuyBitCloutBTCAddress,
+		fes.Config.BuyBitCloutBTCAddress,
 		fes.Params,
 		utxoSource)
 
@@ -760,7 +759,6 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 			return
 		}
 
-
 		bitcloutTxnHash, err = fes.SendSeedBitClout(pkBytes, nanosPurchased, true)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error sending BitClout: %v", err))
@@ -793,7 +791,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 }
 
 // GetNanosFromSats - convert Satoshis to BitClout nanos
-func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) (uint64, error){
+func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) (uint64, error) {
 	usdToBTC, err := GetUSDToBTCPrice()
 	if err != nil {
 		return 0, fmt.Errorf(" Problem getting usd to btc exchange rate: %v", err)
@@ -804,7 +802,7 @@ func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) (
 }
 
 // GetNanosFromUSDCents - convert USD cents to BitClout nanos
-func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint64) (uint64, error){
+func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint64) (uint64, error) {
 	// Get Exchange Price gets the max of price from blockchain.com and the reserve price.
 	usdCentsPerBitClout := fes.GetExchangeBitCloutPrice()
 	conversionRateAfterFee := float64(usdCentsPerBitClout) * (1 + (float64(feeBasisPoints) / (100.0 * 100.0)))
@@ -814,7 +812,7 @@ func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint
 
 // ExceedsSendBitCloutBalance - Check if nanosPurchased is greater than the balance of the BuyBitClout wallet.
 func (fes *APIServer) ExceedsSendBitCloutBalance(nanosPurchased uint64) (bool, error) {
-	buyBitCloutSeedBalance, err := fes.getBalanceForSeed(fes.BuyBitCloutSeed)
+	buyBitCloutSeedBalance, err := fes.getBalanceForSeed(fes.Config.BuyBitCloutSeed)
 	if err != nil {
 		return false, fmt.Errorf("Error getting buy bitclout balance: %v", err)
 	}
@@ -1294,7 +1292,7 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 
 func (fes *APIServer) cleanBody(bodyObj *lib.BitCloutBodySchema, isReclout bool) ([]byte, error) {
 	// Sanitize the Body field on the body object, which should exist.
-	if bodyObj.Body == ""  && len(bodyObj.ImageURLs) == 0 && !isReclout {
+	if bodyObj.Body == "" && len(bodyObj.ImageURLs) == 0 && !isReclout {
 		return nil, fmt.Errorf("SubmitPost: Body or Image is required if not reclouting.")
 	}
 

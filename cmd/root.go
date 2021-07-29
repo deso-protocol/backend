@@ -17,7 +17,7 @@ var cfgFile string
 var rootCmd = &cobra.Command{
 	Use:   "backend",
 	Short: "BitClout node with backend server",
-	Long: `...`,
+	Long:  `...`,
 }
 
 func Execute() {
