@@ -21,8 +21,20 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
+      # Checking out multilple repo side by side
+      # https://github.com/actions/checkout#checkout-multiple-repos-private
       - name: Checkout
         uses: actions/checkout@v2
+        with:
+          path: backend
+
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          repository: TheBitGram/core
+          path: core
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN_CORE }}
+
 
       # -
       #   name: Login to DockerHub
