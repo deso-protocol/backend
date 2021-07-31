@@ -20,6 +20,8 @@ jobs:
   # Docker hub
   docker:
     runs-on: ubuntu-latest
+    env:
+      DOCKER_REPOSITORY_NAME: 067550988196.dkr.ecr.us-east-1.amazonaws.com/backend
     steps:
       # Checking out multilple repo side by side
       # https://github.com/actions/checkout#checkout-multiple-repos-private
@@ -50,15 +52,7 @@ jobs:
         with:
           # list of Docker images to use as base name for tags
           images: |
-            067550988196.dkr.ecr.us-east-1.amazonaws.com/backend
-          # generate Docker tags based on the following events/attributes
-          # tags: |
-          #   type=schedule
-          #   type=ref,event=branch
-          #   type=semver,pattern={{major}}.{{minor}}
-          #   type=sha
-      #type=ref,event=pr
-      #type=semver,pattern={{version}}
+            ${{ env.DOCKER_REPOSITORY_NAME }}
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1
 
