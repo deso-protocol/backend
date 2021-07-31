@@ -46,6 +46,9 @@ Based on semver: `major.minor.patch`
 
 
 ## Performing a release from dev to prod
+The idea here is that we will cut a release and produce one Docker container artifact with this
+release version.  This release version will be deployed to dev then promoted along the way, all
+the way into prod if all of our testing checks out.
 
 example release tag: v1.1.1
 * Manual: Git push tag v1.1.1
