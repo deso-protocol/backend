@@ -89,6 +89,9 @@ jobs:
     runs-on: ubuntu-latest
     # if: startsWith(github.ref, 'refs/tags/v')
     steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+
     - name: Extract tag var
       id: tag_id
       run: echo ::set-output name=tag::${GITHUB_REF#refs/*/}
@@ -99,6 +102,10 @@ jobs:
         find: "docker_tag        = \"*\""
         replace: "docker_tag        = \"${{ steps.tag_id.outputs.tag }}\""
         include: "terraform-environments/aws/dev/helm/60-gem-backend/"
+
+    - name: Check output
+      run: |
+        cat terraform-environments/aws/dev/helm/60-gem-backend/main.tf
 
     # - name: Update dev image tag
     #   run: |
