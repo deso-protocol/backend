@@ -58,7 +58,7 @@ jobs:
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            # type=sha
+      # type=sha
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1
 
