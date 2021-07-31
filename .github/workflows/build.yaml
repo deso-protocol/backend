@@ -87,15 +87,13 @@ jobs:
   deploy-dev:
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    # if: startsWith(github.ref, 'refs/tags/v')
     steps:
     - name: Extract tag var
-      # if: startsWith(github.ref, 'refs/tags/v')
       id: tag_id
       run: echo ::set-output name=tag::${GITHUB_REF#refs/*/}
 
     - name: Update dev image tag
-      # if: startsWith(github.ref, 'refs/tags/v')
       uses: jacobtomlinson/gha-find-replace@0.1.4
       with:
         find: "docker_tag        = \"*\""
@@ -103,7 +101,6 @@ jobs:
         include: "terraform-environments/aws/dev/helm/60-gem-backend/"
 
     # - name: Update dev image tag
-    #   if: startsWith(github.ref, 'refs/tags/v')
     #   run: |
     #     terraform apply -auto-approve
     #     echo ${{ steps.tag_id.outputs.tag }}
