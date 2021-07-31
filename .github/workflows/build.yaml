@@ -55,10 +55,10 @@ jobs:
           tags: |
             type=schedule
             type=ref,event=branch
-      #type=ref,event=pr
-      #type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
+      #type=ref,event=pr
+      #type=semver,pattern={{version}}
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1
 
