@@ -137,6 +137,9 @@ func init() {
 	runCmd.PersistentFlags().String("sendgrid-from-email", "", "Sendgrid from email")
 	runCmd.PersistentFlags().String("sendgrid-confirm-email-id", "", "Sendgrid confirmation email template ID")
 
+	runCmd.PersistentFlags().String("jumio-token", "", "Jumio Token")
+	runCmd.PersistentFlags().String("jumio-secret", "", "Jumio Secret Key")
+
 	runCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
 		viper.BindPFlag(flag.Name, flag)
 	})

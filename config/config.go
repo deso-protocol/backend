@@ -16,6 +16,7 @@ type Config struct {
 	StarterBitcloutSeed   string
 	StarterBitcloutNanos  uint64
 	StarterPrefixNanosMap map[string]uint64
+	JumioBitcloutNanos    uint64
 	TwilioAccountSID      string
 	TwilioAuthToken       string
 	TwilioVerifyServiceID string
@@ -61,6 +62,10 @@ type Config struct {
 	SendgridFromName       string
 	SendgridFromEmail      string
 	SendgridConfirmEmailId string
+
+	// Jumio
+	JumioToken             string
+	JumioSecret            string
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -134,6 +139,11 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.SendgridFromName = viper.GetString("sendgrid-from-name")
 	config.SendgridFromEmail = viper.GetString("sendgrid-from-email")
 	config.SendgridConfirmEmailId = viper.GetString("sendgrid-confirm-email-id")
+
+	// Jumio
+	config.JumioToken = viper.GetString("jumio-token")
+	config.JumioSecret = viper.GetString("jumio-secret")
+	config.JumioBitcloutNanos = viper.GetUint64("jumio-bitclout-nanos")
 
 	return &config
 }

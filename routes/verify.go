@@ -6,6 +6,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/sendgrid/sendgrid-go"
 	"github.com/sendgrid/sendgrid-go/helpers/mail"
 	"io"
@@ -477,9 +478,17 @@ type JumioBeginResponse struct {
 }
 
 func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := JumioBeginRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Problem parsing request body: %v", err))
+		return
+	}
+
+	// TODO: if public key has already successfully completed Jumio flow, return error.
 	initData := &JumioInitRequest{
-		CustomerInternalReference: "test",
-		UserReference:             "test",
+		CustomerInternalReference: requestData.PublicKey + uuid.NewString(),
+		UserReference:             requestData.PublicKey,
 	}
 	jsonData, err := json.Marshal(initData)
 	if err != nil {
@@ -494,7 +503,7 @@ func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.SetBasicAuth("", "") // TODO: Move these to config values
+	req.SetBasicAuth(fes.Config.JumioToken, fes.Config.JumioSecret) // TODO: Move these to config values
 
 	postRes, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -503,8 +512,7 @@ func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	jumioInit := JumioInitResponse{}
-	err = json.NewDecoder(postRes.Body).Decode(&jumioInit)
-	if err != nil {
+	if err = json.NewDecoder(postRes.Body).Decode(&jumioInit); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Decode failed: %v", err))
 		return
 	}
@@ -517,4 +525,111 @@ func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Encode failed: %v", err))
 		return
 	}
+}
+
+func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	var requestData interface{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Problem parsing request body: %v", err))
+		return
+	}
+
+	//var publicKeyBytes []byte
+	//if requestData.PublicKey != "" {
+	//	var err error
+	//	publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKey)
+	//	if err != nil {
+	//		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Problem decoding user public key: %v", err))
+	//		return
+	//	}
+	//} else {
+	//	_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Public key is required"))
+	//	return
+	//}
+	//
+	//
+	//utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	//if err != nil {
+	//	_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: error getting utxoview: %v", err))
+	//	return
+	//}
+	//
+	//pkid := utxoView.GetPKIDForPublicKey(publicKeyBytes)
+	//if pkid == nil {
+	//	_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: No PKID found for public key: %v", requestData.PublicKey))
+	//	return
+	//}
+
+	// TODO: log the request data somewhere and save in global state.
+	requestDataMap := requestData.(map[string]interface{})
+	if requestDataMap["idScanStatus"] != "SUCCESS" {
+		// This means the verification failed. save the failed body somewhere and bail.
+		return
+	}
+	var err error
+	var payloadBytes []byte
+	payloadBytes, err = json.Marshal(requestData)
+	if err != nil {
+		return
+	}
+
+	// PASSPORT, DRIVING_LICENSE, ID_CARD, VISA
+	idType := requestDataMap["idType"].(string)
+	// More specific type
+	idSubType := requestDataMap["idSubtype"].(string)
+
+	idCountry := requestDataMap["idCountry"].(string)
+
+	idNumber := requestDataMap["idNumber"].(string)
+
+	//GlobalStateKeyForPKIDToJumioTransaction()
+	// Make sure this order hasn't been paid out, then mark it as paid out.
+	uniqueJumioKey := GlobalStateKeyForCountryIDDocumentTypeSubTypeDocumentNumber(idCountry, idType, idSubType, idNumber)
+	// We expect badger to return a key not found error if BitClout has been paid out for this order.
+	// If it does not return an error, BitClout has already been paid out, so we skip ahead.
+	if val, _ := fes.GlobalStateGet(uniqueJumioKey); val == nil {
+		// Put the transaction in global state for the PKID key
+		// Put the transaction in global state for the unique document key
+		// Get user metadata from global state and set jumio attributes
+		// Check the balance of merlin, pay out from merlin
+		bitcloutNanos := fes.Config.JumioBitcloutNanos
+		if bitcloutNanos != 0 {
+			var balanceInsufficient bool
+			balanceInsufficient, err = fes.ExceedsBitCloutBalance(bitcloutNanos, fes.Config.StarterBitcloutSeed)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrdersubscription: Error checking if send bitclout balance is sufficient: %v", err))
+				return
+			}
+			if balanceInsufficient {
+				// TODO: THIS SHOULD TRIGGER ALERT
+				_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: SendBitClout wallet balance is below nanos purchased"))
+				return
+			}
+			if err = fes.GlobalStatePut(uniqueJumioKey, payloadBytes); err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting unique jumio key in global state: %v", err))
+				return
+			}
+			// TODO: Get public key correctly from payload
+			var publicKeyBase58Check string
+			var userMetadata *UserMetadata
+			userMetadata, err = fes.getUserMetadataFromGlobalState(publicKeyBase58Check)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error getting user metadata from global state: %v", err))
+				return
+			}
+			userMetadata.JumioVerified = true
+			userMetadata.JumioTransactionID = "somestring"
+			//var publicKeyBytes []byte
+			//fes.GlobalStateGet(GlobalStateKeyForPublicKeyToUserMetadata(publicKeyBytes))
+			// TODO: which fields map to customerReferenceId and userReference
+			//if err = fes.GlobalStatePut(GlobalStateKeyForPKIDReferenceIdToJumioTransaction(pkid, referenceId), payloadBytes); err != nil {
+			//	_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting unique jumio key in global state: %v", err))
+			//	return
+			//}
+		}
+		// Save the transaction hash of the payout somewhere.
+	}
+	// Mark this order as paid out
+	//if err = fes.GlobalStatePut(wyreOrderIdKey, []byte{1}); err != nil
 }

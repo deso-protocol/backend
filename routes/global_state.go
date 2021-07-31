@@ -138,11 +138,15 @@ var (
 
 	_GlobalStatePrefixBuyBitCloutFeeBasisPoints = []byte{16}
 
+	_GlobalStatePrefixPKIDToJumioTransaction = []byte{17}
+
+	_GlobalStatePrefixCountryIDDocumentTypeSubTypeDocumentNumber = []byte{18}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
-	// NEXT_TAG: 17
+	// NEXT_TAG: 19
 )
 
 // This struct contains all the metadata associated with a user's public key.
@@ -201,6 +205,9 @@ type UserMetadata struct {
 
 	// If true, this user's posts will automatically be added to the global whitelist (max 5 per day).
 	WhitelistPosts bool
+
+	JumioVerified bool
+	JumioTransactionID string
 }
 
 // This struct contains all the metadata associated with a user's phone number.
@@ -357,6 +364,22 @@ func GlobalStateKeyForUSDCentsToBitCloutReserveExchangeRate() []byte {
 func GlobalStateKeyForBuyBitCloutFeeBasisPoints() []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixBuyBitCloutFeeBasisPoints...)
 	return prefixCopy
+}
+
+func GlobalStateKeyForPKIDReferenceIdToJumioTransaction(pkid *lib.PKID, referenceId string) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDToJumioTransaction...)
+	key := append(prefixCopy, pkid[:]...)
+	key = append(key, []byte(referenceId)...)
+	return key
+}
+
+func GlobalStateKeyForCountryIDDocumentTypeSubTypeDocumentNumber(countryID string, documentType string, subType string, documentNumber string) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixCountryIDDocumentTypeSubTypeDocumentNumber...)
+	key := append(prefixCopy, []byte(countryID)...)
+	key = append(key, []byte(documentType)...)
+	key = append(key, []byte(subType)...)
+	key = append(key, []byte(documentNumber)...)
+	return key
 }
 
 type GlobalStatePutRemoteRequest struct {

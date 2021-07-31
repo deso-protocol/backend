@@ -95,6 +95,7 @@ const (
 	RoutePathResendVerifyEmail                 = "/api/v0/resend-verify-email"
 	RoutePathVerifyEmail                       = "/api/v0/verify-email"
 	RoutePathJumioBegin                        = "/api/v0/jumio-begin"
+	RoutePathJumioCallback                     = "/api/v0/jumio-callback"
 
 	// wyre.go
 	RoutePathGetWyreWalletOrderQuotation     = "/api/v0/get-wyre-wallet-order-quotation"
@@ -552,11 +553,19 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.VerifyEmail,
 			PublicAccess,
 		},
+		// Jumio Routes
 		{
 			"JumioBegin",
 			[]string{"POST", "OPTIONS"},
 			RoutePathJumioBegin,
 			fes.JumioBegin,
+			PublicAccess,
+		},
+		{
+			"JumioCallback",
+			[]string{"POST", "OPTIONS"},
+			RoutePathJumioCallback,
+			fes.JumioCallback,
 			PublicAccess,
 		},
 
@@ -930,6 +939,7 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 		contentType := r.Header.Get("Content-Type")
 
 		invalidPostRequest := false
+		// TODO: add exception for application/x-www-form-urlencoded content-type for Jumio endpoint only.
 		// upload-image endpoint is the only one allowed to use multipart/form-data
 		if r.RequestURI == RoutePathUploadImage && strings.HasPrefix(contentType, "multipart/form-data") {
 			match = true

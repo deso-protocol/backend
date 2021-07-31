@@ -683,7 +683,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error computing nanos purchased: %v", err))
 		return
 	}
-	balanceInsufficient, err := fes.ExceedsSendBitCloutBalance(nanosPurchased)
+	balanceInsufficient, err := fes.ExceedsBitCloutBalance(nanosPurchased, fes.Config.BuyBitCloutSeed)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error checking if send bitclout balance is sufficient: %v", err))
 		return
@@ -811,13 +811,15 @@ func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint
 }
 
 // ExceedsSendBitCloutBalance - Check if nanosPurchased is greater than the balance of the BuyBitClout wallet.
-func (fes *APIServer) ExceedsSendBitCloutBalance(nanosPurchased uint64) (bool, error) {
-	buyBitCloutSeedBalance, err := fes.getBalanceForSeed(fes.Config.BuyBitCloutSeed)
+func (fes *APIServer) ExceedsBitCloutBalance(nanosPurchased uint64, seed string) (bool, error) {
+	buyBitCloutSeedBalance, err := fes.getBalanceForSeed(seed)
 	if err != nil {
 		return false, fmt.Errorf("Error getting buy bitclout balance: %v", err)
 	}
 	return nanosPurchased > buyBitCloutSeedBalance, nil
 }
+
+
 
 // SendBitCloutRequest ...
 type SendBitCloutRequest struct {
