@@ -51,6 +51,7 @@ example release tag: v1.1.1
 * Manual: Git push tag v1.1.1
 * Automated: docker container build
 * Automated: deploy to dev
+* Automated: update the dev's docker image tag
 * Manual: test dev
 * Manual: everything is good
 
