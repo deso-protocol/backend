@@ -32,3 +32,41 @@ git push origin v1.4.2
 This will create these tags for the container:
 * v1.4.2
 * latest
+
+## Deploy
+On tag, the deployment will run.
+
+Based on semver: `major.minor.patch`
+
+| Changes         | Deploy to              | 
+|-----------------|------------------------|
+| `patch`         | `dev`                  |
+| `minor`         | `staging`              |
+| `major`         | `production`           |
+
+
+## Performing a release from dev to prod
+
+v1.1.1
+* Git push tag v1.1.1 manually
+* docker container build
+* deploy to dev
+* test dev
+* everything is good
+
+Promote v1.1.1 to staging
+* Change the staging's docker image tag to this manually?
+* Open PR
+* deploy to staging
+* test staging
+* everything is good
+
+Promote v1.1.1 to prod
+* Change the prod's docker image tag to this manually?
+* Ope PR
+* Deploy to prod
+* test prod
+* everything is good
+
+
+
