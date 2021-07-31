@@ -111,15 +111,9 @@ jobs:
         echo ${{ steps.tag_id.outputs.tag }}
         cat terraform-environments/aws/dev/helm/60-gem-backend/main.tf
 
-    # - name: Update dev image tag
-    #   run: |
-    #     terraform apply -auto-approve
-    #     echo ${{ steps.tag_id.outputs.tag }}
-
-
-    - name: Update dev deploy docker tags
-      uses: stefanzweifel/git-auto-commit-action@v4
-      with:
-        commit_message: Automated Change
-        file_pattern: terraform-environments/*
+    # - name: Update dev deploy docker tags
+    #   uses: stefanzweifel/git-auto-commit-action@v4
+    #   with:
+    #     commit_message: Automated Change
+    #     file_pattern: terraform-environments/*
 
