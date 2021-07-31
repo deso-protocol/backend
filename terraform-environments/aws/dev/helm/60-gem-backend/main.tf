@@ -73,7 +73,7 @@ data "template_file" "helm_values" {
     namespace         = local.namespace
     replica_count     = local.replica_count
     docker_repository = local.docker_repository
-    docker_tag        = "v1.4.8"
+    docker_tag        = local.docker_tag
     requests_memory   = local.requests_memory
   }
 }
