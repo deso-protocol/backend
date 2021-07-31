@@ -47,26 +47,23 @@ Based on semver: `major.minor.patch`
 
 ## Performing a release from dev to prod
 
-v1.1.1
-* Git push tag v1.1.1 manually
-* docker container build
-* deploy to dev
-* test dev
-* everything is good
+example release tag: v1.1.1
+* Manual: Git push tag v1.1.1
+* Automated: docker container build
+* Automated: deploy to dev
+* Manual: test dev
+* Manual: everything is good
 
 Promote v1.1.1 to staging
-* Change the staging's docker image tag to this manually?
-* Open PR
-* deploy to staging
-* test staging
-* everything is good
+* Manual: Change the staging's docker image tag to this manually?
+* Manual: Open PR and get it merged
+* Automated: deploy to staging
+* Manual: test staging
+* Manual: everything is good
 
 Promote v1.1.1 to prod
-* Change the prod's docker image tag to this manually?
-* Ope PR
-* Deploy to prod
-* test prod
-* everything is good
-
-
-
+* Manual: Change the prod's docker image tag to this manually?
+* Manual: Open PR and get it merged
+* Automated: Deploy to prod
+* Manual: test prod
+* Manual: everything is good
