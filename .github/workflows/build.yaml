@@ -122,5 +122,5 @@ jobs:
     - name: Update dev deploy docker tags file
       uses: stefanzweifel/git-auto-commit-action@v4
       with:
-        commit_message: Automated Change
+        commit_message: "Automated Change | Deploy to dev | tags: ${{ steps.tag_id.outputs.tag }}"
         file_pattern: terraform-environments/*
