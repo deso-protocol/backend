@@ -83,7 +83,10 @@ jobs:
         run: echo ${{ steps.docker_build.outputs.digest }}
 
 
-  # Deploy to dev
+  ## Deploy to dev
+  ## Will only run on a tag release: v*
+  ## Will update the dev's TF file's docker tag with the tag and commit it back into the 'main' branch
+  ## This will trigger a TF run to apply the changes
   deploy-dev:
     needs: build
     runs-on: ubuntu-latest
