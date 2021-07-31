@@ -52,11 +52,11 @@ jobs:
           images: |
             067550988196.dkr.ecr.us-east-1.amazonaws.com/backend
           # generate Docker tags based on the following events/attributes
-          tags: |
-            type=schedule
-            type=ref,event=branch
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
+          # tags: |
+          #   type=schedule
+          #   type=ref,event=branch
+          #   type=semver,pattern={{major}}.{{minor}}
+          #   type=sha
       #type=ref,event=pr
       #type=semver,pattern={{version}}
       - name: Set up QEMU
