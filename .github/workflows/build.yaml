@@ -89,9 +89,14 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
+    # Including the PERSONAL_ACCESS_TOKEN_CORE in the checkout.  Without this the
+    # following stefanzweifel/git-auto-commit-action will not trigger a
+    # new github action for deployment
+    # doc: https://github.com/stefanzweifel/git-auto-commit-action#commits-made-by-this-action-do-not-trigger-new-workflow-runs
     - name: Checkout
       uses: actions/checkout@v2
       with:
+        token: ${{ secrets.PERSONAL_ACCESS_TOKEN_CORE }}
         ref: 'main'
 
     - name: Extract tag var
@@ -119,4 +124,3 @@ jobs:
       with:
         commit_message: Automated Change
         file_pattern: terraform-environments/*
-
