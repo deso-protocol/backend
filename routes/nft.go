@@ -1228,7 +1228,11 @@ func (fes *APIServer) _nftEntryToResponse(nftEntry *lib.NFTEntry, postEntryRespo
 			lastOwnerPublicKeyBase58Check = &lastOwnerPublicKeyBase58CheckVal
 		}
 	}
-	highBid, lowBid := utxoView.GetHighAndLowBidsForNFTSerialNumber(nftEntry.NFTPostHash, nftEntry.SerialNumber)
+	var highBid uint64
+	var lowBid uint64
+	if nftEntry.IsForSale {
+		highBid, lowBid = utxoView.GetHighAndLowBidsForNFTSerialNumber(nftEntry.NFTPostHash, nftEntry.SerialNumber)
+	}
 	return &NFTEntryResponse{
 		OwnerPublicKeyBase58Check: publicKeyBase58Check,
 		ProfileEntryResponse:      profileEntryResponse,
