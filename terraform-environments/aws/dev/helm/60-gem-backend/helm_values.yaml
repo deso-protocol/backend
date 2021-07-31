@@ -1,0 +1,52 @@
+replicaCount: ${replica_count}
+
+fullnameOverride: ${fullnameOverride}
+namespace: ${namespace}
+
+# containerSpecOptions:
+#   securityContext:
+#     runAsUser: 1000
+#     runAsGroup: 1000
+
+deployment:
+  containers:
+  - name: ${fullnameOverride}
+    image:
+      repository: ${docker_repository}
+      tag: ${docker_tag}
+      pullPolicy: Always
+    args:
+    - run
+    env:
+      base:
+        - name: TXINDEX
+          value: "true"
+      perEnv: [ ]
+    ports:
+    - name: http1
+      protocol: TCP
+      containerPort: 17000
+      servicePort: 17000
+    - name: http2
+      protocol: TCP
+      containerPort: 17001
+      servicePort: 17001
+
+    resources:
+      requests:
+        memory: ${requests_memory}
+
+ingress:
+  enabled: true
+  annotations:
+    kubernetes.io/ingress.class: nginx-external
+    # kubernetes.io/tls-acme: "true"
+  paths:
+    - path: /api
+      servicePort: http2
+  hosts:
+    - www.dev.yourgem.app
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
