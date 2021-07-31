@@ -99,7 +99,7 @@ jobs:
     - name: Update dev image tag
       uses: jacobtomlinson/gha-find-replace@0.1.4
       with:
-        find: "docker_tag        = \"*\""
+        find: "docker_tag.*"
         replace: "docker_tag        = \"${{ steps.tag_id.outputs.tag }}\""
         include: "terraform-environments/aws/dev/helm/60-gem-backend/"
 
