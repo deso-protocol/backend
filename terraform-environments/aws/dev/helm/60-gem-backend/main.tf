@@ -5,7 +5,7 @@ locals {
   fullnameOverride  = "gem-backend"
   replica_count     = 1
   docker_repository = "067550988196.dkr.ecr.us-east-1.amazonaws.com/backend"
-  docker_tag        = "v1.4.6"
+  docker_tag        = "v1.4.7"
   requests_memory   = "1Gi"
 
   tags = {
@@ -73,7 +73,7 @@ data "template_file" "helm_values" {
     namespace         = local.namespace
     replica_count     = local.replica_count
     docker_repository = local.docker_repository
-    docker_tag        = local.docker_tag
+    docker_tag        = "v1.4.7"
     requests_memory   = local.requests_memory
   }
 }
