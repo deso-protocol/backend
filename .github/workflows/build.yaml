@@ -87,7 +87,16 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
       - name: Image digest
-        run: echo ${{ steps.docker_build.outputs.digest }}
+        run: |
+          echo ${{ steps.docker_build.outputs.digest }}
+          echo ${{ steps.meta.outputs.labels }}
+
+      - name: Update dev deploy docker tags
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: Automated Change
+          file_pattern: terraform-environments/*
+
 
   # Deploy to dev
   # deploy-dev:
