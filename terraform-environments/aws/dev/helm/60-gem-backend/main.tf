@@ -2,9 +2,9 @@ locals {
   aws_region        = "us-east-1"
   environment_name  = "dev"
   namespace         = "app-dev"
-  fullnameOverride  = "gem-frontend"
+  fullnameOverride  = "gem-backend"
   replica_count     = 1
-  docker_repository = "067550988196.dkr.ecr.us-east-1.amazonaws.com/frontend"
+  docker_repository = "067550988196.dkr.ecr.us-east-1.amazonaws.com/backend"
   docker_tag        = "latest"
   requests_memory   = "1Gi"
 
@@ -32,7 +32,7 @@ terraform {
     organization = "gem-engineering"
 
     workspaces {
-      name = "kubernetes-ops-dev-70-gem-frontend"
+      name = "kubernetes-ops-dev-60-gem-backend"
     }
   }
 }

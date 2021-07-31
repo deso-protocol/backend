@@ -15,12 +15,22 @@ deployment:
       repository: ${docker_repository}
       tag: ${docker_tag}
       pullPolicy: Always
-
+    args:
+    - run
+    env:
+      base:
+        - name: TXINDEX
+          value: "true"
+      perEnv: [ ]
     ports:
-    - name: http
+    - name: http1
       protocol: TCP
-      containerPort: 80
-      servicePort: 80
+      containerPort: 17000
+      servicePort: 17000
+    - name: http2
+      protocol: TCP
+      containerPort: 17001
+      servicePort: 17001
 
     resources:
       requests:
@@ -32,8 +42,8 @@ ingress:
     kubernetes.io/ingress.class: nginx-external
     # kubernetes.io/tls-acme: "true"
   paths:
-    - path: /
-      servicePort: http
+    - path: /api
+      servicePort: http2
   hosts:
     - www.dev.yourgem.app
   tls: []
