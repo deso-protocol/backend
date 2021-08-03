@@ -21,6 +21,22 @@ deployment:
       base:
         - name: TXINDEX
           value: "true"
+        - name: GLOG_V
+          value: "0"
+        - name: ADMIN_PUBLIC_KEYS
+          value: "BC1YLjUrkSFEW1XyfZ6JdbdVmDURFG3PxJmZ7LKw4zs6PCFLXKeM2YJ BC1YLfrvJwwAjDcL3Tq2spWbvXCJFadiDdJMyvCaeHgG7snSsYNRKXk BC1YLhKuj76oaT1wwGhfb9GX7rCyc9cxrx54v84fAn9EDuc9zDawgGf BC1YLh6WDX4uCw3pcT7pjEQG7UcLj1KS1SpG3hnLkWg11EiBGjAM6oP BC1YLfyqxLpXsiGt7HvgjaKBjCZjAev82HeM626Nw7zfuYowrY72fGP BC1YLhSkJo5dhiFK38eFdViXm1tsAVi1ZFdNroG1RoB8NJG4JnDLzNK BC1YLijaLPipTCt1rL8fx6Xxt1DGNrasqRsfhKPRihPneqbntpRCzQY"
+        - name: SUPER_ADMIN_PUBLIC_KEYS
+          value: "BC1YLjUrkSFEW1XyfZ6JdbdVmDURFG3PxJmZ7LKw4zs6PCFLXKeM2YJ BC1YLfrvJwwAjDcL3Tq2spWbvXCJFadiDdJMyvCaeHgG7snSsYNRKXk BC1YLhKuj76oaT1wwGhfb9GX7rCyc9cxrx54v84fAn9EDuc9zDawgGf BC1YLh6WDX4uCw3pcT7pjEQG7UcLj1KS1SpG3hnLkWg11EiBGjAM6oP BC1YLfyqxLpXsiGt7HvgjaKBjCZjAev82HeM626Nw7zfuYowrY72fGP BC1YLhSkJo5dhiFK38eFdViXm1tsAVi1ZFdNroG1RoB8NJG4JnDLzNK BC1YLijaLPipTCt1rL8fx6Xxt1DGNrasqRsfhKPRihPneqbntpRCzQY"
+        - name: RATE_LIMIT_FEERATE
+          value: "0"
+        - name: MIN_FEERATE
+          value: "1000"
+        - name: STARTER_BITCLOUT_NANOS
+          value: "1000000"
+        - name: MIN_SATOSHIS_FOR_PROFILE
+          value: "50000"
+        - name: DATA_DIR
+          value: "/db"
       perEnv: [ ]
     ports:
     - name: http1
