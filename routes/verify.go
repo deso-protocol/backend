@@ -12,6 +12,7 @@ import (
 	"github.com/sendgrid/sendgrid-go/helpers/mail"
 	"io"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"sort"
 	"strings"
@@ -578,7 +579,14 @@ func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
 }
 
 func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
-	if err := req.ParseForm(); err != nil {
+	requestDump, err := httputil.DumpRequest(req, true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Problem dumping request: %v", err))
+		return
+	}
+	fmt.Println(requestDump)
+
+	if err = req.ParseForm(); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Problem parsing form: %v", err))
 		return
 	}
@@ -590,6 +598,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	// Marshal the post form so we can save the details in global state.
 	payloadBytes, err := json.Marshal(payloadMap)
 	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Problem marshaling JSON: %v", err))
 		return
 	}
 

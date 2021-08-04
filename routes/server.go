@@ -1079,9 +1079,9 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 		if r.RequestURI == RoutePathUploadImage && strings.HasPrefix(contentType, "multipart/form-data") {
 			match = true
 			actualOrigin = "*"
-		} else if r.Method == "POST" && contentType == "application/x-www-form-urlencoded" && r.RequestURI == RoutePathJumioCallback {
-			// allow application/x-www-form-urlencoded content types for the jumio callback
-		} else if r.Method == "POST" && contentType != "application/json" {
+		//} else if r.Method == "POST" && contentType == "application/x-www-form-urlencoded" && r.RequestURI == RoutePathJumioCallback {
+		//	// allow application/x-www-form-urlencoded content types for the jumio callback
+		} else if r.Method == "POST" && contentType != "application/json" && r.RequestURI != RoutePathJumioCallback{
 			invalidPostRequest = true
 		}
 
