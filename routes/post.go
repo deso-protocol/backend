@@ -88,6 +88,14 @@ type PostEntryResponse struct {
 	// A list of parent posts for this post (ordered: root -> closest parent post).
 	ParentPosts []*PostEntryResponse
 
+	// NFT info.
+	IsNFT                          bool
+	NumNFTCopies                   uint64
+	NumNFTCopiesForSale            uint64
+	HasUnlockable                  bool
+	NFTRoyaltyToCreatorBasisPoints uint64
+	NFTRoyaltyToCoinBasisPoints    uint64
+
 	// Number of diamonds the sender gave this post. Only set when getting diamond posts.
 	DiamondsFromSender uint64
 }
@@ -217,27 +225,33 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 	}
 
 	res := &PostEntryResponse{
-		PostHashHex:                hex.EncodeToString(postEntry.PostHash[:]),
-		PosterPublicKeyBase58Check: lib.PkToString(postEntry.PosterPublicKey, params),
-		ParentStakeID:              stakeIDStr,
-		Body:                       bodyJSONObj.Body,
-		ImageURLs:                  bodyJSONObj.ImageURLs,
-		RecloutedPostEntryResponse: recloutPostEntryResponse,
-		CreatorBasisPoints:         postEntry.CreatorBasisPoints,
-		StakeMultipleBasisPoints:   postEntry.StakeMultipleBasisPoints,
-		TimestampNanos:             postEntry.TimestampNanos,
-		IsHidden:                   postEntry.IsHidden,
-		ConfirmationBlockHeight:    postEntry.ConfirmationBlockHeight,
-		InMempool:                  inMempool,
-		StakeEntry:                 _stakeEntryToResponse(postEntry.StakeEntry, params),
-		StakeEntryStats:            lib.GetStakeEntryStats(postEntry.StakeEntry, params),
-		LikeCount:                  postEntry.LikeCount,
-		DiamondCount:               postEntry.DiamondCount,
-		CommentCount:               postEntry.CommentCount,
-		RecloutCount:               postEntry.RecloutCount,
-		QuoteRecloutCount:          postEntry.QuoteRecloutCount,
-		IsPinned:                   &postEntry.IsPinned,
-		PostExtraData:              postEntryResponseExtraData,
+		PostHashHex:                    hex.EncodeToString(postEntry.PostHash[:]),
+		PosterPublicKeyBase58Check:     lib.PkToString(postEntry.PosterPublicKey, params),
+		ParentStakeID:                  stakeIDStr,
+		Body:                           bodyJSONObj.Body,
+		ImageURLs:                      bodyJSONObj.ImageURLs,
+		RecloutedPostEntryResponse:     recloutPostEntryResponse,
+		CreatorBasisPoints:             postEntry.CreatorBasisPoints,
+		StakeMultipleBasisPoints:       postEntry.StakeMultipleBasisPoints,
+		TimestampNanos:                 postEntry.TimestampNanos,
+		IsHidden:                       postEntry.IsHidden,
+		ConfirmationBlockHeight:        postEntry.ConfirmationBlockHeight,
+		InMempool:                      inMempool,
+		StakeEntry:                     _stakeEntryToResponse(postEntry.StakeEntry, params),
+		StakeEntryStats:                lib.GetStakeEntryStats(postEntry.StakeEntry, params),
+		LikeCount:                      postEntry.LikeCount,
+		DiamondCount:                   postEntry.DiamondCount,
+		CommentCount:                   postEntry.CommentCount,
+		RecloutCount:                   postEntry.RecloutCount,
+		QuoteRecloutCount:              postEntry.QuoteRecloutCount,
+		IsPinned:                       &postEntry.IsPinned,
+		IsNFT:                          postEntry.IsNFT,
+		NumNFTCopies:                   postEntry.NumNFTCopies,
+		NumNFTCopiesForSale:            postEntry.NumNFTCopiesForSale,
+		HasUnlockable:                  postEntry.HasUnlockable,
+		NFTRoyaltyToCreatorBasisPoints: postEntry.NFTRoyaltyToCreatorBasisPoints,
+		NFTRoyaltyToCoinBasisPoints:    postEntry.NFTRoyaltyToCoinBasisPoints,
+		PostExtraData:                  postEntryResponseExtraData,
 	}
 
 	if addGlobalFeedBool {
