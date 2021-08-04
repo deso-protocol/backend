@@ -208,6 +208,8 @@ type UserMetadata struct {
 
 	JumioVerified bool
 	JumioTransactionID string
+	JumioDocumentKey []byte
+	JumioStarterBitCloutTxnHashHex string
 }
 
 // This struct contains all the metadata associated with a user's phone number.
@@ -370,6 +372,12 @@ func GlobalStateKeyForPKIDReferenceIdToJumioTransaction(pkid *lib.PKID, referenc
 	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDToJumioTransaction...)
 	key := append(prefixCopy, pkid[:]...)
 	key = append(key, []byte(referenceId)...)
+	return key
+}
+
+func GlobalStatePrefixforPKIDReferenceIdToJumioTransaction(pkid *lib.PKID) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDToJumioTransaction...)
+	key := append(prefixCopy, pkid[:]...)
 	return key
 }
 

@@ -83,7 +83,7 @@ type MessageContactResponse struct {
 // User ...
 type User struct {
 	// The public key for the user is computed from the seed using the exact
-	// paramters used to generate the BTC deposit address below. Because
+	// parameters used to generate the BTC deposit address below. Because
 	// of this, the BitClout private and public key pair is also the key
 	// pair corresponding to the BTC address above. We store this same
 	// key in base58 format above for convenience in communicating with
@@ -108,6 +108,8 @@ type User struct {
 	BlockedPubKeys   map[string]struct{}
 	HasEmail         bool
 	EmailVerified    bool
+
+	JumioVerified    bool
 
 	// Is this user an admin
 	IsAdmin bool

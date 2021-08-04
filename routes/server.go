@@ -96,6 +96,9 @@ const (
 	RoutePathVerifyEmail                       = "/api/v0/verify-email"
 	RoutePathJumioBegin                        = "/api/v0/jumio-begin"
 	RoutePathJumioCallback                     = "/api/v0/jumio-callback"
+	RoutePathAdminGetJumioAttemptsForPublicKey = "/api/v0/admin/get-jumio-attempts-for-public-key"
+	RoutePathAdminResetJumioForPublicKey       = "/api/v0/admin/reset-jumio-for-public-key"
+
 
 	// wyre.go
 	RoutePathGetWyreWalletOrderQuotation     = "/api/v0/get-wyre-wallet-order-quotation"
@@ -713,6 +716,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.SetBuyBitCloutFeeBasisPoints,
 			SuperAdminAccess,
 		},
+		{
+			"AdminResetJumioForPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminResetJumioForPublicKey,
+			fes.AdminResetJumioForPublicKey,
+			SuperAdminAccess,
+		},
+		{
+			"AdminGetJumioAttemptsForPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetJumioAttemptsForPublicKey,
+			fes.AdminGetJumioVerificationAttemptsForPublicKey,
+			SuperAdminAccess,
+		},
 		// End all /admin routes
 		// GET endpoints for managing parameters related to Buying BitClout
 		{
@@ -944,6 +961,8 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 		if r.RequestURI == RoutePathUploadImage && strings.HasPrefix(contentType, "multipart/form-data") {
 			match = true
 			actualOrigin = "*"
+		} else if r.Method == "POST" && contentType == "application/x-www-form-urlencoded" && r.RequestURI == RoutePathJumioCallback {
+			// allow application/x-www-form-urlencoded content types for the jumio callback
 		} else if r.Method == "POST" && contentType != "application/json" {
 			invalidPostRequest = true
 		}

@@ -208,7 +208,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		user.HasPhoneNumber = userMetadata.PhoneNumber != ""
 		user.HasEmail = userMetadata.Email != ""
 		user.EmailVerified = userMetadata.EmailVerified
-
+		user.JumioVerified = userMetadata.JumioVerified
 		user.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView)
 		if err != nil {
 			return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err), "")

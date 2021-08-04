@@ -224,6 +224,7 @@ type GetAppStateResponse struct {
 	CompProfileCreation    bool
 	DiamondLevelMap        map[int64]uint64
 	HasWyreIntegration     bool
+	HasJumioIntegration    bool
 
 	// Send back the password stored in our HTTPOnly cookie
 	// so amplitude can track which passwords people are using
@@ -259,6 +260,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		CompProfileCreation:                 fes.Config.CompProfileCreation,
 		DiamondLevelMap:                     lib.GetBitCloutNanosDiamondLevelMapAtBlockHeight(int64(fes.blockchain.BlockTip().Height)),
 		HasWyreIntegration:                  fes.IsConfiguredForWyre(),
+		HasJumioIntegration:                 fes.IsConfiguredForJumio(),
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
