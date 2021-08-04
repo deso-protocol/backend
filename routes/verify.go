@@ -846,14 +846,13 @@ func (fes *APIServer) AdminGetJumioVerificationAttemptsForPublicKey(ww http.Resp
 	// Key is prefix + pkid + internalCustomerReference (public key + tstampnanos)
 	maxKeyLen := 1 + len(pkid.PKID[:]) + btcec.PubKeyBytesLenCompressed + 8
 	_, values, err := fes.GlobalStateSeek(prefix, prefix, maxKeyLen, 100, false, true)
+	glog.Errorf("AdminGetJumioVerificationAttemptsForPublicKey: Length of values: %v", len(values))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: Error seeking global state for verification attempts: %v", err))
 		return
 	}
 
-	res := &AdminGetJumioVerificationAttemptsResponse{
-		VerificationAttempts: []map[string][]string{},
-	}
+	res := &AdminGetJumioVerificationAttemptsResponse{}
 
 	for _, value := range values {
 		valueUnmarshal := make(map[string][]string)
