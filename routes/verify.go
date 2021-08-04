@@ -579,22 +579,26 @@ func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
 }
 
 func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
+	glog.Errorf("JumioCallback: Start")
 	requestDump, err := httputil.DumpRequest(req, true)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Problem dumping request: %v", err))
 		return
 	}
-	fmt.Println(requestDump)
+	glog.Errorf("JumioCallback: %v", string(requestDump))
 
 	if err = req.ParseForm(); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Problem parsing form: %v", err))
 		return
 	}
 
+	glog.Errorf("JumioCallback: Parsed Form")
 	payloadMap := make(map[string][]string)
 	for k, v := range req.PostForm {
+		glog.Errorf("JumioCallback: key - value: %v -> %v", k, v)
 		payloadMap[k] = v
 	}
+
 	// Marshal the post form so we can save the details in global state.
 	payloadBytes, err := json.Marshal(payloadMap)
 	if err != nil {
@@ -625,6 +629,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	// Get Public key bytes and PKID
 	var publicKeyBytes []byte
 	if userReference != "" {
+		glog.Errorf("JumioCallback: userReference: %v", userReference)
 		publicKeyBytes, _, err = lib.Base58CheckDecode(userReference)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Problem decoding user public key (customerId): %v", err))
@@ -649,6 +654,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	}
 
 
+	glog.Errorf("JumioCallback: Putting PKID + internal ref in global state")
 	// Always log the payload in global state for the PKID so we can search for all jumio verification payloads for a given user.
 	pkidReferenceIdKey := GlobalStateKeyForPKIDReferenceIdToJumioTransaction(pkid.PKID, internalCustomerReference)
 	if err = fes.GlobalStatePut(pkidReferenceIdKey, payloadBytes); err != nil {
@@ -658,6 +664,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 
 	if req.FormValue("idScanStatus") != "SUCCESS" {
 		// This means the verification failed. We've logged the payload in global state above, so we can bail here.
+		glog.Errorf("Verification failed")
 		return
 	}
 
@@ -689,6 +696,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error updating user metadata in global state: %v", err))
 			return
 		}
+		glog.Errorf("JumioCallback: saved user metadata")
 		if err = fes.GlobalStatePut(uniqueJumioKey, payloadBytes); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting unique jumio key in global state: %v", err))
 			return
@@ -851,6 +859,7 @@ func (fes *APIServer) AdminGetJumioVerificationAttemptsForPublicKey(ww http.Resp
 		valueUnmarshal := make(map[string][]string)
 		if err = json.Unmarshal(value, &valueUnmarshal); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: Error unmarshaling jumio data: %v", err))
+			return
 		}
 		res.VerificationAttempts = append(res.VerificationAttempts, valueUnmarshal)
 	}
