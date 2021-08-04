@@ -657,6 +657,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	glog.Errorf("JumioCallback: Putting PKID + internal ref in global state")
 	// Always log the payload in global state for the PKID so we can search for all jumio verification payloads for a given user.
 	pkidReferenceIdKey := GlobalStateKeyForPKIDReferenceIdToJumioTransaction(pkid.PKID, internalCustomerReference)
+	glog.Errorf("JumioCallback: pkidReferenceIdKey (%d): %v", len(pkidReferenceIdKey), string(pkidReferenceIdKey))
 	if err = fes.GlobalStatePut(pkidReferenceIdKey, payloadBytes); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting jumio callback in global state: %v", err))
 		return
@@ -845,7 +846,7 @@ func (fes *APIServer) AdminGetJumioVerificationAttemptsForPublicKey(ww http.Resp
 
 	// Key is prefix + pkid + internalCustomerReference (public key + tstampnanos)
 	maxKeyLen := 1 + len(pkid.PKID[:]) + btcec.PubKeyBytesLenCompressed + 8
-	_, values, err := fes.GlobalStateSeek(prefix, prefix, maxKeyLen, 100, false, true)
+	_, values, err := fes.GlobalStateSeek(prefix, prefix, maxKeyLen, 100, true, true)
 	glog.Errorf("AdminGetJumioVerificationAttemptsForPublicKey: Length of values: %v", len(values))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: Error seeking global state for verification attempts: %v", err))
@@ -854,14 +855,17 @@ func (fes *APIServer) AdminGetJumioVerificationAttemptsForPublicKey(ww http.Resp
 
 	res := &AdminGetJumioVerificationAttemptsResponse{}
 
+	verificationAttempts := []map[string][]string{}
 	for _, value := range values {
 		valueUnmarshal := make(map[string][]string)
 		if err = json.Unmarshal(value, &valueUnmarshal); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: Error unmarshaling jumio data: %v", err))
 			return
 		}
-		res.VerificationAttempts = append(res.VerificationAttempts, valueUnmarshal)
+		verificationAttempts = append(verificationAttempts, valueUnmarshal)
 	}
+
+	res.VerificationAttempts = verificationAttempts
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: Encode failed: %v", err))
