@@ -1847,17 +1847,20 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 
 // AuthorizeDerivedKeyRequest ...
 type AuthorizeDerivedKeyRequest struct {
-	// The original public key of the derived key owner
+	// The original public key of the derived key owner.
 	OwnerPublicKeyBase58Check string `safeForLogging:"true"`
 
 	// The derived public key
 	DerivedPublicKeyBase58Check string `safeForLogging:"true"`
 
-	// The expiration block of the derived key pair
+	// The expiration block of the derived key pair.
 	ExpirationBlock uint64 `safeForLogging:"true"`
 
-	// The signature of the derived key owner
+	// The signature of the derived key owner.
 	AccessSignature string `safeForLogging:"true"`
+
+	// The intended operation on the derived key.
+	DeleteKey bool `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 }
@@ -1876,7 +1879,7 @@ type AuthorizeDerivedKeyResponse struct {
 // AuthorizeDerivedKey ...
 func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Request){
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := AuthorizeDerivedKeyRequest{};
+	requestData := AuthorizeDerivedKeyRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem parsing request body: %v", err))
 		return
@@ -1924,6 +1927,7 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		derivedPublicKeyBytes,
 		requestData.ExpirationBlock,
 		accessSignature,
+		requestData.DeleteKey,
 		// Standard transaction fields
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
 	if err != nil {

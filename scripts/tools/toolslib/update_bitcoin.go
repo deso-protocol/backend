@@ -64,11 +64,11 @@ func UpdateBitcoinUSDExchangeRate(updaterPubKey *btcec.PublicKey, updaterPrivKey
 	txn := unsignedUpdateBitcoinUSDExchangeRate.Transaction
 
 	// Sign the transaction
-	signature, err := txn.Sign(updaterPrivKey)
+	signature, err := txn.Sign(updaterPrivKey, false)
 	if err != nil {
 		return errors.Wrap(err, "UpdateBitcoinUSDExchangeRate() failed to sign the transaction")
 	}
-	txn.Signature = signature
+	txn.Signature = signature.Serialize()
 
 	// Submit the transaction to the node
 	err = SubmitTransactionToNode(txn, node)

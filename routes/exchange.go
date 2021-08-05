@@ -505,8 +505,8 @@ func APITransactionToResponse(
 	params *lib.BitCloutParams) *TransactionResponse {
 
 	signatureHex := ""
-	if txnn.Signature != nil {
-		signatureHex = hex.EncodeToString(txnn.Signature.Serialize())
+	if len(txnn.Signature) != 0 {
+		signatureHex = hex.EncodeToString(txnn.Signature)
 	}
 
 	txnBytes, _ := txnn.ToBytes(false /*preSignature*/)
@@ -1209,12 +1209,12 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 func (fes *APIServer) _processTransactionWithKey(
 	txn *lib.MsgBitCloutTxn, _privKey *btcec.PrivateKey, wantsBroadcast bool) error {
 
-	txnSignature, err := txn.Sign(_privKey)
+	txnSignature, err := txn.Sign(_privKey, false)
 	if err != nil {
 		return fmt.Errorf("_processTransactionWithKey: Error computing "+
 			"transaction signature: %v", err)
 	}
-	txn.Signature = txnSignature
+	txn.Signature = txnSignature.Serialize()
 
 	// Grab the block tip and use it as the height for validation.
 	blockHeight := fes.blockchain.BlockTip().Height
