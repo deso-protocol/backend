@@ -143,7 +143,7 @@ var (
 	_GlobalStatePrefixNFTDropNumberToNFTDropEntry = []byte{17}
 
 	// Jumio global state indexes
-	_GlobalStatePrefixPKIDToJumioTransaction = []byte{18}
+	_GlobalStatePrefixPKIDTstampNanosToJumioTransaction = []byte{20}
 
 	_GlobalStatePrefixCountryIDDocumentTypeSubTypeDocumentNumber = []byte{19}
 
@@ -152,7 +152,7 @@ var (
 	// same ID.
 	//
 
-	// NEXT_TAG: 20
+	// NEXT_TAG: 21
 )
 
 type NFTDropEntry struct {
@@ -388,15 +388,15 @@ func GlobalStateKeyForBuyBitCloutFeeBasisPoints() []byte {
 	return prefixCopy
 }
 
-func GlobalStateKeyForPKIDReferenceIdToJumioTransaction(pkid *lib.PKID, referenceId string) []byte {
-	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDToJumioTransaction...)
+func GlobalStateKeyForPKIDTstampnanosToJumioTransaction(pkid *lib.PKID, timestampNanos uint64) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDTstampNanosToJumioTransaction...)
 	key := append(prefixCopy, pkid[:]...)
-	key = append(key, []byte(referenceId)...)
+	key = append(key, lib.EncodeUint64(timestampNanos)...)
 	return key
 }
 
-func GlobalStatePrefixforPKIDReferenceIdToJumioTransaction(pkid *lib.PKID) []byte {
-	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDToJumioTransaction...)
+func GlobalStatePrefixforPKIDTstampnanosToJumioTransaction(pkid *lib.PKID) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDTstampNanosToJumioTransaction...)
 	key := append(prefixCopy, pkid[:]...)
 	return key
 }

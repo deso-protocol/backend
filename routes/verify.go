@@ -7,7 +7,6 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/sendgrid/sendgrid-go"
 	"github.com/sendgrid/sendgrid-go/helpers/mail"
 	"io"
@@ -621,7 +620,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	userReference := req.PostFormValue("customerId")
 	// merchantIdScanReference maps to the internalCustomerReference passed when creating the Jumio session.
 	// InternalCustomerReference is Public Key + timestamp
-	internalCustomerReference := req.PostFormValue("merchantIdScanReference")
+	//internalCustomerReference := req.PostFormValue("merchantIdScanReference")
 
 	// Jumio TransactionID
 	jumioTransactionId := req.PostFormValue("jumioIdScanReference")
@@ -654,11 +653,12 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	}
 
 
-	glog.Errorf("JumioCallback: Putting PKID + internal ref in global state")
+	glog.Errorf("JumioCallback: Putting PKID + tstamp key in global state, pkid: %v", pkid)
+	tstamp := uint64(time.Now().UnixNano())
 	// Always log the payload in global state for the PKID so we can search for all jumio verification payloads for a given user.
-	pkidReferenceIdKey := GlobalStateKeyForPKIDReferenceIdToJumioTransaction(pkid.PKID, internalCustomerReference)
-	glog.Errorf("JumioCallback: pkidReferenceIdKey (%d): %v", len(pkidReferenceIdKey), string(pkidReferenceIdKey))
-	if err = fes.GlobalStatePut(pkidReferenceIdKey, payloadBytes); err != nil {
+	pkidTstampnanosKey := GlobalStateKeyForPKIDTstampnanosToJumioTransaction(pkid.PKID, tstamp)
+	glog.Errorf("JumioCallback: pkidTstampnanosKey (%d): %v", len(pkidTstampnanosKey), string(pkidTstampnanosKey))
+	if err = fes.GlobalStatePut(pkidTstampnanosKey, payloadBytes); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting jumio callback in global state: %v", err))
 		return
 	}
@@ -841,11 +841,10 @@ func (fes *APIServer) AdminGetJumioVerificationAttemptsForPublicKey(ww http.Resp
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: No PKID found for public key: %v", requestData.PublicKeyBase58Check))
 		return
 	}
-
-	prefix := GlobalStatePrefixforPKIDReferenceIdToJumioTransaction(pkid.PKID)
-
-	// Key is prefix + pkid + internalCustomerReference (public key + tstampnanos)
-	maxKeyLen := 1 + len(pkid.PKID[:]) + btcec.PubKeyBytesLenCompressed + 8
+	prefix := GlobalStatePrefixforPKIDTstampnanosToJumioTransaction(pkid.PKID)
+	glog.Errorf("AdminGetJumioVerificationAttemptsForPublicKey: prefix: %v", string(prefix))
+	// Key is prefix + pkid + tstampnanos (8 bytes)
+	maxKeyLen := 1 + len(pkid.PKID[:]) + 8
 	_, values, err := fes.GlobalStateSeek(prefix, prefix, maxKeyLen, 100, true, true)
 	glog.Errorf("AdminGetJumioVerificationAttemptsForPublicKey: Length of values: %v", len(values))
 	if err != nil {
