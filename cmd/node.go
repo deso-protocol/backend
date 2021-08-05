@@ -50,7 +50,7 @@ func (node *Node) Start() {
 		twilioClient = twilio.NewClient(node.Config.TwilioAccountSID, node.Config.TwilioAuthToken, nil)
 	}
 
-	apiServer, err := routes.NewAPIServer(
+	node.APIServer, err = routes.NewAPIServer(
 		node.CoreNode.Server,
 		node.CoreNode.Server.GetMempool(),
 		node.CoreNode.Server.GetBlockchain(),
@@ -67,7 +67,7 @@ func (node *Node) Start() {
 		glog.Fatal(err)
 	}
 
-	go apiServer.Start()
+	go node.APIServer.Start()
 }
 
 func (node *Node) Stop() {
