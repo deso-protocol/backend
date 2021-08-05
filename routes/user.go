@@ -204,8 +204,10 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		}
 
 		// HasPhoneNumber is a computed boolean so we can avoid returning the phone number in the
-		// API response, since phone numbers are sensitive PII.
+		// API response, since phone numbers are sensitive PII. Same for emails.
 		user.HasPhoneNumber = userMetadata.PhoneNumber != ""
+		user.HasEmail = userMetadata.Email != ""
+		user.EmailVerified = userMetadata.EmailVerified
 
 		user.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView)
 		if err != nil {
@@ -239,17 +241,17 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 
 	// Only set User.IsAdmin in GetUsersStateless
 	// We don't want or need to set this on every endpoint that generates a ProfileEntryResponse
-	if len(fes.AdminPublicKeys) == 0 && len(fes.SuperAdminPublicKeys) == 0 {
+	if len(fes.Config.AdminPublicKeys) == 0 && len(fes.Config.SuperAdminPublicKeys) == 0 {
 		user.IsAdmin = true
 		user.IsSuperAdmin = true
 	} else {
-		for _, k := range fes.AdminPublicKeys {
+		for _, k := range fes.Config.AdminPublicKeys {
 			if k == user.PublicKeyBase58Check {
 				user.IsAdmin = true
 				break
 			}
 		}
-		for _, k := range fes.SuperAdminPublicKeys {
+		for _, k := range fes.Config.SuperAdminPublicKeys {
 			if k == user.PublicKeyBase58Check {
 				user.IsSuperAdmin = true
 				user.IsAdmin = true
@@ -951,14 +953,6 @@ func (fes *APIServer) _getProfilePictureForPublicKey(publicKey []byte) ([]byte, 
 	return profileEntry.ProfilePic, contentType, nil
 }
 
-type GetSingleProfilePictureRequest struct {
-	PublicKeyBase58Check string `safeForLogging:"true"`
-}
-
-type GetSingleProfilePictureResponse struct {
-	ProfilePic []byte
-}
-
 func (fes *APIServer) GetSingleProfilePicture(ww http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	publicKeyBase58Check, publicKeyBase58CheckExists := vars["publicKeyBase58Check"]
@@ -1006,9 +1000,9 @@ type GetSingleProfileRequest struct {
 }
 
 type GetSingleProfileResponse struct {
-	Profile *ProfileEntryResponse
+	Profile       *ProfileEntryResponse
 	IsBlacklisted bool
-	IsGraylisted bool
+	IsGraylisted  bool
 }
 
 // GetSingleProfile...
@@ -1030,7 +1024,6 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 	var profileEntry *lib.ProfileEntry
 	var publicKeyBytes []byte
 	if requestData.PublicKeyBase58Check != "" {
-
 		publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Problem decoding user public key: %v", err))
@@ -1039,23 +1032,29 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 		profileEntry = utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
 	} else {
 		profileEntry = utxoView.GetProfileEntryForUsername([]byte(requestData.Username))
-		publicKeyBytes = profileEntry.PublicKey
+		if profileEntry != nil {
+			publicKeyBytes = profileEntry.PublicKey
+		}
 	}
+
 	// Return an error if we failed to find a profile entry
 	if profileEntry == nil {
 		_AddNotFoundError(ww, fmt.Sprintf("GetSingleProfile: could not find profile for username or public key: %v, %v", requestData.Username, requestData.PublicKeyBase58Check))
 		return
 	}
+
 	// Grab verified username map pointer
 	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: could not get verified map: %v", err))
 		return
 	}
+
 	profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
 	res := GetSingleProfileResponse{
 		Profile: profileEntryResponse,
 	}
+
 	// Check if the user is blacklisted/graylisted
 	blacklistKey := GlobalStateKeyForBlacklistedProfile(publicKeyBytes[:])
 	userBlacklistState, err := fes.GlobalStateGet(blacklistKey)
@@ -1063,18 +1062,22 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Problem getting blacklist: %v", err))
 		return
 	}
+
 	if reflect.DeepEqual(userBlacklistState, lib.IsBlacklisted) {
 		res.IsBlacklisted = true
 	}
+
 	graylistKey := GlobalStateKeyForGraylistedProfile(publicKeyBytes[:])
 	userGraylistState, err := fes.GlobalStateGet(graylistKey)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Problem getting graylist: %v", err))
 		return
 	}
+
 	if reflect.DeepEqual(userGraylistState, lib.IsGraylisted) {
 		res.IsGraylisted = true
 	}
+
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetSingleProfile: Problem serializing object to JSON: %v", err))
 		return
@@ -1713,6 +1716,12 @@ func (fes *APIServer) UpdateUserGlobalMetadata(ww http.ResponseWriter, req *http
 
 	// Now that we have a userMetadata object, update it based on the request.
 	if requestData.Email != "" {
+		// Send verification email if email changed
+		if userMetadata.Email != requestData.Email {
+			fes.sendVerificationEmail(requestData.Email, requestData.UserPublicKeyBase58Check)
+			userMetadata.EmailVerified = false
+		}
+
 		userMetadata.Email = requestData.Email
 	}
 
@@ -1883,6 +1892,8 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		postMetadata := txnMeta.Metadata.SubmitPostTxindexMetadata
 		likeMetadata := txnMeta.Metadata.LikeTxindexMetadata
 		transferCreatorCoinMetadata := txnMeta.Metadata.CreatorCoinTransferTxindexMetadata
+		nftBidMetadata := txnMeta.Metadata.NFTBidTxindexMetadata
+		acceptNFTBidMetadata := txnMeta.Metadata.AcceptNFTBidTxindexMetadata
 		basicTransferMetadata := txnMeta.Metadata.BasicTransferTxindexMetadata
 
 		if postMetadata != nil {
@@ -1894,6 +1905,10 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 			if transferCreatorCoinMetadata.PostHashHex != "" {
 				addPostForHash(transferCreatorCoinMetadata.PostHashHex, userPublicKeyBytes)
 			}
+		} else if nftBidMetadata != nil {
+			addPostForHash(nftBidMetadata.NFTPostHashHex, userPublicKeyBytes)
+		} else if acceptNFTBidMetadata != nil {
+			addPostForHash(acceptNFTBidMetadata.NFTPostHashHex, userPublicKeyBytes)
 		} else if basicTransferMetadata != nil {
 			txnOutputs := txnMeta.Metadata.TxnOutputs
 			for _, output := range txnOutputs {
@@ -2217,6 +2232,12 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 	} else if txnMeta.BitcoinExchangeTxindexMetadata != nil {
 		// You got some BitClout from a BitcoinExchange txn
 		return true
+	} else if txnMeta.NFTBidTxindexMetadata != nil {
+		// Someone bid on your NFT
+		return true
+	} else if txnMeta.AcceptNFTBidTxindexMetadata != nil {
+		// Someone accepted your bid for an NFT
+		return true
 	} else if txnMeta.TxnType == lib.TxnTypeBasicTransfer.String() {
 		// Someone paid you
 		return true
@@ -2351,9 +2372,7 @@ func (fes *APIServer) IsFollowingPublicKey(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
-	var userPublicKeyBytes []byte
-	var err error
-	userPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+	userPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 	if err != nil || len(userPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"IsFollowingPublicKey: Problem decoding user public key %s: %v",
@@ -2362,8 +2381,7 @@ func (fes *APIServer) IsFollowingPublicKey(ww http.ResponseWriter, req *http.Req
 	}
 
 	// Get the public key for the user to check
-	var isFollowingPublicKeyBytes []byte
-	isFollowingPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.IsFollowingPublicKeyBase58Check)
+	isFollowingPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.IsFollowingPublicKeyBase58Check)
 	if err != nil || len(isFollowingPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"IsFollowingPublicKey: Problem decoding public key to check %s: %v",
@@ -2377,39 +2395,83 @@ func (fes *APIServer) IsFollowingPublicKey(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
-	var isFollowing = false
-
-	followEntries := []*lib.FollowEntry{}
-	followEntries, err = utxoView.GetFollowEntriesForPublicKey(userPublicKeyBytes, false)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("IsFollowingPublicKey: Error fetching data for user: %v", err))
-		return
-	}
-
-	for _, followEntry := range followEntries {
-		var followPKID *lib.PKID
-		followPKID = followEntry.FollowedPKID
-
-		// Convert the followPKID to a public key using the view. The followPubKey should never
-		// be nil.
-		followPubKey := utxoView.GetPublicKeyForPKID(followPKID)
-		if len(followPubKey) == 0 {
-			_AddBadRequestError(ww, fmt.Sprintf("IsFollowingPublicKey: found PKID %v that does not have a public key mapping; this should never happen", lib.PkToString(followEntry.FollowedPKID[:], fes.Params)))
-		}
-		followPubKeyBase58Check := lib.PkToString(followPubKey, fes.Params)
-
-		if followPubKeyBase58Check == requestData.IsFollowingPublicKeyBase58Check {
-			isFollowing = true
-			break
-		}
-	}
+	// Get the FollowEntry from the view.
+	followEntry := utxoView.GetFollowEntryForFollowerPublicKeyCreatorPublicKey(userPublicKeyBytes, isFollowingPublicKeyBytes)
 
 	res := IsFolllowingPublicKeyResponse{
-		IsFollowing: isFollowing,
+		IsFollowing: followEntry != nil,
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("IsFollowingPublicKey: Problem serializing object to JSON: %v", err))
 		return
 	}
+}
+
+type IsHodlingPublicKeyRequest struct {
+	PublicKeyBase58Check          string
+	IsHodlingPublicKeyBase58Check string
+}
+
+type IsHodlingPublicKeyResponse struct {
+	IsHodling    bool
+	BalanceEntry *BalanceEntryResponse
+}
+
+func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Request) {
+
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := IsHodlingPublicKeyRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"IsHodlingPublicKey: Problem parsing request body: %v", err))
+		return
+	}
+
+	var userPublicKeyBytes []byte
+	var err error
+	userPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+	if err != nil || len(userPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"IsHodlingPublicKey: Problem decoding user public key %s: %v",
+			requestData.PublicKeyBase58Check, err))
+		return
+	}
+
+	// Get the public key for the user to check
+	var isHodlingPublicKeyBytes []byte
+	isHodlingPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.IsHodlingPublicKeyBase58Check)
+	if err != nil || len(isHodlingPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"IsHodlingPublicKey: Problem decoding public key to check %s: %v",
+			requestData.IsHodlingPublicKeyBase58Check, err))
+		return
+	}
+
+	var utxoView *lib.UtxoView
+	utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("IsHodlingPublicKey: Error getting utxoView: %v", err))
+		return
+	}
+
+	var IsHodling = false
+	var BalanceEntry *BalanceEntryResponse
+
+	hodlBalanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(userPublicKeyBytes, isHodlingPublicKeyBytes)
+	if hodlBalanceEntry != nil {
+		BalanceEntry = _balanceEntryToResponse(hodlBalanceEntry, hodlBalanceEntry.BalanceNanos, nil, fes.Params, utxoView, nil)
+		IsHodling = true
+	}
+
+	res := IsHodlingPublicKeyResponse{
+		IsHodling:    IsHodling,
+		BalanceEntry: BalanceEntry,
+	}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("IsHodlingPublicKey: Problem serializing object to JSON: %v", err))
+		return
+	}
+
 }

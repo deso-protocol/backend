@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/core/lib"
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/bitclout/core/lib"
 
 	"github.com/dgraph-io/badger/v3"
 	"github.com/nyaruka/phonenumbers"
@@ -138,12 +139,22 @@ var (
 
 	_GlobalStatePrefixBuyBitCloutFeeBasisPoints = []byte{16}
 
+	// NFT drop info.
+	_GlobalStatePrefixNFTDropNumberToNFTDropEntry = []byte{17}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
-	// NEXT_TAG: 17
+	// NEXT_TAG: 18
 )
+
+type NFTDropEntry struct {
+	IsActive        bool
+	DropNumber      uint64
+	DropTstampNanos uint64
+	NFTHashes       []*lib.BlockHash
+}
 
 // This struct contains all the metadata associated with a user's public key.
 type UserMetadata struct {
@@ -158,6 +169,9 @@ type UserMetadata struct {
 
 	// Email address for a user to receive email notifications at.
 	Email string
+
+	// Has the email been verified
+	EmailVerified bool
 
 	// E.164 format phone number for a user to receive text notifications at.
 	PhoneNumber string
@@ -227,6 +241,13 @@ type WyreWalletOrderMetadata struct {
 
 	// BlockHash of the transaction for sending the BitClout
 	BasicTransferTxnBlockHash *lib.BlockHash
+}
+
+func GlobalStateKeyForNFTDropEntry(dropNumber uint64) []byte {
+	dropNumBytes := lib.EncodeUint64(uint64(dropNumber))
+	keyBytes := _GlobalStatePrefixNFTDropNumberToNFTDropEntry
+	keyBytes = append(keyBytes, dropNumBytes...)
+	return keyBytes
 }
 
 // countryCode is a string like 'US' (Note: the phonenumbers lib calls this a "region code")
@@ -356,7 +377,6 @@ func GlobalStateKeyForBuyBitCloutFeeBasisPoints() []byte {
 	return prefixCopy
 }
 
-
 type GlobalStatePutRemoteRequest struct {
 	Key   []byte
 	Value []byte
@@ -402,15 +422,15 @@ func (fes *APIServer) CreateGlobalStatePutRequest(key []byte, value []byte) (
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
-		fes.GlobalStateRemoteNode, RoutePathGlobalStatePutRemote,
-		GlobalStateSharedSecretParam, fes.GlobalStateRemoteNodeSharedSecret)
+		fes.Config.GlobalStateRemoteNode, RoutePathGlobalStatePutRemote,
+		GlobalStateSharedSecretParam, fes.Config.GlobalStateRemoteSecret)
 
 	return url, json_data, nil
 }
 
 func (fes *APIServer) GlobalStatePut(key []byte, value []byte) error {
 	// If we have a remote node then use that node to fulfill this request.
-	if fes.GlobalStateRemoteNode != "" {
+	if fes.Config.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is hard to exercise in a test.
 
 		url, json_data, err := fes.CreateGlobalStatePutRequest(key, value)
@@ -487,15 +507,15 @@ func (fes *APIServer) CreateGlobalStateGetRequest(key []byte) (
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
-		fes.GlobalStateRemoteNode, RoutePathGlobalStateGetRemote,
-		GlobalStateSharedSecretParam, fes.GlobalStateRemoteNodeSharedSecret)
+		fes.Config.GlobalStateRemoteNode, RoutePathGlobalStateGetRemote,
+		GlobalStateSharedSecretParam, fes.Config.GlobalStateRemoteSecret)
 
 	return url, json_data, nil
 }
 
 func (fes *APIServer) GlobalStateGet(key []byte) (value []byte, _err error) {
 	// If we have a remote node then use that node to fulfill this request.
-	if fes.GlobalStateRemoteNode != "" {
+	if fes.Config.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
 		url, json_data, err := fes.CreateGlobalStateGetRequest(key)
@@ -588,15 +608,15 @@ func (fes *APIServer) CreateGlobalStateBatchGetRequest(keyList [][]byte) (
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
-		fes.GlobalStateRemoteNode, RoutePathGlobalStateBatchGetRemote,
-		GlobalStateSharedSecretParam, fes.GlobalStateRemoteNodeSharedSecret)
+		fes.Config.GlobalStateRemoteNode, RoutePathGlobalStateBatchGetRemote,
+		GlobalStateSharedSecretParam, fes.Config.GlobalStateRemoteSecret)
 
 	return url, json_data, nil
 }
 
 func (fes *APIServer) GlobalStateBatchGet(keyList [][]byte) (value [][]byte, _err error) {
 	// If we have a remote node then use that node to fulfill this request.
-	if fes.GlobalStateRemoteNode != "" {
+	if fes.Config.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
 		url, json_data, err := fes.CreateGlobalStateBatchGetRequest(keyList)
@@ -666,8 +686,8 @@ func (fes *APIServer) CreateGlobalStateDeleteRequest(key []byte) (
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
-		fes.GlobalStateRemoteNode, RoutePathGlobalStateDeleteRemote,
-		GlobalStateSharedSecretParam, fes.GlobalStateRemoteNodeSharedSecret)
+		fes.Config.GlobalStateRemoteNode, RoutePathGlobalStateDeleteRemote,
+		GlobalStateSharedSecretParam, fes.Config.GlobalStateRemoteSecret)
 
 	return url, json_data, nil
 }
@@ -698,7 +718,7 @@ func (fes *APIServer) GlobalStateDeleteRemote(ww http.ResponseWriter, rr *http.R
 
 func (fes *APIServer) GlobalStateDelete(key []byte) error {
 	// If we have a remote node then use that node to fulfill this request.
-	if fes.GlobalStateRemoteNode != "" {
+	if fes.Config.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
 		url, json_data, err := fes.CreateGlobalStateDeleteRequest(key)
@@ -760,8 +780,8 @@ func (fes *APIServer) CreateGlobalStateSeekRequest(startPrefix []byte, validForP
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
-		fes.GlobalStateRemoteNode, RoutePathGlobalStateSeekRemote,
-		GlobalStateSharedSecretParam, fes.GlobalStateRemoteNodeSharedSecret)
+		fes.Config.GlobalStateRemoteNode, RoutePathGlobalStateSeekRemote,
+		GlobalStateSharedSecretParam, fes.Config.GlobalStateRemoteSecret)
 
 	return url, json_data, nil
 }
@@ -805,7 +825,7 @@ func (fes *APIServer) GlobalStateSeek(startPrefix []byte, validForPrefix []byte,
 	_keysFound [][]byte, _valsFound [][]byte, _err error) {
 
 	// If we have a remote node then use that node to fulfill this request.
-	if fes.GlobalStateRemoteNode != "" {
+	if fes.Config.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
 		url, json_data, err := fes.CreateGlobalStateSeekRequest(

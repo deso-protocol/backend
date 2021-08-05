@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	fmt "fmt"
-	"github.com/tyler-smith/go-bip39"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -12,8 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bitclout/backend/config"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/dgrijalva/jwt-go/v4"
+	"github.com/tyler-smith/go-bip39"
 
 	"github.com/bitclout/core/lib"
 	"github.com/dgraph-io/badger/v3"
@@ -66,6 +67,7 @@ const (
 	RoutePathGetNotifications         = "/api/v0/get-notifications"
 	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
 	RoutePathIsFollowingPublicKey     = "/api/v0/is-following-public-key"
+	RoutePathIsHodlingPublicKey       = "/api/v0/is-hodling-public-key"
 
 	// post.go
 	RoutePathGetPostsStateless       = "/api/v0/get-posts-stateless"
@@ -76,6 +78,19 @@ const (
 	RoutePathGetQuoteRecloutsForPost = "/api/v0/get-quote-reclouts-for-post"
 	RoutePathGetPostsForPublicKey    = "/api/v0/get-posts-for-public-key"
 	RoutePathGetDiamondedPosts       = "/api/v0/get-diamonded-posts"
+
+	// nft.go
+	RoutePathCreateNFT               = "/api/v0/create-nft"
+	RoutePathUpdateNFT               = "/api/v0/update-nft"
+	RoutePathGetNFTsForUser          = "/api/v0/get-nfts-for-user"
+	RoutePathGetNFTBidsForUser       = "/api/v0/get-nft-bids-for-user"
+	RoutePathCreateNFTBid            = "/api/v0/create-nft-bid"
+	RoutePathAcceptNFTBid            = "/api/v0/accept-nft-bid"
+	RoutePathGetNFTBidsForNFTPost    = "/api/v0/get-nft-bids-for-nft-post"
+	RoutePathGetNFTShowcase          = "/api/v0/get-nft-showcase"
+	RoutePathGetNextNFTShowcase      = "/api/v0/get-next-nft-showcase"
+	RoutePathGetNFTCollectionSummary = "/api/v0/get-nft-collection-summary"
+	RoutePathGetNFTEntriesForPostHash = "/api/v0/get-nft-entries-for-nft-post"
 
 	// media.go
 	RoutePathUploadImage      = "/api/v0/upload-image"
@@ -90,6 +105,8 @@ const (
 	// verify.go
 	RoutePathSendPhoneNumberVerificationText   = "/api/v0/send-phone-number-verification-text"
 	RoutePathSubmitPhoneNumberVerificationCode = "/api/v0/submit-phone-number-verification-code"
+	RoutePathResendVerifyEmail                 = "/api/v0/resend-verify-email"
+	RoutePathVerifyEmail                       = "/api/v0/verify-email"
 
 	// wyre.go
 	RoutePathGetWyreWalletOrderQuotation     = "/api/v0/get-wyre-wallet-order-quotation"
@@ -104,10 +121,10 @@ const (
 	// Admin route paths can only be accessed if a user's public key is whitelisted as an admin.
 
 	// admin_node.go
-	RoutePathNodeControl                              = "/api/v0/admin/node-control"
-	RoutePathReprocessBitcoinBlock                    = "/api/v0/admin/reprocess-bitcoin-block"
-	RoutePathAdminGetMempoolStats                     = "/api/v0/admin/get-mempool-stats"
-	RoutePathEvictUnminedBitcoinTxns                  = "/api/v0/admin/evict-unmined-bitcoin-txns"
+	RoutePathNodeControl             = "/api/v0/admin/node-control"
+	RoutePathReprocessBitcoinBlock   = "/api/v0/admin/reprocess-bitcoin-block"
+	RoutePathAdminGetMempoolStats    = "/api/v0/admin/get-mempool-stats"
+	RoutePathEvictUnminedBitcoinTxns = "/api/v0/admin/evict-unmined-bitcoin-txns"
 
 	// admin_buy_bitclout.go
 	RoutePathSetUSDCentsToBitCloutReserveExchangeRate = "/api/v0/admin/set-usd-cents-to-bitclout-reserve-exchange-rate"
@@ -116,9 +133,11 @@ const (
 	RoutePathGetBuyBitCloutFeeBasisPoints             = "/api/v0/admin/get-buy-bitclout-fee-basis-points"
 
 	// admin_transaction.go
-	RoutePathGetGlobalParams    = "/api/v0/admin/get-global-params"
-	RoutePathUpdateGlobalParams = "/api/v0/admin/update-global-params"
-	RoutePathSwapIdentity       = "/api/v0/admin/swap-identity"
+	RoutePathGetGlobalParams = "/api/v0/get-global-params"
+	// Eventually we will deprecate the admin endpoint since it does not need to be protected.
+	RoutePathAdminGetGlobalParams = "/api/v0/admin/get-global-params"
+	RoutePathUpdateGlobalParams   = "/api/v0/admin/update-global-params"
+	RoutePathSwapIdentity         = "/api/v0/admin/swap-identity"
 
 	// admin_user.go
 	RoutePathAdminUpdateUserGlobalMetadata         = "/api/v0/admin/update-user-global-metadata"
@@ -128,12 +147,16 @@ const (
 	RoutePathAdminRemoveVerificationBadge          = "/api/v0/admin/remove-verification-badge"
 	RoutePathAdminGetVerifiedUsers                 = "/api/v0/admin/get-verified-users"
 	RoutePathAdminGetUsernameVerificationAuditLogs = "/api/v0/admin/get-username-verification-audit-logs"
-	RoutePathAdminGetUserAdminData				   = "/api/v0/admin/get-user-admin-data"
+	RoutePathAdminGetUserAdminData                 = "/api/v0/admin/get-user-admin-data"
 
 	// admin_feed.go
 	RoutePathAdminUpdateGlobalFeed = "/api/v0/admin/update-global-feed"
 	RoutePathAdminPinPost          = "/api/v0/admin/pin-post"
 	RoutePathAdminRemoveNilPosts   = "/api/v0/admin/remove-nil-posts"
+
+	// admin_nft.go
+	RoutePathAdminGetNFTDrop    = "/api/v0/admin/get-nft-drop"
+	RoutePathAdminUpdateNFTDrop = "/api/v0/admin/update-nft-drop"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -144,20 +167,10 @@ type APIServer struct {
 	mempool       *lib.BitCloutMempool
 	blockchain    *lib.Blockchain
 	blockProducer *lib.BitCloutBlockProducer
+	Params        *lib.BitCloutParams
+	Config        *config.Config
 
-	Params               *lib.BitCloutParams
-	SharedSecret         string
-	JSONPort             uint16
 	MinFeeRateNanosPerKB uint64
-
-	// This info is used to send "starter" BitClout to newly-created accounts.
-	// This allows them to create profiles, among other things, without having
-	// to buy BitClout first.
-	StarterBitCloutSeed        string
-	StarterBitCloutAmountNanos uint64
-
-	// Map of country code strings to the amount of start BitClout to issue.
-	StarterBitCloutPrefixExceptionMap map[string]uint64
 
 	// A pointer to the router that handles all requests.
 	router *muxtrace.Router
@@ -168,54 +181,14 @@ type APIServer struct {
 	// a remote node is set-- not both. When a remote node is set, global state
 	// is set and fetched from that node. Otherwise, it is set/fetched from the
 	// db. This makes it easy to run a local node in development.
-	GlobalStateDB                     *badger.DB
-	GlobalStateRemoteNode             string
-	GlobalStateRemoteNodeSharedSecret string
-
-	AccessControlAllowOrigins           []string
-	SecureHeaderMiddlewareIsDevelopment bool
-	SecureHeaderMiddlewareAllowedHost   []string
-
-	// Optional, may be empty. Used for client-side user instrumentation
-	AmplitudeKey    string
-	AmplitudeDomain string
-
-	// Whether or not to show processing spinners for unmined transactions in the UI.
-	ShowProcessingSpinners bool
+	GlobalStateDB *badger.DB
 
 	// Optional, may be empty. Used for Twilio integration
-	Twilio                *twilio.Client
-	TwilioVerifyServiceId string
-
-	// Optional. Used for gating profile creation.
-	MinSatoshisBurnedForProfileCreation uint64
-
-	// Optional. Show a support email to end users
-	SupportEmail string
+	Twilio *twilio.Client
 
 	// When set, BlockCypher is used to add extra security to BitcoinExchange
 	// transactions.
 	BlockCypherAPIKey string
-
-	// Google image storage environment variables
-	GoogleApplicationCredentials string
-	GoogleBucketName             string
-
-	// Optional. If true and twilio and starter bitclout seed configured, node will comp profile creation.
-	IsCompProfileCreation bool
-
-	// Optional, restricts access to the admin panel to these public keys
-	AdminPublicKeys []string
-	// Admins with higher levels of access
-	SuperAdminPublicKeys []string
-
-	// Wyre
-	WyreUrl string
-	WyreAccountId string
-	WyreApiKey string
-	WyreSecretKey string
-	BuyBitCloutBTCAddress string
-	BuyBitCloutSeed string
 
 	// This lock is used when sending seed BitClout to avoid a race condition
 	// in which two calls to sending the seed BitClout use the same UTXO,
@@ -234,49 +207,25 @@ type APIServer struct {
 
 type LastTradePriceHistoryItem struct {
 	LastTradePrice uint64
-	Timestamp uint64
+	Timestamp      uint64
 }
 
 // NewAPIServer ...
-func NewAPIServer(_backendServer *lib.Server,
+func NewAPIServer(
+	_backendServer *lib.Server,
 	_mempool *lib.BitCloutMempool,
 	_blockchain *lib.Blockchain,
 	_blockProducer *lib.BitCloutBlockProducer,
 	txIndex *lib.TXIndex,
 	params *lib.BitCloutParams,
-	jsonPort uint16,
-	_minFeeRateNanosPerKB uint64,
-	_starterBitCloutSeed string,
-	_starterBitCloutAmountNanos uint64,
-	_starterBitCloutPrefixExceptionMap map[string]uint64,
+	config *config.Config,
+	minFeeRateNanosPerKB uint64,
 	globalStateDB *badger.DB,
-	globalStateRemoteNode string,
-	globalStateRemoteNodeSharedSecret string,
-	accessControlAllowOrigins []string,
-	secureHeaderMiddlewareIsDevelopment bool,
-	secureHeaderMiddlewareAllowedHost []string,
-	amplitudeKey string,
-	amplitudeDomain string,
-	showProcessingSpinners bool,
 	twilio *twilio.Client,
-	twilioVerifyServiceId string,
-	minSatoshisBurnedForProfileCreation uint64,
-	supportEmail string,
 	blockCypherAPIKey string,
-	googleApplicationCredentials string,
-	googleBucketName string,
-	compProfileCreation bool,
-	adminPublicKeys []string,
-	superAdminPublicKeys []string,
-	wyreUrl string,
-	wyreAccountId string,
-	wyreApiKey string,
-	wyreSecretKey string,
-	buyBitCloutBTCAddress string,
-	buyBitCloutSeed string,
 ) (*APIServer, error) {
 
-	if globalStateDB == nil && globalStateRemoteNode == "" {
+	if globalStateDB == nil && config.GlobalStateRemoteNode == "" {
 		return nil, fmt.Errorf(
 			"NewAPIServer: Error: A globalStateDB or a globalStateRemoteNode is required")
 	}
@@ -286,46 +235,21 @@ func NewAPIServer(_backendServer *lib.Server,
 		// the backendServer. Right now it's here because it was the easiest
 		// way to give the APIServer the ability to add transactions
 		// to the mempool and relay them to peers.
-		backendServer:                       _backendServer,
-		mempool:                             _mempool,
-		blockchain:                          _blockchain,
-		blockProducer:                       _blockProducer,
-		TXIndex:                             txIndex,
-		Params:                              params,
-		JSONPort:                            jsonPort,
-		MinFeeRateNanosPerKB:                _minFeeRateNanosPerKB,
-		StarterBitCloutSeed:                 _starterBitCloutSeed,
-		StarterBitCloutAmountNanos:          _starterBitCloutAmountNanos,
-		StarterBitCloutPrefixExceptionMap:   _starterBitCloutPrefixExceptionMap,
-		GlobalStateDB:                       globalStateDB,
-		GlobalStateRemoteNode:               globalStateRemoteNode,
-		GlobalStateRemoteNodeSharedSecret:   globalStateRemoteNodeSharedSecret,
-		AccessControlAllowOrigins:           accessControlAllowOrigins,
-		SecureHeaderMiddlewareIsDevelopment: secureHeaderMiddlewareIsDevelopment,
-		SecureHeaderMiddlewareAllowedHost:   secureHeaderMiddlewareAllowedHost,
-		AmplitudeKey:                        amplitudeKey,
-		AmplitudeDomain:                     amplitudeDomain,
-		ShowProcessingSpinners:              showProcessingSpinners,
-		Twilio:                              twilio,
-		TwilioVerifyServiceId:               twilioVerifyServiceId,
-		MinSatoshisBurnedForProfileCreation: minSatoshisBurnedForProfileCreation,
-		SupportEmail:                        supportEmail,
-		BlockCypherAPIKey:                   blockCypherAPIKey,
-		GoogleApplicationCredentials:        googleApplicationCredentials,
-		GoogleBucketName:                    googleBucketName,
-		IsCompProfileCreation:               compProfileCreation,
-		AdminPublicKeys:                     adminPublicKeys,
-		SuperAdminPublicKeys:                superAdminPublicKeys,
-		WyreUrl:                             wyreUrl,
-		WyreAccountId:                       wyreAccountId,
-		WyreApiKey:                          wyreApiKey,
-		WyreSecretKey:                       wyreSecretKey,
-		BuyBitCloutBTCAddress:               buyBitCloutBTCAddress,
-		BuyBitCloutSeed:                     buyBitCloutSeed,
-		LastTradeBitCloutPriceHistory:       []LastTradePriceHistoryItem{},
+		backendServer:                 _backendServer,
+		mempool:                       _mempool,
+		blockchain:                    _blockchain,
+		blockProducer:                 _blockProducer,
+		TXIndex:                       txIndex,
+		Params:                        params,
+		Config:                        config,
+		GlobalStateDB:                 globalStateDB,
+		Twilio:                        twilio,
+		BlockCypherAPIKey:             blockCypherAPIKey,
+		LastTradeBitCloutPriceHistory: []LastTradePriceHistoryItem{},
 		// We consider last trade prices from the last hour when determining the current price of BitClout.
 		// This helps prevents attacks that attempt to purchase $CLOUT at below market value.
-		LastTradePriceLookback:              uint64(time.Hour.Nanoseconds()),
+		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
+		quit:                   make(chan struct{}),
 	}
 
 	fes.StartSeedBalancesMonitoring()
@@ -345,11 +269,11 @@ const (
 
 // Route ...
 type Route struct {
-	Name           string
-	Method         []string
-	Pattern        string
-	HandlerFunc    http.HandlerFunc
-	AccessLevel    AccessLevel
+	Name        string
+	Method      []string
+	Pattern     string
+	HandlerFunc http.HandlerFunc
+	AccessLevel AccessLevel
 }
 
 // InitRoutes ...
@@ -380,6 +304,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetExchangeRate,
 			fes.GetExchangeRate,
+			PublicAccess,
+		},
+		{
+			"GetGlobalParams",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetGlobalParams,
+			fes.GetGlobalParams,
 			PublicAccess,
 		},
 		// Route for sending BitClout
@@ -522,6 +453,83 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"CreateNFT",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateNFT,
+			fes.CreateNFT,
+			PublicAccess,
+		},
+		{
+			"UpdateNFT",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateNFT,
+			fes.UpdateNFT,
+			PublicAccess,
+		},
+		{
+			"CreateNFTBid",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateNFTBid,
+			fes.CreateNFTBid,
+			PublicAccess,
+		},
+		{
+			"AcceptNFTBid",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAcceptNFTBid,
+			fes.AcceptNFTBid,
+			PublicAccess,
+		},
+		{
+			"GetNFTBidsForNFTPost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTBidsForNFTPost,
+			fes.GetNFTBidsForNFTPost,
+			PublicAccess,
+		},
+		{
+			"GetNFTShowcase",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTShowcase,
+			fes.GetNFTShowcase,
+			PublicAccess,
+		},
+		{
+			"GetNextNFTShowcase",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNextNFTShowcase,
+			fes.GetNextNFTShowcase,
+			PublicAccess,
+		},
+		{
+			"GetNFTsForUser",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTsForUser,
+			fes.GetNFTsForUser,
+			PublicAccess,
+		},
+		{
+			"GetNFTBidsForUser",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTBidsForUser,
+			fes.GetNFTBidsForUser,
+			PublicAccess,
+		},
+		{
+			"GetNFTCollectionSummary",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTCollectionSummary,
+			fes.GetNFTCollectionSummary,
+			PublicAccess,
+		},
+		{
+			"GetNFTEntriesForPostHash",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTEntriesForPostHash,
+			fes.GetNFTEntriesForPostHash,
+			PublicAccess,
+		},
+		{
 			"GetHodlersForPublicKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetHodlersForPublicKey,
@@ -626,6 +634,27 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.IsFollowingPublicKey,
 			PublicAccess,
 		},
+		{
+			"IsHodlingPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathIsHodlingPublicKey,
+			fes.IsHodlingPublicKey,
+			PublicAccess,
+		},
+		{
+			"ResendVerifyEmail",
+			[]string{"POST", "OPTIONS"},
+			RoutePathResendVerifyEmail,
+			fes.ResendVerifyEmail,
+			PublicAccess,
+		},
+		{
+			"VerifyEmail",
+			[]string{"POST", "OPTIONS"},
+			RoutePathVerifyEmail,
+			fes.VerifyEmail,
+			PublicAccess,
+		},
 
 		// Begin all /admin routes
 		{
@@ -686,9 +715,9 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			AdminAccess,
 		},
 		{
-			"GetGlobalParams",
+			"AdminGetGlobalParams",
 			[]string{"POST", "OPTIONS"},
-			RoutePathGetGlobalParams,
+			RoutePathAdminGetGlobalParams,
 			fes.GetGlobalParams,
 			AdminAccess,
 		},
@@ -697,6 +726,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetWyreWalletOrdersForPublicKey,
 			fes.GetWyreWalletOrdersForPublicKey,
+			AdminAccess,
+		},
+		{
+			"AdminGetNFTDrop",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetNFTDrop,
+			fes.AdminGetNFTDrop,
+			AdminAccess,
+		},
+		{
+			"AdminUpdateNFTDrop",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateNFTDrop,
+			fes.AdminUpdateNFTDrop,
 			AdminAccess,
 		},
 		// Super Admin routes
@@ -906,8 +949,8 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 
 	// Set secure headers
 	secureMiddleware := lib.InitializeSecureMiddleware(
-		fes.SecureHeaderMiddlewareAllowedHost,
-		fes.SecureHeaderMiddlewareIsDevelopment,
+		fes.Config.SecureHeaderAllowHosts,
+		fes.Config.SecureHeaderDevelopment,
 		lib.SECURE_MIDDLEWARE_RESTRICTIVE_CONTENT_SECURITY_POLICY,
 	)
 	router.Use(secureMiddleware.Handler)
@@ -930,11 +973,11 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		// last.
 
 		// Anyone can access the admin panel if no public keys exist
-		if route.AccessLevel != PublicAccess && (len(fes.AdminPublicKeys) > 0 || len(fes.SuperAdminPublicKeys) > 0) {
+		if route.AccessLevel != PublicAccess && (len(fes.Config.AdminPublicKeys) > 0 || len(fes.Config.SuperAdminPublicKeys) > 0) {
 			handler = fes.CheckAdminPublicKey(handler, route.AccessLevel)
 		}
 		handler = Logger(handler, route.Name)
-		handler = AddHeaders(handler, fes.AccessControlAllowOrigins)
+		handler = AddHeaders(handler, fes.Config.AccessControlAllowOrigins)
 
 		router.
 			Methods(route.Method...).
@@ -1083,7 +1126,7 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel Access
 
 		// If this a regular admin endpoint, we iterate through all the admin public keys.
 		if AccessLevel == AdminAccess {
-			for _, adminPubKey := range fes.AdminPublicKeys {
+			for _, adminPubKey := range fes.Config.AdminPublicKeys {
 				if adminPubKey == requestData.AdminPublicKey {
 					// We found a match, serve the request
 					inner.ServeHTTP(ww, req)
@@ -1092,9 +1135,8 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel Access
 			}
 		}
 
-
 		// We also check super admins, as they have a superset of capabilities.
-		for _, superAdminPubKey := range fes.SuperAdminPublicKeys {
+		for _, superAdminPubKey := range fes.Config.SuperAdminPublicKeys {
 			if superAdminPubKey == requestData.AdminPublicKey {
 				// We found a match, serve the request
 				inner.ServeHTTP(ww, req)
@@ -1137,8 +1179,8 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 func (fes *APIServer) Start() {
 	fes.initState()
 
-	glog.Infof("Listening to NON-SSL JSON API connections on port :%d", fes.JSONPort)
-	glog.Error(http.ListenAndServe(fmt.Sprintf(":%d", fes.JSONPort), fes.router))
+	glog.Infof("Listening to NON-SSL JSON API connections on port :%d", fes.Config.APIPort)
+	glog.Error(http.ListenAndServe(fmt.Sprintf(":%d", fes.Config.APIPort), fes.router))
 }
 
 // A helper function to initialize the APIServer. Useful for testing.
@@ -1155,18 +1197,18 @@ func (fes *APIServer) Stop() {
 
 // Amplitude Logging
 type AmplitudeUploadRequestBody struct {
-	ApiKey string `json:"api_key"`
+	ApiKey string           `json:"api_key"`
 	Events []AmplitudeEvent `json:"events"`
 }
 
 type AmplitudeEvent struct {
-	UserId          string `json:"user_id"`
-	EventType       string `json:"event_type"`
+	UserId          string                 `json:"user_id"`
+	EventType       string                 `json:"event_type"`
 	EventProperties map[string]interface{} `json:"event_properties"`
 }
 
-func (fes *APIServer) logAmplitudeEvent(publicKeyBytes string, event string, eventData map[string]interface{})  error {
-	if fes.AmplitudeKey == "" {
+func (fes *APIServer) logAmplitudeEvent(publicKeyBytes string, event string, eventData map[string]interface{}) error {
+	if fes.Config.AmplitudeKey == "" {
 		return nil
 	}
 	headers := map[string][]string{
@@ -1174,7 +1216,7 @@ func (fes *APIServer) logAmplitudeEvent(publicKeyBytes string, event string, eve
 		"Accept":       {"*/*"},
 	}
 	events := []AmplitudeEvent{{UserId: publicKeyBytes, EventType: event, EventProperties: eventData}}
-	ampBody := AmplitudeUploadRequestBody{ApiKey: fes.AmplitudeKey, Events: events}
+	ampBody := AmplitudeUploadRequestBody{ApiKey: fes.Config.AmplitudeKey, Events: events}
 	payload, err := json.Marshal(ampBody)
 	if err != nil {
 		return err
@@ -1194,34 +1236,34 @@ func (fes *APIServer) logAmplitudeEvent(publicKeyBytes string, event string, eve
 	return nil
 }
 
-
 func (fes *APIServer) StartExchangePriceMonitoring() {
 	go func() {
-		out:
-			for {
-				select {
-				case <- time.After(10 * time.Second):
-					fes.UpdateUSDCentsToBitCloutExchangeRate()
-				case <- fes.quit:
-					break out
-				}
+	out:
+		for {
+			select {
+			case <-time.After(10 * time.Second):
+				fes.UpdateUSDCentsToBitCloutExchangeRate()
+			case <-fes.quit:
+				break out
 			}
+		}
 	}()
 }
+
 // Monitor balances for starter bitclout seed and buy bitclout seed
 func (fes *APIServer) StartSeedBalancesMonitoring() {
 	go func() {
 	out:
 		for {
 			select {
-			case <- time.After(1 * time.Minute):
+			case <-time.After(1 * time.Minute):
 				if fes.backendServer == nil || fes.backendServer.GetStatsdClient() == nil {
 					return
 				}
 				tags := []string{}
-				fes.logBalanceForSeed(fes.StarterBitCloutSeed, "STARTER_BITCLOUT", tags)
-				fes.logBalanceForSeed(fes.BuyBitCloutSeed, "BUY_BITCLOUT", tags)
-			case <- fes.quit:
+				fes.logBalanceForSeed(fes.Config.StarterBitcloutSeed, "STARTER_BITCLOUT", tags)
+				fes.logBalanceForSeed(fes.Config.BuyBitCloutSeed, "BUY_BITCLOUT", tags)
+			case <-fes.quit:
 				break out
 			}
 		}
@@ -1242,7 +1284,7 @@ func (fes *APIServer) logBalanceForSeed(seed string, seedName string, tags []str
 	}
 }
 
-func (fes *APIServer) getBalanceForSeed(seedPhrase string) (uint64, error){
+func (fes *APIServer) getBalanceForSeed(seedPhrase string) (uint64, error) {
 	seedBytes, err := bip39.NewSeedWithErrorChecking(seedPhrase, "")
 	if err != nil {
 		return 0, fmt.Errorf("GetBalanceForSeed: Error converting mnemonic: %+v", err)

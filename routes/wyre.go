@@ -23,34 +23,34 @@ import (
 
 type WyreWalletOrderWebhookPayload struct {
 	// referenceId holds the public key of the user who made initiated the wallet order
-	ReferenceId string `json:"referenceId"`
-	AccountId string `json:"accountId"`
-	OrderId string `json:"orderId"`
-	OrderStatus string `json:"orderStatus"`
-	TransferId string `json:"transferId"`
+	ReferenceId  string `json:"referenceId"`
+	AccountId    string `json:"accountId"`
+	OrderId      string `json:"orderId"`
+	OrderStatus  string `json:"orderStatus"`
+	TransferId   string `json:"transferId"`
 	FailedReason string `json:"failedReason"`
 }
 
 type WyreWalletOrderFullDetails struct {
-	Id string `json:"id"`
-	CreatedAt uint64 `json:"createdAt"`
-	Owner string `json:"owner"`
-	Status string `json:"status"`
-	OrderType string `json:"orderType"`
-	SourceAmount float64 `json:"sourceAmount"`
-	PurchaseAmount float64 `json:"purchaseAmount"`
-	SourceCurrency string `json:"sourceCurrency"`
-	DestCurrency string `json:"destCurrency"`
-	TransferId string `json:"transferId"`
-	Dest string `json:"dest"`
-	AuthCodesRequested bool `json:"authCodesRequested"`
-	ErrorCategory string `json:"errorCategory"`
-	ErrorCode string `json:"errorCode"`
-	ErrorMessage string `json:"errorMessage"`
-	FailureReason string `json:"failureReason"`
-	AccountId string `json:"accountId"`
-	PaymentNetworkErrorCode string `json:"paymentNetworkErrorCode"`
-	InternalErrorCode string `json:"internalErrorCode"`
+	Id                      string  `json:"id"`
+	CreatedAt               uint64  `json:"createdAt"`
+	Owner                   string  `json:"owner"`
+	Status                  string  `json:"status"`
+	OrderType               string  `json:"orderType"`
+	SourceAmount            float64 `json:"sourceAmount"`
+	PurchaseAmount          float64 `json:"purchaseAmount"`
+	SourceCurrency          string  `json:"sourceCurrency"`
+	DestCurrency            string  `json:"destCurrency"`
+	TransferId              string  `json:"transferId"`
+	Dest                    string  `json:"dest"`
+	AuthCodesRequested      bool    `json:"authCodesRequested"`
+	ErrorCategory           string  `json:"errorCategory"`
+	ErrorCode               string  `json:"errorCode"`
+	ErrorMessage            string  `json:"errorMessage"`
+	FailureReason           string  `json:"failureReason"`
+	AccountId               string  `json:"accountId"`
+	PaymentNetworkErrorCode string  `json:"paymentNetworkErrorCode"`
+	InternalErrorCode       string  `json:"internalErrorCode"`
 }
 
 type WyreTransferDetails struct {
@@ -208,7 +208,6 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 				return
 			}
 
-
 			// Make sure this order hasn't been paid out, then mark it as paid out.
 			wyreOrderIdKey := GlobalStateKeyForWyreOrderIDProcessed(orderIdBytes)
 			// We expect badger to return a key not found error if BitClout has been paid out for this order.
@@ -241,8 +240,8 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 	fes.UpdateWyreGlobalState(ww, publicKeyBytes, timestamp, newMetadataObj)
 }
 
-func (fes *APIServer) GetFullWalletOrderDetails(client *http.Client, orderId string) (_wyreWalletOrderFullDetails *WyreWalletOrderFullDetails, _err error){
-	bodyBytes, err := fes.MakeWyreGetRequest(client, fmt.Sprintf("%v/v3/orders/%v/full", fes.WyreUrl, orderId))
+func (fes *APIServer) GetFullWalletOrderDetails(client *http.Client, orderId string) (_wyreWalletOrderFullDetails *WyreWalletOrderFullDetails, _err error) {
+	bodyBytes, err := fes.MakeWyreGetRequest(client, fmt.Sprintf("%v/v3/orders/%v/full", fes.Config.WyreUrl, orderId))
 	if err != nil {
 		return nil, fmt.Errorf("error getting full order details for orderId %v: %v", orderId, err)
 	}
@@ -261,7 +260,7 @@ func (fes *APIServer) GetFullWalletOrderDetails(client *http.Client, orderId str
 }
 
 func (fes *APIServer) GetTransferDetails(client *http.Client, transferId string) (_wyreTransferDetails *WyreTransferDetails, _err error) {
-	bodyBytes, err := fes.MakeWyreGetRequest(client, fmt.Sprintf("%v/v3/transfers/%v", fes.WyreUrl, transferId))
+	bodyBytes, err := fes.MakeWyreGetRequest(client, fmt.Sprintf("%v/v3/transfers/%v", fes.Config.WyreUrl, transferId))
 	if err != nil {
 		return nil, fmt.Errorf("error getting transfer details for transferId %v: %v", transferId, err)
 	}
@@ -305,7 +304,7 @@ type WyreTrackOrderResponse struct {
 }
 
 func (fes *APIServer) TrackWalletOrder(client *http.Client, transferId string) (_wyreTrackOrderResponse *WyreTrackOrderResponse, _err error) {
-	bodyBytes, err := fes.MakeWyreGetRequest(client, fmt.Sprintf("%v/v2/transfer/%v/track", fes.WyreUrl, transferId))
+	bodyBytes, err := fes.MakeWyreGetRequest(client, fmt.Sprintf("%v/v2/transfer/%v/track", fes.Config.WyreUrl, transferId))
 	if err != nil {
 		return nil, fmt.Errorf("error tracking transferId %v: %v", transferId, err)
 	}
@@ -338,20 +337,20 @@ func (fes *APIServer) UpdateWyreGlobalState(ww http.ResponseWriter, publicKeyByt
 }
 
 type WalletOrderQuotationRequest struct {
-	SourceAmount float64
-	Country string
+	SourceAmount   float64
+	Country        string
 	SourceCurrency string
 }
 
 type WyreWalletOrderQuotationPayload struct {
-	SourceCurrency string `json:"sourceCurrency"`
-	Dest string `json:"dest"`
-	DestCurrency string `json:"destCurrency"`
-	AmountIncludeFees bool `json:"amountIncludeFees"`
-	Country string `json:"country"`
-	SourceAmount string `json:"sourceAmount"`
-	WalletType string `json:"walletType"`
-	AccountId string `json:"accountId"`
+	SourceCurrency    string `json:"sourceCurrency"`
+	Dest              string `json:"dest"`
+	DestCurrency      string `json:"destCurrency"`
+	AmountIncludeFees bool   `json:"amountIncludeFees"`
+	Country           string `json:"country"`
+	SourceAmount      string `json:"sourceAmount"`
+	WalletType        string `json:"walletType"`
+	AccountId         string `json:"accountId"`
 }
 
 func (fes *APIServer) GetWyreWalletOrderQuotation(ww http.ResponseWriter, req *http.Request) {
@@ -369,14 +368,14 @@ func (fes *APIServer) GetWyreWalletOrderQuotation(ww http.ResponseWriter, req *h
 	}
 	// Make and marshal the payload
 	body := WyreWalletOrderQuotationPayload{
-		AccountId: fes.WyreAccountId,
-		Dest: fmt.Sprintf("bitcoin:%v", fes.BuyBitCloutBTCAddress),
+		AccountId:         fes.Config.WyreAccountId,
+		Dest:              fmt.Sprintf("bitcoin:%v", fes.Config.BuyBitCloutBTCAddress),
 		AmountIncludeFees: true,
-		DestCurrency: "BTC",
-		SourceCurrency: wyreWalletOrderQuotationRequest.SourceCurrency,
-		Country: wyreWalletOrderQuotationRequest.Country,
-		WalletType: "DEBIT_CARD",
-		SourceAmount: fmt.Sprintf("%f", wyreWalletOrderQuotationRequest.SourceAmount),
+		DestCurrency:      "BTC",
+		SourceCurrency:    wyreWalletOrderQuotationRequest.SourceCurrency,
+		Country:           wyreWalletOrderQuotationRequest.Country,
+		WalletType:        "DEBIT_CARD",
+		SourceAmount:      fmt.Sprintf("%f", wyreWalletOrderQuotationRequest.SourceAmount),
 	}
 
 	payload, err := json.Marshal(body)
@@ -386,31 +385,31 @@ func (fes *APIServer) GetWyreWalletOrderQuotation(ww http.ResponseWriter, req *h
 	}
 
 	// Construct the URL
-	url := fmt.Sprintf("%v/v3/orders/quote/partner?timestamp=%v", fes.WyreUrl, uint64(time.Now().UnixNano()))
+	url := fmt.Sprintf("%v/v3/orders/quote/partner?timestamp=%v", fes.Config.WyreUrl, uint64(time.Now().UnixNano()))
 
 	// Make the request get an order reservation to Wyre
 	fes.MakeWyrePostRequest(payload, url, ww)
 }
 
 type WalletOrderReservationRequest struct {
-	SourceAmount float64
-	ReferenceId string
-	Country string
+	SourceAmount   float64
+	ReferenceId    string
+	Country        string
 	SourceCurrency string
 }
 
 type WyreWalletOrderReservationPayload struct {
-	SourceCurrency string `json:"sourceCurrency"`
-	Dest string `json:"dest"`
-	DestCurrency string `json:"destCurrency"`
-	AmountIncludeFees bool `json:"amountIncludeFees"`
-	Country string `json:"country"`
-	SourceAmount string `json:"sourceAmount"`
-	PaymentMethod string `json:"paymentMethod"`
-	ReferrerAccountId string `json:"referrerAccountId"`
-	LockFields []string `json:"lockFields"`
-	RedirectUrl string `json:"redirectUrl"`
-	ReferenceId string `json:"referenceId"`
+	SourceCurrency    string   `json:"sourceCurrency"`
+	Dest              string   `json:"dest"`
+	DestCurrency      string   `json:"destCurrency"`
+	AmountIncludeFees bool     `json:"amountIncludeFees"`
+	Country           string   `json:"country"`
+	SourceAmount      string   `json:"sourceAmount"`
+	PaymentMethod     string   `json:"paymentMethod"`
+	ReferrerAccountId string   `json:"referrerAccountId"`
+	LockFields        []string `json:"lockFields"`
+	RedirectUrl       string   `json:"redirectUrl"`
+	ReferenceId       string   `json:"referenceId"`
 }
 
 func (fes *APIServer) GetWyreWalletOrderReservation(ww http.ResponseWriter, req *http.Request) {
@@ -429,17 +428,17 @@ func (fes *APIServer) GetWyreWalletOrderReservation(ww http.ResponseWriter, req 
 	currentTime := uint64(time.Now().UnixNano())
 	// Make and marshal the payload
 	body := WyreWalletOrderReservationPayload{
-		ReferrerAccountId: fes.WyreAccountId,
-		Dest: fes.GetBTCAddress(),
+		ReferrerAccountId: fes.Config.WyreAccountId,
+		Dest:              fes.GetBTCAddress(),
 		AmountIncludeFees: true,
-		DestCurrency: "BTC",
-		SourceCurrency: wyreWalletOrderReservationRequest.SourceCurrency,
-		Country: wyreWalletOrderReservationRequest.Country,
-		PaymentMethod: "debit-card",
-		SourceAmount: fmt.Sprintf("%f", wyreWalletOrderReservationRequest.SourceAmount),
-		LockFields: []string{"dest", "destCurrency"},
-		RedirectUrl: fmt.Sprintf("https://%v/buy-bitclout", req.Host),
-		ReferenceId: fmt.Sprintf("%v:%v", wyreWalletOrderReservationRequest.ReferenceId, currentTime),
+		DestCurrency:      "BTC",
+		SourceCurrency:    wyreWalletOrderReservationRequest.SourceCurrency,
+		Country:           wyreWalletOrderReservationRequest.Country,
+		PaymentMethod:     "debit-card",
+		SourceAmount:      fmt.Sprintf("%f", wyreWalletOrderReservationRequest.SourceAmount),
+		LockFields:        []string{"dest", "destCurrency"},
+		RedirectUrl:       fmt.Sprintf("https://%v/buy-bitclout", req.Host),
+		ReferenceId:       fmt.Sprintf("%v:%v", wyreWalletOrderReservationRequest.ReferenceId, currentTime),
 	}
 
 	payload, err := json.Marshal(body)
@@ -449,7 +448,7 @@ func (fes *APIServer) GetWyreWalletOrderReservation(ww http.ResponseWriter, req 
 	}
 
 	// Construct the URL
-	url := fmt.Sprintf("%v/v3/orders/reserve?timestamp=%v", fes.WyreUrl, currentTime)
+	url := fmt.Sprintf("%v/v3/orders/reserve?timestamp=%v", fes.Config.WyreUrl, currentTime)
 
 	// Make the request get an order reservation to Wyre.
 	fes.MakeWyrePostRequest(payload, url, ww)
@@ -521,7 +520,6 @@ func (fes *APIServer) MakeWyreGetRequest(client *http.Client, url string) (_body
 	return bodyBytes, nil
 }
 
-
 func (fes *APIServer) GetWyreWalletOrderMetadataFromGlobalState(publicKey string, timestamp uint64) (*WyreWalletOrderMetadata, error) {
 	// Decode the public get and get the key to access the Wyre Order Metadata
 	publicKeyBytes, _, err := lib.Base58CheckDecode(publicKey)
@@ -544,13 +542,13 @@ func (fes *APIServer) GetWyreWalletOrderMetadataFromGlobalState(publicKey string
 
 func (fes *APIServer) SetWyreRequestHeaders(req *http.Request, dataBytes []byte) *http.Request {
 	// Set the API Key and Content type headers
-	req.Header.Set("X-Api-Key", fes.WyreApiKey)
+	req.Header.Set("X-Api-Key", fes.Config.WyreApiKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	// Wyre expects the signature to be HEX encoded HMAC with SHA-256 and the Wyre secret key
 	// the message will be the URL + the data (if it is a GET request, data will be nil
 	// For more details, see this link: https://docs.sendwyre.com/docs/authentication#secret-key-signature-auth
-	h := hmac.New(sha256.New, []byte(fes.WyreSecretKey))
+	h := hmac.New(sha256.New, []byte(fes.Config.WyreSecretKey))
 	h.Write([]byte(req.URL.String()))
 	h.Write(dataBytes)
 	req.Header.Set("X-Api-Signature", hex.EncodeToString(h.Sum(nil)))
@@ -558,12 +556,12 @@ func (fes *APIServer) SetWyreRequestHeaders(req *http.Request, dataBytes []byte)
 }
 
 func (fes *APIServer) GetBTCAddress() string {
-	return fmt.Sprintf("bitcoin:%v", fes.BuyBitCloutBTCAddress)
+	return fmt.Sprintf("bitcoin:%v", fes.Config.BuyBitCloutBTCAddress)
 }
 
 type GetWyreWalletOrderForPublicKeyRequest struct {
 	PublicKeyBase58Check string
-	Username string
+	Username             string
 
 	AdminPublicKey string
 }
@@ -635,7 +633,7 @@ func (fes *APIServer) GetWyreWalletOrdersForPublicKey(ww http.ResponseWriter, re
 }
 
 func (fes *APIServer) IsConfiguredForWyre() bool {
-	return fes.WyreUrl != ""
+	return fes.Config.WyreUrl != ""
 }
 
 type WyreWalletOrderMetadataResponse struct {
@@ -656,10 +654,10 @@ type WyreWalletOrderMetadataResponse struct {
 
 func WyreWalletOrderMetadataToResponse(metadata *WyreWalletOrderMetadata) *WyreWalletOrderMetadataResponse {
 	orderMetadataResponse := WyreWalletOrderMetadataResponse{
-		LatestWyreTrackWalletOrderResponse: metadata.LatestWyreTrackWalletOrderResponse,
+		LatestWyreTrackWalletOrderResponse:  metadata.LatestWyreTrackWalletOrderResponse,
 		LatestWyreWalletOrderWebhookPayload: metadata.LatestWyreWalletOrderWebhookPayload,
-		BitCloutPurchasedNanos: metadata.BitCloutPurchasedNanos,
-		Timestamp: getTimestampFromReferenceId(metadata.LatestWyreWalletOrderWebhookPayload.ReferenceId),
+		BitCloutPurchasedNanos:              metadata.BitCloutPurchasedNanos,
+		Timestamp:                           getTimestampFromReferenceId(metadata.LatestWyreWalletOrderWebhookPayload.ReferenceId),
 	}
 	basicTransferTxnHash := metadata.BasicTransferTxnBlockHash
 	if basicTransferTxnHash != nil {
@@ -670,7 +668,7 @@ func WyreWalletOrderMetadataToResponse(metadata *WyreWalletOrderMetadata) *WyreW
 
 func getTimestampFromReferenceId(referenceId string) *time.Time {
 	splits := strings.Split(referenceId, ":")
-	uint64Timestamp, err := strconv.ParseUint(splits[1], 10,  64)
+	uint64Timestamp, err := strconv.ParseUint(splits[1], 10, 64)
 	if err != nil {
 		return nil
 	}

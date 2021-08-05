@@ -245,7 +245,7 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 		bitcoinSyncPeer = &PeerResponse{
 			IP:           ip,
 			ProtocolPort: port,
-			IsSyncPeer: true,
+			IsSyncPeer:   true,
 		}
 	}
 	// Get some alternative peers from the Bitcoin addrmgr
@@ -374,7 +374,7 @@ func (fes *APIServer) _handleConnectBitCloutNode(
 				// Note: We don't need to acquire the ChainLock because our parent does it.
 
 				// Grab the ChainLock since we might do a blockchain lookup below.
-				locator :=  fes.blockchain.LatestLocator(fes.blockchain.HeaderTip())
+				locator := fes.blockchain.LatestLocator(fes.blockchain.HeaderTip())
 
 				bitcloutPeer.AddBitCloutMessage(&lib.MsgBitCloutGetHeaders{
 					StopHash:     &lib.BlockHash{},
@@ -678,14 +678,14 @@ func (fes *APIServer) AdminGetMempoolStats(ww http.ResponseWriter, req *http.Req
 
 type EvictUnminedBitcoinTxnsRequest struct {
 	BitcoinTxnHashes []string
-	DryRun bool
+	DryRun           bool
 }
 
 type EvictUnminedBitcoinTxnsResponse struct {
-	TotalMempoolTxns int64
+	TotalMempoolTxns             int64
 	MempoolTxnsLeftAfterEviction int64
-	TxnTypesEvicted map[string]int64
-	TxnHashesEvicted []string
+	TxnTypesEvicted              map[string]int64
+	TxnHashesEvicted             []string
 
 	UnminedBitcoinExchangeTxns []string
 }
@@ -703,10 +703,10 @@ func (fes *APIServer) EvictUnminedBitcoinTxns(ww http.ResponseWriter, req *http.
 		fes.mempool.EvictUnminedBitcoinTransactions(requestData.BitcoinTxnHashes, requestData.DryRun)
 
 	res := EvictUnminedBitcoinTxnsResponse{
-		TotalMempoolTxns: int64(totalMempoolTxns),
-		MempoolTxnsLeftAfterEviction:  newPoolCount,
-		TxnTypesEvicted: evictedTxnsMap,
-		TxnHashesEvicted: evictedTxnsList,
+		TotalMempoolTxns:             int64(totalMempoolTxns),
+		MempoolTxnsLeftAfterEviction: newPoolCount,
+		TxnTypesEvicted:              evictedTxnsMap,
+		TxnHashesEvicted:             evictedTxnsList,
 
 		UnminedBitcoinExchangeTxns: unminedBitcoinExchangeTxns,
 	}

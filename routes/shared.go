@@ -98,7 +98,7 @@ type User struct {
 
 	PublicKeysBase58CheckFollowedByUser []string
 
-	UsersYouHODL    []*BalanceEntryResponse
+	UsersYouHODL         []*BalanceEntryResponse
 	UsersWhoHODLYouCount int
 
 	// HasPhoneNumber is a computed boolean so we can avoid returning the phone number in the
@@ -106,6 +106,8 @@ type User struct {
 	HasPhoneNumber   bool
 	CanCreateProfile bool
 	BlockedPubKeys   map[string]struct{}
+	HasEmail         bool
+	EmailVerified    bool
 
 	// Is this user an admin
 	IsAdmin bool
@@ -114,7 +116,7 @@ type User struct {
 
 	// Is this user blacklisted/graylisted
 	IsBlacklisted bool
-	IsGraylisted bool
+	IsGraylisted  bool
 }
 
 type BalanceEntryResponse struct {
@@ -134,8 +136,6 @@ type BalanceEntryResponse struct {
 
 	ProfileEntryResponse *ProfileEntryResponse
 }
-
-
 
 func (fes *APIServer) GetBalanceForPublicKey(publicKeyBytes []byte) (
 	_balanceNanos uint64, _err error) {
@@ -257,9 +257,9 @@ func (fes *APIServer) SendSeedBitClout(recipientPkBytes []byte, amountNanos uint
 	fes.mtxSeedBitClout.Lock()
 	defer fes.mtxSeedBitClout.Unlock()
 
-	senderSeed := fes.StarterBitCloutSeed
+	senderSeed := fes.Config.StarterBitcloutSeed
 	if useBuyBitCloutSeed {
-		senderSeed = fes.BuyBitCloutSeed
+		senderSeed = fes.Config.BuyBitCloutSeed
 	}
 	starterSeedBytes, err := bip39.NewSeedWithErrorChecking(senderSeed, "")
 	if err != nil {

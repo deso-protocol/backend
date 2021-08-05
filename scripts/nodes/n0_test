@@ -25,11 +25,12 @@ rm /tmp/main.*.log
   --glog-vmodule="*api*=0,*bitcoin_manager*=2,*balance*=0,*frontend*=0,*peer*=0,*addr*=0,*network*=0,*utils*=0,*connection*=0,*main*=0,server*=0,*mempool*=0,*miner*=0,*blockchain*=0,*block_producer*=1" \
   --add-ips=localhost:19000 \
   --testnet=true  \
+  --regtest \
   --api-port=18001 \
   --protocol-port=18000 \
   --txindex \
   --num-mining-threads=1 \
-  --miner-public-keys=BC1YLieU9Zc5goMLXg3KM7Y3v7d9KKJg9WCuBiuJcPwkbSKxBNqYzL9 \
+  --miner-public-keys=BC1YLg7Bk5sq9iNY17bAwoAYiChLYpmWEi6nY6q5gnA1UQV6xixHjfV \
   --block-producer-seed='essence camp ghost remove document vault ladder swim pupil index apart ring' \
   --starter-bitclout-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
   --data-dir=/tmp/n0_test_00000 \

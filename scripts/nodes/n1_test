@@ -8,6 +8,7 @@ COMMAND="./backend run
   --connect-ips=localhost:18000
   --target-outbound-peers=1
   --testnet=true 
+  --regtest
   --trusted-block-producer-public-keys=BC1YLiQ86kwXUy3nfK391xht7N72UmbFY6bGrUsds1A7QKZrs4jJsxo
   --trusted-block-producer-start-height=5
   --api-port=19001

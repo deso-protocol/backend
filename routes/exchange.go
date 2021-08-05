@@ -425,7 +425,7 @@ type TransactionResponse struct {
 	// the human-readable portions of this object.
 	RawTransactionHex string `json:",omitempty"`
 	// The inputs and outputs for this transaction.
-	Inputs  []*InputResponse `json:",omitempty"`
+	Inputs  []*InputResponse  `json:",omitempty"`
 	Outputs []*OutputResponse `json:",omitempty"`
 	// The signature of the transaction in hex format.
 	SignatureHex string `json:",omitempty"`
@@ -803,7 +803,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		for _, poolTx := range poolTxns {
 			if transactionInfoRequest.IDsOnly {
 				res.Transactions = append(res.Transactions,
-					&TransactionResponse{ TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params) })
+					&TransactionResponse{TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params)})
 			} else {
 				txnMeta, err := lib.ConnectTxnAndComputeTransactionMetadata(
 					poolTx.Tx, utxoView, &lib.BlockHash{} /*Block hash*/, nextBlockHeight,
@@ -953,7 +953,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	for _, txHash := range txHashes {
 		txIDString := lib.PkToString(txHash[:], fes.Params)
 		if transactionInfoRequest.IDsOnly {
-			res.Transactions = append(res.Transactions, &TransactionResponse{ TransactionIDBase58Check: txIDString })
+			res.Transactions = append(res.Transactions, &TransactionResponse{TransactionIDBase58Check: txIDString})
 		} else {
 			// In this case we need to look up the full transaction and convert
 			// it into a proper transaction response.
@@ -1017,7 +1017,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		if isRelevantTxn {
 			if transactionInfoRequest.IDsOnly {
 				res.Transactions = append(res.Transactions,
-					&TransactionResponse{ TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params) })
+					&TransactionResponse{TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params)})
 			} else {
 				res.Transactions = append(res.Transactions,
 					APITransactionToResponse(poolTx.Tx, txnMeta, fes.Params))
@@ -1111,7 +1111,7 @@ type HeaderResponse struct {
 	Height uint64
 
 	// The Nonce and ExtraNonce combine to give miners 128 bits of entropy
-	Nonce uint64
+	Nonce      uint64
 	ExtraNonce uint64
 }
 
@@ -1621,7 +1621,7 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 		}
 
 		// mediaRequired set to determine if we only want posts that include media and ignore posts without
-		if mediaRequired && !postEntry.HasMedia(){
+		if mediaRequired && !postEntry.HasMedia() {
 			continue
 		}
 

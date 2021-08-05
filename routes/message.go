@@ -52,8 +52,8 @@ type GetMessagesStatelessRequest struct {
 type GetMessagesResponse struct {
 	PublicKeyToProfileEntry     map[string]*ProfileEntryResponse
 	OrderedContactsWithMessages []*MessageContactResponse
-	UnreadStateByContact   		map[string]bool
-	NumberOfUnreadThreads		int
+	UnreadStateByContact        map[string]bool
+	NumberOfUnreadThreads       int
 }
 
 func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
@@ -120,7 +120,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 				// TODO: Make an index to quickly lookup how many followers a user has
 				otherPartyFollowers, err := lib.DbGetPKIDsFollowingYou(utxoView.Handle, lib.PublicKeyToPKID(otherPartyPublicKeyBytes))
 				if err != nil {
-					return nil, nil,  nil, 0, errors.Wrapf(
+					return nil, nil, nil, 0, errors.Wrapf(
 						err, "getMessagesStateless: Problem getting follows for public key")
 				}
 				publicKeyToNumberOfFollowers[otherPartyPublicKeyBase58Check] = uint64(len(otherPartyFollowers))
@@ -139,7 +139,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			if _, alreadySeen := publicKeyToNanosUserHeld[otherPartyPublicKeyBase58Check]; !alreadySeen {
 				otherPartyBalanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(otherPartyPublicKeyBytes, publicKeyBytes, utxoView)
 				if err != nil {
-					return nil, nil,  nil, 0, errors.Wrapf(
+					return nil, nil, nil, 0, errors.Wrapf(
 						err, "getMessagesStateless: Problem getting balance entry for public key")
 				}
 				if otherPartyBalanceEntry != nil {
@@ -182,7 +182,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	uniqueProfilesInPaginatedSetSeen := uint64(0)
 	blockedPubKeysForUser, err := fes.GetBlockedPubKeysForUser(publicKeyBytes)
 	if err != nil {
-		return nil, nil,  nil, 0, errors.Wrapf(
+		return nil, nil, nil, 0, errors.Wrapf(
 			err, "getMessagesStateless: Problem getting blocked users for public key")
 	}
 	for _, messageEntry := range messageEntries {
@@ -193,14 +193,20 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 		inPageSet, alreadySeen := publicKeyInPaginatedSet[otherPartyPublicKeyBase58Check]
 
 		// Skip it if it's already been processed
-		if alreadySeen && !inPageSet { continue }
+		if alreadySeen && !inPageSet {
+			continue
+		}
 
 		// Skip if it's a blocked user
-		if _, blocked := blockedPubKeysForUser[otherPartyPublicKeyBase58Check]; blocked { continue }
+		if _, blocked := blockedPubKeysForUser[otherPartyPublicKeyBase58Check]; blocked {
+			continue
+		}
 
 		// Filter out messages if requested by user
 		passedFilters, checkedFilters := publicKeyPassedFilters[otherPartyPublicKeyBase58Check]
-		if checkedFilters && !passedFilters { continue }
+		if checkedFilters && !passedFilters {
+			continue
+		}
 
 		if filterResults && !checkedFilters {
 			publicKeyWithinFilters := false
@@ -211,13 +217,15 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 				if !balanceChecked {
 					balanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(otherPartyPublicKeyBytes, publicKeyBytes, utxoView)
 					if err != nil {
-						return nil, nil,   nil, 0, errors.Wrapf(
+						return nil, nil, nil, 0, errors.Wrapf(
 							err, "getMessagesStateless: Problem getting balance entry for holder public key %v", otherPartyPublicKeyBase58Check)
 					}
 					holdsUser = balanceEntry != nil && balanceEntry.BalanceNanos > 0
 					publicKeyHoldsUser[otherPartyPublicKeyBase58Check] = holdsUser
 				}
-				if holdsUser { publicKeyWithinFilters = true }
+				if holdsUser {
+					publicKeyWithinFilters = true
+				}
 			}
 
 			// Check if the messenger passes the holding check
@@ -226,13 +234,15 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 				if !balanceChecked {
 					balanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(publicKeyBytes, otherPartyPublicKeyBytes, utxoView)
 					if err != nil {
-						return nil, nil,   nil, 0, errors.Wrapf(
+						return nil, nil, nil, 0, errors.Wrapf(
 							err, "getMessagesStateless: Problem getting balance entry for holder public key %v", otherPartyPublicKeyBase58Check)
 					}
 					holdsPublicKey = balanceEntry != nil && balanceEntry.BalanceNanos > 0
 					userHoldsPublicKey[otherPartyPublicKeyBase58Check] = holdsPublicKey
 				}
-				if holdsPublicKey { publicKeyWithinFilters = true }
+				if holdsPublicKey {
+					publicKeyWithinFilters = true
+				}
 			}
 
 			// Check if the messenger passes the followers check
@@ -245,7 +255,9 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 					followsUser = followEntry != nil
 					publicKeyFollowsUser[otherPartyPublicKeyBase58Check] = followsUser
 				}
-				if followsUser { publicKeyWithinFilters = true }
+				if followsUser {
+					publicKeyWithinFilters = true
+				}
 			}
 
 			// Check if the messenger passes the following check
@@ -258,12 +270,16 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 					followsPublicKey = followEntry != nil
 					userFollowsPublicKey[otherPartyPublicKeyBase58Check] = followsPublicKey
 				}
-				if followsPublicKey { publicKeyWithinFilters = true }
+				if followsPublicKey {
+					publicKeyWithinFilters = true
+				}
 			}
 
 			// Skip if the user failed the tests and update the map for faster lookup
 			publicKeyPassedFilters[otherPartyPublicKeyBase58Check] = publicKeyWithinFilters
-			if !publicKeyWithinFilters { continue }
+			if !publicKeyWithinFilters {
+				continue
+			}
 		}
 
 		// If this passed all the filter's requested by the user, we now check if it's within the requested
@@ -300,7 +316,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 		}
 
 		V2 := false
-		if messageEntry.Version == 2{
+		if messageEntry.Version == 2 {
 			V2 = true
 		}
 
@@ -342,8 +358,8 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 		})
 	} else {
 		sort.Slice(newContactEntries, func(ii, jj int) bool {
-			return newContactEntries[ii].Messages[len(newContactEntries[ii].Messages) - 1].TstampNanos >
-				newContactEntries[jj].Messages[len(newContactEntries[jj].Messages) - 1].TstampNanos
+			return newContactEntries[ii].Messages[len(newContactEntries[ii].Messages)-1].TstampNanos >
+				newContactEntries[jj].Messages[len(newContactEntries[jj].Messages)-1].TstampNanos
 		})
 	}
 
@@ -354,13 +370,13 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	for _, entry := range newContactEntries {
 		otherUserPublicKeyBytes, _, err := lib.Base58CheckDecode(entry.PublicKeyBase58Check)
 		if err != nil {
-			return nil, nil,  nil, 0, errors.Wrapf(err, "getMessagesStateless: Problem decoding "+
+			return nil, nil, nil, 0, errors.Wrapf(err, "getMessagesStateless: Problem decoding "+
 				"contact's public key.")
 		}
 
 		mostRecentReadTstampNanos, err := fes.getUserContactMostRecentReadTime(publicKeyBytes, otherUserPublicKeyBytes)
 		if err != nil {
-			return nil, nil,  nil, 0, errors.Wrapf(err, "getMessagesStateless: Problem getting "+
+			return nil, nil, nil, 0, errors.Wrapf(err, "getMessagesStateless: Problem getting "+
 				"contact's most recent read state.")
 		}
 
@@ -374,7 +390,9 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 				}
 			}
 			// If we've gone through all the messages and they're all ready, we mark this thread as read.
-			if ii == len(entry.Messages) - 1 { unreadMessagesBycontact[entry.PublicKeyBase58Check] = false }
+			if ii == len(entry.Messages)-1 {
+				unreadMessagesBycontact[entry.PublicKeyBase58Check] = false
+			}
 		}
 	}
 
@@ -418,7 +436,7 @@ func (fes *APIServer) GetMessagesStateless(ww http.ResponseWriter, rr *http.Requ
 	}
 
 	publicKeyToProfileEntry, orderedContactsWithMessages,
-	unreadStateByContact, numOfUnreadThreads, err := fes.getMessagesStateless(publicKeyBytes, fetchAfterPublicKeyBytes,
+		unreadStateByContact, numOfUnreadThreads, err := fes.getMessagesStateless(publicKeyBytes, fetchAfterPublicKeyBytes,
 		getMessagesRequest.NumToFetch, getMessagesRequest.HoldersOnly, getMessagesRequest.HoldingsOnly,
 		getMessagesRequest.FollowersOnly, getMessagesRequest.FollowingOnly, getMessagesRequest.SortAlgorithm)
 	if err != nil {
@@ -522,7 +540,7 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 }
 
 type MarkContactMessagesReadRequest struct {
-	JWT              		    string
+	JWT                         string
 	UserPublicKeyBase58Check    string
 	ContactPublicKeyBase58Check string
 }
@@ -561,8 +579,8 @@ func (fes *APIServer) MarkContactMessagesRead(ww http.ResponseWriter, req *http.
 }
 
 type MarkAllMessagesReadRequest struct {
-	JWT              		    string
-	UserPublicKeyBase58Check    string
+	JWT                      string
+	UserPublicKeyBase58Check string
 }
 
 func (fes *APIServer) MarkAllMessagesRead(ww http.ResponseWriter, req *http.Request) {
@@ -642,7 +660,7 @@ func (fes *APIServer) markContactMessagesRead(userPublicKeyBytes []byte, contact
 }
 
 // getUserContactMostRecentReadTime...
-func (fes *APIServer) getUserContactMostRecentReadTime(userPublicKeyBytes []byte, contactPublicKeyBytes []byte) (uint64, error){
+func (fes *APIServer) getUserContactMostRecentReadTime(userPublicKeyBytes []byte, contactPublicKeyBytes []byte) (uint64, error) {
 	dbKey := GlobalStateKeyForUserPkContactPkToMostRecentReadTstampNanos(userPublicKeyBytes, contactPublicKeyBytes)
 	tStampNanosBytes, err := fes.GlobalStateGet(dbKey)
 	if err != nil {

@@ -5,7 +5,8 @@ DATE=`date +%Y%m%d-%H:%M:%S-%N`
 COMMAND="./backend run
   --glog-v=0
   --glog-vmodule="*bitcoin-manager*=0,*balance*=0,*frontend*=0,*peer*=0,*addr*=0,*network*=0,*utils*=0,*connection*=0,*main*=0,*server*=0,*mempool*=0,*miner*=2,*blockchain*=0"
-  --testnet=true 
+  --testnet=true
+  --regtest
   --connect-ips=localhost:19000
   --api-port=20001
   --protocol-port=20000
