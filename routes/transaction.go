@@ -423,25 +423,30 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	if !fes.Config.CompProfileCreation || fes.Config.StarterBitcloutSeed == "" || fes.Twilio == nil || (userMetadata.PhoneNumber == "" && !userMetadata.JumioVerified) {
 		return additionalFees, nil
 	}
-
-	var phoneNumberMetadata *PhoneNumberMetadata
-	phoneNumberMetadata, err := fes.getPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
-	if err != nil {
-		return 0, errors.Wrap(fmt.Errorf("UpdateProfile: error getting phone number metadata for public key %v: %v", profilePublicKey, err), "")
-
-	}
-	if phoneNumberMetadata == nil {
-		return 0, errors.Wrap(fmt.Errorf("UpdateProfile: no phone number metadata for phone number %v", userMetadata.PhoneNumber), "")
-	}
 	var currentBalanceNanos uint64
-	currentBalanceNanos, err = GetBalanceForPublicKeyUsingUtxoView(profilePublicKey, utxoView)
+	currentBalanceNanos, err := GetBalanceForPublicKeyUsingUtxoView(profilePublicKey, utxoView)
 	if err != nil {
 		return 0, errors.Wrap(fmt.Errorf("UpdateProfile: error getting current balance: %v", err), "")
 	}
 	createProfileFeeNanos := utxoView.GlobalParamsEntry.CreateProfileFeeNanos
-	if !phoneNumberMetadata.ShouldCompProfileCreation || currentBalanceNanos > createProfileFeeNanos {
-		return additionalFees, nil
+
+	// If a user is jumio verified, we just comp the profile even if their balance is greater than the create profile fee.
+	// If a user has a phone number verified but is not jumio verified, we need to check that they haven't spent all their
+	// starter bitclout already and that ShouldCompProfileCreation is true
+	var phoneNumberMetadata *PhoneNumberMetadata
+	if userMetadata.PhoneNumber != "" && !userMetadata.JumioVerified {
+		phoneNumberMetadata, err = fes.getPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
+		if err != nil {
+			return 0, errors.Wrap(fmt.Errorf("UpdateProfile: error getting phone number metadata for public key %v: %v", profilePublicKey, err), "")
+		}
+		if phoneNumberMetadata == nil {
+			return 0, errors.Wrap(fmt.Errorf("UpdateProfile: no phone number metadata for phone number %v", userMetadata.PhoneNumber), "")
+		}
+		if !phoneNumberMetadata.ShouldCompProfileCreation || currentBalanceNanos > createProfileFeeNanos {
+			return additionalFees, nil
+		}
 	}
+
 	// Find the minimum starter bit clout amount
 	minStarterBitCloutNanos := fes.Config.StarterBitcloutNanos
 	if len(fes.Config.StarterPrefixNanosMap) > 0 {
@@ -452,18 +457,22 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 		}
 	}
 	// We comp the create profile fee minus the minimum starter bitclout amount divided by 2.
-	// // This discourages botting while covering users who verify a phone number.
+	// This discourages botting while covering users who verify a phone number.
 	compAmount := createProfileFeeNanos - (minStarterBitCloutNanos / 2)
 	// If the user won't have enough bitclout to cover the fee, this is an error.
 	if currentBalanceNanos+compAmount < createProfileFeeNanos {
 		return 0, errors.Wrap(fmt.Errorf("Creating a profile requires BitClout.  Please purchase some to create a profile."), "")
 	}
-	// Set should comp to false so we don't continually comp a public key
-	phoneNumberMetadata.ShouldCompProfileCreation = false
-	err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata)
-	if err != nil {
-		return 0, errors.Wrap(fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for phone number metadata: %v", err), "")
+	// Set should comp to false so we don't continually comp a public key.  PhoneNumberMetadata is only non-nil if
+	// a user verified their phone number but is not jumio verified.
+	if phoneNumberMetadata != nil {
+		phoneNumberMetadata.ShouldCompProfileCreation = false
+		err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata)
+		if err != nil {
+			return 0, errors.Wrap(fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for phone number metadata: %v", err), "")
+		}
 	}
+
 	// Send the comp amount to the public key
 	_, err = fes.SendSeedBitClout(profilePublicKey, compAmount, false)
 	if err != nil {
