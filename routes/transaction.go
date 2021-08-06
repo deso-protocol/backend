@@ -445,6 +445,11 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 		if !phoneNumberMetadata.ShouldCompProfileCreation || currentBalanceNanos > createProfileFeeNanos {
 			return additionalFees, nil
 		}
+	} else {
+		// User has been Jumio verified but should comp profile creation is false, just return
+		if !userMetadata.JumioShouldCompProfileCreation {
+			return additionalFees, nil
+		}
 	}
 
 	// Find the minimum starter bit clout amount
@@ -467,9 +472,14 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	// a user verified their phone number but is not jumio verified.
 	if phoneNumberMetadata != nil {
 		phoneNumberMetadata.ShouldCompProfileCreation = false
-		err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata)
-		if err != nil {
+		if err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata); err != nil {
 			return 0, errors.Wrap(fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for phone number metadata: %v", err), "")
+		}
+	} else {
+		// Set JumioShouldCompProfileCreation to false so we don't continue to comp profile creation.
+		userMetadata.JumioShouldCompProfileCreation = false
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			return 0, errors.Wrap(fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for jumio user metadata: %v", err), "")
 		}
 	}
 

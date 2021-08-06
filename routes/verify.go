@@ -667,6 +667,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 		userMetadata.JumioVerified = true
 		userMetadata.JumioTransactionID = jumioTransactionId
 		userMetadata.JumioDocumentKey = uniqueJumioKey
+		userMetadata.JumioShouldCompProfileCreation = true
 
 		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error updating user metadata in global state: %v", err))
@@ -787,6 +788,7 @@ func (fes *APIServer) AdminResetJumioForPublicKey(ww http.ResponseWriter, req *h
 	userMetadata.JumioTransactionID = ""
 	userMetadata.JumioDocumentKey = nil
 	userMetadata.JumioStarterBitCloutTxnHashHex = ""
+	userMetadata.JumioShouldCompProfileCreation = false
 	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminResetJumioForPublicKey: Problem putting updated user metadata in Global state: %v", err))
 		return

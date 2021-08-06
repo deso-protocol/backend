@@ -223,6 +223,7 @@ type UserMetadata struct {
 	JumioTransactionID string
 	JumioDocumentKey []byte
 	JumioStarterBitCloutTxnHashHex string
+	JumioShouldCompProfileCreation bool
 }
 
 // This struct contains all the metadata associated with a user's phone number.
