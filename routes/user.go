@@ -1807,6 +1807,13 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		}
 	}
 
+	// Grab verified username map pointer
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+	if err != nil {
+		APIAddError(ww, err.Error())
+		return
+	}
+
 	// At this point, finalTxnMetadata contains the proper list of transactions that we
 	// want to notify the user about. In order to help the UI display this information,
 	// we fetch a profile for each public key in each transaction that we're going to return
@@ -1819,12 +1826,6 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 			return errors.Errorf("GetNotifications: "+
 				"Error decoding public key in txn metadata: %v",
 				publicKeyBase58Check)
-		}
-
-		// Grab verified username map pointer
-		verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-		if err != nil {
-			return errors.Errorf("GetNotifications: Error fetching verifiedMap: %v", err)
 		}
 
 		// Note we are recycling the UtxoView from previously.
