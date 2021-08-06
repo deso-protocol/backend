@@ -615,32 +615,21 @@ type GetNFTShowcaseRequest struct {
 	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
 }
 
+type GetNFTShowcaseAdminRequest struct {
+	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
+	DropIdx int `safeForLogging:"true"`
+	AdminPublicKey string
+}
+
 type GetNFTShowcaseResponse struct {
 	NFTCollections []*NFTCollectionResponse
 }
 
-func (fes *APIServer) GetNFTShowcase(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := GetNFTShowcaseRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetNFTShowcase: Error parsing request body: %v", err))
-		return
-	}
-
-	var readerPublicKeyBytes []byte
-	var err error
-	if requestData.ReaderPublicKeyBase58Check != "" {
-		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetNFTShowcase: Problem decoding reader public key: %v", err))
-			return
-		}
-	}
-
+func (fes *APIServer) GetCurrentNFTDropEntry() (_dropEntry *NFTDropEntry, _err error) {
 	dropEntry, err := fes.GetLatestNFTDropEntry()
 	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("GetNFTShowcase: Problem getting latest drop: %v", err))
-		return
+		return nil, fmt.Errorf(
+			"GetNFTShowcase: Problem getting latest drop: %v", err)
 	}
 
 	currentTime := uint64(time.Now().UnixNano())
@@ -656,36 +645,46 @@ func (fes *APIServer) GetNFTShowcase(ww http.ResponseWriter, req *http.Request) 
 			dropNumToFetch := dropEntry.DropNumber - 1
 			dropEntry, err = fes.GetNFTDropEntry(dropNumToFetch)
 			if err != nil {
-				_AddInternalServerError(ww, fmt.Sprintf(
-					"GetNFTShowcase: Problem getting drop #%d: %v", dropNumToFetch, err))
-				return
+				return nil, fmt.Errorf(
+					"GetNFTShowcase: Problem getting drop #%d: %v", dropNumToFetch, err)
 			}
 		}
 	}
+	return dropEntry, nil
+}
 
-	// Now that we have the drop entry, fetch the NFTs.
+func (fes *APIServer) GetNFTDropEntryByIdx(dropIdx int) (_dropEntry *NFTDropEntry, _err error) {
+	dropEntry, err := fes.GetNFTDropEntry(uint64(dropIdx))
+	if err != nil {
+		return nil, fmt.Errorf(
+			"GetNFTShowcase: Problem getting drop #%d: %v", dropIdx, err)
+	}
+	return dropEntry, nil
+}
+
+func (fes *APIServer) FetchNFTSForDrop(ReaderPublicKeyBase58Check string, readerPublicKeyBytes []byte, dropEntry *NFTDropEntry) (_nftCollectionResponses []*NFTCollectionResponse, _err error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetNFTShowcase: Error getting utxoView: %v", err))
-		return
+		return nil, fmt.Errorf(
+			"GetNFTShowcase: Error getting utxoView: %v", err)
 	}
 
 	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForNFTPost: Error getting verified user map: %v", err))
-		return
+		return nil, fmt.Errorf(
+			"GetNFTBidsForNFTPost: Error getting verified user map: %v", err)
 	}
 
 	var readerPKID *lib.PKID
-	if requestData.ReaderPublicKeyBase58Check != "" {
+	if ReaderPublicKeyBase58Check != "" {
 		readerPKID = utxoView.GetPKIDForPublicKey(readerPublicKeyBytes).PKID
 	}
 	var nftCollectionResponses []*NFTCollectionResponse
 	for _, nftHash := range dropEntry.NFTHashes {
 		postEntry := utxoView.GetPostEntryForPostHash(nftHash)
 		if postEntry == nil {
-			_AddInternalServerError(ww, fmt.Sprint("GetNFTShowcase: Found nil post entry for NFT hash."))
-			return
+			return nil, fmt.Errorf(
+				"GetNFTShowcase: Found nil post entry for NFT hash.")
 		}
 
 		nftKey := lib.MakeNFTKey(nftHash, 1)
@@ -694,14 +693,53 @@ func (fes *APIServer) GetNFTShowcase(ww http.ResponseWriter, req *http.Request) 
 		postEntryResponse, err := fes._postEntryToResponse(
 			postEntry, false, fes.Params, utxoView, readerPublicKeyBytes, 2)
 		if err != nil {
-			_AddInternalServerError(ww, fmt.Sprint("GetNFTShowcase: Found invalid post entry for NFT hash."))
-			return
+			return nil, fmt.Errorf(
+				"GetNFTShowcase: Found invalid post entry for NFT hash.")
 		}
 
 		nftCollectionResponse := fes._nftEntryToNFTCollectionResponse(nftEntry, postEntry.PosterPublicKey, postEntryResponse, utxoView, verifiedMap, readerPKID)
 		nftCollectionResponses = append(nftCollectionResponses, nftCollectionResponse)
 	}
+	return nftCollectionResponses, nil
+}
 
+func (fes *APIServer) GetCurrentNFTShowcase(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetNFTShowcaseRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTShowcase: Error parsing request body: %v", err))
+		return
+	}
+	fes.GetNFTShowcase(ww, req, -1, requestData.ReaderPublicKeyBase58Check)
+}
+
+// If dropIdx == -1, get current drop
+func (fes *APIServer) GetNFTShowcase(ww http.ResponseWriter, req *http.Request, dropIdx int, readerPublicKeyBase58Check string) {
+	var readerPublicKeyBytes []byte
+	var err error
+	if readerPublicKeyBase58Check != "" {
+		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(readerPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetNFTShowcase: Problem decoding reader public key: %v", err))
+			return
+		}
+	}
+	var dropEntry *NFTDropEntry
+	if dropIdx < 0 {
+		dropEntry, err = fes.GetCurrentNFTDropEntry()
+	} else {
+		dropEntry, err = fes.GetNFTDropEntryByIdx(dropIdx)
+	}
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetNFTShowcase: Problem getting latest drop: %v", err))
+		return
+	}
+	// Now that we have the drop entry, fetch the NFTs.
+	nftCollectionResponses, err:= fes.FetchNFTSForDrop(readerPublicKeyBase58Check, readerPublicKeyBytes, dropEntry)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetNFTShowcase: Problem getting NFT collection responses: %v", err))
+		return
+	}
 	// Return all the data associated with the transaction in the response
 	res := GetNFTShowcaseResponse{
 		NFTCollections: nftCollectionResponses,

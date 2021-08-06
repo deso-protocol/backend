@@ -339,3 +339,12 @@ func (fes *APIServer) SendSeedBitClout(recipientPkBytes []byte, amountNanos uint
 	}
 	return hash, err
 }
+
+func BlockHashIn(slice []*lib.BlockHash, val *lib.BlockHash) bool {
+	for _, item := range slice {
+		if item.String() == val.String() {
+			return true
+		}
+	}
+	return false
+}

@@ -107,6 +107,16 @@ func (fes *APIServer) GetPostsForNFTDropEntry(dropEntryToReturn *NFTDropEntry,
 	return postEntryResponses, nil
 }
 
+func (fes *APIServer) GetNFTShowcaseAdminPreview(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetNFTShowcaseAdminRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTShowcaseAdminPreview: Error parsing request body: %v", err))
+		return
+	}
+	fes.GetNFTShowcase(ww, req, requestData.DropIdx, requestData.ReaderPublicKeyBase58Check)
+}
+
 func (fes *APIServer) AdminGetNFTDrop(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := AdminGetNFTDropRequest{}
@@ -295,8 +305,13 @@ func (fes *APIServer) AdminUpdateNFTDrop(ww http.ResponseWriter, req *http.Reque
 					"AdminUpdateNFTDrop: Cannot add non-NFT to drop: %v", postHash.String()))
 				return
 			}
-
-			updatedDropEntry.NFTHashes = append(updatedDropEntry.NFTHashes, postHash)
+			if BlockHashIn(updatedDropEntry.NFTHashes, postHash) {
+				_AddBadRequestError(ww, fmt.Sprintf(
+					"AdminUpdateNFTDrop: Cannot add duplicate NFT to drop: %v", postHash.String()))
+				return
+			} else {
+				updatedDropEntry.NFTHashes = append(updatedDropEntry.NFTHashes, postHash)
+			}
 		}
 
 		// Remove unwanted NFT hashes.
