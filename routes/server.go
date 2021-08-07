@@ -80,16 +80,16 @@ const (
 	RoutePathGetDiamondedPosts       = "/api/v0/get-diamonded-posts"
 
 	// nft.go
-	RoutePathCreateNFT               = "/api/v0/create-nft"
-	RoutePathUpdateNFT               = "/api/v0/update-nft"
-	RoutePathGetNFTsForUser          = "/api/v0/get-nfts-for-user"
-	RoutePathGetNFTBidsForUser       = "/api/v0/get-nft-bids-for-user"
-	RoutePathCreateNFTBid            = "/api/v0/create-nft-bid"
-	RoutePathAcceptNFTBid            = "/api/v0/accept-nft-bid"
-	RoutePathGetNFTBidsForNFTPost    = "/api/v0/get-nft-bids-for-nft-post"
-	RoutePathGetNFTShowcase          = "/api/v0/get-nft-showcase"
-	RoutePathGetNextNFTShowcase      = "/api/v0/get-next-nft-showcase"
-	RoutePathGetNFTCollectionSummary = "/api/v0/get-nft-collection-summary"
+	RoutePathCreateNFT                = "/api/v0/create-nft"
+	RoutePathUpdateNFT                = "/api/v0/update-nft"
+	RoutePathGetNFTsForUser           = "/api/v0/get-nfts-for-user"
+	RoutePathGetNFTBidsForUser        = "/api/v0/get-nft-bids-for-user"
+	RoutePathCreateNFTBid             = "/api/v0/create-nft-bid"
+	RoutePathAcceptNFTBid             = "/api/v0/accept-nft-bid"
+	RoutePathGetNFTBidsForNFTPost     = "/api/v0/get-nft-bids-for-nft-post"
+	RoutePathGetNFTShowcase           = "/api/v0/get-nft-showcase"
+	RoutePathGetNextNFTShowcase       = "/api/v0/get-next-nft-showcase"
+	RoutePathGetNFTCollectionSummary  = "/api/v0/get-nft-collection-summary"
 	RoutePathGetNFTEntriesForPostHash = "/api/v0/get-nft-entries-for-nft-post"
 
 	// media.go
@@ -125,10 +125,8 @@ const (
 	// Admin route paths can only be accessed if a user's public key is whitelisted as an admin.
 
 	// admin_node.go
-	RoutePathNodeControl             = "/api/v0/admin/node-control"
-	RoutePathReprocessBitcoinBlock   = "/api/v0/admin/reprocess-bitcoin-block"
-	RoutePathAdminGetMempoolStats    = "/api/v0/admin/get-mempool-stats"
-	RoutePathEvictUnminedBitcoinTxns = "/api/v0/admin/evict-unmined-bitcoin-txns"
+	RoutePathNodeControl          = "/api/v0/admin/node-control"
+	RoutePathAdminGetMempoolStats = "/api/v0/admin/get-mempool-stats"
 
 	// admin_buy_bitclout.go
 	RoutePathSetUSDCentsToBitCloutReserveExchangeRate = "/api/v0/admin/set-usd-cents-to-bitclout-reserve-exchange-rate"
@@ -161,7 +159,6 @@ const (
 	// admin_nft.go
 	RoutePathAdminGetNFTDrop    = "/api/v0/admin/get-nft-drop"
 	RoutePathAdminUpdateNFTDrop = "/api/v0/admin/update-nft-drop"
-
 
 	// admin_jumio.go
 	RoutePathAdminResetJumioForPublicKey       = "/api/v0/admin/reset-jumio-for-public-key"
@@ -356,15 +353,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathDeleteIdentities,
 			fes.DeleteIdentities,
-			PublicAccess,
-		},
-
-		// Endpoint to trigger the reprocessing of a particular Bitcoin block.
-		{
-			"ReprocessBitcoinBlock",
-			[]string{"GET", "POST", "OPTIONS"},
-			RoutePathReprocessBitcoinBlock + "/{blockHashHexOrblockHeight:[0-9abcdefABCDEF]+}",
-			fes.ReprocessBitcoinBlock,
 			PublicAccess,
 		},
 		// Endpoint to trigger granting a user a verified badge
@@ -826,13 +814,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			SuperAdminAccess,
 		},
 		{
-			"EvictUnminedBitcoinTxns",
-			[]string{"POST", "OPTIONS"},
-			RoutePathEvictUnminedBitcoinTxns,
-			fes.EvictUnminedBitcoinTxns,
-			SuperAdminAccess,
-		},
-		{
 			"AdminRemoveNilPosts",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminRemoveNilPosts,
@@ -1097,7 +1078,7 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 		if r.RequestURI == RoutePathUploadImage && strings.HasPrefix(contentType, "multipart/form-data") {
 			match = true
 			actualOrigin = "*"
-		} else if r.Method == "POST" && contentType != "application/json" && r.RequestURI != RoutePathJumioCallback{
+		} else if r.Method == "POST" && contentType != "application/json" && r.RequestURI != RoutePathJumioCallback {
 			invalidPostRequest = true
 		}
 
