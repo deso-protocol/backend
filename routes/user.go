@@ -1913,10 +1913,10 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		acceptNFTBidMetadata := txnMeta.Metadata.AcceptNFTBidTxindexMetadata
 		basicTransferMetadata := txnMeta.Metadata.BasicTransferTxindexMetadata
 
-		if postMetadata != nil && !hasMedia(postMetadata.ParentPostHashHex) && !hasMedia(postMetadata.PostHashBeingModifiedHex) {
+		if postMetadata != nil && (hasMedia(postMetadata.ParentPostHashHex) || hasMedia(postMetadata.PostHashBeingModifiedHex)) {
 			addPostForHash(postMetadata.PostHashBeingModifiedHex, userPublicKeyBytes)
 			addPostForHash(postMetadata.ParentPostHashHex, userPublicKeyBytes)
-		} else if likeMetadata != nil && !hasMedia(likeMetadata.PostHashHex){
+		} else if likeMetadata != nil && hasMedia(likeMetadata.PostHashHex){
 			addPostForHash(likeMetadata.PostHashHex, userPublicKeyBytes)
 		} else if transferCreatorCoinMetadata != nil {
 			if transferCreatorCoinMetadata.PostHashHex != "" {
