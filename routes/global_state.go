@@ -147,12 +147,15 @@ var (
 
 	_GlobalStatePrefixCountryIDDocumentTypeSubTypeDocumentNumber = []byte{19}
 
+	// Jumio BitCloutNanos
+	_GlobalStatePrefixJumioBitCloutNanos = []byte{21}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
 
-	// NEXT_TAG: 21
+	// NEXT_TAG: 22
 )
 
 type NFTDropEntry struct {
@@ -219,11 +222,21 @@ type UserMetadata struct {
 	// If true, this user's posts will automatically be added to the global whitelist (max 5 per day).
 	WhitelistPosts bool
 
-	JumioVerified bool
+	// JumioInternalReference = internal tracking reference for user's experience in Jumio
+	JumioInternalReference string
+	// JumioFinishedTime = has user completed flow in Jumio
+	JumioFinishedTime uint64
+	// JumioVerified = user was verified from Jumio flow
+	JumioVerified    bool
+	// JumioReturned = jumio webhook called
+	JumioReturned    bool
 	JumioTransactionID string
 	JumioDocumentKey []byte
 	JumioStarterBitCloutTxnHashHex string
 	JumioShouldCompProfileCreation bool
+
+	MustPurchaseCreatorCoin bool
+	HasPurchasedCreatorCoin bool
 }
 
 // This struct contains all the metadata associated with a user's phone number.
@@ -409,6 +422,11 @@ func GlobalStateKeyForCountryIDDocumentTypeSubTypeDocumentNumber(countryID strin
 	key = append(key, []byte(subType)...)
 	key = append(key, []byte(documentNumber)...)
 	return key
+}
+
+func GlobalStateKeyForJumioBitCloutNanos() []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixJumioBitCloutNanos...)
+	return prefixCopy
 }
 
 type GlobalStatePutRemoteRequest struct {

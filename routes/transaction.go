@@ -98,6 +98,37 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	// If this is a creator coin transaction and this node is configured for Jumio, we update global state user metadata to say user has purchased CC.
+	if txn.TxnMeta.GetTxnType() == lib.TxnTypeCreatorCoin && txn.TxnMeta.(*lib.CreatorCoinMetadataa).OperationType == lib.CreatorCoinOperationTypeBuy {
+		var userMetadata *UserMetadata
+		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(txn.PublicKey)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem getting usermetadata from global state for basic transfer: %v", err))
+			return
+		}
+		if !userMetadata.HasPurchasedCreatorCoin {
+			userMetadata.HasPurchasedCreatorCoin = true
+			if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem updating HasPurchasedCreatorCoin in global state user metadata: %v", err))
+				return
+			}
+		}
+	}
+
+	// If this is a basic transfer, we check if user has purchased CC (if this node is configured for Jumio or Twilio)
+	if txn.TxnMeta.GetTxnType() == lib.TxnTypeBasicTransfer && (fes.IsConfiguredForJumio() || fes.Twilio != nil){
+		var userMetadata *UserMetadata
+		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(txn.PublicKey)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem getting usermetadata from global state for basic transfer: %v", err))
+			return
+		}
+		if (userMetadata.JumioVerified || userMetadata.PhoneNumber != "" ) && !userMetadata.HasPurchasedCreatorCoin && userMetadata.MustPurchaseCreatorCoin {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: You must purchase a creator coin before performing a transfer: %v", err))
+			return
+		}
+	}
+
 	err = fes.backendServer.VerifyAndBroadcastTransaction(txn)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitTransaction: Problem processing transaction: %v", err))
@@ -868,6 +899,18 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Problem parsing request body: %v", err))
 		return
+	}
+
+	if fes.IsConfiguredForJumio() {
+		userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.SenderPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: problem getting user metadata from global state: %v", err))
+			return
+		}
+		if userMetadata.JumioVerified && !userMetadata.HasPurchasedCreatorCoin {
+			_AddBadRequestError(ww, fmt.Sprintf("You must purchase a creator coin before you can send $CLOUT"))
+			return
+		}
 	}
 
 	// If the string starts with the public key characters than interpret it as

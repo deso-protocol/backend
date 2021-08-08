@@ -25,6 +25,7 @@ import (
 type SendPhoneNumberVerificationTextRequest struct {
 	PublicKeyBase58Check string `safeForLogging:"true"`
 	PhoneNumber          string
+	JWT                  string
 }
 
 type SendPhoneNumberVerificationTextResponse struct {
@@ -60,10 +61,21 @@ func (fes *APIServer) SendPhoneNumberVerificationText(ww http.ResponseWriter, re
 		return
 	}
 
+	// Validate their permissions
+	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendPhoneNumberVerificationText: Error validating JWT: %v", err))
+	}
+
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("SendPhoneNumberVerificationText: Invalid token: %v", err))
+		return
+	}
+
 	/**************************************************************/
 	// Validations
 	/**************************************************************/
-	err := fes.validatePhoneNumberNotAlreadyInUse(requestData.PhoneNumber, requestData.PublicKeyBase58Check)
+	err = fes.validatePhoneNumberNotAlreadyInUse(requestData.PhoneNumber, requestData.PublicKeyBase58Check)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"SendPhoneNumberVerificationText: Error with validatePhoneNumberNotAlreadyInUse: %v", err))
@@ -192,6 +204,7 @@ func (fes *APIServer) validatePhoneNumberNotAlreadyInUse(phoneNumber string, use
 }
 
 type SubmitPhoneNumberVerificationCodeRequest struct {
+	JWT string
 	PublicKeyBase58Check string
 	PhoneNumber          string
 	VerificationCode     string
@@ -209,10 +222,21 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 		return
 	}
 
+	// Validate their permissions
+	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificaitonCodE: Error validating JWT: %v", err))
+	}
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Invalid token: %v", err))
+		return
+	}
+
+
 	/**************************************************************/
 	// Validations
 	/**************************************************************/
-	err := fes.validatePhoneNumberNotAlreadyInUse(requestData.PhoneNumber, requestData.PublicKeyBase58Check)
+	err = fes.validatePhoneNumberNotAlreadyInUse(requestData.PhoneNumber, requestData.PublicKeyBase58Check)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Error with validatePhoneNumberNotAlreadyInUse: %v", err))
 		return
@@ -251,6 +275,7 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 
 	settingPhoneNumberForFirstTime := userMetadata.PhoneNumber == ""
 	userMetadata.PhoneNumber = requestData.PhoneNumber
+	userMetadata.MustPurchaseCreatorCoin = true
 	err = fes.putUserMetadataInGlobalState(userMetadata)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Error putting usermetadata in Global state: %v", err))
@@ -489,6 +514,7 @@ type JumioBeginRequest struct {
 
 type JumioBeginResponse struct {
 	URL string
+	CustomerInternalReference string
 }
 
 func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
@@ -505,7 +531,6 @@ func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-
 	// Get UserMetadata from global state and check that user has not already been through Jumio Verification flow
 	userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.PublicKey)
 	if err != nil {
@@ -518,12 +543,27 @@ func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if userMetadata.JumioFinishedTime > 0 && !userMetadata.JumioReturned {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: please wait for Jumio to finish processing your existing verification attempt before retrying."))
+		return
+	}
+
 	tStampNanos := int(time.Now().UnixNano())
+
+	jumioInternalReference := requestData.PublicKey + strconv.Itoa(tStampNanos)
+
+	userMetadata.JumioInternalReference = jumioInternalReference
+	userMetadata.JumioFinishedTime = 0
+	userMetadata.JumioReturned = false
+	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: error putting jumio internal reference in global state: %v", err))
+		return
+	}
 
 	// CustomerInternalReference is Public Key + timestamp
 	// UserReference is just PublicKey
 	initData := &JumioInitRequest{
-		CustomerInternalReference: requestData.PublicKey + strconv.Itoa(tStampNanos),
+		CustomerInternalReference: jumioInternalReference,
 		UserReference:             requestData.PublicKey,
 		SuccessURL:                requestData.SuccessURL,
 		ErrorURL:                  requestData.ErrorURL,
@@ -553,6 +593,11 @@ func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if postRes.StatusCode != 200 {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Request returned non-200 status code: %v", postRes.StatusCode))
+		return
+	}
+
 	// Decode the response
 	jumioInit := JumioInitResponse{}
 	if err = json.NewDecoder(postRes.Body).Decode(&jumioInit); err != nil {
@@ -566,6 +611,7 @@ func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
 
 	res := JumioBeginResponse{
 		URL: jumioInit.RedirectURL,
+		CustomerInternalReference: jumioInternalReference,
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Encode failed: %v", err))
@@ -573,6 +619,47 @@ func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
+type JumioFlowFinishedRequest struct {
+	PublicKey string
+	JumioInternalReference string
+	JWT string
+}
+
+func (fes *APIServer) JumioFlowFinished(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := JumioFlowFinishedRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioFlowFinished: Problem parsing request body: %v", err))
+		return
+	}
+
+	isValid, err := fes.ValidateJWT(requestData.PublicKey, requestData.JWT)
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioFlowFinished: Invalid token: %v", err))
+		return
+	}
+
+	// Get UserMetadata from global state and check internal reference matches and we haven't marked this user as finished already.
+	userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.PublicKey)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioFlowFinished: Problem getting user metadata from global state: %v", err))
+		return
+	}
+
+	if userMetadata.JumioInternalReference != requestData.JumioInternalReference {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioFlowFinished: UserMetadata's jumio internal reference (%v) does not match value from payload (%v)", userMetadata.JumioInternalReference, requestData.JumioInternalReference))
+		return
+	}
+
+	userMetadata.JumioFinishedTime = uint64(time.Now().UnixNano())
+
+	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioFlowFinished: Error putting jumio finish time in global state: %v", err))
+		return
+	}
+}
+
+// Jumio webhook - If Jumio verified user is a human that we haven't paid already, pay them some starter CLOUT.
 func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	if err := req.ParseForm(); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Problem parsing form: %v", err))
@@ -642,8 +729,26 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	var userMetadata *UserMetadata
+	userMetadata, err = fes.getUserMetadataFromGlobalState(userReference)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error getting user metadata from global state: %v", err))
+		return
+	}
+
+	// If the user is already jumio verified, this is an error and we shouldn't pay them again.
+	if userMetadata.JumioVerified {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: User already verified: %v", err))
+		return
+	}
+
 	if req.FormValue("idScanStatus") != "SUCCESS" {
-		// This means the verification failed. We've logged the payload in global state above, so we can bail here.
+		// This means the verification failed. We've logged the payload in global state above, so we now set JumioReturned
+		// to true and bail.
+		userMetadata.JumioReturned = true
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting user metdata in global state: %v", err))
+		}
 		return
 	}
 
@@ -652,36 +757,17 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	// We expect badger to return a key not found error if this document has not been verified before.
 	// If it does not return an error, this is a duplicate, so we skip ahead.
 	if val, _ := fes.GlobalStateGet(uniqueJumioKey); val == nil {
-		var userMetadata *UserMetadata
-		userMetadata, err = fes.getUserMetadataFromGlobalState(userReference)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error getting user metadata from global state: %v", err))
-			return
-		}
-		// If the user is already jumio verified, this is an error and we shouldn't pay them again.
-		if userMetadata.JumioVerified {
-			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: User already verified: %v", err))
-			return
-		}
+
 		// Update the user metadata to show that user has been jumio verified and store jumio transaction id.
 		userMetadata.JumioVerified = true
+		userMetadata.JumioReturned = true
 		userMetadata.JumioTransactionID = jumioTransactionId
 		userMetadata.JumioDocumentKey = uniqueJumioKey
 		userMetadata.JumioShouldCompProfileCreation = true
+		userMetadata.MustPurchaseCreatorCoin = true
 
-		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error updating user metadata in global state: %v", err))
-			return
-		}
-
-		// Put the jumio payload in global state for the unique document key
-		if err = fes.GlobalStatePut(uniqueJumioKey, payloadBytes); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting unique jumio key in global state: %v", err))
-			return
-		}
-
-		bitcloutNanos := fes.Config.JumioBitcloutNanos
-		if bitcloutNanos != 0 {
+		bitcloutNanos := fes.GetJumioBitCloutNanos()
+		if bitcloutNanos > 0 {
 			// Check the balance of the starter bitclout seed.
 			var balanceInsufficient bool
 			balanceInsufficient, err = fes.ExceedsBitCloutBalance(bitcloutNanos, fes.Config.StarterBitcloutSeed)
@@ -703,171 +789,83 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 
 			// Save transaction hash hex in user metadata.
 			userMetadata.JumioStarterBitCloutTxnHashHex = txnHash.String()
-			if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error updating user metadata in global state with jumio starter bitclout txn hash hex: %v", err))
-				return
-			}
+		}
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error updating user metadata in global state with jumio starter bitclout txn hash hex: %v", err))
+			return
 		}
 	}
 }
 
-type AdminResetJumioRequest struct {
+func (fes *APIServer) GetJumioBitCloutNanos() uint64 {
+	val, err := fes.GlobalStateGet(GlobalStateKeyForJumioBitCloutNanos())
+	if err != nil {
+		return 0
+	}
+	jumioBitCloutNanos, bytesRead := lib.Uvarint(val)
+	if bytesRead <= 0 {
+		return 0
+	}
+	return jumioBitCloutNanos
+}
+
+type GetJumioStatusForPublicKeyRequest struct {
+	JWT string
 	PublicKeyBase58Check string
-	Username             string
-	JWT       string
 }
 
-func (fes *APIServer) AdminResetJumioForPublicKey(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := AdminResetJumioRequest{}
+type GetJumioStatusForPublicKeyResponse struct {
+	JumioFinishedTime uint64
+	JumioReturned     bool
+	JumioVerified     bool
+
+	BalanceNanos      *uint64
+}
+
+func (fes *APIServer) GetJumioStatusForPublicKey(ww http.ResponseWriter, rr *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(rr.Body, MaxRequestBodySizeBytes))
+	requestData := GetJumioStatusForPublicKeyRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminResetJumioForPublicKey: Problem parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetJumioStatusForPublicKey: Error parsing request body: %v", err))
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("GetJumioStatusForPublicKey: Invalid token: %v", err))
+		return
+	}
+
+	userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.PublicKeyBase58Check)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminResetJumioForPublicKey: error getting utxoview: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetJumioStatusForPublicKey: Error getting user metadata from global state: %v", err))
 		return
 	}
 
-	var publicKeyToFetch string
-	if requestData.PublicKeyBase58Check != "" {
-		publicKeyToFetch = requestData.PublicKeyBase58Check
-	} else if requestData.Username != "" {
-		profileEntry := utxoView.GetProfileEntryForUsername([]byte(requestData.Username))
-		if profileEntry == nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminResetJumioForPublicKey: error getting profile entry for username %v", requestData.Username))
-			return
-		}
-		publicKeyToFetch = lib.PkToString(profileEntry.PublicKey, fes.Params)
-	} else {
-		_AddBadRequestError(ww, "AdminResetJumioForPublicKey: must provide either a public key or username")
-		return
+	res := &GetJumioStatusForPublicKeyResponse{
+		JumioFinishedTime: userMetadata.JumioFinishedTime,
+		JumioReturned:     userMetadata.JumioReturned,
+		JumioVerified:     userMetadata.JumioVerified,
 	}
 
-
-	userMetadata, err := fes.getUserMetadataFromGlobalState(publicKeyToFetch)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminResetJumioForPublicKey: Problem getting UserMetadata from global state: %v", err))
-		return
-	}
-
-	// Delete the Document Key from global state if it exists
-	if userMetadata.JumioDocumentKey != nil {
-		if err = fes.GlobalStateDelete(userMetadata.JumioDocumentKey); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminResetJumioForPublicKey: Error deleting key from global state: %v", err))
-			return
-		}
-	}
-
-	pkid := utxoView.GetPKIDForPublicKey(userMetadata.PublicKey)
-	if pkid == nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminResetJumioForPublicKey: No PKID found for public key: %v", requestData.PublicKeyBase58Check))
-		return
-	}
-	prefix := GlobalStatePrefixforPKIDTstampnanosToJumioTransaction(pkid.PKID)
-	// Key is prefix + pkid + tstampnanos (8 bytes)
-	maxKeyLen := 1 + len(pkid.PKID[:]) + 8
-	keys, _, err := fes.GlobalStateSeek(prefix, prefix, maxKeyLen, 100, true, true)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminResetJumioForPublicKey: Error seeking global state for verification attempts: %v", err))
-		return
-	}
-
-	// Delete the history of jumio callback payloads.
-	for _, key := range keys {
-		if err = fes.GlobalStateDelete(key); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminResetJumioForPublicKey: Error deleting keys from global state: %v", err))
-			return
-		}
-	}
-
-	// Reset all userMetadata values related to jumio.
-	userMetadata.JumioVerified = false
-	userMetadata.JumioTransactionID = ""
-	userMetadata.JumioDocumentKey = nil
-	userMetadata.JumioStarterBitCloutTxnHashHex = ""
-	userMetadata.JumioShouldCompProfileCreation = false
-	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminResetJumioForPublicKey: Problem putting updated user metadata in Global state: %v", err))
-		return
-	}
-}
-
-type AdminGetJumioVerificationAttemptsRequest struct {
-	PublicKeyBase58Check string
-	Username             string
-	JWT                  string
-}
-
-type AdminGetJumioVerificationAttemptsResponse struct {
-	VerificationAttempts []map[string][]string
-}
-
-func (fes *APIServer) AdminGetJumioVerificationAttemptsForPublicKey(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := AdminGetJumioVerificationAttemptsRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: Problem parsing request body: %v", err))
-		return
-	}
-
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: error getting utxoview: %v", err))
-		return
-	}
-
-	var publicKeyBytes []byte
-	if requestData.PublicKeyBase58Check != "" {
-		publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+	if userMetadata.JumioVerified {
+		var utxoView *lib.UtxoView
+		utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: error decoding public key %v: %v", requestData.PublicKeyBase58Check, err))
+			_AddBadRequestError(ww, fmt.Sprintf("GetJumioStatusForPublicKey: error getting utxoview: %v", err))
 			return
 		}
-	} else if requestData.Username != "" {
-		profileEntry := utxoView.GetProfileEntryForUsername([]byte(requestData.Username))
-		if profileEntry == nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: error getting profile entry for username %v", requestData.Username))
+		var balanceNanos uint64
+		balanceNanos, err = utxoView.GetBitcloutBalanceNanosForPublicKey(userMetadata.PublicKey)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetJumioStatusForPublicKey: Error getting balance: %v", err))
 			return
 		}
-		publicKeyBytes = profileEntry.PublicKey
-	} else {
-		_AddBadRequestError(ww, "AdminGetJumioVerificationAttemptsForPublicKey: must provide either a public key or username")
-		return
+		res.BalanceNanos = &balanceNanos
 	}
-
-	pkid := utxoView.GetPKIDForPublicKey(publicKeyBytes)
-	if pkid == nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: No PKID found for public key: %v", requestData.PublicKeyBase58Check))
-		return
-	}
-	prefix := GlobalStatePrefixforPKIDTstampnanosToJumioTransaction(pkid.PKID)
-	// Key is prefix + pkid + tstampnanos (8 bytes)
-	maxKeyLen := 1 + len(pkid.PKID[:]) + 8
-	_, values, err := fes.GlobalStateSeek(prefix, prefix, maxKeyLen, 100, true, true)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: Error seeking global state for verification attempts: %v", err))
-		return
-	}
-
-	res := &AdminGetJumioVerificationAttemptsResponse{}
-
-	verificationAttempts := []map[string][]string{}
-	for _, value := range values {
-		valueUnmarshal := make(map[string][]string)
-		if err = json.Unmarshal(value, &valueUnmarshal); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: Error unmarshaling jumio data: %v", err))
-			return
-		}
-		verificationAttempts = append(verificationAttempts, valueUnmarshal)
-	}
-
-	res.VerificationAttempts = verificationAttempts
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: Encode failed: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetJumioStatusForPublicKey: Encode failed: %v", err))
 		return
 	}
 }

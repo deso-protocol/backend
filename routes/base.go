@@ -226,6 +226,9 @@ type GetAppStateResponse struct {
 	HasWyreIntegration     bool
 	HasJumioIntegration    bool
 
+	USDCentsPerBitCloutExchangeRate uint64
+	JumioBitCloutNanos     uint64
+
 	// Send back the password stored in our HTTPOnly cookie
 	// so amplitude can track which passwords people are using
 	Password string
@@ -261,6 +264,9 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		DiamondLevelMap:                     lib.GetBitCloutNanosDiamondLevelMapAtBlockHeight(int64(fes.blockchain.BlockTip().Height)),
 		HasWyreIntegration:                  fes.IsConfiguredForWyre(),
 		HasJumioIntegration:                 fes.IsConfiguredForJumio(),
+
+		USDCentsPerBitCloutExchangeRate:     fes.GetExchangeBitCloutPrice(),
+		JumioBitCloutNanos:                  fes.GetJumioBitCloutNanos(),
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
