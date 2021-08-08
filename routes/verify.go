@@ -631,12 +631,6 @@ func (fes *APIServer) JumioFlowFinished(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	isValid, err := fes.ValidateJWT(requestData.PublicKey, requestData.JWT)
-	if !isValid {
-		_AddBadRequestError(ww, fmt.Sprintf("JumioFlowFinished: Invalid token: %v", err))
-		return
-	}
-
 	// Get UserMetadata from global state and check internal reference matches and we haven't marked this user as finished already.
 	userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.PublicKey)
 	if err != nil {
