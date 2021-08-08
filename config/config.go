@@ -16,7 +16,6 @@ type Config struct {
 	StarterBitcloutSeed   string
 	StarterBitcloutNanos  uint64
 	StarterPrefixNanosMap map[string]uint64
-	JumioBitcloutNanos    uint64
 	TwilioAccountSID      string
 	TwilioAuthToken       string
 	TwilioVerifyServiceID string
@@ -143,7 +142,6 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	// Jumio
 	config.JumioToken = viper.GetString("jumio-token")
 	config.JumioSecret = viper.GetString("jumio-secret")
-	config.JumioBitcloutNanos = viper.GetUint64("jumio-bitclout-nanos")
 
 	return &config
 }
