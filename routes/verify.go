@@ -514,7 +514,6 @@ type JumioBeginRequest struct {
 
 type JumioBeginResponse struct {
 	URL string
-	CustomerInternalReference string
 }
 
 func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
@@ -611,7 +610,6 @@ func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
 
 	res := JumioBeginResponse{
 		URL: jumioInit.RedirectURL,
-		CustomerInternalReference: jumioInternalReference,
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Encode failed: %v", err))
