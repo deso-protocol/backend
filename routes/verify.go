@@ -795,7 +795,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error updating user metadata in global state with jumio starter bitclout txn hash hex: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error updating user metadata in global state: %v", err))
 		return
 	}
 }
