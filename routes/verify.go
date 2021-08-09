@@ -525,6 +525,10 @@ func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	isValid, err := fes.ValidateJWT(requestData.PublicKey, requestData.JWT)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Error validating JWT: %v", err))
+		return
+	}
 	if !isValid {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Invalid token: %v", err))
 		return
@@ -652,6 +656,8 @@ func (fes *APIServer) JumioFlowFinished(ww http.ResponseWriter, req *http.Reques
 }
 
 // Jumio webhook - If Jumio verified user is a human that we haven't paid already, pay them some starter CLOUT.
+// Make sure you only allow access to jumio IPs for this endpoint, otherwise anybody can take all the funds from
+// the public key that sends BitClout. WHITELIST JUMIO IPs.
 func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	if err := req.ParseForm(); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Problem parsing form: %v", err))
@@ -781,6 +787,10 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 
 			// Save transaction hash hex in user metadata.
 			userMetadata.JumioStarterBitCloutTxnHashHex = txnHash.String()
+		}
+		if err = fes.GlobalStatePut(uniqueJumioKey, payloadBytes); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting unique jumio key in global state: %v", err))
+			return
 		}
 		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error updating user metadata in global state with jumio starter bitclout txn hash hex: %v", err))

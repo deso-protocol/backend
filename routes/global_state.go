@@ -230,12 +230,23 @@ type UserMetadata struct {
 	JumioVerified    bool
 	// JumioReturned = jumio webhook called
 	JumioReturned    bool
+	// JumioTransactionID = jumio's tracking number for the transaction in which this user was verified.
 	JumioTransactionID string
+	// JumioDocumentKey = Country - Document Type - Document SubType - Document Number. Helps uniquely identify users
+	// and allows us to reset Jumio for a given user.
 	JumioDocumentKey []byte
+	// JumioStarterBitCloutTxnHashHex = Txn hash hex of the transaction in which the user was paid for
+	// going through the Jumio flow
 	JumioStarterBitCloutTxnHashHex string
+	// JumioShouldCompProfileCreation = True if we should comp the create profile fee because the user went through the
+	// Jumio flow.
 	JumioShouldCompProfileCreation bool
 
+	// MustPurchaseCreatorCoin = set to true if a user gets money from Jumio or Twilio flow and prevents user from
+	// performing a basic transfer before purchasing a creator coin.
 	MustPurchaseCreatorCoin bool
+	// HasPurchasedCreatorCoin = set to true if user has purchased a creator coin, allows them to perform basic transfer
+	// after getting free CLOUT.
 	HasPurchasedCreatorCoin bool
 }
 

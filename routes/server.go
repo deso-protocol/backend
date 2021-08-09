@@ -1099,13 +1099,10 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 		contentType := r.Header.Get("Content-Type")
 
 		invalidPostRequest := false
-		// TODO: add exception for application/x-www-form-urlencoded content-type for Jumio endpoint only.
 		// upload-image endpoint is the only one allowed to use multipart/form-data
 		if r.RequestURI == RoutePathUploadImage && strings.HasPrefix(contentType, "multipart/form-data") {
 			match = true
 			actualOrigin = "*"
-		//} else if r.Method == "POST" && contentType == "application/x-www-form-urlencoded" && r.RequestURI == RoutePathJumioCallback {
-		//	// allow application/x-www-form-urlencoded content types for the jumio callback
 		} else if r.Method == "POST" && contentType != "application/json" && r.RequestURI != RoutePathJumioCallback{
 			invalidPostRequest = true
 		}

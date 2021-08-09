@@ -98,7 +98,7 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	// If this is a creator coin transaction and this node is configured for Jumio, we update global state user metadata to say user has purchased CC.
+	// If this is a creator coin transaction, we update global state user metadata to say user has purchased CC.
 	if txn.TxnMeta.GetTxnType() == lib.TxnTypeCreatorCoin && txn.TxnMeta.(*lib.CreatorCoinMetadataa).OperationType == lib.CreatorCoinOperationTypeBuy {
 		var userMetadata *UserMetadata
 		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(txn.PublicKey)
