@@ -740,10 +740,12 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+
+	// Always set JumioReturned so we know that Jumio callback has finished.
+	userMetadata.JumioReturned = true
+
 	if req.FormValue("idScanStatus") != "SUCCESS" {
-		// This means the verification failed. We've logged the payload in global state above, so we now set JumioReturned
-		// to true and bail.
-		userMetadata.JumioReturned = true
+		// This means the verification failed. We've logged the payload in global state above, so now we bail.
 		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting user metdata in global state: %v", err))
 		}
@@ -758,7 +760,6 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 
 		// Update the user metadata to show that user has been jumio verified and store jumio transaction id.
 		userMetadata.JumioVerified = true
-		userMetadata.JumioReturned = true
 		userMetadata.JumioTransactionID = jumioTransactionId
 		userMetadata.JumioDocumentKey = uniqueJumioKey
 		userMetadata.JumioShouldCompProfileCreation = true
@@ -792,10 +793,10 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting unique jumio key in global state: %v", err))
 			return
 		}
-		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error updating user metadata in global state with jumio starter bitclout txn hash hex: %v", err))
-			return
-		}
+	}
+	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error updating user metadata in global state with jumio starter bitclout txn hash hex: %v", err))
+		return
 	}
 }
 
