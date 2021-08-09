@@ -139,7 +139,6 @@ func init() {
 
 	runCmd.PersistentFlags().String("jumio-token", "", "Jumio Token")
 	runCmd.PersistentFlags().String("jumio-secret", "", "Jumio Secret Key")
-	runCmd.PersistentFlags().Uint64("jumio-bitclout-nanos", 0, "BitClout sent for verifying with Jumio")
 
 	runCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
 		viper.BindPFlag(flag.Name, flag)
