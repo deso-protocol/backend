@@ -98,6 +98,37 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	// If this is a creator coin transaction, we update global state user metadata to say user has purchased CC.
+	if txn.TxnMeta.GetTxnType() == lib.TxnTypeCreatorCoin && txn.TxnMeta.(*lib.CreatorCoinMetadataa).OperationType == lib.CreatorCoinOperationTypeBuy {
+		var userMetadata *UserMetadata
+		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(txn.PublicKey)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem getting usermetadata from global state for basic transfer: %v", err))
+			return
+		}
+		if !userMetadata.HasPurchasedCreatorCoin {
+			userMetadata.HasPurchasedCreatorCoin = true
+			if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem updating HasPurchasedCreatorCoin in global state user metadata: %v", err))
+				return
+			}
+		}
+	}
+
+	// If this is a basic transfer, we check if user has purchased CC (if this node is configured for Jumio or Twilio)
+	if txn.TxnMeta.GetTxnType() == lib.TxnTypeBasicTransfer && (fes.IsConfiguredForJumio() || fes.Twilio != nil){
+		var userMetadata *UserMetadata
+		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(txn.PublicKey)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem getting usermetadata from global state for basic transfer: %v", err))
+			return
+		}
+		if (userMetadata.JumioVerified || userMetadata.PhoneNumber != "" ) && !userMetadata.HasPurchasedCreatorCoin && userMetadata.MustPurchaseCreatorCoin {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: You must purchase a creator coin before performing a transfer: %v", err))
+			return
+		}
+	}
+
 	err = fes.backendServer.VerifyAndBroadcastTransaction(txn)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitTransaction: Problem processing transaction: %v", err))
@@ -420,27 +451,38 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 
 	// Only comp create profile fee if frontend server has both twilio and starter bitclout seed configured and the user
 	// has verified their profile.
-	if !fes.Config.CompProfileCreation || fes.Config.StarterBitcloutSeed == "" || fes.Twilio == nil || userMetadata.PhoneNumber == "" {
+	if !fes.Config.CompProfileCreation || fes.Config.StarterBitcloutSeed == "" || fes.Twilio == nil || (userMetadata.PhoneNumber == "" && !userMetadata.JumioVerified) {
 		return additionalFees, nil
 	}
-	var phoneNumberMetadata *PhoneNumberMetadata
-	phoneNumberMetadata, err := fes.getPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
-	if err != nil {
-		return 0, errors.Wrap(fmt.Errorf("UpdateProfile: error getting phone number metadata for public key %v: %v", profilePublicKey, err), "")
-
-	}
-	if phoneNumberMetadata == nil {
-		return 0, errors.Wrap(fmt.Errorf("UpdateProfile: no phone number metadata for phone number %v", userMetadata.PhoneNumber), "")
-	}
 	var currentBalanceNanos uint64
-	currentBalanceNanos, err = GetBalanceForPublicKeyUsingUtxoView(profilePublicKey, utxoView)
+	currentBalanceNanos, err := GetBalanceForPublicKeyUsingUtxoView(profilePublicKey, utxoView)
 	if err != nil {
 		return 0, errors.Wrap(fmt.Errorf("UpdateProfile: error getting current balance: %v", err), "")
 	}
 	createProfileFeeNanos := utxoView.GlobalParamsEntry.CreateProfileFeeNanos
-	if !phoneNumberMetadata.ShouldCompProfileCreation || currentBalanceNanos > createProfileFeeNanos {
-		return additionalFees, nil
+
+	// If a user is jumio verified, we just comp the profile even if their balance is greater than the create profile fee.
+	// If a user has a phone number verified but is not jumio verified, we need to check that they haven't spent all their
+	// starter bitclout already and that ShouldCompProfileCreation is true
+	var phoneNumberMetadata *PhoneNumberMetadata
+	if userMetadata.PhoneNumber != "" && !userMetadata.JumioVerified {
+		phoneNumberMetadata, err = fes.getPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
+		if err != nil {
+			return 0, errors.Wrap(fmt.Errorf("UpdateProfile: error getting phone number metadata for public key %v: %v", profilePublicKey, err), "")
+		}
+		if phoneNumberMetadata == nil {
+			return 0, errors.Wrap(fmt.Errorf("UpdateProfile: no phone number metadata for phone number %v", userMetadata.PhoneNumber), "")
+		}
+		if !phoneNumberMetadata.ShouldCompProfileCreation || currentBalanceNanos > createProfileFeeNanos {
+			return additionalFees, nil
+		}
+	} else {
+		// User has been Jumio verified but should comp profile creation is false, just return
+		if !userMetadata.JumioShouldCompProfileCreation {
+			return additionalFees, nil
+		}
 	}
+
 	// Find the minimum starter bit clout amount
 	minStarterBitCloutNanos := fes.Config.StarterBitcloutNanos
 	if len(fes.Config.StarterPrefixNanosMap) > 0 {
@@ -451,18 +493,27 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 		}
 	}
 	// We comp the create profile fee minus the minimum starter bitclout amount divided by 2.
-	// // This discourages botting while covering users who verify a phone number.
+	// This discourages botting while covering users who verify a phone number.
 	compAmount := createProfileFeeNanos - (minStarterBitCloutNanos / 2)
 	// If the user won't have enough bitclout to cover the fee, this is an error.
 	if currentBalanceNanos+compAmount < createProfileFeeNanos {
 		return 0, errors.Wrap(fmt.Errorf("Creating a profile requires BitClout.  Please purchase some to create a profile."), "")
 	}
-	// Set should comp to false so we don't continually comp a public key
-	phoneNumberMetadata.ShouldCompProfileCreation = false
-	err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata)
-	if err != nil {
-		return 0, errors.Wrap(fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for phone number metadata: %v", err), "")
+	// Set should comp to false so we don't continually comp a public key.  PhoneNumberMetadata is only non-nil if
+	// a user verified their phone number but is not jumio verified.
+	if phoneNumberMetadata != nil {
+		phoneNumberMetadata.ShouldCompProfileCreation = false
+		if err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata); err != nil {
+			return 0, errors.Wrap(fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for phone number metadata: %v", err), "")
+		}
+	} else {
+		// Set JumioShouldCompProfileCreation to false so we don't continue to comp profile creation.
+		userMetadata.JumioShouldCompProfileCreation = false
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			return 0, errors.Wrap(fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for jumio user metadata: %v", err), "")
+		}
 	}
+
 	// Send the comp amount to the public key
 	_, err = fes.SendSeedBitClout(profilePublicKey, compAmount, false)
 	if err != nil {
@@ -683,7 +734,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error computing nanos purchased: %v", err))
 		return
 	}
-	balanceInsufficient, err := fes.ExceedsSendBitCloutBalance(nanosPurchased)
+	balanceInsufficient, err := fes.ExceedsBitCloutBalance(nanosPurchased, fes.Config.BuyBitCloutSeed)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error checking if send bitclout balance is sufficient: %v", err))
 		return
@@ -811,13 +862,15 @@ func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint
 }
 
 // ExceedsSendBitCloutBalance - Check if nanosPurchased is greater than the balance of the BuyBitClout wallet.
-func (fes *APIServer) ExceedsSendBitCloutBalance(nanosPurchased uint64) (bool, error) {
-	buyBitCloutSeedBalance, err := fes.getBalanceForSeed(fes.Config.BuyBitCloutSeed)
+func (fes *APIServer) ExceedsBitCloutBalance(nanosPurchased uint64, seed string) (bool, error) {
+	buyBitCloutSeedBalance, err := fes.getBalanceForSeed(seed)
 	if err != nil {
 		return false, fmt.Errorf("Error getting buy bitclout balance: %v", err)
 	}
 	return nanosPurchased > buyBitCloutSeedBalance, nil
 }
+
+
 
 // SendBitCloutRequest ...
 type SendBitCloutRequest struct {
@@ -846,6 +899,18 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Problem parsing request body: %v", err))
 		return
+	}
+
+	if fes.IsConfiguredForJumio() {
+		userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.SenderPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: problem getting user metadata from global state: %v", err))
+			return
+		}
+		if userMetadata.JumioVerified && !userMetadata.HasPurchasedCreatorCoin {
+			_AddBadRequestError(ww, fmt.Sprintf("You must purchase a creator coin before you can send $CLOUT"))
+			return
+		}
 	}
 
 	// If the string starts with the public key characters than interpret it as

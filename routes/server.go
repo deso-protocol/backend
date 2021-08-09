@@ -107,6 +107,10 @@ const (
 	RoutePathSubmitPhoneNumberVerificationCode = "/api/v0/submit-phone-number-verification-code"
 	RoutePathResendVerifyEmail                 = "/api/v0/resend-verify-email"
 	RoutePathVerifyEmail                       = "/api/v0/verify-email"
+	RoutePathJumioBegin                        = "/api/v0/jumio-begin"
+	RoutePathJumioCallback                     = "/api/v0/jumio-callback"
+	RoutePathJumioFlowFinished                 = "/api/v0/jumio-flow-finished"
+	RoutePathGetJumioStatusForPublicKey        = "/api/v0/get-jumio-status-for-public-key"
 
 	// wyre.go
 	RoutePathGetWyreWalletOrderQuotation     = "/api/v0/get-wyre-wallet-order-quotation"
@@ -157,6 +161,12 @@ const (
 	// admin_nft.go
 	RoutePathAdminGetNFTDrop    = "/api/v0/admin/get-nft-drop"
 	RoutePathAdminUpdateNFTDrop = "/api/v0/admin/update-nft-drop"
+
+
+	// admin_jumio.go
+	RoutePathAdminGetJumioAttemptsForPublicKey = "/api/v0/admin/get-jumio-attempts-for-public-key"
+	RoutePathAdminResetJumioForPublicKey       = "/api/v0/admin/reset-jumio-for-public-key"
+	RoutePathAdminUpdateJumioBitClout          = "/api/v0/admin/update-jumio-bitclout"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -655,7 +665,35 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.VerifyEmail,
 			PublicAccess,
 		},
-
+		// Jumio Routes
+		{
+			"JumioBegin",
+			[]string{"POST", "OPTIONS"},
+			RoutePathJumioBegin,
+			fes.JumioBegin,
+			PublicAccess,
+		},
+		{
+			"JumioCallback",
+			[]string{"POST", "OPTIONS"},
+			RoutePathJumioCallback,
+			fes.JumioCallback,
+			PublicAccess,
+		},
+		{
+			"JumioFlowFinished",
+			[]string{"POST", "OPTIONS"},
+			RoutePathJumioFlowFinished,
+			fes.JumioFlowFinished,
+			PublicAccess,
+		},
+		{
+			"GetJumioStatusForPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetJumioStatusForPublicKey,
+			fes.GetJumioStatusForPublicKey,
+			PublicAccess,
+		},
 		// Begin all /admin routes
 		{
 			// Route for all low-level node operations.
@@ -812,6 +850,27 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathSetBuyBitCloutFeeBasisPoints,
 			fes.SetBuyBitCloutFeeBasisPoints,
+			SuperAdminAccess,
+		},
+		{
+			"AdminResetJumioForPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminResetJumioForPublicKey,
+			fes.AdminResetJumioForPublicKey,
+			SuperAdminAccess,
+		},
+		{
+			"AdminGetJumioAttemptsForPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetJumioAttemptsForPublicKey,
+			fes.AdminGetJumioVerificationAttemptsForPublicKey,
+			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateJumioBitClout",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateJumioBitClout,
+			fes.AdminUpdateJumioBitClout,
 			SuperAdminAccess,
 		},
 		// End all /admin routes
@@ -1044,7 +1103,7 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 		if r.RequestURI == RoutePathUploadImage && strings.HasPrefix(contentType, "multipart/form-data") {
 			match = true
 			actualOrigin = "*"
-		} else if r.Method == "POST" && contentType != "application/json" {
+		} else if r.Method == "POST" && contentType != "application/json" && r.RequestURI != RoutePathJumioCallback{
 			invalidPostRequest = true
 		}
 
