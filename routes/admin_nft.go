@@ -114,7 +114,7 @@ func (fes *APIServer) GetNFTShowcaseAdminPreview(ww http.ResponseWriter, req *ht
 		_AddBadRequestError(ww, fmt.Sprintf("GetNFTShowcaseAdminPreview: Error parsing request body: %v", err))
 		return
 	}
-	fes.GetNFTShowcase(ww, req, requestData.DropIdx, requestData.ReaderPublicKeyBase58Check)
+	fes.GetNFTShowcase(ww, requestData.DropIdx, requestData.ReaderPublicKeyBase58Check)
 }
 
 func (fes *APIServer) AdminGetNFTDrop(ww http.ResponseWriter, req *http.Request) {
@@ -309,9 +309,9 @@ func (fes *APIServer) AdminUpdateNFTDrop(ww http.ResponseWriter, req *http.Reque
 				_AddBadRequestError(ww, fmt.Sprintf(
 					"AdminUpdateNFTDrop: Cannot add duplicate NFT to drop: %v", postHash.String()))
 				return
-			} else {
-				updatedDropEntry.NFTHashes = append(updatedDropEntry.NFTHashes, postHash)
 			}
+
+			updatedDropEntry.NFTHashes = append(updatedDropEntry.NFTHashes, postHash)
 		}
 
 		// Remove unwanted NFT hashes.

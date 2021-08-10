@@ -710,11 +710,11 @@ func (fes *APIServer) GetCurrentNFTShowcase(ww http.ResponseWriter, req *http.Re
 		_AddBadRequestError(ww, fmt.Sprintf("GetNFTShowcase: Error parsing request body: %v", err))
 		return
 	}
-	fes.GetNFTShowcase(ww, req, -1, requestData.ReaderPublicKeyBase58Check)
+	fes.GetNFTShowcase(ww,-1, requestData.ReaderPublicKeyBase58Check)
 }
 
 // If dropIdx == -1, get current drop
-func (fes *APIServer) GetNFTShowcase(ww http.ResponseWriter, req *http.Request, dropIdx int, readerPublicKeyBase58Check string) {
+func (fes *APIServer) GetNFTShowcase(ww http.ResponseWriter, dropIdx int, readerPublicKeyBase58Check string) {
 	var readerPublicKeyBytes []byte
 	var err error
 	if readerPublicKeyBase58Check != "" {

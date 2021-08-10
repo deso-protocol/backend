@@ -30,6 +30,7 @@ rm /tmp/main.*.log
   --protocol-port=18000 \
   --txindex \
   --num-mining-threads=1 \
+  #  Public key associated with the starter bitclout seed
   --miner-public-keys=tBCKW665XZnvVZcCfcEmyeecSZGKAdaxwV2SH9UFab6PpSRikg4EJ2 \
   --block-producer-seed='essence camp ghost remove document vault ladder swim pupil index apart ring' \
   --starter-bitclout-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
