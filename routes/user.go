@@ -197,7 +197,8 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	// We don't need user metadata from global state for the leaderboard.
 	if !skipForLeaderboard {
 		// Populate fields from userMetadata global state
-		userMetadata, err := fes.getUserMetadataFromGlobalState(user.PublicKeyBase58Check)
+		var userMetadata *UserMetadata
+		userMetadata, err = fes.getUserMetadataFromGlobalState(user.PublicKeyBase58Check)
 		if err != nil {
 			return errors.Wrap(fmt.Errorf(
 				"updateUserFieldsStateless: Problem with getUserMetadataFromGlobalState: %v", err), "")
@@ -208,17 +209,16 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		user.HasPhoneNumber = userMetadata.PhoneNumber != ""
 		user.HasEmail = userMetadata.Email != ""
 		user.EmailVerified = userMetadata.EmailVerified
-
-		user.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView)
-		if err != nil {
+		user.JumioVerified = userMetadata.JumioVerified
+		user.JumioReturned = userMetadata.JumioReturned
+		user.JumioFinishedTime = userMetadata.JumioFinishedTime
+		if user.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView); err != nil {
 			return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err), "")
 		}
 		// Get map of public keys user has blocked
-		blockedPubKeys, err := fes.GetBlockedPubKeysForUser(publicKeyBytes)
-		if err != nil {
+		if user.BlockedPubKeys, err = fes.GetBlockedPubKeysForUser(publicKeyBytes); err != nil {
 			return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem with GetBlockedPubKeysForUser: %v", err), "")
 		}
-		user.BlockedPubKeys = blockedPubKeys
 	}
 
 	// Check if the user is blacklisted/graylisted

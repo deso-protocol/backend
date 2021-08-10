@@ -142,11 +142,20 @@ var (
 	// NFT drop info.
 	_GlobalStatePrefixNFTDropNumberToNFTDropEntry = []byte{17}
 
+	// Jumio global state indexes
+	_GlobalStatePrefixPKIDTstampNanosToJumioTransaction = []byte{20}
+
+	_GlobalStatePrefixCountryIDDocumentTypeSubTypeDocumentNumber = []byte{19}
+
+	// Jumio BitCloutNanos
+	_GlobalStatePrefixJumioBitCloutNanos = []byte{21}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
-	// NEXT_TAG: 18
+
+	// NEXT_TAG: 22
 )
 
 type NFTDropEntry struct {
@@ -212,6 +221,33 @@ type UserMetadata struct {
 
 	// If true, this user's posts will automatically be added to the global whitelist (max 5 per day).
 	WhitelistPosts bool
+
+	// JumioInternalReference = internal tracking reference for user's experience in Jumio
+	JumioInternalReference string
+	// JumioFinishedTime = has user completed flow in Jumio
+	JumioFinishedTime uint64
+	// JumioVerified = user was verified from Jumio flow
+	JumioVerified    bool
+	// JumioReturned = jumio webhook called
+	JumioReturned    bool
+	// JumioTransactionID = jumio's tracking number for the transaction in which this user was verified.
+	JumioTransactionID string
+	// JumioDocumentKey = Country - Document Type - Document SubType - Document Number. Helps uniquely identify users
+	// and allows us to reset Jumio for a given user.
+	JumioDocumentKey []byte
+	// JumioStarterBitCloutTxnHashHex = Txn hash hex of the transaction in which the user was paid for
+	// going through the Jumio flow
+	JumioStarterBitCloutTxnHashHex string
+	// JumioShouldCompProfileCreation = True if we should comp the create profile fee because the user went through the
+	// Jumio flow.
+	JumioShouldCompProfileCreation bool
+
+	// MustPurchaseCreatorCoin = set to true if a user gets money from Jumio or Twilio flow and prevents user from
+	// performing a basic transfer before purchasing a creator coin.
+	MustPurchaseCreatorCoin bool
+	// HasPurchasedCreatorCoin = set to true if user has purchased a creator coin, allows them to perform basic transfer
+	// after getting free CLOUT.
+	HasPurchasedCreatorCoin bool
 }
 
 // This struct contains all the metadata associated with a user's phone number.
@@ -374,6 +410,33 @@ func GlobalStateKeyForUSDCentsToBitCloutReserveExchangeRate() []byte {
 
 func GlobalStateKeyForBuyBitCloutFeeBasisPoints() []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixBuyBitCloutFeeBasisPoints...)
+	return prefixCopy
+}
+
+func GlobalStateKeyForPKIDTstampnanosToJumioTransaction(pkid *lib.PKID, timestampNanos uint64) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDTstampNanosToJumioTransaction...)
+	key := append(prefixCopy, pkid[:]...)
+	key = append(key, lib.EncodeUint64(timestampNanos)...)
+	return key
+}
+
+func GlobalStatePrefixforPKIDTstampnanosToJumioTransaction(pkid *lib.PKID) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDTstampNanosToJumioTransaction...)
+	key := append(prefixCopy, pkid[:]...)
+	return key
+}
+
+func GlobalStateKeyForCountryIDDocumentTypeSubTypeDocumentNumber(countryID string, documentType string, subType string, documentNumber string) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixCountryIDDocumentTypeSubTypeDocumentNumber...)
+	key := append(prefixCopy, []byte(countryID)...)
+	key = append(key, []byte(documentType)...)
+	key = append(key, []byte(subType)...)
+	key = append(key, []byte(documentNumber)...)
+	return key
+}
+
+func GlobalStateKeyForJumioBitCloutNanos() []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixJumioBitCloutNanos...)
 	return prefixCopy
 }
 

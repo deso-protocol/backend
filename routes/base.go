@@ -224,6 +224,10 @@ type GetAppStateResponse struct {
 	CompProfileCreation    bool
 	DiamondLevelMap        map[int64]uint64
 	HasWyreIntegration     bool
+	HasJumioIntegration    bool
+
+	USDCentsPerBitCloutExchangeRate uint64
+	JumioBitCloutNanos     uint64
 
 	// Send back the password stored in our HTTPOnly cookie
 	// so amplitude can track which passwords people are using
@@ -237,16 +241,6 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetAppState: Problem parsing request body: %v", err))
 		return
-	}
-
-	hasTwilioAPIKey := false
-	if fes.Twilio != nil {
-		hasTwilioAPIKey = true
-	}
-
-	hasStarterBitCloutSeed := false
-	if fes.Config.StarterBitcloutSeed != "" {
-		hasStarterBitCloutSeed = true
 	}
 
 	// Get a view with all the mempool transactions (used to get all posts / reader state).
@@ -263,12 +257,16 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		MinSatoshisBurnedForProfileCreation: fes.Config.MinSatoshisForProfile,
 		IsTestnet:                           fes.Params.NetworkType == lib.NetworkType_TESTNET,
 		SupportEmail:                        fes.Config.SupportEmail,
-		HasTwilioAPIKey:                     hasTwilioAPIKey,
-		HasStarterBitCloutSeed:              hasStarterBitCloutSeed,
+		HasTwilioAPIKey:                     fes.Twilio != nil,
+		HasStarterBitCloutSeed:              fes.Config.StarterBitcloutSeed != "",
 		CreateProfileFeeNanos:               utxoView.GlobalParamsEntry.CreateProfileFeeNanos,
 		CompProfileCreation:                 fes.Config.CompProfileCreation,
 		DiamondLevelMap:                     lib.GetBitCloutNanosDiamondLevelMapAtBlockHeight(int64(fes.blockchain.BlockTip().Height)),
 		HasWyreIntegration:                  fes.IsConfiguredForWyre(),
+		HasJumioIntegration:                 fes.IsConfiguredForJumio(),
+
+		USDCentsPerBitCloutExchangeRate:     fes.GetExchangeBitCloutPrice(),
+		JumioBitCloutNanos:                  fes.GetJumioBitCloutNanos(),
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
