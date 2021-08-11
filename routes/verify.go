@@ -761,7 +761,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	userMetadata.JumioReturned = true
 
 	if req.FormValue("idScanStatus") != "SUCCESS" {
-		// This means the verification failed. We've logged the payload in global state above, so now we bail.
+		// This means the scan failed. We've logged the payload in global state above, so now we save that Jumio returned and bail.
 		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting user metdata in global state: %v", err))
 		}
@@ -781,6 +781,10 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 
 	if jumioIdentityVerification.Validity != true || jumioIdentityVerification.Similarity != "MATCH" {
 		// Don't raise an exception, but do not pay this user.
+		// This means the verification failed. We've logged the payload in global state above, so now we bail.
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting user metdata in global state: %v", err))
+		}
 		return
 	}
 
