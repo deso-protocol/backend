@@ -665,6 +665,12 @@ func (fes *APIServer) JumioFlowFinished(ww http.ResponseWriter, req *http.Reques
 	}
 }
 
+type JumioIdentityVerification struct {
+	Similarity  string `json:"similarity"`
+	Validity    bool `json:"validity"`
+	Reason      string `json:"reason"`
+}
+
 // Jumio webhook - If Jumio verified user is a human that we haven't paid already, pay them some starter CLOUT.
 // Make sure you only allow access to jumio IPs for this endpoint, otherwise anybody can take all the funds from
 // the public key that sends BitClout. WHITELIST JUMIO IPs.
@@ -759,6 +765,22 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting user metdata in global state: %v", err))
 		}
+		return
+	}
+
+	identityVerification := req.FormValue("identityVerification")
+	if identityVerification == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: identityVerification must be present"))
+		return
+	}
+	var jumioIdentityVerification JumioIdentityVerification
+	if err = json.Unmarshal([]byte(identityVerification), &jumioIdentityVerification); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: error unmarshal identity verification"))
+		return
+	}
+
+	if jumioIdentityVerification.Validity != true || jumioIdentityVerification.Similarity != "MATCH" {
+		// Don't raise an exception, but do not pay this user.
 		return
 	}
 

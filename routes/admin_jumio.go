@@ -204,5 +204,4 @@ func (fes *APIServer) AdminUpdateJumioBitClout(ww http.ResponseWriter, req *http
 		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioBitClout: Problem encoding response as JSON: %v", err))
 		return
 	}
-
 }
