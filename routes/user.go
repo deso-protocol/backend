@@ -1350,6 +1350,10 @@ func (fes *APIServer) GetDiamondsForPublicKey(ww http.ResponseWriter, req *http.
 		iiProfile := diamondSenderSummaryResponses[ii].ProfileEntryResponse
 		jjProfile := diamondSenderSummaryResponses[jj].ProfileEntryResponse
 
+		if iiProfile == nil && jjProfile == nil {
+			return false
+		}
+
 		// If ii has a profile but jj doesn't, prioritize it.
 		if iiProfile != nil && jjProfile == nil {
 			return true
