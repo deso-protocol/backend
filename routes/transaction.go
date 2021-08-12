@@ -1876,17 +1876,37 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Try and create the TransferCreatorCoin transaction w/diamonds for the user.
-	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateCreatorCoinTransferTxnWithDiamonds(
-		senderPublicKeyBytes,
-		receiverPublicKeyBytes,
-		diamondPostHash,
-		requestData.DiamondLevel,
-		// Standard transaction fields
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem creating transaction: %v", err))
-		return
+	// Try and create the transfer with diamonds for the user.
+	// We give diamonds in CLOUT if we're past the corresponding block height.
+	blockHeight := fes.blockchain.BlockTip().Height + 1
+	var txn *lib.MsgBitCloutTxn
+	var totalInput uint64
+	var changeAmount uint64
+	var fees uint64
+	if blockHeight > lib.BitCloutDiamondsBlockHeight {
+		txn, totalInput, _, changeAmount, fees, err = fes.blockchain.CreateBasicTransferTxnWithDiamonds(
+			senderPublicKeyBytes,
+			diamondPostHash,
+			requestData.DiamondLevel,
+			// Standard transaction fields
+			requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem creating transaction: %v", err))
+			return
+		}
+
+	} else {
+		txn, totalInput, changeAmount, fees, err = fes.blockchain.CreateCreatorCoinTransferTxnWithDiamonds(
+			senderPublicKeyBytes,
+			receiverPublicKeyBytes,
+			diamondPostHash,
+			requestData.DiamondLevel,
+			// Standard transaction fields
+			requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem creating transaction: %v", err))
+			return
+		}
 	}
 
 	txnBytes, err := txn.ToBytes(true)
