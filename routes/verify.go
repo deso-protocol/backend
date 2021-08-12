@@ -743,6 +743,10 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	userMetadata.JumioReturned = true
 
 	if req.FormValue("idScanStatus") != "SUCCESS" {
+		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : scan : fail", nil); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error logging failed scan in amplitude: %v", err))
+			return
+		}
 		// This means the scan failed. We've logged the payload in global state above, so now we save that Jumio returned and bail.
 		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting user metdata in global state: %v", err))
@@ -763,6 +767,10 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 
 	if jumioIdentityVerification.Validity != true || jumioIdentityVerification.Similarity != "MATCH" {
 		// Don't raise an exception, but do not pay this user.
+		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : verification : fail", nil); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error logging failed verification in amplitude: %v", err))
+			return
+		}
 		// This means the verification failed. We've logged the payload in global state above, so now we bail.
 		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting user metdata in global state: %v", err))
@@ -775,7 +783,10 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	// We expect badger to return a key not found error if this document has not been verified before.
 	// If it does not return an error, this is a duplicate, so we skip ahead.
 	if val, _ := fes.GlobalStateGet(uniqueJumioKey); val == nil || userMetadata.RedoJumio {
-
+		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : verified", nil); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error logging successful verification in amplitude: %v", err))
+			return
+		}
 		// Update the user metadata to show that user has been jumio verified and store jumio transaction id.
 		userMetadata.JumioVerified = true
 		userMetadata.JumioTransactionID = jumioTransactionId
@@ -783,8 +794,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 		userMetadata.MustPurchaseCreatorCoin = true
 		userMetadata.RedoJumio = false
 
-		bitcloutNanos := fes.GetJumioBitCloutNanos()
-		if bitcloutNanos > 0 {
+		if bitcloutNanos := fes.GetJumioBitCloutNanos(); bitcloutNanos > 0 {
 			// Check the balance of the starter bitclout seed.
 			var balanceInsufficient bool
 			balanceInsufficient, err = fes.ExceedsBitCloutBalance(bitcloutNanos, fes.Config.StarterBitcloutSeed)
@@ -809,6 +819,11 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 		}
 		if err = fes.GlobalStatePut(uniqueJumioKey, []byte{}); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting unique jumio key in global state: %v", err))
+			return
+		}
+	} else {
+		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : verified : duplicate", nil); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error logging duplicate verification in amplitude: %v", err))
 			return
 		}
 	}

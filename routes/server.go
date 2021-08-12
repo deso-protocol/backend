@@ -1258,7 +1258,7 @@ type AmplitudeEvent struct {
 	EventProperties map[string]interface{} `json:"event_properties"`
 }
 
-func (fes *APIServer) logAmplitudeEvent(publicKeyBytes string, event string, eventData map[string]interface{}) error {
+func (fes *APIServer) logAmplitudeEvent(publicKey string, event string, eventData map[string]interface{}) error {
 	if fes.Config.AmplitudeKey == "" {
 		return nil
 	}
@@ -1266,7 +1266,7 @@ func (fes *APIServer) logAmplitudeEvent(publicKeyBytes string, event string, eve
 		"Content-Type": {"application/json"},
 		"Accept":       {"*/*"},
 	}
-	events := []AmplitudeEvent{{UserId: publicKeyBytes, EventType: event, EventProperties: eventData}}
+	events := []AmplitudeEvent{{UserId: publicKey, EventType: event, EventProperties: eventData}}
 	ampBody := AmplitudeUploadRequestBody{ApiKey: fes.Config.AmplitudeKey, Events: events}
 	payload, err := json.Marshal(ampBody)
 	if err != nil {
