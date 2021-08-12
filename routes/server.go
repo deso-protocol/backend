@@ -164,7 +164,6 @@ const (
 
 
 	// admin_jumio.go
-	RoutePathAdminGetJumioAttemptsForPublicKey = "/api/v0/admin/get-jumio-attempts-for-public-key"
 	RoutePathAdminResetJumioForPublicKey       = "/api/v0/admin/reset-jumio-for-public-key"
 	RoutePathAdminUpdateJumioBitClout          = "/api/v0/admin/update-jumio-bitclout"
 )
@@ -857,13 +856,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminResetJumioForPublicKey,
 			fes.AdminResetJumioForPublicKey,
-			SuperAdminAccess,
-		},
-		{
-			"AdminGetJumioAttemptsForPublicKey",
-			[]string{"POST", "OPTIONS"},
-			RoutePathAdminGetJumioAttemptsForPublicKey,
-			fes.AdminGetJumioVerificationAttemptsForPublicKey,
 			SuperAdminAccess,
 		},
 		{
