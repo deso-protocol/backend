@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/btcsuite/btcd/btcec"
 	"io"
 	"net/http"
 	"reflect"
@@ -662,7 +663,7 @@ func (fes *APIServer) GetNFTDropEntryByIdx(dropIdx int) (_dropEntry *NFTDropEntr
 	return dropEntry, nil
 }
 
-func (fes *APIServer) FetchNFTSForDrop(ReaderPublicKeyBase58Check string, readerPublicKeyBytes []byte, dropEntry *NFTDropEntry) (_nftCollectionResponses []*NFTCollectionResponse, _err error) {
+func (fes *APIServer) FetchNFTSForDrop(readerPublicKeyBytes []byte, dropEntry *NFTDropEntry) (_nftCollectionResponses []*NFTCollectionResponse, _err error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -676,7 +677,7 @@ func (fes *APIServer) FetchNFTSForDrop(ReaderPublicKeyBase58Check string, reader
 	}
 
 	var readerPKID *lib.PKID
-	if ReaderPublicKeyBase58Check != "" {
+	if len(readerPublicKeyBytes) == btcec.PubKeyBytesLenCompressed {
 		readerPKID = utxoView.GetPKIDForPublicKey(readerPublicKeyBytes).PKID
 	}
 	var nftCollectionResponses []*NFTCollectionResponse
@@ -735,7 +736,7 @@ func (fes *APIServer) GetNFTShowcase(ww http.ResponseWriter, dropIdx int, reader
 		return
 	}
 	// Now that we have the drop entry, fetch the NFTs.
-	nftCollectionResponses, err:= fes.FetchNFTSForDrop(readerPublicKeyBase58Check, readerPublicKeyBytes, dropEntry)
+	nftCollectionResponses, err:= fes.FetchNFTSForDrop(readerPublicKeyBytes, dropEntry)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetNFTShowcase: Problem getting NFT collection responses: %v", err))
 		return
