@@ -86,89 +86,13 @@ func (fes *APIServer) AdminResetJumioForPublicKey(ww http.ResponseWriter, req *h
 	userMetadata.JumioReturned = false
 	userMetadata.JumioTransactionID = ""
 	userMetadata.JumioDocumentKey = nil
+	userMetadata.RedoJumio = true
 	userMetadata.JumioStarterBitCloutTxnHashHex = ""
 	userMetadata.JumioShouldCompProfileCreation = false
 	userMetadata.JumioFinishedTime = 0
 	userMetadata.JumioInternalReference = ""
 	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminResetJumioForPublicKey: Problem putting updated user metadata in Global state: %v", err))
-		return
-	}
-}
-
-type AdminGetJumioVerificationAttemptsRequest struct {
-	PublicKeyBase58Check string
-	Username             string
-	JWT                  string
-}
-
-type AdminGetJumioVerificationAttemptsResponse struct {
-	VerificationAttempts []map[string][]string
-}
-
-func (fes *APIServer) AdminGetJumioVerificationAttemptsForPublicKey(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := AdminGetJumioVerificationAttemptsRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: Problem parsing request body: %v", err))
-		return
-	}
-
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: error getting utxoview: %v", err))
-		return
-	}
-
-	var publicKeyBytes []byte
-	if requestData.PublicKeyBase58Check != "" {
-		publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: error decoding public key %v: %v", requestData.PublicKeyBase58Check, err))
-			return
-		}
-	} else if requestData.Username != "" {
-		profileEntry := utxoView.GetProfileEntryForUsername([]byte(requestData.Username))
-		if profileEntry == nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: error getting profile entry for username %v", requestData.Username))
-			return
-		}
-		publicKeyBytes = profileEntry.PublicKey
-	} else {
-		_AddBadRequestError(ww, "AdminGetJumioVerificationAttemptsForPublicKey: must provide either a public key or username")
-		return
-	}
-
-	pkid := utxoView.GetPKIDForPublicKey(publicKeyBytes)
-	if pkid == nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: No PKID found for public key: %v", requestData.PublicKeyBase58Check))
-		return
-	}
-	prefix := GlobalStatePrefixforPKIDTstampnanosToJumioTransaction(pkid.PKID)
-	// Key is prefix + pkid + tstampnanos (8 bytes)
-	maxKeyLen := 1 + len(pkid.PKID[:]) + 8
-	_, values, err := fes.GlobalStateSeek(prefix, prefix, maxKeyLen, 100, true, true)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: Error seeking global state for verification attempts: %v", err))
-		return
-	}
-
-	res := &AdminGetJumioVerificationAttemptsResponse{}
-
-	verificationAttempts := []map[string][]string{}
-	for _, value := range values {
-		valueUnmarshal := make(map[string][]string)
-		if err = json.Unmarshal(value, &valueUnmarshal); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: Error unmarshaling jumio data: %v", err))
-			return
-		}
-		verificationAttempts = append(verificationAttempts, valueUnmarshal)
-	}
-
-	res.VerificationAttempts = verificationAttempts
-
-	if err = json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetJumioVerificationAttemptsForPublicKey: Encode failed: %v", err))
 		return
 	}
 }

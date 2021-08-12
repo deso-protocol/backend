@@ -739,7 +739,6 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-
 	// Always set JumioReturned so we know that Jumio callback has finished.
 	userMetadata.JumioReturned = true
 
@@ -775,14 +774,14 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	uniqueJumioKey := GlobalStateKeyForCountryIDDocumentTypeSubTypeDocumentNumber(idCountry, idType, idSubType, idNumber)
 	// We expect badger to return a key not found error if this document has not been verified before.
 	// If it does not return an error, this is a duplicate, so we skip ahead.
-	if val, _ := fes.GlobalStateGet(uniqueJumioKey); val == nil {
+	if val, _ := fes.GlobalStateGet(uniqueJumioKey); val == nil || userMetadata.RedoJumio {
 
 		// Update the user metadata to show that user has been jumio verified and store jumio transaction id.
 		userMetadata.JumioVerified = true
 		userMetadata.JumioTransactionID = jumioTransactionId
-		userMetadata.JumioDocumentKey = uniqueJumioKey
 		userMetadata.JumioShouldCompProfileCreation = true
 		userMetadata.MustPurchaseCreatorCoin = true
+		userMetadata.RedoJumio = false
 
 		bitcloutNanos := fes.GetJumioBitCloutNanos()
 		if bitcloutNanos > 0 {

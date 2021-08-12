@@ -234,7 +234,10 @@ type UserMetadata struct {
 	JumioTransactionID string
 	// JumioDocumentKey = Country - Document Type - Document SubType - Document Number. Helps uniquely identify users
 	// and allows us to reset Jumio for a given user.
+	// DEPRECATED
 	JumioDocumentKey []byte
+	// RedoJumio = boolean which allows user to skip the duplicate ID check in JumioCallback
+	RedoJumio bool
 	// JumioStarterBitCloutTxnHashHex = Txn hash hex of the transaction in which the user was paid for
 	// going through the Jumio flow
 	JumioStarterBitCloutTxnHashHex string
