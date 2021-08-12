@@ -686,13 +686,6 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 		payloadMap[k] = v
 	}
 
-	// Marshal the post form so we can save the details in global state.
-	payloadBytes, err := json.Marshal(payloadMap)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Problem marshaling JSON: %v", err))
-		return
-	}
-
 	// PASSPORT, DRIVING_LICENSE, ID_CARD, VISA
 	idType := req.PostFormValue("idType")
 	// More specific type of ID
@@ -711,15 +704,13 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	jumioTransactionId := req.PostFormValue("jumioIdScanReference")
 
 	// Get Public key bytes and PKID
-	var publicKeyBytes []byte
-	if userReference != "" {
-		publicKeyBytes, _, err = lib.Base58CheckDecode(userReference)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Problem decoding user public key (customerId): %v", err))
-			return
-		}
-	} else {
+	if userReference == "" {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Public key (customerId) is required"))
+		return
+	}
+	publicKeyBytes, _, err := lib.Base58CheckDecode(userReference)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Problem decoding user public key (customerId): %v", err))
 		return
 	}
 
@@ -735,14 +726,6 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	tstamp := uint64(time.Now().UnixNano())
-	// Always log the payload in global state for the PKID so we can search for all jumio verification payloads for a given user.
-	pkidTstampnanosKey := GlobalStateKeyForPKIDTstampnanosToJumioTransaction(pkid.PKID, tstamp)
-	if err = fes.GlobalStatePut(pkidTstampnanosKey, payloadBytes); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting jumio callback in global state: %v", err))
-		return
-	}
-
 	var userMetadata *UserMetadata
 	userMetadata, err = fes.getUserMetadataFromGlobalState(userReference)
 	if err != nil {
@@ -755,7 +738,6 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: User already verified: %v", err))
 		return
 	}
-
 
 	// Always set JumioReturned so we know that Jumio callback has finished.
 	userMetadata.JumioReturned = true
@@ -792,14 +774,14 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	uniqueJumioKey := GlobalStateKeyForCountryIDDocumentTypeSubTypeDocumentNumber(idCountry, idType, idSubType, idNumber)
 	// We expect badger to return a key not found error if this document has not been verified before.
 	// If it does not return an error, this is a duplicate, so we skip ahead.
-	if val, _ := fes.GlobalStateGet(uniqueJumioKey); val == nil {
+	if val, _ := fes.GlobalStateGet(uniqueJumioKey); val == nil || userMetadata.RedoJumio {
 
 		// Update the user metadata to show that user has been jumio verified and store jumio transaction id.
 		userMetadata.JumioVerified = true
 		userMetadata.JumioTransactionID = jumioTransactionId
-		userMetadata.JumioDocumentKey = uniqueJumioKey
 		userMetadata.JumioShouldCompProfileCreation = true
 		userMetadata.MustPurchaseCreatorCoin = true
+		userMetadata.RedoJumio = false
 
 		bitcloutNanos := fes.GetJumioBitCloutNanos()
 		if bitcloutNanos > 0 {
@@ -825,7 +807,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 			// Save transaction hash hex in user metadata.
 			userMetadata.JumioStarterBitCloutTxnHashHex = txnHash.String()
 		}
-		if err = fes.GlobalStatePut(uniqueJumioKey, payloadBytes); err != nil {
+		if err = fes.GlobalStatePut(uniqueJumioKey, []byte{}); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting unique jumio key in global state: %v", err))
 			return
 		}
