@@ -686,13 +686,6 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 		payloadMap[k] = v
 	}
 
-	// Marshal the post form so we can save the details in global state.
-	payloadBytes, err := json.Marshal(payloadMap)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Problem marshaling JSON: %v", err))
-		return
-	}
-
 	// PASSPORT, DRIVING_LICENSE, ID_CARD, VISA
 	idType := req.PostFormValue("idType")
 	// More specific type of ID
@@ -711,15 +704,13 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	jumioTransactionId := req.PostFormValue("jumioIdScanReference")
 
 	// Get Public key bytes and PKID
-	var publicKeyBytes []byte
-	if userReference != "" {
-		publicKeyBytes, _, err = lib.Base58CheckDecode(userReference)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Problem decoding user public key (customerId): %v", err))
-			return
-		}
-	} else {
+	if userReference == "" {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Public key (customerId) is required"))
+		return
+	}
+	publicKeyBytes, _, err := lib.Base58CheckDecode(userReference)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Problem decoding user public key (customerId): %v", err))
 		return
 	}
 
@@ -732,14 +723,6 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	pkid := utxoView.GetPKIDForPublicKey(publicKeyBytes)
 	if pkid == nil {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: No PKID found for public key: %v", userReference))
-		return
-	}
-
-	tstamp := uint64(time.Now().UnixNano())
-	// Always log the payload in global state for the PKID so we can search for all jumio verification payloads for a given user.
-	pkidTstampnanosKey := GlobalStateKeyForPKIDTstampnanosToJumioTransaction(pkid.PKID, tstamp)
-	if err = fes.GlobalStatePut(pkidTstampnanosKey, payloadBytes); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting jumio callback in global state: %v", err))
 		return
 	}
 
@@ -825,7 +808,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 			// Save transaction hash hex in user metadata.
 			userMetadata.JumioStarterBitCloutTxnHashHex = txnHash.String()
 		}
-		if err = fes.GlobalStatePut(uniqueJumioKey, payloadBytes); err != nil {
+		if err = fes.GlobalStatePut(uniqueJumioKey, []byte{}); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting unique jumio key in global state: %v", err))
 			return
 		}
