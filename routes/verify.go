@@ -817,7 +817,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 			// Save transaction hash hex in user metadata.
 			userMetadata.JumioStarterBitCloutTxnHashHex = txnHash.String()
 		}
-		if err = fes.GlobalStatePut(uniqueJumioKey, []byte{}); err != nil {
+		if err = fes.GlobalStatePut(uniqueJumioKey, []byte{1}); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting unique jumio key in global state: %v", err))
 			return
 		}
