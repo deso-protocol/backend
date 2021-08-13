@@ -150,6 +150,12 @@ var (
 	// Jumio BitCloutNanos
 	_GlobalStatePrefixJumioBitCloutNanos = []byte{21}
 
+	// Tutorial featured well-known creators
+	_GlobalStateKeyWellKnownTutorialCreators = []byte{22}
+
+	// Tutorial featured undiscovered creators
+	_GlobalStateKeyUndiscoveredTutorialCreators = []byte{23}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
@@ -251,6 +257,12 @@ type UserMetadata struct {
 	// HasPurchasedCreatorCoin = set to true if user has purchased a creator coin, allows them to perform basic transfer
 	// after getting free CLOUT.
 	HasPurchasedCreatorCoin bool
+
+	// If user is featured as a well known creator in the tutorial.
+	IsFeaturedTutorialWellKnownCreator bool
+	// If user is featured as an undiscovered creator in the tutorial.
+	// Note: a user should not be both featured as well known and undiscovered
+	IsFeaturedTutorialUndiscoveredCreator bool
 }
 
 // This struct contains all the metadata associated with a user's phone number.
@@ -441,6 +453,18 @@ func GlobalStateKeyForCountryIDDocumentTypeSubTypeDocumentNumber(countryID strin
 func GlobalStateKeyForJumioBitCloutNanos() []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixJumioBitCloutNanos...)
 	return prefixCopy
+}
+
+func GlobalStateKeyWellKnownTutorialCreators(pkid *lib.PKID) []byte {
+	prefixCopy := append([]byte{}, _GlobalStateKeyWellKnownTutorialCreators...)
+	key := append(prefixCopy, pkid[:]...)
+	return key
+}
+
+func GlobalStateKeyUndiscoveredTutorialCreators(pkid *lib.PKID) []byte {
+	prefixCopy := append([]byte{}, _GlobalStateKeyUndiscoveredTutorialCreators...)
+	key := append(prefixCopy, pkid[:]...)
+	return key
 }
 
 type GlobalStatePutRemoteRequest struct {
