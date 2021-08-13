@@ -1057,3 +1057,31 @@ func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Re
 		return
 	}
 }
+
+type AdminResetTutorialStatusRequest struct {
+	PublicKeyBase58Check string
+}
+
+func (fes *APIServer) AdminResetTutorialStatus(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminResetTutorialStatusRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminResetTutorialStatus: Problem parsing request body: %v", err))
+		return
+	}
+
+	userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.PublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminResetTutorialStatus: Error getting user metadata from global state: %v", err))
+		return
+	}
+
+	if userMetadata.TutorialStatus != EMPTY {
+		userMetadata.TutorialStatus = EMPTY
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminResetTutorialStatus: Error putting user metadata in global state: %v", err))
+			return
+		}
+		// TODO: reset any other tutorial related attributes
+	}
+}
