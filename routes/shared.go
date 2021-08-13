@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"time"
 
 	"github.com/bitclout/core/lib"
@@ -351,4 +352,13 @@ func (fes *APIServer) SendSeedBitClout(recipientPkBytes []byte, amountNanos uint
 		}
 	}
 	return hash, err
+}
+
+func BlockHashIn(slice []*lib.BlockHash, val *lib.BlockHash) bool {
+	for _, item := range slice {
+		if reflect.DeepEqual(item, val) {
+			return true
+		}
+	}
+	return false
 }
