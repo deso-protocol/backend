@@ -251,7 +251,23 @@ type UserMetadata struct {
 	// HasPurchasedCreatorCoin = set to true if user has purchased a creator coin, allows them to perform basic transfer
 	// after getting free CLOUT.
 	HasPurchasedCreatorCoin bool
+
+	TutorialStatus TutorialStatus
 }
+
+type TutorialStatus string
+
+const (
+	EMPTY TutorialStatus = ""
+	STARTED TutorialStatus = "TutorialStarted"
+	SKIPPED TutorialStatus = "TutorialSkipped"
+	CREATE_PROFILE TutorialStatus = "TutorialCreateProfileComplete"
+	INVEST_OTHERS_BUY TutorialStatus = "InvestInOthersBuyComplete"
+	INVEST_OTHERS_SELL TutorialStatus = "InvestInOthersSellComplete"
+	DIAMOND TutorialStatus = "GiveADiamondComplete"
+	INVEST_SELF TutorialStatus = "InvestInYourselfComplete"
+	COMPLETE TutorialStatus = "TutorialComplete"
+)
 
 // This struct contains all the metadata associated with a user's phone number.
 type PhoneNumberMetadata struct {

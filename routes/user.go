@@ -2480,3 +2480,53 @@ func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Reque
 	}
 
 }
+
+type StartOrSkipTutorialRequest struct {
+	PublicKeyBase58Check string
+	JWT string
+	IsSkip bool
+}
+
+func (fes *APIServer) StartOrSkipTutorial(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := StartOrSkipTutorialRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"StartOrSkipTutorial: Problem parsing request body: %v", err))
+		return
+	}
+	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorialioBegin: Error validating JWT: %v", err))
+		return
+	}
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Invalid token: %v", err))
+		return
+	}
+
+	userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.PublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Error getting user metadata from global state: %v", err))
+		return
+	}
+
+	if requestData.IsSkip && userMetadata.TutorialStatus != EMPTY {
+		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Can only skip tutorial from empty state"))
+		return
+	}
+	if !requestData.IsSkip && userMetadata.TutorialStatus != EMPTY && userMetadata.TutorialStatus != SKIPPED {
+		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Can only start tutorial from empty or skipped state"))
+		return
+	}
+
+	if requestData.IsSkip {
+		userMetadata.TutorialStatus = SKIPPED
+	} else {
+		userMetadata.TutorialStatus = STARTED
+	}
+	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: err putting user metdata in global state: %v", err))
+		return
+	}
+}

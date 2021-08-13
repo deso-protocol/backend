@@ -68,6 +68,7 @@ const (
 	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
 	RoutePathIsFollowingPublicKey     = "/api/v0/is-following-public-key"
 	RoutePathIsHodlingPublicKey       = "/api/v0/is-hodling-public-key"
+	RoutePathStartOrSkipTutorial      = "/api/v0/start-or-skip-tutorial"
 
 	// post.go
 	RoutePathGetPostsStateless       = "/api/v0/get-posts-stateless"
@@ -648,6 +649,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathIsHodlingPublicKey,
 			fes.IsHodlingPublicKey,
+			PublicAccess,
+		},
+		{
+			"StartOrSkipTutorial",
+			[]string{"POST", "OPTIONS"},
+			RoutePathStartOrSkipTutorial,
+			fes.StartOrSkipTutorial,
 			PublicAccess,
 		},
 		{
