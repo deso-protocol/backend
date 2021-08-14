@@ -126,6 +126,9 @@ type User struct {
 	// Is this user blacklisted/graylisted
 	IsBlacklisted bool
 	IsGraylisted  bool
+
+	// Where is the user in the tutorial flow
+	TutorialStatus TutorialStatus
 }
 
 type BalanceEntryResponse struct {

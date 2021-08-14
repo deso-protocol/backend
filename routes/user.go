@@ -212,6 +212,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		user.JumioVerified = userMetadata.JumioVerified
 		user.JumioReturned = userMetadata.JumioReturned
 		user.JumioFinishedTime = userMetadata.JumioFinishedTime
+		user.TutorialStatus = userMetadata.TutorialStatus
 		if user.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView); err != nil {
 			return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err), "")
 		}
@@ -2527,6 +2528,47 @@ func (fes *APIServer) StartOrSkipTutorial(ww http.ResponseWriter, req *http.Requ
 	}
 	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: err putting user metdata in global state: %v", err))
+		return
+	}
+}
+
+type CompleteTutorialRequest struct {
+	PublicKeyBase58Check string
+	JWT string
+}
+
+func (fes *APIServer) CompleteTutorial(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := CompleteTutorialRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"CompleteTutorial: Problem parsing request body: %v", err))
+		return
+	}
+	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CompleteTutorial: Error validating JWT: %v", err))
+		return
+	}
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("CompleteTutorial: Invalid token: %v", err))
+		return
+	}
+
+	userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.PublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CompleteTutorial: Error getting user metadata from global state: %v", err))
+		return
+	}
+
+	if userMetadata.TutorialStatus != INVEST_SELF {
+		_AddBadRequestError(ww, fmt.Sprintf("CompleteTutorial: User must be in a tutorial status of %v in order to complete the tutorial - current status: %v", INVEST_SELF, userMetadata.TutorialStatus))
+		return
+	}
+
+	userMetadata.TutorialStatus = COMPLETE
+	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CompleteTutorial: err putting user metdata in global state: %v", err))
 		return
 	}
 }

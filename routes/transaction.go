@@ -55,6 +55,10 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	txnFound := fes.mempool.IsTransactionInPool(txnHash)
+	// Only check DB in testnet for now.
+	if !txnFound && fes.Params.NetworkType == lib.NetworkType_TESTNET {
+		txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), txnHash)
+	}
 	res := &GetTxnResponse{
 		TxnFound: txnFound,
 	}
@@ -422,6 +426,15 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem serializing transaction: %v", err))
 		return
+	}
+
+	// TODO: for consistency, should we add InTutorial to the request data. It doesn't save us much since we need fetch the user metadata regardless.
+	if userMetadata.TutorialStatus == STARTED {
+		userMetadata.TutorialStatus = CREATE_PROFILE
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem updating tutorial status to update profile completed: %v", err))
+			return
+		}
 	}
 
 	// Return all the data associated with the transaction in the response
@@ -1499,6 +1512,8 @@ type BuyOrSellCreatorCoinRequest struct {
 	MinCreatorCoinExpectedNanos uint64 `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	InTutorial bool `safeForLogging:"true"`
 }
 
 // BuyOrSellCreatorCoinResponse ...
@@ -1633,6 +1648,46 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem serializing transaction: %v", err))
 		return
 	}
+
+	if requestData.InTutorial {
+		var userMetadata *UserMetadata
+		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(updaterPublicKeyBytes)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem getting user metadata from global state: %v", err))
+			return
+		}
+
+		var updateUserMetadata bool
+		// TODO: check that user is buying from list of creators included in tutorial
+		// TODO: Save which creator a user purchased by PKID in user metadata so we can bring them to the same place in the flow
+		// TODO: Do we need to save how much they bought for usage in tutorial?
+		if operationType == lib.CreatorCoinOperationTypeBuy && userMetadata.TutorialStatus == CREATE_PROFILE {
+			userMetadata.TutorialStatus = INVEST_OTHERS_BUY
+			updateUserMetadata = true
+		}
+
+		// Tutorial state: user is investing in themselves
+		if operationType == lib.CreatorCoinOperationTypeBuy && userMetadata.TutorialStatus == DIAMOND && requestData.CreatorPublicKeyBase58Check == requestData.UpdaterPublicKeyBase58Check {
+			userMetadata.TutorialStatus = INVEST_SELF
+			updateUserMetadata = true
+		}
+
+		if operationType == lib.CreatorCoinOperationTypeSell && userMetadata.TutorialStatus == INVEST_OTHERS_BUY {
+			userMetadata.TutorialStatus = INVEST_OTHERS_SELL
+			updateUserMetadata = true
+		}
+
+		if !updateUserMetadata {
+			_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Current tutorial status (%v) does not allow this %v transaction", userMetadata.TutorialStatus, requestData.OperationType))
+			return
+		}
+
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem updating user metadata's tutorial status in global state: %v", err))
+			return
+		}
+	}
+
 
 	// Return all the data associated with the transaction in the response
 	res := BuyOrSellCreatorCoinResponse{
@@ -1804,6 +1859,8 @@ type SendDiamondsRequest struct {
 	DiamondLevel int64 `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	InTutorial bool `safeForLogging:"true"`
 }
 
 // SendDiamondsResponse ...
@@ -1824,7 +1881,6 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem parsing request body: %v", err))
 		return
-
 	}
 
 	if requestData.SenderPublicKeyBase58Check == "" ||
@@ -1914,6 +1970,25 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem serializing transaction: %v", err))
 		return
 	}
+
+	if requestData.InTutorial {
+		var userMetadata *UserMetadata
+		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(senderPublicKeyBytes)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem getting user metadata from global state: %v", err))
+			return
+		}
+		if userMetadata.TutorialStatus != INVEST_OTHERS_SELL {
+			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: User should not be sending diamonds at this point in the tutorial"))
+			return
+		}
+		userMetadata.TutorialStatus = DIAMOND
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem putting user metadata in global state: %v", err))
+			return
+		}
+	}
+
 
 	// Return all the data associated with the transaction in the response
 	res := SendDiamondsResponse{
