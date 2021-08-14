@@ -83,7 +83,7 @@ type MessageContactResponse struct {
 // User ...
 type User struct {
 	// The public key for the user is computed from the seed using the exact
-	// paramters used to generate the BTC deposit address below. Because
+	// parameters used to generate the BTC deposit address below. Because
 	// of this, the BitClout private and public key pair is also the key
 	// pair corresponding to the BTC address above. We store this same
 	// key in base58 format above for convenience in communicating with
@@ -108,6 +108,15 @@ type User struct {
 	BlockedPubKeys   map[string]struct{}
 	HasEmail         bool
 	EmailVerified    bool
+
+	// JumioStartTime = Time user requested to initiate Jumio flow
+	JumioStartTime uint64
+	// JumioFinishedTime = Time user completed flow in Jumio
+	JumioFinishedTime uint64
+	// JumioVerified = user was verified from Jumio flow
+	JumioVerified    bool
+	// JumioReturned = jumio webhook called
+	JumioReturned    bool
 
 	// Is this user an admin
 	IsAdmin bool
@@ -206,6 +215,28 @@ func makeUserMetadata(userMetadataBytes []byte, userPublicKeyBytes []byte) (_use
 	return &userMetadata, nil
 }
 
+func (fes *APIServer) getUserMetadataFromGlobalStateByPublicKeyBytes(userPublicKeyBytes []byte) (_userMetadata *UserMetadata, _err error) {
+	dbKey := GlobalStateKeyForPublicKeyToUserMetadata(userPublicKeyBytes)
+	userMetadataBytes, err := fes.GlobalStateGet(dbKey)
+	if err != nil {
+		return nil, errors.Wrap(fmt.Errorf(
+			"getUserMetadataFromGlobalStateByPublicKeyBytes: Problem with GlobalStateGet: %v", err), "")
+	}
+
+	userMetadata, err := makeUserMetadata(userMetadataBytes, userPublicKeyBytes)
+	if err != nil {
+		return nil, errors.Wrap(fmt.Errorf(
+			"getUserMetadataFromGlobalStateByPublicKeyBytes: Problem with makeUserMetadata: %v", err), "")
+	}
+
+	// Check if we need to add the public key to userMetadata
+	if len(userMetadata.PublicKey) != 33 {
+		userMetadata.PublicKey = userPublicKeyBytes
+	}
+
+	return userMetadata, nil
+}
+
 func (fes *APIServer) getUserMetadataFromGlobalState(
 	publicKeyBase58Check string,
 ) (_userMetadata *UserMetadata, _err error) {
@@ -215,25 +246,7 @@ func (fes *APIServer) getUserMetadataFromGlobalState(
 			"getUserMetadataFromGlobalState: Problem with lib.Base58CheckDecode: %v", err), "")
 	}
 
-	dbKey := GlobalStateKeyForPublicKeyToUserMetadata(userPublicKeyBytes)
-	userMetadataBytes, err := fes.GlobalStateGet(dbKey)
-	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf(
-			"getUserMetadataFromGlobalState: Problem with GlobalStateGet: %v", err), "")
-	}
-
-	userMetadata, err := makeUserMetadata(userMetadataBytes, userPublicKeyBytes)
-	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf(
-			"getUserMetadataFromGlobalState: Problem with makeUserMetadata: %v", err), "")
-	}
-
-	// Check if we need to add the public key to userMetadata
-	if len(userMetadata.PublicKey) != 33 {
-		userMetadata.PublicKey = userPublicKeyBytes
-	}
-
-	return userMetadata, nil
+	return fes.getUserMetadataFromGlobalStateByPublicKeyBytes(userPublicKeyBytes)
 }
 
 func (fes *APIServer) putUserMetadataInGlobalState(

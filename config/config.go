@@ -61,6 +61,10 @@ type Config struct {
 	SendgridFromName       string
 	SendgridFromEmail      string
 	SendgridConfirmEmailId string
+
+	// Jumio
+	JumioToken             string
+	JumioSecret            string
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -134,6 +138,10 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.SendgridFromName = viper.GetString("sendgrid-from-name")
 	config.SendgridFromEmail = viper.GetString("sendgrid-from-email")
 	config.SendgridConfirmEmailId = viper.GetString("sendgrid-confirm-email-id")
+
+	// Jumio
+	config.JumioToken = viper.GetString("jumio-token")
+	config.JumioSecret = viper.GetString("jumio-secret")
 
 	return &config
 }
