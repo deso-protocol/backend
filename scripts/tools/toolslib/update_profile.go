@@ -71,7 +71,7 @@ func UpdateProfile(updaterPubKey *btcec.PublicKey, updaterPrivKey *btcec.Private
 	txn := unsignedUpdateProfile.Transaction
 
 	// Sign the transaction
-	signature, err := txn.Sign(updaterPrivKey, false)
+	signature, err := txn.Sign(updaterPrivKey)
 	if err != nil {
 		return errors.Wrap(err, "UpdateProfile() failed to sign the transaction")
 	}

@@ -71,7 +71,7 @@ func BuyCreator(buyerPubKey *btcec.PublicKey, buyerPrivKey *btcec.PrivateKey, cr
 	txn := unsignedCCBuy.Transaction
 
 	// Sign the transaction
-	signature, err := txn.Sign(buyerPrivKey, false)
+	signature, err := txn.Sign(buyerPrivKey)
 	if err != nil {
 		return errors.Wrap(err, "BuyCreator() failed to sign transaction")
 	}

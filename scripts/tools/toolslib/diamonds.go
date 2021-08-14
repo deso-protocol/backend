@@ -83,7 +83,7 @@ func SendDiamonds(senderPubKey *btcec.PublicKey, senderPrivKey *btcec.PrivateKey
 	txn := unsignedSendDiamonds.Transaction
 
 	// Sign the transaction
-	signature, err := txn.Sign(senderPrivKey, false)
+	signature, err := txn.Sign(senderPrivKey)
 	if err != nil {
 		return errors.Wrap(err, "SendDiamonds() failed to sign transaction")
 	}

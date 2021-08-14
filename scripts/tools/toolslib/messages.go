@@ -64,7 +64,7 @@ func SendMessage(senderPubKey *btcec.PublicKey, senderPrivKey *btcec.PrivateKey,
 	txn := unsignedMessage.Transaction
 
 	// Sign the transaction
-	signature, err := txn.Sign(senderPrivKey, false)
+	signature, err := txn.Sign(senderPrivKey)
 	if err != nil {
 		return errors.Wrap(err, "SendMessage() failed to sign transaction")
 	}

@@ -67,7 +67,7 @@ func SendBitClout(senderPubKey *btcec.PublicKey,
 	txn := unsignedSendBitclout.Transaction
 
 	// Sign the transaction
-	signature, err := txn.Sign(senderPrivKey, false)
+	signature, err := txn.Sign(senderPrivKey)
 	if err != nil {
 		return errors.Wrap(err, "SendBitclout() failed to sign transaction")
 	}

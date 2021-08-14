@@ -1209,7 +1209,7 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 func (fes *APIServer) _processTransactionWithKey(
 	txn *lib.MsgBitCloutTxn, _privKey *btcec.PrivateKey, wantsBroadcast bool) error {
 
-	txnSignature, err := txn.Sign(_privKey, false)
+	txnSignature, err := txn.Sign(_privKey)
 	if err != nil {
 		return fmt.Errorf("_processTransactionWithKey: Error computing "+
 			"transaction signature: %v", err)
