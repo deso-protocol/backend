@@ -168,6 +168,7 @@ const (
 
 	// admin_tutorial.go
 	RoutePathAdminUpdateTutorialCreators = "/api/v0/admin/update-tutorial-creators"
+	RoutePathAdminGetTutorialCreators = "/api/v0/admin/get-tutorial-creators"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -872,6 +873,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateTutorialCreators,
 			fes.AdminUpdateTutorialCreator,
+			SuperAdminAccess,
+		},
+		{
+			"AdminGetTutorialCreators",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetTutorialCreators,
+			fes.AdminGetTutorialCreators,
 			SuperAdminAccess,
 		},
 		// End all /admin routes

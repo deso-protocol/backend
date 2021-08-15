@@ -118,9 +118,10 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 
 	// Get the ProfileEntry corresponding to this user's public key from the view.
 	profileEntryy := utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
+	var profileEntryResponse *ProfileEntryResponse
 	if profileEntryy != nil {
 		// Convert it to a response since that sanitizes the inputs.
-		profileEntryResponse := _profileEntryToResponse(profileEntryy, fes.Params, verifiedMap, utxoView)
+		profileEntryResponse = _profileEntryToResponse(profileEntryy, fes.Params, verifiedMap, utxoView)
 		user.ProfileEntryResponse = profileEntryResponse
 	}
 
@@ -525,6 +526,12 @@ type ProfileEntryResponse struct {
 
 	// Profiles of users that hold the coin + their balances.
 	UsersThatHODL []*BalanceEntryResponse
+
+	// If user is featured as a well known creator in the tutorial.
+	IsFeaturedTutorialWellKnownCreator bool
+	// If user is featured as an undiscovered creator in the tutorial.
+	// Note: a user should not be both featured as well known and undiscovered
+	IsFeaturedTutorialUndiscoveredCreator bool
 }
 
 // GetProfiles ...
@@ -1023,7 +1030,9 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 	// Get profile entry by public key.  If public key not provided, get profileEntry by username.
 	var profileEntry *lib.ProfileEntry
 	var publicKeyBytes []byte
+	var publicKeyBase58Check string
 	if requestData.PublicKeyBase58Check != "" {
+		publicKeyBase58Check = requestData.PublicKeyBase58Check
 		publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Problem decoding user public key: %v", err))
@@ -1034,6 +1043,7 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 		profileEntry = utxoView.GetProfileEntryForUsername([]byte(requestData.Username))
 		if profileEntry != nil {
 			publicKeyBytes = profileEntry.PublicKey
+			publicKeyBase58Check = lib.Base58CheckEncode(publicKeyBytes, false, fes.Params)
 		}
 	}
 
@@ -1077,6 +1087,16 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 	if reflect.DeepEqual(userGraylistState, lib.IsGraylisted) {
 		res.IsGraylisted = true
 	}
+
+	var userMetadata *UserMetadata
+	userMetadata, err = fes.getUserMetadataFromGlobalState(publicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateTutorialCreator: error getting usermetadata for public key: %v", err))
+		return
+	}
+
+	res.Profile.IsFeaturedTutorialUndiscoveredCreator = userMetadata.IsFeaturedTutorialUndiscoveredCreator
+	res.Profile.IsFeaturedTutorialWellKnownCreator = userMetadata.IsFeaturedTutorialWellKnownCreator
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetSingleProfile: Problem serializing object to JSON: %v", err))
