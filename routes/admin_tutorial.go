@@ -3,6 +3,7 @@ package routes
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/bitclout/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"io"
 	"net/http"
@@ -16,13 +17,14 @@ type AdminUpdateTutorialCreatorRequest struct {
 }
 
 type AdminGetTutorialCreatorsRequest struct {
+	ResponseLimit int
 	JWT       string
 }
 
 
 type AdminGetTutorialCreatorResponse struct {
-	UndiscoveredPublicKeysBase58Check [][]byte
-	WellKnownPublicKeysBase58Check [][]byte
+	UndiscoveredPublicKeysBase58Check []string
+	WellKnownPublicKeysBase58Check []string
 }
 
 func (fes *APIServer) AdminUpdateTutorialCreator(ww http.ResponseWriter, req *http.Request) {
@@ -97,9 +99,19 @@ func (fes *APIServer) AdminUpdateTutorialCreator(ww http.ResponseWriter, req *ht
 	}
 
 	if requestData.IsRemoval {
-		fes.GlobalStateDelete(prefix)
+		err := fes.GlobalStateDelete(prefix)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"AdminUpdateTutorialCreator: Error processing GlobalStateDelete: %v", err))
+			return
+		}
 	} else {
-		fes.GlobalStatePut(prefix, []byte{1})
+		err := fes.GlobalStatePut(prefix, []byte{1})
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"AdminUpdateTutorialCreator: Error processing GlobalStatePut: %v", err))
+			return
+		}
 	}
 
 	// Reset all userMetadata values related to tutorial featured status.
@@ -125,14 +137,16 @@ func (fes *APIServer) AdminGetTutorialCreators(ww http.ResponseWriter, req *http
 		return
 	}
 	wellKnownSeekKey := _GlobalStateKeyWellKnownTutorialCreators
-	undiscoveredSeekKey := _GlobalStateKeyWellKnownTutorialCreators
+	undiscoveredSeekKey := _GlobalStateKeyUndiscoveredTutorialCreators
 	maxKeyLen := 1 + btcec.PubKeyBytesLenCompressed
+
+	//returnLimit := 2
 	// TODO: Get all of them, do a randomized sample
 	wellKnownKeys, _, err :=fes.GlobalStateSeek(
 		wellKnownSeekKey,
 		wellKnownSeekKey,
 		maxKeyLen,
-		5,
+		300,
 		false,
 		false,
 	)
@@ -147,7 +161,7 @@ func (fes *APIServer) AdminGetTutorialCreators(ww http.ResponseWriter, req *http
 		undiscoveredSeekKey,
 		undiscoveredSeekKey,
 		maxKeyLen,
-		5,
+		300,
 		true,
 		false,
 	)
@@ -157,21 +171,37 @@ func (fes *APIServer) AdminGetTutorialCreators(ww http.ResponseWriter, req *http
 			"AdminGetTutorialCreators: Problem seeking through global state keys: #{err}"))
 		return
 	}
-
-	var undiscoveredPublicKeysBase58Check [][]byte
-	for first, dbKeyBytes := range undiscoveredKeys {
-		// Chop the public key out of the db key.
-		// The dbKeyBytes are: [One Prefix Byte][btcec.PubKeyBytesLenCompressed]
-		fmt.Printf("Here are the first, dbkeybytes, and chopped %v | %v | %v", first, dbKeyBytes, dbKeyBytes[1 :][:])
-		undiscoveredPublicKeysBase58Check = append(undiscoveredPublicKeysBase58Check, dbKeyBytes[1 :][:])
-		fmt.Printf("Here is the array %v", undiscoveredPublicKeysBase58Check)
+	var undiscoveredLimit int
+	if len(undiscoveredKeys) < requestData.ResponseLimit {
+		undiscoveredLimit = len(undiscoveredKeys)
+	} else {
+		undiscoveredLimit = requestData.ResponseLimit
 	}
 
-	var wellKnownPublicKeysBase58Check [][]byte
-	for _, dbKeyBytes := range wellKnownKeys {
+	var undiscoveredPublicKeysBase58Check []string
+	ShuffleKeys(&undiscoveredKeys)
+	for _, dbKeyBytes := range undiscoveredKeys[:undiscoveredLimit] {
 		// Chop the public key out of the db key.
 		// The dbKeyBytes are: [One Prefix Byte][btcec.PubKeyBytesLenCompressed]
-		wellKnownPublicKeysBase58Check = append(wellKnownPublicKeysBase58Check, dbKeyBytes[1 :][:])
+		publicKeyBytes := dbKeyBytes[1 :][:]
+		publicKeyBase58Check := lib.Base58CheckEncode(publicKeyBytes, false, fes.Params)
+		undiscoveredPublicKeysBase58Check = append(undiscoveredPublicKeysBase58Check, publicKeyBase58Check)
+	}
+
+	var wellKnownLimit int
+	if len(wellKnownKeys) < requestData.ResponseLimit {
+		wellKnownLimit = len(wellKnownKeys)
+	} else {
+		wellKnownLimit = requestData.ResponseLimit
+	}
+	var wellKnownPublicKeysBase58Check []string
+	ShuffleKeys(&wellKnownKeys)
+	for _, dbKeyBytes := range wellKnownKeys[:wellKnownLimit] {
+		// Chop the public key out of the db key.
+		// The dbKeyBytes are: [One Prefix Byte][btcec.PubKeyBytesLenCompressed]
+		publicKeyBytes := dbKeyBytes[1 :][:]
+		publicKeyBase58Check := lib.Base58CheckEncode(publicKeyBytes, false, fes.Params)
+		wellKnownPublicKeysBase58Check = append(wellKnownPublicKeysBase58Check, publicKeyBase58Check)
 	}
 
 	fmt.Printf("Here are the undiscovered keys %v", undiscoveredPublicKeysBase58Check)
