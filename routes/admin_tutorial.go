@@ -204,8 +204,6 @@ func (fes *APIServer) AdminGetTutorialCreators(ww http.ResponseWriter, req *http
 		wellKnownPublicKeysBase58Check = append(wellKnownPublicKeysBase58Check, publicKeyBase58Check)
 	}
 
-	fmt.Printf("Here are the undiscovered keys %v", undiscoveredPublicKeysBase58Check)
-
 	res := AdminGetTutorialCreatorResponse{
 		UndiscoveredPublicKeysBase58Check: undiscoveredPublicKeysBase58Check,
 		WellKnownPublicKeysBase58Check: wellKnownPublicKeysBase58Check,
