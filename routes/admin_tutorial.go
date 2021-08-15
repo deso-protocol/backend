@@ -140,8 +140,6 @@ func (fes *APIServer) AdminGetTutorialCreators(ww http.ResponseWriter, req *http
 	undiscoveredSeekKey := _GlobalStateKeyUndiscoveredTutorialCreators
 	maxKeyLen := 1 + btcec.PubKeyBytesLenCompressed
 
-	//returnLimit := 2
-	// TODO: Get all of them, do a randomized sample
 	wellKnownKeys, _, err :=fes.GlobalStateSeek(
 		wellKnownSeekKey,
 		wellKnownSeekKey,
