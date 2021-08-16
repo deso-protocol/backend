@@ -1076,8 +1076,9 @@ func (fes *APIServer) AdminResetTutorialStatus(ww http.ResponseWriter, req *http
 		return
 	}
 
-	if userMetadata.TutorialStatus != EMPTY {
+	if userMetadata.TutorialStatus != EMPTY && userMetadata.CreatorPurchasedInTutorialPKID != nil {
 		userMetadata.TutorialStatus = EMPTY
+		userMetadata.CreatorPurchasedInTutorialPKID = nil
 		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminResetTutorialStatus: Error putting user metadata in global state: %v", err))
 			return

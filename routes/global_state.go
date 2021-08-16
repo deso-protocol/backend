@@ -253,6 +253,7 @@ type UserMetadata struct {
 	HasPurchasedCreatorCoin bool
 
 	TutorialStatus TutorialStatus
+	CreatorPurchasedInTutorialPKID *lib.PKID
 }
 
 type TutorialStatus string
@@ -264,8 +265,8 @@ const (
 	CREATE_PROFILE TutorialStatus = "TutorialCreateProfileComplete"
 	INVEST_OTHERS_BUY TutorialStatus = "InvestInOthersBuyComplete"
 	INVEST_OTHERS_SELL TutorialStatus = "InvestInOthersSellComplete"
-	DIAMOND TutorialStatus = "GiveADiamondComplete"
 	INVEST_SELF TutorialStatus = "InvestInYourselfComplete"
+	DIAMOND TutorialStatus = "GiveADiamondComplete"
 	COMPLETE TutorialStatus = "TutorialComplete"
 )
 

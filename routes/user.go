@@ -213,6 +213,15 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		user.JumioReturned = userMetadata.JumioReturned
 		user.JumioFinishedTime = userMetadata.JumioFinishedTime
 		user.TutorialStatus = userMetadata.TutorialStatus
+		// We only need to fetch the creator purchased in the tutorial if the user is still in the tutorial
+		if user.TutorialStatus != COMPLETE && user.TutorialStatus != SKIPPED && userMetadata.CreatorPurchasedInTutorialPKID != nil {
+			profileEntry := utxoView.GetProfileEntryForPKID(userMetadata.CreatorPurchasedInTutorialPKID)
+			if profileEntry == nil {
+				return fmt.Errorf("updateUserFieldsStateless: Did not find profile entry for PKID for creator purchased in tutorial")
+			}
+			username := string(profileEntry.Username)
+			user.CreatorPurchasedInTutorialUsername = &username
+		}
 		if user.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView); err != nil {
 			return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err), "")
 		}
@@ -522,7 +531,7 @@ type ProfileEntryResponse struct {
 	// TODO(DELETEME): Delete this field
 	StakeMultipleBasisPoints uint64
 	// TODO(DELETEME): Delete this field
-	StakeEntryStats *lib.StakeEntryStats
+	StakeEntryStats *lib.StakeEntryStats `json:",omitempty"`
 
 	// Profiles of users that hold the coin + their balances.
 	UsersThatHODL []*BalanceEntryResponse
@@ -2561,8 +2570,8 @@ func (fes *APIServer) CompleteTutorial(ww http.ResponseWriter, req *http.Request
 		return
 	}
 
-	if userMetadata.TutorialStatus != INVEST_SELF {
-		_AddBadRequestError(ww, fmt.Sprintf("CompleteTutorial: User must be in a tutorial status of %v in order to complete the tutorial - current status: %v", INVEST_SELF, userMetadata.TutorialStatus))
+	if userMetadata.TutorialStatus != DIAMOND {
+		_AddBadRequestError(ww, fmt.Sprintf("CompleteTutorial: User must be in a tutorial status of %v in order to complete the tutorial - current status: %v", DIAMOND, userMetadata.TutorialStatus))
 		return
 	}
 
