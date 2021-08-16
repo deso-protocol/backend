@@ -16,8 +16,8 @@ type GetTutorialCreatorsRequest struct {
 
 
 type GetTutorialCreatorResponse struct {
-	UpAndComingPublicKeysBase58Check []ProfileEntryResponse
-	WellKnownPublicKeysBase58Check []ProfileEntryResponse
+	UpAndComingProfileEntryResponses []ProfileEntryResponse
+	WellKnownProfileEntryResponses []ProfileEntryResponse
 }
 
 func (fes *APIServer) GetTutorialCreators(ww http.ResponseWriter, req *http.Request) {
@@ -50,8 +50,8 @@ func (fes *APIServer) GetTutorialCreators(ww http.ResponseWriter, req *http.Requ
 
 
 	res := GetTutorialCreatorResponse{
-		UpAndComingPublicKeysBase58Check: upAndComingProfileEntryResponses,
-		WellKnownPublicKeysBase58Check:   wellKnownProfileEntryResponses,
+		UpAndComingProfileEntryResponses: upAndComingProfileEntryResponses,
+		WellKnownProfileEntryResponses:   wellKnownProfileEntryResponses,
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTutorialCreators: Problem encoding response as JSON: %v", err))
