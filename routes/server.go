@@ -69,6 +69,7 @@ const (
 	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
 	RoutePathIsFollowingPublicKey     = "/api/v0/is-following-public-key"
 	RoutePathIsHodlingPublicKey       = "/api/v0/is-hodling-public-key"
+	RoutePathGetUserDerivedKeys       = "/api/v0/get-user-derived-keys"
 
 	// post.go
 	RoutePathGetPostsStateless       = "/api/v0/get-posts-stateless"
@@ -138,11 +139,12 @@ const (
 	RoutePathGetBuyBitCloutFeeBasisPoints             = "/api/v0/admin/get-buy-bitclout-fee-basis-points"
 
 	// admin_transaction.go
-	RoutePathGetGlobalParams = "/api/v0/get-global-params"
+	RoutePathGetGlobalParams                = "/api/v0/get-global-params"
+	RoutePathSignTransactionWithDerivedKey  = "/api/v0/admin/sign-transaction-with-derived-key"
 	// Eventually we will deprecate the admin endpoint since it does not need to be protected.
-	RoutePathAdminGetGlobalParams = "/api/v0/admin/get-global-params"
-	RoutePathUpdateGlobalParams   = "/api/v0/admin/update-global-params"
-	RoutePathSwapIdentity         = "/api/v0/admin/swap-identity"
+	RoutePathAdminGetGlobalParams           = "/api/v0/admin/get-global-params"
+	RoutePathUpdateGlobalParams             = "/api/v0/admin/update-global-params"
+	RoutePathSwapIdentity                   = "/api/v0/admin/swap-identity"
 
 	// admin_user.go
 	RoutePathAdminUpdateUserGlobalMetadata         = "/api/v0/admin/update-user-global-metadata"
@@ -672,6 +674,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.VerifyEmail,
 			PublicAccess,
 		},
+		{
+			"GetUserDerivedKeys",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetUserDerivedKeys,
+			fes.GetUserDerivedKeys,
+			PublicAccess,
+		},
 		// Jumio Routes
 		{
 			"JumioBegin",
@@ -871,6 +880,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateJumioBitClout,
 			fes.AdminUpdateJumioBitClout,
+			SuperAdminAccess,
+		},
+		{
+			"AdminSignTransactionWithDerivedKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSignTransactionWithDerivedKey,
+			fes.SignTransactionWithDerivedKey,
 			SuperAdminAccess,
 		},
 		// End all /admin routes

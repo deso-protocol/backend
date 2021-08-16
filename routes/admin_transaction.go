@@ -305,3 +305,60 @@ func (fes *APIServer) SwapIdentity(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 }
+
+// SignTransactionWithDerivedKeyRequest ...
+type SignTransactionWithDerivedKeyRequest struct {
+	// Transaction hex.
+	TransactionHex string `safeForLogging:"true"`
+
+	// Derived private key in base58Check.
+	DerivedKeySeedHex string `safeForLogging:"false"`
+}
+
+// SignTransactionWithDerivedKeyResponse ...
+type SignTransactionWithDerivedKeyResponse struct {
+	// Signed Transaction hex.
+	TransactionHex string `safeForLogging:"true"`
+}
+
+// SignTransactionWithDerivedKey ...
+func (fes *APIServer) SignTransactionWithDerivedKey(ww http.ResponseWriter, req *http.Request) {
+
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := SignTransactionWithDerivedKeyRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SignTransactionWithDerivedKey: Problem parsing request body: %v", err))
+		return
+	}
+
+	txnBytes, err := hex.DecodeString(requestData.TransactionHex)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SignTransactionWithDerivedKey: Problem decoding transaction hex %v", err))
+		return
+	}
+
+	privBytes, err := hex.DecodeString(requestData.DerivedKeySeedHex)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SignTransactionWithDerivedKey: Problem decoding seed hex %v", err))
+		return
+	}
+	privKeyBytes, _ := btcec.PrivKeyFromBytes(btcec.S256(), privBytes)
+
+	txnSignatureBytes, err := lib.SignTransactionWithDerivedKey(txnBytes, privKeyBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SignTransactionWithDerivedKey: Problem signing transaction: %v", err))
+		return
+	}
+
+	var signedTransactionHex []byte
+	signedTransactionHex = txnBytes[0 : len(txnBytes)-1]
+	signedTransactionHex = append(signedTransactionHex, lib.UintToBuf(uint64(len(txnSignatureBytes)))...)
+	signedTransactionHex = append(signedTransactionHex, txnSignatureBytes...)
+	res := SignTransactionWithDerivedKeyResponse {
+		TransactionHex:  hex.EncodeToString(signedTransactionHex),
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SignTransactionWithDerivedKey: Problem encoding response as JSON: %v", err))
+		return
+	}
+}

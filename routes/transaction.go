@@ -1941,7 +1941,7 @@ type AuthorizeDerivedKeyRequest struct {
 	// The expiration block of the derived key pair.
 	ExpirationBlock uint64 `safeForLogging:"true"`
 
-	// The signature of the derived key owner.
+	// The signature of hash(derived key + expiration block) made by the owner.
 	AccessSignature string `safeForLogging:"true"`
 
 	// The intended operation on the derived key.
