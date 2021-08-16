@@ -214,7 +214,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		user.JumioReturned = userMetadata.JumioReturned
 		user.JumioFinishedTime = userMetadata.JumioFinishedTime
 		if profileEntryy != nil {
-			user.ProfileEntryResponse.IsFeaturedTutorialUndiscoveredCreator = userMetadata.IsFeaturedTutorialUndiscoveredCreator
+			user.ProfileEntryResponse.IsFeaturedTutorialUpAndComingCreator = userMetadata.IsFeaturedTutorialUpAndComingCreator
 			user.ProfileEntryResponse.IsFeaturedTutorialWellKnownCreator = userMetadata.IsFeaturedTutorialWellKnownCreator
 		}
 		if user.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView); err != nil {
@@ -246,29 +246,32 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 
 	// Only set User.IsAdmin in GetUsersStateless
 	// We don't want or need to set this on every endpoint that generates a ProfileEntryResponse
-	if len(fes.Config.AdminPublicKeys) == 0 && len(fes.Config.SuperAdminPublicKeys) == 0 {
-		user.IsAdmin = true
-		user.IsSuperAdmin = true
-	} else {
-		for _, k := range fes.Config.AdminPublicKeys {
-			if k == user.PublicKeyBase58Check {
-				user.IsAdmin = true
-				break
-			}
-		}
-		for _, k := range fes.Config.SuperAdminPublicKeys {
-			if k == user.PublicKeyBase58Check {
-				user.IsSuperAdmin = true
-				user.IsAdmin = true
-				break
-			}
-		}
-	}
+	isAdmin, isSuperAdmin := fes.UserAdminStatus(user.PublicKeyBase58Check)
+	user.IsAdmin = isAdmin
+	user.IsSuperAdmin = isSuperAdmin
 
 	// We expect SeedInfo and LocalState are set and don't mess with them in this
 	// function.
 
 	return nil
+}
+
+func (fes *APIServer) UserAdminStatus(publicKeyBase58Check string) (_isAdmin bool, _isSuperAdmin bool) {
+	if len(fes.Config.AdminPublicKeys) == 0 && len(fes.Config.SuperAdminPublicKeys) == 0 {
+		return true, true
+	} else {
+		for _, k := range fes.Config.SuperAdminPublicKeys {
+			if k == publicKeyBase58Check {
+				return true, true
+			}
+		}
+		for _, k := range fes.Config.AdminPublicKeys {
+			if k == publicKeyBase58Check {
+				return true, false
+			}
+		}
+	}
+	return false, false
 }
 
 // Get map of creators you hodl.
@@ -533,9 +536,9 @@ type ProfileEntryResponse struct {
 
 	// If user is featured as a well known creator in the tutorial.
 	IsFeaturedTutorialWellKnownCreator bool
-	// If user is featured as an undiscovered creator in the tutorial.
-	// Note: a user should not be both featured as well known and undiscovered
-	IsFeaturedTutorialUndiscoveredCreator bool
+	// If user is featured as an up and coming creator in the tutorial.
+	// Note: a user should not be both featured as well known and up and coming
+	IsFeaturedTutorialUpAndComingCreator bool
 }
 
 // GetProfiles ...
@@ -1092,15 +1095,19 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 		res.IsGraylisted = true
 	}
 
-	var userMetadata *UserMetadata
-	userMetadata, err = fes.getUserMetadataFromGlobalState(publicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateTutorialCreator: error getting usermetadata for public key: %v", err))
-		return
-	}
+	isAdmin, _ := fes.UserAdminStatus(publicKeyBase58Check)
 
-	res.Profile.IsFeaturedTutorialUndiscoveredCreator = userMetadata.IsFeaturedTutorialUndiscoveredCreator
-	res.Profile.IsFeaturedTutorialWellKnownCreator = userMetadata.IsFeaturedTutorialWellKnownCreator
+	if isAdmin {
+		var userMetadata *UserMetadata
+		userMetadata, err = fes.getUserMetadataFromGlobalState(publicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: error getting usermetadata for public key: %v", err))
+			return
+		}
+
+		res.Profile.IsFeaturedTutorialUpAndComingCreator = userMetadata.IsFeaturedTutorialUpAndComingCreator
+		res.Profile.IsFeaturedTutorialWellKnownCreator = userMetadata.IsFeaturedTutorialWellKnownCreator
+	}
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetSingleProfile: Problem serializing object to JSON: %v", err))

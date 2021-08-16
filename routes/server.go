@@ -112,6 +112,9 @@ const (
 	RoutePathJumioFlowFinished                 = "/api/v0/jumio-flow-finished"
 	RoutePathGetJumioStatusForPublicKey        = "/api/v0/get-jumio-status-for-public-key"
 
+	// tutorial.go
+	RoutePathGetTutorialCreators         = "/api/v0/get-tutorial-creators"
+
 	// wyre.go
 	RoutePathGetWyreWalletOrderQuotation     = "/api/v0/get-wyre-wallet-order-quotation"
 	RoutePathGetWyreWalletOrderReservation   = "/api/v0/get-wyre-wallet-order-reservation"
@@ -168,7 +171,6 @@ const (
 
 	// admin_tutorial.go
 	RoutePathAdminUpdateTutorialCreators = "/api/v0/admin/update-tutorial-creators"
-	RoutePathAdminGetTutorialCreators = "/api/v0/admin/get-tutorial-creators"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -696,6 +698,14 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetJumioStatusForPublicKey,
 			PublicAccess,
 		},
+		// Tutorial Routes
+		{
+			"GetTutorialCreators",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetTutorialCreators,
+			fes.GetTutorialCreators,
+			PublicAccess,
+		},
 		// Begin all /admin routes
 		{
 			// Route for all low-level node operations.
@@ -873,13 +883,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateTutorialCreators,
 			fes.AdminUpdateTutorialCreator,
-			SuperAdminAccess,
-		},
-		{
-			"AdminGetTutorialCreators",
-			[]string{"POST", "OPTIONS"},
-			RoutePathAdminGetTutorialCreators,
-			fes.AdminGetTutorialCreators,
 			SuperAdminAccess,
 		},
 		// End all /admin routes

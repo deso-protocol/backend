@@ -153,8 +153,8 @@ var (
 	// Tutorial featured well-known creators
 	_GlobalStateKeyWellKnownTutorialCreators = []byte{22}
 
-	// Tutorial featured undiscovered creators
-	_GlobalStateKeyUndiscoveredTutorialCreators = []byte{23}
+	// Tutorial featured up and coming creators
+	_GlobalStateKeyUpAndComingTutorialCreators = []byte{23}
 
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
@@ -260,9 +260,9 @@ type UserMetadata struct {
 
 	// If user is featured as a well known creator in the tutorial.
 	IsFeaturedTutorialWellKnownCreator bool
-	// If user is featured as an undiscovered creator in the tutorial.
-	// Note: a user should not be both featured as well known and undiscovered
-	IsFeaturedTutorialUndiscoveredCreator bool
+	// If user is featured as an up and coming creator in the tutorial.
+	// Note: a user should not be both featured as well known and up and coming
+	IsFeaturedTutorialUpAndComingCreator bool
 }
 
 // This struct contains all the metadata associated with a user's phone number.
@@ -461,8 +461,8 @@ func GlobalStateKeyWellKnownTutorialCreators(pkid *lib.PKID) []byte {
 	return key
 }
 
-func GlobalStateKeyUndiscoveredTutorialCreators(pkid *lib.PKID) []byte {
-	prefixCopy := append([]byte{}, _GlobalStateKeyUndiscoveredTutorialCreators...)
+func GlobalStateKeyUpAndComingTutorialCreators(pkid *lib.PKID) []byte {
+	prefixCopy := append([]byte{}, _GlobalStateKeyUpAndComingTutorialCreators...)
 	key := append(prefixCopy, pkid[:]...)
 	return key
 }
