@@ -16,8 +16,8 @@ type GetTutorialCreatorsRequest struct {
 
 
 type GetTutorialCreatorResponse struct {
-	UpAndComingPublicKeysBase58Check []string
-	WellKnownPublicKeysBase58Check []string
+	UpAndComingPublicKeysBase58Check []ProfileEntryResponse
+	WellKnownPublicKeysBase58Check []ProfileEntryResponse
 }
 
 func (fes *APIServer) GetTutorialCreators(ww http.ResponseWriter, req *http.Request) {
@@ -30,20 +30,28 @@ func (fes *APIServer) GetTutorialCreators(ww http.ResponseWriter, req *http.Requ
 	wellKnownSeekKey := _GlobalStateKeyWellKnownTutorialCreators
 	upAndComingSeekKey := _GlobalStateKeyUpAndComingTutorialCreators
 
-	upAndComingPublicKeysBase58Check, err := fes.GetFeaturedCreators(requestData.ResponseLimit, upAndComingSeekKey)
+	// Get a view
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Error getting utxoView: %v", err))
+		return
+	}
+	upAndComingProfileEntryResponses, err := fes.GetFeaturedCreators(utxoView, requestData.ResponseLimit, upAndComingSeekKey)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTutorialCreators: Problem getting up and coming tutorial creators: %v", err))
 		return
 	}
-	wellKnownPublicKeysBase58Check, err := fes.GetFeaturedCreators(requestData.ResponseLimit, wellKnownSeekKey)
+	wellKnownProfileEntryResponses, err := fes.GetFeaturedCreators(utxoView, requestData.ResponseLimit, wellKnownSeekKey)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTutorialCreators: Problem getting well known tutorial creators: %v", err))
 		return
 	}
 
+
+
 	res := GetTutorialCreatorResponse{
-		UpAndComingPublicKeysBase58Check: upAndComingPublicKeysBase58Check,
-		WellKnownPublicKeysBase58Check: wellKnownPublicKeysBase58Check,
+		UpAndComingPublicKeysBase58Check: upAndComingProfileEntryResponses,
+		WellKnownPublicKeysBase58Check:   wellKnownProfileEntryResponses,
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTutorialCreators: Problem encoding response as JSON: %v", err))
@@ -51,7 +59,7 @@ func (fes *APIServer) GetTutorialCreators(ww http.ResponseWriter, req *http.Requ
 	}
 }
 
-func (fes *APIServer) GetFeaturedCreators(responseLimit int, seekKey []byte) (_publicKeysBase58Check []string, _err error) {
+func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit int, seekKey []byte) (_profileEntryResponses []ProfileEntryResponse, _err error) {
 	maxKeyLen := 1 + btcec.PubKeyBytesLenCompressed
 	keys, _, err := fes.GlobalStateSeek(
 		seekKey,
@@ -73,14 +81,20 @@ func (fes *APIServer) GetFeaturedCreators(responseLimit int, seekKey []byte) (_p
 		publicKeysUpperBound = responseLimit
 	}
 
-	var publicKeysBase58Check []string
+	var profileEntryResponses []ProfileEntryResponse
 	ShuffleKeys(&keys)
 	for _, dbKeyBytes := range keys[:publicKeysUpperBound] {
 		// Chop the public key out of the db key.
 		// The dbKeyBytes are: [One Prefix Byte][btcec.PubKeyBytesLenCompressed]
 		publicKeyBytes := dbKeyBytes[1 :][:]
-		publicKeyBase58Check := lib.Base58CheckEncode(publicKeyBytes, false, fes.Params)
-		publicKeysBase58Check = append(publicKeysBase58Check, publicKeyBase58Check)
+		profileEntryy := utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
+		// Grab verified username map pointer
+		verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+		if err != nil {
+			return nil, fmt.Errorf("GetFeaturedCreators: Problem fetching verifiedMap: %v", err)
+		}
+		profileEntryResponse := _profileEntryToResponse(profileEntryy, fes.Params, verifiedMap, utxoView)
+		profileEntryResponses = append(profileEntryResponses, *profileEntryResponse)
 	}
-	return publicKeysBase58Check, nil
+	return profileEntryResponses, nil
 }
