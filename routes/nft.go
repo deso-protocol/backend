@@ -697,7 +697,7 @@ func (fes *APIServer) GetNFTShowcase(ww http.ResponseWriter, req *http.Request) 
 			_AddInternalServerError(ww, fmt.Sprint("GetNFTShowcase: Found invalid post entry for NFT hash."))
 			return
 		}
-
+		postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPublicKeyBytes, postEntry)
 		nftCollectionResponse := fes._nftEntryToNFTCollectionResponse(nftEntry, postEntry.PosterPublicKey, postEntryResponse, utxoView, verifiedMap, readerPKID)
 		nftCollectionResponses = append(nftCollectionResponses, nftCollectionResponse)
 	}
@@ -847,6 +847,7 @@ func (fes *APIServer) GetNFTsForUser(ww http.ResponseWriter, req *http.Request) 
 				profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
 				profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedUsernameMap, utxoView)
 				postEntryResponse.ProfileEntryResponse = profileEntryResponse
+				postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPublicKeyBytes, postEntry)
 				publicKeyToProfileEntryResponse[postEntryResponse.PosterPublicKeyBase58Check] = profileEntryResponse
 			} else {
 				postEntryResponse.ProfileEntryResponse = peResponse
@@ -945,6 +946,7 @@ func (fes *APIServer) GetNFTBidsForUser(ww http.ResponseWriter, req *http.Reques
 				_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForUser: Error getting PostEntryResponse: %v", err))
 				return
 			}
+			newPostEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPublicKeyBytes, postEntry)
 			if _, peExists := publicKeytoProfileEntryResponse[newPostEntryResponse.PosterPublicKeyBase58Check]; !peExists {
 				profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
 				peResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
@@ -1025,6 +1027,7 @@ func (fes *APIServer) GetNFTBidsForNFTPost(ww http.ResponseWriter, req *http.Req
 		_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForNFTPost: Error converting post entry to response: %v", err))
 		return
 	}
+	postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPublicKeyBytes, postEntry)
 	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForNFTPost: Error getting verified user map: %v", err))
@@ -1095,20 +1098,6 @@ func (fes *APIServer) GetNFTCollectionSummary(ww http.ResponseWriter, req *http.
 		_AddBadRequestError(ww, fmt.Sprintf("GetNFTCollectionSummary: cannot get nft collection summary for post that is not an NFT"))
 		return
 	}
-	postEntryResponse, err := fes._postEntryToResponse(postEntry, true, fes.Params, utxoView, nil, 2)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetNFTCollectionSummary: Error converting post entry to response: %v", err))
-		return
-	}
-
-	nftKey := lib.MakeNFTKey(postEntry.PostHash, 1)
-	nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
-
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetNFTCollectionSummary: Error getting verified user map: %v", err))
-		return
-	}
 	var readerPublicKeyBytes []byte
 	var readerPKID *lib.PKID
 	if requestData.ReaderPublicKeyBase58Check != "" {
@@ -1119,6 +1108,23 @@ func (fes *APIServer) GetNFTCollectionSummary(ww http.ResponseWriter, req *http.
 		}
 		readerPKID = utxoView.GetPKIDForPublicKey(readerPublicKeyBytes).PKID
 	}
+	postEntryResponse, err := fes._postEntryToResponse(postEntry, true, fes.Params, utxoView, readerPublicKeyBytes, 2)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTCollectionSummary: Error converting post entry to response: %v", err))
+		return
+	}
+
+	postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPublicKeyBytes, postEntry)
+
+	nftKey := lib.MakeNFTKey(postEntry.PostHash, 1)
+	nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
+
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTCollectionSummary: Error getting verified user map: %v", err))
+		return
+	}
+
 	res := &GetNFTCollectionSummaryResponse{
 		NFTCollectionResponse:          fes._nftEntryToNFTCollectionResponse(nftEntry, postEntry.PosterPublicKey, postEntryResponse, utxoView, verifiedMap, readerPKID),
 		SerialNumberToNFTEntryResponse: make(map[uint64]*NFTEntryResponse),
