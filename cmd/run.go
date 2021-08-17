@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"fmt"
 	"github.com/bitclout/backend/config"
 	coreCmd "github.com/bitclout/core/cmd"
+	"github.com/bitclout/core/lib"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -24,6 +26,7 @@ var runCmd = &cobra.Command{
 func Run(cmd *cobra.Command, args []string) {
 	// Start the core node
 	coreConfig := coreCmd.LoadConfig()
+	fmt.Printf("HERE IS THE CONFIG (%v)", lib.BitCloutDiamondsBlockHeight)
 	coreNode := coreCmd.NewNode(coreConfig)
 	coreNode.Start()
 
@@ -143,6 +146,16 @@ func init() {
 	runCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
 		viper.BindPFlag(flag.Name, flag)
 	})
+
+	// Block heights
+	runCmd.PersistentFlags().Uint32("bitclout-diamonds-block-height", 1, "Block height for bitclout diamonds update")
+	runCmd.PersistentFlags().Uint32("broken-nft-bids-fix-block-height", 1, "Block height for bitclout diamonds update")
+	runCmd.PersistentFlags().Uint32("update-profile-fix-block-height", 1, "Block height for bitclout diamonds update")
+	runCmd.PersistentFlags().Uint32("param-updater-profile-fix-block-height", 1, "Block height for bitclout diamonds update")
+	runCmd.PersistentFlags().Uint32("buy-creator-coin-after-deleted-balance-fix-block-height", 1, "Block height for bitclout diamonds update")
+	runCmd.PersistentFlags().Uint32("founder-reward-block-height", 1, "Block height for bitclout diamonds update")
+	runCmd.PersistentFlags().Uint32("salmon-fix-block-height", 1, "Block height for bitclout diamonds update")
+
 
 	rootCmd.AddCommand(runCmd)
 }
