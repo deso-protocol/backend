@@ -68,8 +68,6 @@ const (
 	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
 	RoutePathIsFollowingPublicKey     = "/api/v0/is-following-public-key"
 	RoutePathIsHodlingPublicKey       = "/api/v0/is-hodling-public-key"
-	RoutePathStartOrSkipTutorial      = "/api/v0/start-or-skip-tutorial"
-	RoutePathCompleteTutorial         = "/api/v0/complete-tutorial"
 
 	// post.go
 	RoutePathGetPostsStateless       = "/api/v0/get-posts-stateless"
@@ -116,6 +114,7 @@ const (
 
 	// tutorial.go
 	RoutePathGetTutorialCreators         = "/api/v0/get-tutorial-creators"
+	RoutePathStartOrSkipTutorial      = "/api/v0/start-or-skip-tutorial"
 
 	// wyre.go
 	RoutePathGetWyreWalletOrderQuotation     = "/api/v0/get-wyre-wallet-order-quotation"
@@ -663,13 +662,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathStartOrSkipTutorial,
 			fes.StartOrSkipTutorial,
-			PublicAccess,
-		},
-		{
-			"CompleteTutorial",
-			[]string{"POST", "OPTIONS"},
-			RoutePathCompleteTutorial,
-			fes.CompleteTutorial,
 			PublicAccess,
 		},
 		{
