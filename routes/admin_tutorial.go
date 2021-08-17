@@ -41,7 +41,7 @@ func (fes *APIServer) AdminUpdateTutorialCreator(ww http.ResponseWriter, req *ht
 		} else {
 			tableCreatorIn = "up and coming"
 		}
-		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateTutorialCreator: cannot add creator to %v, user already exists in %v", tableCreatorIn))
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateTutorialCreator: cannot add creator to %v, user already exists in other index", tableCreatorIn))
 		return
 	}
 
@@ -51,12 +51,10 @@ func (fes *APIServer) AdminUpdateTutorialCreator(ww http.ResponseWriter, req *ht
 		return
 	}
 	var prefix []byte
-	wellKnownPrefix := GlobalStateKeyWellKnownTutorialCreators(pkid.PKID)
-	upAndComingPrefix := GlobalStateKeyUpAndComingTutorialCreators(pkid.PKID)
 	if requestData.IsWellKnown {
-		prefix = wellKnownPrefix
+		prefix = GlobalStateKeyWellKnownTutorialCreators(pkid.PKID)
 	} else {
-		prefix = upAndComingPrefix
+		prefix = GlobalStateKeyUpAndComingTutorialCreators(pkid.PKID)
 	}
 
 	if requestData.IsRemoval {
@@ -83,7 +81,7 @@ func (fes *APIServer) AdminUpdateTutorialCreator(ww http.ResponseWriter, req *ht
 	}
 
 	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminResetJumioForPublicKey: Problem putting updated user metadata in Global state: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateTutorialCreator: Problem putting updated user metadata in Global state: %v", err))
 		return
 	}
 }

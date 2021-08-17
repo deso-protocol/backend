@@ -24,7 +24,7 @@ func (fes *APIServer) GetTutorialCreators(ww http.ResponseWriter, req *http.Requ
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetTutorialCreatorsRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateTutorialCreator: Problem parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetTutorialCreators: Problem parsing request body: %v", err))
 		return
 	}
 	wellKnownSeekKey := _GlobalStateKeyWellKnownTutorialCreators
@@ -33,7 +33,7 @@ func (fes *APIServer) GetTutorialCreators(ww http.ResponseWriter, req *http.Requ
 	// Get a view
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Error getting utxoView: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetTutorialCreators: Error getting utxoView: %v", err))
 		return
 	}
 	upAndComingProfileEntryResponses, err := fes.GetFeaturedCreators(utxoView, requestData.ResponseLimit, upAndComingSeekKey)

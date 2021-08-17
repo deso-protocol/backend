@@ -213,7 +213,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		user.JumioVerified = userMetadata.JumioVerified
 		user.JumioReturned = userMetadata.JumioReturned
 		user.JumioFinishedTime = userMetadata.JumioFinishedTime
-    user.TutorialStatus = userMetadata.TutorialStatus
+		user.TutorialStatus = userMetadata.TutorialStatus
 		// We only need to fetch the creator purchased in the tutorial if the user is still in the tutorial
 		if user.TutorialStatus != COMPLETE && user.TutorialStatus != SKIPPED && userMetadata.CreatorPurchasedInTutorialPKID != nil {
 			profileEntry := utxoView.GetProfileEntryForPKID(userMetadata.CreatorPurchasedInTutorialPKID)
@@ -223,10 +223,10 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 			username := string(profileEntry.Username)
 			user.CreatorPurchasedInTutorialUsername = &username
 		}
-    if profileEntryy != nil {
+		if profileEntryy != nil {
 			user.ProfileEntryResponse.IsFeaturedTutorialUpAndComingCreator = userMetadata.IsFeaturedTutorialUpAndComingCreator
 			user.ProfileEntryResponse.IsFeaturedTutorialWellKnownCreator = userMetadata.IsFeaturedTutorialWellKnownCreator
-    }
+		}
 		if user.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView); err != nil {
 			return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err), "")
 		}
@@ -260,8 +260,6 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	user.IsAdmin = isAdmin
 	user.IsSuperAdmin = isSuperAdmin
 
-	// We expect SeedInfo and LocalState are set and don't mess with them in this
-	// function.
 
 	return nil
 }
@@ -1105,9 +1103,7 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 		res.IsGraylisted = true
 	}
 
-	isAdmin, _ := fes.UserAdminStatus(publicKeyBase58Check)
-
-	if isAdmin {
+	if isAdmin, _ := fes.UserAdminStatus(publicKeyBase58Check); isAdmin {
 		var userMetadata *UserMetadata
 		userMetadata, err = fes.getUserMetadataFromGlobalState(publicKeyBase58Check)
 		if err != nil {
