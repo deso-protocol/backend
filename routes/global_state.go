@@ -258,12 +258,30 @@ type UserMetadata struct {
 	// after getting free CLOUT.
 	HasPurchasedCreatorCoin bool
 
+
 	// If user is featured as a well known creator in the tutorial.
 	IsFeaturedTutorialWellKnownCreator bool
 	// If user is featured as an up and coming creator in the tutorial.
 	// Note: a user should not be both featured as well known and up and coming
 	IsFeaturedTutorialUpAndComingCreator bool
+
+  TutorialStatus TutorialStatus
+	CreatorPurchasedInTutorialPKID *lib.PKID
 }
+
+type TutorialStatus string
+
+const (
+	EMPTY TutorialStatus = ""
+	STARTED TutorialStatus = "TutorialStarted"
+	SKIPPED TutorialStatus = "TutorialSkipped"
+	INVEST_OTHERS_BUY TutorialStatus = "InvestInOthersBuyComplete"
+	INVEST_OTHERS_SELL TutorialStatus = "InvestInOthersSellComplete"
+	CREATE_PROFILE TutorialStatus = "TutorialCreateProfileComplete"
+	INVEST_SELF TutorialStatus = "InvestInYourselfComplete"
+	DIAMOND TutorialStatus = "GiveADiamondComplete"
+	COMPLETE TutorialStatus = "TutorialComplete"
+)
 
 // This struct contains all the metadata associated with a user's phone number.
 type PhoneNumberMetadata struct {

@@ -213,10 +213,20 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		user.JumioVerified = userMetadata.JumioVerified
 		user.JumioReturned = userMetadata.JumioReturned
 		user.JumioFinishedTime = userMetadata.JumioFinishedTime
-		if profileEntryy != nil {
+    user.TutorialStatus = userMetadata.TutorialStatus
+		// We only need to fetch the creator purchased in the tutorial if the user is still in the tutorial
+		if user.TutorialStatus != COMPLETE && user.TutorialStatus != SKIPPED && userMetadata.CreatorPurchasedInTutorialPKID != nil {
+			profileEntry := utxoView.GetProfileEntryForPKID(userMetadata.CreatorPurchasedInTutorialPKID)
+			if profileEntry == nil {
+				return fmt.Errorf("updateUserFieldsStateless: Did not find profile entry for PKID for creator purchased in tutorial")
+			}
+			username := string(profileEntry.Username)
+			user.CreatorPurchasedInTutorialUsername = &username
+		}
+    if profileEntryy != nil {
 			user.ProfileEntryResponse.IsFeaturedTutorialUpAndComingCreator = userMetadata.IsFeaturedTutorialUpAndComingCreator
 			user.ProfileEntryResponse.IsFeaturedTutorialWellKnownCreator = userMetadata.IsFeaturedTutorialWellKnownCreator
-		}
+    }
 		if user.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView); err != nil {
 			return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err), "")
 		}
@@ -529,7 +539,7 @@ type ProfileEntryResponse struct {
 	// TODO(DELETEME): Delete this field
 	StakeMultipleBasisPoints uint64
 	// TODO(DELETEME): Delete this field
-	StakeEntryStats *lib.StakeEntryStats
+	StakeEntryStats *lib.StakeEntryStats `json:",omitempty"`
 
 	// Profiles of users that hold the coin + their balances.
 	UsersThatHODL []*BalanceEntryResponse
@@ -2510,4 +2520,95 @@ func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Reque
 		return
 	}
 
+}
+
+type StartOrSkipTutorialRequest struct {
+	PublicKeyBase58Check string
+	JWT string
+	IsSkip bool
+}
+
+func (fes *APIServer) StartOrSkipTutorial(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := StartOrSkipTutorialRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"StartOrSkipTutorial: Problem parsing request body: %v", err))
+		return
+	}
+	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorialioBegin: Error validating JWT: %v", err))
+		return
+	}
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Invalid token: %v", err))
+		return
+	}
+
+	userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.PublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Error getting user metadata from global state: %v", err))
+		return
+	}
+
+	if requestData.IsSkip && userMetadata.TutorialStatus != EMPTY {
+		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Can only skip tutorial from empty state"))
+		return
+	}
+	if !requestData.IsSkip && userMetadata.TutorialStatus != EMPTY && userMetadata.TutorialStatus != SKIPPED {
+		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Can only start tutorial from empty or skipped state"))
+		return
+	}
+
+	if requestData.IsSkip {
+		userMetadata.TutorialStatus = SKIPPED
+	} else {
+		userMetadata.TutorialStatus = STARTED
+	}
+	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: err putting user metdata in global state: %v", err))
+		return
+	}
+}
+
+type CompleteTutorialRequest struct {
+	PublicKeyBase58Check string
+	JWT string
+}
+
+func (fes *APIServer) CompleteTutorial(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := CompleteTutorialRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"CompleteTutorial: Problem parsing request body: %v", err))
+		return
+	}
+	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CompleteTutorial: Error validating JWT: %v", err))
+		return
+	}
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("CompleteTutorial: Invalid token: %v", err))
+		return
+	}
+
+	userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.PublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CompleteTutorial: Error getting user metadata from global state: %v", err))
+		return
+	}
+
+	if userMetadata.TutorialStatus != DIAMOND {
+		_AddBadRequestError(ww, fmt.Sprintf("CompleteTutorial: User must be in a tutorial status of %v in order to complete the tutorial - current status: %v", DIAMOND, userMetadata.TutorialStatus))
+		return
+	}
+
+	userMetadata.TutorialStatus = COMPLETE
+	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CompleteTutorial: err putting user metdata in global state: %v", err))
+		return
+	}
 }

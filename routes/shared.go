@@ -127,6 +127,12 @@ type User struct {
 	// Is this user blacklisted/graylisted
 	IsBlacklisted bool
 	IsGraylisted  bool
+
+	// Where is the user in the tutorial flow
+	TutorialStatus TutorialStatus
+
+	// Username of creator purchased during onboarding flow - used in case a user changes devices in the middle of the flow.
+	CreatorPurchasedInTutorialUsername *string `json:",omitempty"`
 }
 
 type BalanceEntryResponse struct {
@@ -144,7 +150,7 @@ type BalanceEntryResponse struct {
 	// This is used by the frontend to convey info about mining.
 	NetBalanceInMempool int64
 
-	ProfileEntryResponse *ProfileEntryResponse
+	ProfileEntryResponse *ProfileEntryResponse `json:",omitempty"`
 }
 
 func (fes *APIServer) GetBalanceForPublicKey(publicKeyBytes []byte) (

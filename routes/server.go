@@ -68,6 +68,8 @@ const (
 	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
 	RoutePathIsFollowingPublicKey     = "/api/v0/is-following-public-key"
 	RoutePathIsHodlingPublicKey       = "/api/v0/is-hodling-public-key"
+	RoutePathStartOrSkipTutorial      = "/api/v0/start-or-skip-tutorial"
+	RoutePathCompleteTutorial         = "/api/v0/complete-tutorial"
 
 	// post.go
 	RoutePathGetPostsStateless       = "/api/v0/get-posts-stateless"
@@ -155,6 +157,7 @@ const (
 	RoutePathAdminGetVerifiedUsers                 = "/api/v0/admin/get-verified-users"
 	RoutePathAdminGetUsernameVerificationAuditLogs = "/api/v0/admin/get-username-verification-audit-logs"
 	RoutePathAdminGetUserAdminData                 = "/api/v0/admin/get-user-admin-data"
+	RoutePathAdminResetTutorialStatus              = "/api/v0/admin/reset-tutorial-status"
 
 	// admin_feed.go
 	RoutePathAdminUpdateGlobalFeed = "/api/v0/admin/update-global-feed"
@@ -656,6 +659,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"StartOrSkipTutorial",
+			[]string{"POST", "OPTIONS"},
+			RoutePathStartOrSkipTutorial,
+			fes.StartOrSkipTutorial,
+			PublicAccess,
+		},
+		{
+			"CompleteTutorial",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCompleteTutorial,
+			fes.CompleteTutorial,
+			PublicAccess,
+		},
+		{
 			"ResendVerifyEmail",
 			[]string{"POST", "OPTIONS"},
 			RoutePathResendVerifyEmail,
@@ -790,6 +807,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateNFTDrop,
 			fes.AdminUpdateNFTDrop,
+			AdminAccess,
+		},
+		{
+			"AdminResetTutorialStatus",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminResetTutorialStatus,
+			fes.AdminResetTutorialStatus,
 			AdminAccess,
 		},
 		// Super Admin routes
