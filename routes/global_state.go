@@ -265,7 +265,7 @@ type UserMetadata struct {
 	// Note: a user should not be both featured as well known and up and coming
 	IsFeaturedTutorialUpAndComingCreator bool
 
-  TutorialStatus TutorialStatus
+	TutorialStatus TutorialStatus
 	CreatorPurchasedInTutorialPKID *lib.PKID
 }
 
