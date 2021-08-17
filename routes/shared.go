@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"time"
 
@@ -357,4 +358,11 @@ func (fes *APIServer) SendSeedBitClout(recipientPkBytes []byte, amountNanos uint
 		}
 	}
 	return hash, err
+}
+
+func ShuffleKeys(records *[][]byte) {
+	rand.Seed(time.Now().UnixNano())
+	rand.Shuffle(len(*records), func(i, j int) {
+		(*records)[i], (*records)[j] = (*records)[j], (*records)[i]
+	})
 }

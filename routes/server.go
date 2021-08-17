@@ -82,16 +82,16 @@ const (
 	RoutePathGetDiamondedPosts       = "/api/v0/get-diamonded-posts"
 
 	// nft.go
-	RoutePathCreateNFT               = "/api/v0/create-nft"
-	RoutePathUpdateNFT               = "/api/v0/update-nft"
-	RoutePathGetNFTsForUser          = "/api/v0/get-nfts-for-user"
-	RoutePathGetNFTBidsForUser       = "/api/v0/get-nft-bids-for-user"
-	RoutePathCreateNFTBid            = "/api/v0/create-nft-bid"
-	RoutePathAcceptNFTBid            = "/api/v0/accept-nft-bid"
-	RoutePathGetNFTBidsForNFTPost    = "/api/v0/get-nft-bids-for-nft-post"
-	RoutePathGetNFTShowcase          = "/api/v0/get-nft-showcase"
-	RoutePathGetNextNFTShowcase      = "/api/v0/get-next-nft-showcase"
-	RoutePathGetNFTCollectionSummary = "/api/v0/get-nft-collection-summary"
+	RoutePathCreateNFT                = "/api/v0/create-nft"
+	RoutePathUpdateNFT                = "/api/v0/update-nft"
+	RoutePathGetNFTsForUser           = "/api/v0/get-nfts-for-user"
+	RoutePathGetNFTBidsForUser        = "/api/v0/get-nft-bids-for-user"
+	RoutePathCreateNFTBid             = "/api/v0/create-nft-bid"
+	RoutePathAcceptNFTBid             = "/api/v0/accept-nft-bid"
+	RoutePathGetNFTBidsForNFTPost     = "/api/v0/get-nft-bids-for-nft-post"
+	RoutePathGetNFTShowcase           = "/api/v0/get-nft-showcase"
+	RoutePathGetNextNFTShowcase       = "/api/v0/get-next-nft-showcase"
+	RoutePathGetNFTCollectionSummary  = "/api/v0/get-nft-collection-summary"
 	RoutePathGetNFTEntriesForPostHash = "/api/v0/get-nft-entries-for-nft-post"
 
 	// media.go
@@ -113,6 +113,9 @@ const (
 	RoutePathJumioCallback                     = "/api/v0/jumio-callback"
 	RoutePathJumioFlowFinished                 = "/api/v0/jumio-flow-finished"
 	RoutePathGetJumioStatusForPublicKey        = "/api/v0/get-jumio-status-for-public-key"
+
+	// tutorial.go
+	RoutePathGetTutorialCreators         = "/api/v0/get-tutorial-creators"
 
 	// wyre.go
 	RoutePathGetWyreWalletOrderQuotation     = "/api/v0/get-wyre-wallet-order-quotation"
@@ -165,10 +168,12 @@ const (
 	RoutePathAdminGetNFTDrop    = "/api/v0/admin/get-nft-drop"
 	RoutePathAdminUpdateNFTDrop = "/api/v0/admin/update-nft-drop"
 
-
 	// admin_jumio.go
-	RoutePathAdminResetJumioForPublicKey       = "/api/v0/admin/reset-jumio-for-public-key"
-	RoutePathAdminUpdateJumioBitClout          = "/api/v0/admin/update-jumio-bitclout"
+	RoutePathAdminResetJumioForPublicKey = "/api/v0/admin/reset-jumio-for-public-key"
+	RoutePathAdminUpdateJumioBitClout    = "/api/v0/admin/update-jumio-bitclout"
+
+	// admin_tutorial.go
+	RoutePathAdminUpdateTutorialCreators = "/api/v0/admin/update-tutorial-creators"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -710,6 +715,14 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetJumioStatusForPublicKey,
 			PublicAccess,
 		},
+		// Tutorial Routes
+		{
+			"GetTutorialCreators",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetTutorialCreators,
+			fes.GetTutorialCreators,
+			PublicAccess,
+		},
 		// Begin all /admin routes
 		{
 			// Route for all low-level node operations.
@@ -887,6 +900,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateJumioBitClout,
 			fes.AdminUpdateJumioBitClout,
+			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateTutorialCreators",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateTutorialCreators,
+			fes.AdminUpdateTutorialCreator,
 			SuperAdminAccess,
 		},
 		// End all /admin routes
@@ -1119,7 +1139,7 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 		if r.RequestURI == RoutePathUploadImage && strings.HasPrefix(contentType, "multipart/form-data") {
 			match = true
 			actualOrigin = "*"
-		} else if r.Method == "POST" && contentType != "application/json" && r.RequestURI != RoutePathJumioCallback{
+		} else if r.Method == "POST" && contentType != "application/json" && r.RequestURI != RoutePathJumioCallback {
 			invalidPostRequest = true
 		}
 
