@@ -197,7 +197,7 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 				return
 			}
 			var balanceInsufficient bool
-			balanceInsufficient, err = fes.ExceedsSendBitCloutBalance(nanosPurchased)
+			balanceInsufficient, err = fes.ExceedsBitCloutBalance(nanosPurchased, fes.Config.BuyBitCloutSeed)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrdersubscription: Error checking if send bitclout balance is sufficient: %v", err))
 				return
