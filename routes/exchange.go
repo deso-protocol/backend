@@ -785,12 +785,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		}
 		// Set up a view to apply txns to.
 		//
-		// Only set a BitcoinManager if we have one. This prevents some tests from erroring out.
-		var bitcoinManager *lib.BitcoinManager
-		if fes.backendServer != nil && fes.backendServer.GetBitcoinManager() != nil {
-			bitcoinManager = fes.backendServer.GetBitcoinManager()
-		}
-		utxoView, err := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.Params, bitcoinManager)
+		utxoView, err := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.Params)
 		if err != nil {
 			APIAddError(ww, fmt.Sprintf("Update: Error initializing UtxoView "+
 				"for mempool request: %v", err))
@@ -869,12 +864,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 				return
 			}
 			// Set up a view to apply txns to.
-			// Only set a BitcoinManager if we have one. This prevents some tests from erroring out.
-			var bitcoinManager *lib.BitcoinManager
-			if fes.backendServer != nil && fes.backendServer.GetBitcoinManager() != nil {
-				bitcoinManager = fes.backendServer.GetBitcoinManager()
-			}
-			utxoView, err := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.Params, bitcoinManager)
+			utxoView, err := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.Params)
 			if err != nil {
 				APIAddError(ww, fmt.Sprintf("Update: Error initializing UtxoView: %v", err))
 				return
@@ -976,13 +966,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		return
 	}
 	// Set up a view to apply txns to.
-	//
-	// Only set a BitcoinManager if we have one. This prevents some tests from erroring out.
-	var bitcoinManager *lib.BitcoinManager
-	if fes.backendServer != nil && fes.backendServer.GetBitcoinManager() != nil {
-		bitcoinManager = fes.backendServer.GetBitcoinManager()
-	}
-	utxoView, err := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.Params, bitcoinManager)
+	utxoView, err := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.Params)
 	if err != nil {
 		APIAddError(ww, fmt.Sprintf("Update: Error initializing UtxoView: %v", err))
 		return
@@ -1223,9 +1207,7 @@ func (fes *APIServer) _processTransactionWithKey(
 		// blockHeight is set to the next block since that's where this
 		// transaction will be mined at the earliest.
 		blockHeight+1,
-		true,  /*verifySignatures*/
-		false, /*checkMerkleProof*/
-		0,
+		true,
 		fes.mempool)
 	if err != nil {
 		return fmt.Errorf("_processTransactionWithKey: Problem validating txn: %v", err)

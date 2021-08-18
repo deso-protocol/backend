@@ -129,10 +129,8 @@ const (
 	// Admin route paths can only be accessed if a user's public key is whitelisted as an admin.
 
 	// admin_node.go
-	RoutePathNodeControl             = "/api/v0/admin/node-control"
-	RoutePathReprocessBitcoinBlock   = "/api/v0/admin/reprocess-bitcoin-block"
-	RoutePathAdminGetMempoolStats    = "/api/v0/admin/get-mempool-stats"
-	RoutePathEvictUnminedBitcoinTxns = "/api/v0/admin/evict-unmined-bitcoin-txns"
+	RoutePathNodeControl          = "/api/v0/admin/node-control"
+	RoutePathAdminGetMempoolStats = "/api/v0/admin/get-mempool-stats"
 
 	// admin_buy_bitclout.go
 	RoutePathSetUSDCentsToBitCloutReserveExchangeRate = "/api/v0/admin/set-usd-cents-to-bitclout-reserve-exchange-rate"
@@ -213,6 +211,8 @@ type APIServer struct {
 	mtxSeedBitClout sync.RWMutex
 
 	UsdCentsPerBitCloutExchangeRate uint64
+
+	UsdCentsPerBitCoinExchangeRate float64
 
 	// List of prices retrieved.  This is culled everytime we update the current price.
 	LastTradeBitCloutPriceHistory []LastTradePriceHistoryItem
@@ -362,15 +362,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathDeleteIdentities,
 			fes.DeleteIdentities,
-			PublicAccess,
-		},
-
-		// Endpoint to trigger the reprocessing of a particular Bitcoin block.
-		{
-			"ReprocessBitcoinBlock",
-			[]string{"GET", "POST", "OPTIONS"},
-			RoutePathReprocessBitcoinBlock + "/{blockHashHexOrblockHeight:[0-9abcdefABCDEF]+}",
-			fes.ReprocessBitcoinBlock,
 			PublicAccess,
 		},
 		// Endpoint to trigger granting a user a verified badge
@@ -860,13 +851,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			SuperAdminAccess,
 		},
 		{
-			"EvictUnminedBitcoinTxns",
-			[]string{"POST", "OPTIONS"},
-			RoutePathEvictUnminedBitcoinTxns,
-			fes.EvictUnminedBitcoinTxns,
-			SuperAdminAccess,
-		},
-		{
 			"AdminRemoveNilPosts",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminRemoveNilPosts,
@@ -1337,6 +1321,7 @@ func (fes *APIServer) StartExchangePriceMonitoring() {
 			select {
 			case <-time.After(10 * time.Second):
 				fes.UpdateUSDCentsToBitCloutExchangeRate()
+				fes.UpdateUSDToBTCPrice()
 			case <-fes.quit:
 				break out
 			}

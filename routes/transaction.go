@@ -811,16 +811,8 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 				return
 			}
 
-		}
-		// We have the Bitcoin transaction now so broadcast it to the Bitcoin
-		// chain. This waits for confirmation from the Bitcoin node before
-		// returning.
-		glog.Infof("ExchangeBitcoinStateless: Broadcasting txn to Bitcoin nodes: %v", &bitcoinTxnHash)
-		if err = fes.backendServer.GetBitcoinManager().BroadcastTxnAndCheckAddedRedundant(
-			bitcoinTxn, 30 /*timeoutSecs*/, 10 /*numNodesToPing*/); err != nil {
-
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"ExchangeBitcoinStateless: Error broadcasting transaction: %v", err))
+		} else {
+			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: BlockCypher API is required for bitcoin transactions"))
 			return
 		}
 
@@ -857,11 +849,12 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 
 // GetNanosFromSats - convert Satoshis to BitClout nanos
 func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) (uint64, error) {
-	usdToBTC, err := GetUSDToBTCPrice()
-	if err != nil {
-		return 0, fmt.Errorf(" Problem getting usd to btc exchange rate: %v", err)
+	usdCentsPerBitcoin := fes.UsdCentsPerBitCoinExchangeRate
+	// If we don't have a valid value from monitoring at this time, use the price from the protocol
+	if usdCentsPerBitcoin == 0 {
+		readUtxoView, _ := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+		usdCentsPerBitcoin = float64(readUtxoView.GetCurrentUSDCentsPerBitcoin())
 	}
-	usdCentsPerBitcoin := usdToBTC * 100
 	usdCents := (float64(satoshis) * usdCentsPerBitcoin) / lib.SatoshisPerBitcoin
 	return fes.GetNanosFromUSDCents(usdCents, feeBasisPoints)
 }
