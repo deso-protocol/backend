@@ -190,7 +190,7 @@ func (fes *APIServer) UpdateUSDToBTCPrice() {
 		return
 	}
 	fes.UsdCentsPerBitCoinExchangeRate = btcExchangeRate * 100
-	glog.Info("New USD to BTC exchange rate: %v", fes.UsdCentsPerBitCoinExchangeRate)
+	glog.Infof("New USD to BTC exchange rate: %v", fes.UsdCentsPerBitCoinExchangeRate)
 }
 
 // getMaxPriceFromHistoryAndCull removes elements that are outside of the lookback window and return the max price
