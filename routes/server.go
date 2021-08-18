@@ -206,6 +206,8 @@ type APIServer struct {
 
 	UsdCentsPerBitCloutExchangeRate uint64
 
+	UsdCentsPerBitCoinExchangeRate float64
+
 	// List of prices retrieved.  This is culled everytime we update the current price.
 	LastTradeBitCloutPriceHistory []LastTradePriceHistoryItem
 	// How far back do we consider trade prices when we set the current price of $CLOUT in nanoseconds
@@ -1294,6 +1296,7 @@ func (fes *APIServer) StartExchangePriceMonitoring() {
 			select {
 			case <-time.After(10 * time.Second):
 				fes.UpdateUSDCentsToBitCloutExchangeRate()
+				fes.UpdateUSDToBTCPrice()
 			case <-fes.quit:
 				break out
 			}

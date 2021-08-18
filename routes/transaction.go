@@ -844,11 +844,12 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 
 // GetNanosFromSats - convert Satoshis to BitClout nanos
 func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) (uint64, error) {
-	usdToBTC, err := GetUSDToBTCPrice()
-	if err != nil {
-		return 0, fmt.Errorf(" Problem getting usd to btc exchange rate: %v", err)
+	usdCentsPerBitcoin := fes.UsdCentsPerBitCoinExchangeRate
+	// If we don't have a valid value from monitoring at this time, use the price from the protocol
+	if usdCentsPerBitcoin == 0 {
+		readUtxoView, _ := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+		usdCentsPerBitcoin = float64(readUtxoView.GetCurrentUSDCentsPerBitcoin())
 	}
-	usdCentsPerBitcoin := usdToBTC * 100
 	usdCents := (float64(satoshis) * usdCentsPerBitcoin) / lib.SatoshisPerBitcoin
 	return fes.GetNanosFromUSDCents(usdCents, feeBasisPoints)
 }
