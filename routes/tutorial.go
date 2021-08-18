@@ -20,6 +20,10 @@ type GetTutorialCreatorResponse struct {
 }
 
 func (fes *APIServer) GetTutorialCreators(ww http.ResponseWriter, req *http.Request) {
+	fes.GetTutorialCreatorsByFR(ww, req, false)
+}
+
+func (fes *APIServer) GetTutorialCreatorsByFR(ww http.ResponseWriter, req *http.Request, disregardFR bool) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetTutorialCreatorsRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
@@ -41,12 +45,12 @@ func (fes *APIServer) GetTutorialCreators(ww http.ResponseWriter, req *http.Requ
 		_AddBadRequestError(ww, fmt.Sprintf("GetTutorialCreators: Problem fetching verifiedMap: %v", err))
 		return
 	}
-	upAndComingProfileEntryResponses, err := fes.GetFeaturedCreators(utxoView, requestData.ResponseLimit, upAndComingSeekKey, verifiedMap)
+	upAndComingProfileEntryResponses, err := fes.GetFeaturedCreators(utxoView, requestData.ResponseLimit, upAndComingSeekKey, verifiedMap, disregardFR)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTutorialCreators: Problem getting up and coming tutorial creators: %v", err))
 		return
 	}
-	wellKnownProfileEntryResponses, err := fes.GetFeaturedCreators(utxoView, requestData.ResponseLimit, wellKnownSeekKey, verifiedMap)
+	wellKnownProfileEntryResponses, err := fes.GetFeaturedCreators(utxoView, requestData.ResponseLimit, wellKnownSeekKey, verifiedMap, disregardFR)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTutorialCreators: Problem getting well known tutorial creators: %v", err))
 		return
@@ -62,7 +66,7 @@ func (fes *APIServer) GetTutorialCreators(ww http.ResponseWriter, req *http.Requ
 	}
 }
 
-func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit int, seekKey []byte, verifiedMap map[string]*lib.PKID) (_profileEntryResponses []ProfileEntryResponse, _err error) {
+func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit int, seekKey []byte, verifiedMap map[string]*lib.PKID, disregardFR bool) (_profileEntryResponses []ProfileEntryResponse, _err error) {
 	maxKeyLen := 1 + btcec.PubKeyBytesLenCompressed
 	keys, _, err := fes.GlobalStateSeek(
 		seekKey,
@@ -95,7 +99,7 @@ func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit 
 		profileEntryy := utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
 
 		// Only add creator if FR is 10% or less
-		if profileEntryy.CoinEntry.CreatorBasisPoints <= 10 * 100  {
+		if profileEntryy.CoinEntry.CreatorBasisPoints <= 10 * 100 || disregardFR {
 			profileEntryResponse := _profileEntryToResponse(profileEntryy, fes.Params, verifiedMap, utxoView)
 			profileEntryResponses = append(profileEntryResponses, *profileEntryResponse)
 		}

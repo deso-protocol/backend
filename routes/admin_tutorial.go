@@ -108,3 +108,7 @@ func (fes *APIServer) AdminResetTutorialStatus(ww http.ResponseWriter, req *http
 		}
 	}
 }
+
+func (fes *APIServer) AdminGetTutorialCreators(ww http.ResponseWriter, req *http.Request) {
+	fes.GetTutorialCreatorsByFR(ww, req, true)
+}
