@@ -120,16 +120,16 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 	}
 
 	_, diamondPostHashKeyExists := txn.ExtraData[lib.DiamondPostHashKey]
-	// If this is a basic transfer (but not a diamond action), we check if user has purchased CC (if this node is configured for Jumio or Twilio)
-	if !diamondPostHashKeyExists && txn.TxnMeta.GetTxnType() == lib.TxnTypeBasicTransfer && (fes.IsConfiguredForJumio() || fes.Twilio != nil) {
+	// If this is a basic transfer (but not a diamond action), we check if user has completed the tutorial (if this node is configured for Jumio)
+	if !diamondPostHashKeyExists && txn.TxnMeta.GetTxnType() == lib.TxnTypeBasicTransfer && fes.IsConfiguredForJumio() {
 		var userMetadata *UserMetadata
 		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(txn.PublicKey)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem getting usermetadata from global state for basic transfer: %v", err))
 			return
 		}
-		if (userMetadata.JumioVerified || userMetadata.PhoneNumber != "" ) && !userMetadata.HasPurchasedCreatorCoin && userMetadata.MustPurchaseCreatorCoin {
-			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: You must purchase a creator coin before performing a transfer: %v", err))
+		if userMetadata.JumioVerified && userMetadata.TutorialStatus != COMPLETE {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: If you receive money from Jumio, you must complete the tutorial: %v", err))
 			return
 		}
 	}

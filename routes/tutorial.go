@@ -113,11 +113,16 @@ func (fes *APIServer) StartOrSkipTutorial(ww http.ResponseWriter, req *http.Requ
 	}
 	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorialioBegin: Error validating JWT: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Error validating JWT: %v", err))
 		return
 	}
 	if !isValid {
 		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Invalid token: %v", err))
+		return
+	}
+
+	if isAdmin, _ := fes.UserAdminStatus(requestData.PublicKeyBase58Check); !isAdmin && requestData.IsSkip {
+		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Only admins can skip tutorial"))
 		return
 	}
 
