@@ -1684,8 +1684,29 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		// TODO: Save which creator a user purchased by PKID in user metadata so we can bring them to the same place in the flow
 		// TODO: Do we need to save how much they bought for usage in tutorial?
 		if operationType == lib.CreatorCoinOperationTypeBuy && userMetadata.TutorialStatus == STARTED {
+			creatorPKID := utxoView.GetPKIDForPublicKey(creatorPublicKeyBytes)
+			if creatorPKID == nil {
+				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: No PKID found for public key: %v", requestData.CreatorPublicKeyBase58Check))
+				return
+			}
+			wellKnownVal, err := fes.GlobalStateGet(GlobalStateKeyWellKnownTutorialCreators(creatorPKID.PKID))
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Error trying to look up creator in well known index: %v", err))
+				return
+			}
+			if wellKnownVal == nil {
+				upAndComing, err := fes.GlobalStateGet(GlobalStateKeyUpAndComingTutorialCreators(creatorPKID.PKID))
+				if err != nil {
+					_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Error trying to look up creator in up and coming index: %v", err))
+					return
+				}
+				if upAndComing == nil {
+					_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Creator is not in either of the featured creators indexes"))
+					return
+				}
+			}
 			userMetadata.TutorialStatus = INVEST_OTHERS_BUY
-			userMetadata.CreatorPurchasedInTutorialPKID = utxoView.GetPKIDForPublicKey(creatorPublicKeyBytes).PKID
+			userMetadata.CreatorPurchasedInTutorialPKID = creatorPKID.PKID
 			updateUserMetadata = true
 		}
 
@@ -1696,6 +1717,11 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		}
 
 		if operationType == lib.CreatorCoinOperationTypeSell && userMetadata.TutorialStatus == INVEST_OTHERS_BUY {
+			creatorPKID := utxoView.GetPKIDForPublicKey(creatorPublicKeyBytes)
+			if !reflect.DeepEqual(creatorPKID.PKID, userMetadata.CreatorPurchasedInTutorialPKID) {
+				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Must sell the same creator as purchased in previous step"))
+				return
+			}
 			userMetadata.TutorialStatus = INVEST_OTHERS_SELL
 			updateUserMetadata = true
 		}
