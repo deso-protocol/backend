@@ -86,13 +86,20 @@ func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit 
 
 	var profileEntryResponses []ProfileEntryResponse
 	ShuffleKeys(&keys)
-	for _, dbKeyBytes := range keys[:publicKeysUpperBound] {
+	ii := 0
+	for len(_profileEntryResponses) <= publicKeysUpperBound && ii < len(keys) {
+		dbKeyBytes := keys[ii]
 		// Chop the public key out of the db key.
 		// The dbKeyBytes are: [One Prefix Byte][btcec.PubKeyBytesLenCompressed]
-		publicKeyBytes := dbKeyBytes[1:][:]
+		publicKeyBytes := dbKeyBytes[1:]
 		profileEntryy := utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
-		profileEntryResponse := _profileEntryToResponse(profileEntryy, fes.Params, verifiedMap, utxoView)
-		profileEntryResponses = append(profileEntryResponses, *profileEntryResponse)
+
+		// Only add creator if FR is 10% or less
+		if profileEntryy.CoinEntry.CreatorBasisPoints <= 10 * 100  {
+			profileEntryResponse := _profileEntryToResponse(profileEntryy, fes.Params, verifiedMap, utxoView)
+			profileEntryResponses = append(profileEntryResponses, *profileEntryResponse)
+		}
+		ii++
 	}
 	return profileEntryResponses, nil
 }
