@@ -798,16 +798,8 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 				return
 			}
 
-		}
-		// We have the Bitcoin transaction now so broadcast it to the Bitcoin
-		// chain. This waits for confirmation from the Bitcoin node before
-		// returning.
-		glog.Infof("ExchangeBitcoinStateless: Broadcasting txn to Bitcoin nodes: %v", &bitcoinTxnHash)
-		if err = fes.backendServer.GetBitcoinManager().BroadcastTxnAndCheckAddedRedundant(
-			bitcoinTxn, 30 /*timeoutSecs*/, 10 /*numNodesToPing*/); err != nil {
-
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"ExchangeBitcoinStateless: Error broadcasting transaction: %v", err))
+		} else {
+			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: BlockCypher API is required for bitcoin transactions"))
 			return
 		}
 
