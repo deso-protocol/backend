@@ -251,13 +251,8 @@ type UserMetadata struct {
 	// Jumio flow.
 	JumioShouldCompProfileCreation bool
 
-	// MustPurchaseCreatorCoin = set to true if a user gets money from Jumio or Twilio flow and prevents user from
-	// performing a basic transfer before purchasing a creator coin.
-	MustPurchaseCreatorCoin bool
-	// HasPurchasedCreatorCoin = set to true if user has purchased a creator coin, allows them to perform basic transfer
-	// after getting free CLOUT.
-	HasPurchasedCreatorCoin bool
-
+	// User must complete tutorial if they have been jumio verified.
+	MustCompleteTutorial bool
 
 	// If user is featured as a well known creator in the tutorial.
 	IsFeaturedTutorialWellKnownCreator bool

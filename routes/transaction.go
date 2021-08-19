@@ -102,23 +102,6 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	// If this is a creator coin transaction, we update global state user metadata to say user has purchased CC.
-	if txn.TxnMeta.GetTxnType() == lib.TxnTypeCreatorCoin && txn.TxnMeta.(*lib.CreatorCoinMetadataa).OperationType == lib.CreatorCoinOperationTypeBuy {
-		var userMetadata *UserMetadata
-		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(txn.PublicKey)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem getting usermetadata from global state for basic transfer: %v", err))
-			return
-		}
-		if !userMetadata.HasPurchasedCreatorCoin {
-			userMetadata.HasPurchasedCreatorCoin = true
-			if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem updating HasPurchasedCreatorCoin in global state user metadata: %v", err))
-				return
-			}
-		}
-	}
-
 	_, diamondPostHashKeyExists := txn.ExtraData[lib.DiamondPostHashKey]
 	// If this is a basic transfer (but not a diamond action), we check if user has completed the tutorial (if this node is configured for Jumio)
 	if !diamondPostHashKeyExists && txn.TxnMeta.GetTxnType() == lib.TxnTypeBasicTransfer && fes.IsConfiguredForJumio() {
@@ -128,14 +111,13 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem getting usermetadata from global state for basic transfer: %v", err))
 			return
 		}
-		if userMetadata.JumioVerified && userMetadata.TutorialStatus != COMPLETE {
+		if userMetadata.MustCompleteTutorial && userMetadata.TutorialStatus != COMPLETE && userMetadata.TutorialStatus != SKIPPED {
 			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: If you receive money from Jumio, you must complete the tutorial: %v", err))
 			return
 		}
 	}
 
-	err = fes.backendServer.VerifyAndBroadcastTransaction(txn)
-	if err != nil {
+	if err = fes.backendServer.VerifyAndBroadcastTransaction(txn); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitTransaction: Problem processing transaction: %v", err))
 		return
 	}
@@ -914,8 +896,8 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 			_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: problem getting user metadata from global state: %v", err))
 			return
 		}
-		if userMetadata.JumioVerified && !userMetadata.HasPurchasedCreatorCoin {
-			_AddBadRequestError(ww, fmt.Sprintf("You must purchase a creator coin before you can send $CLOUT"))
+		if userMetadata.JumioVerified && userMetadata.MustCompleteTutorial && userMetadata.TutorialStatus != COMPLETE {
+			_AddBadRequestError(ww, fmt.Sprintf("You must complete the tutorial before you can perform a basic transfer"))
 			return
 		}
 	}

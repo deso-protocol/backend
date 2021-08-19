@@ -214,13 +214,14 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		user.JumioReturned = userMetadata.JumioReturned
 		user.JumioFinishedTime = userMetadata.JumioFinishedTime
 		user.TutorialStatus = userMetadata.TutorialStatus
+		user.MustCompleteTutorial = userMetadata.MustCompleteTutorial
 		// We only need to fetch the creator purchased in the tutorial if the user is still in the tutorial
 		if user.TutorialStatus != COMPLETE && user.TutorialStatus != SKIPPED && userMetadata.CreatorPurchasedInTutorialPKID != nil {
-			profileEntry := utxoView.GetProfileEntryForPKID(userMetadata.CreatorPurchasedInTutorialPKID)
-			if profileEntry == nil {
+			tutorialCreatorProfileEntry := utxoView.GetProfileEntryForPKID(userMetadata.CreatorPurchasedInTutorialPKID)
+			if tutorialCreatorProfileEntry == nil {
 				return fmt.Errorf("updateUserFieldsStateless: Did not find profile entry for PKID for creator purchased in tutorial")
 			}
-			username := string(profileEntry.Username)
+			username := string(tutorialCreatorProfileEntry.Username)
 			user.CreatorPurchasedInTutorialUsername = &username
 		}
 		if profileEntryy != nil {

@@ -133,6 +133,9 @@ type User struct {
 
 	// Username of creator purchased during onboarding flow - used in case a user changes devices in the middle of the flow.
 	CreatorPurchasedInTutorialUsername *string `json:",omitempty"`
+
+	// Does this user need to complete the tutorial
+	MustCompleteTutorial bool
 }
 
 type BalanceEntryResponse struct {
