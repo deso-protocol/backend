@@ -544,6 +544,12 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 		numToFetch = int(requestData.NumToFetch)
 	}
 
+	// Cap numToFetch at 100
+	if requestData.NumToFetch > 100 {
+		_AddBadRequestError(ww, fmt.Sprintf("GetProfiles: Max value for NumToFetch exceeded"))
+		return
+	}
+
 	// Decode the reader public key into bytes. Default to nil if no pub key is passed in.
 	var readerPubKey []byte
 	if requestData.ReaderPublicKeyBase58Check != "" {
