@@ -41,9 +41,10 @@ rm /tmp/main.*.log
   --min-satoshis-for-profile=0 \
   --show-processing-spinners=true \
   --bitclout-diamonds-block-height=1 \
-  --broken-nft-bids-fix-block-height=2 \
+  --broken-nft-bids-fix-block-height=1 \
   --update-profile-fix-block-height=1 \
   --param-updater-profile-fix-block-height=1 \
   --buy-creator-coin-after-deleted-balance-fix-block-height=1 \
   --founder-reward-block-height=1 \
-  --salmon-fix-block-height=1)
+  --salmon-fix-block-height=1 \
+  --deflation-bomb-block-height=1)

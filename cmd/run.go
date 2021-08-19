@@ -147,15 +147,5 @@ func init() {
 		viper.BindPFlag(flag.Name, flag)
 	})
 
-	// Block heights
-	runCmd.PersistentFlags().Uint32("bitclout-diamonds-block-height", 1, "Block height for bitclout diamonds update")
-	runCmd.PersistentFlags().Uint32("broken-nft-bids-fix-block-height", 1, "Block height for bitclout diamonds update")
-	runCmd.PersistentFlags().Uint32("update-profile-fix-block-height", 1, "Block height for bitclout diamonds update")
-	runCmd.PersistentFlags().Uint32("param-updater-profile-fix-block-height", 1, "Block height for bitclout diamonds update")
-	runCmd.PersistentFlags().Uint32("buy-creator-coin-after-deleted-balance-fix-block-height", 1, "Block height for bitclout diamonds update")
-	runCmd.PersistentFlags().Uint32("founder-reward-block-height", 1, "Block height for bitclout diamonds update")
-	runCmd.PersistentFlags().Uint32("salmon-fix-block-height", 1, "Block height for bitclout diamonds update")
-
-
 	rootCmd.AddCommand(runCmd)
 }
