@@ -1877,7 +1877,7 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 	var totalInput uint64
 	var changeAmount uint64
 	var fees uint64
-	if blockHeight > lib.BitCloutDiamondsBlockHeight {
+	if blockHeight > fes.Params.BitCloutDiamondsBlockHeight {
 		txn, totalInput, _, changeAmount, fees, err = fes.blockchain.CreateBasicTransferTxnWithDiamonds(
 			senderPublicKeyBytes,
 			diamondPostHash,
