@@ -1,10 +1,8 @@
 package cmd
 
 import (
-	"fmt"
 	"github.com/bitclout/backend/config"
 	coreCmd "github.com/bitclout/core/cmd"
-	"github.com/bitclout/core/lib"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -26,7 +24,6 @@ var runCmd = &cobra.Command{
 func Run(cmd *cobra.Command, args []string) {
 	// Start the core node
 	coreConfig := coreCmd.LoadConfig()
-	fmt.Printf("HERE IS THE CONFIG (%v)", lib.BitCloutDiamondsBlockHeight)
 	coreNode := coreCmd.NewNode(coreConfig)
 	coreNode.Start()
 
