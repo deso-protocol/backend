@@ -277,8 +277,7 @@ func (fes *APIServer) GetYouHodlMap(pkid *lib.PKIDEntry, fetchProfiles bool, utx
 	}
 
 	// Get all the hodlings for this user from the db
-	entriesYouHodl, profilesYouHodl, err :=
-		lib.DbGetBalanceEntriesYouHodl(pkid, fetchProfiles, true /*filterOutZeroBalances*/, utxoView)
+	entriesYouHodl, profilesYouHodl, err := utxoView.GetHoldings(pkid.PKID, fetchProfiles)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"GetHodlingsForPublicKey: Error looking up balance entries in db: %v", err)
@@ -400,8 +399,7 @@ func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, utx
 	}
 
 	// Get all the hodlings for this user from the db
-	entriesHodlingYou, profileHodlingYou, err :=
-		lib.DbGetBalanceEntriesHodlingYou(pkid, fetchProfiles, true /*filterOutZeroBalances*/, utxoView)
+	entriesHodlingYou, profileHodlingYou, err := utxoView.GetHolders(pkid.PKID, fetchProfiles)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"GetHodlingsForPublicKey: Error looking up balance entries in db: %v", err)
@@ -517,11 +515,6 @@ type ProfileEntryResponse struct {
 	CoinEntry lib.CoinEntry
 	// Include current price for the frontend to display.
 	CoinPriceBitCloutNanos uint64
-
-	// TODO(DELETEME): Delete this field
-	StakeMultipleBasisPoints uint64
-	// TODO(DELETEME): Delete this field
-	StakeEntryStats *lib.StakeEntryStats
 
 	// Profiles of users that hold the coin + their balances.
 	UsersThatHODL []*BalanceEntryResponse
@@ -733,15 +726,7 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	if requestData.OrderBy == "influencer_stake" {
-		sort.Slice(profileEntryResponses, func(ii, jj int) bool {
-			return profileEntryResponses[ii].StakeEntryStats.TotalStakeNanos > profileEntryResponses[jj].StakeEntryStats.TotalStakeNanos
-		})
-	} else if requestData.OrderBy == "influencer_post_stake" {
-		sort.Slice(profileEntryResponses, func(ii, jj int) bool {
-			return profileEntryResponses[ii].StakeEntryStats.TotalPostStakeNanos > profileEntryResponses[jj].StakeEntryStats.TotalPostStakeNanos
-		})
-	} else if requestData.OrderBy == "newest_last_post" {
+	if requestData.OrderBy == "newest_last_post" {
 		// Sort each profile's posts so that the newest post is first.
 		for _, profileRes := range profileEntryResponses {
 			if len(profileRes.Posts) == 0 {
@@ -884,16 +869,14 @@ func _profileEntryToResponse(profileEntry *lib.ProfileEntry, params *lib.BitClou
 
 	// Generate profile entry response
 	profResponse := &ProfileEntryResponse{
-		PublicKeyBase58Check:     lib.PkToString(profileEntry.PublicKey, params),
-		Username:                 string(profileEntry.Username),
-		Description:              string(profileEntry.Description),
-		CoinEntry:                profileEntry.CoinEntry,
-		CoinPriceBitCloutNanos:   coinPriceBitCloutNanos,
-		IsHidden:                 profileEntry.IsHidden,
-		IsReserved:               isReserved,
-		IsVerified:               isVerified,
-		StakeMultipleBasisPoints: profileEntry.StakeMultipleBasisPoints,
-		StakeEntryStats:          lib.GetStakeEntryStats(profileEntry.StakeEntry, params),
+		PublicKeyBase58Check:   lib.PkToString(profileEntry.PublicKey, params),
+		Username:               string(profileEntry.Username),
+		Description:            string(profileEntry.Description),
+		CoinEntry:              profileEntry.CoinEntry,
+		CoinPriceBitCloutNanos: coinPriceBitCloutNanos,
+		IsHidden:               profileEntry.IsHidden,
+		IsReserved:             isReserved,
+		IsVerified:             isVerified,
 	}
 
 	return profResponse
