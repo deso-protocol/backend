@@ -25,6 +25,7 @@ type Config struct {
 	// Global State
 	GlobalStateRemoteNode   string
 	GlobalStateRemoteSecret string
+	GlobalStatePostgresURI  string
 
 	// Web Security
 	AccessControlAllowOrigins []string
@@ -100,6 +101,7 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	// Global State
 	config.GlobalStateRemoteNode = viper.GetString("global-state-remote-node")
 	config.GlobalStateRemoteSecret = viper.GetString("global-state-remote-secret")
+	config.GlobalStatePostgresURI = viper.GetString("global-state-postgres-uri")
 
 	// Web Security
 	config.AccessControlAllowOrigins = viper.GetStringSlice("access-control-allow-origins")

@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/bitclout/backend/globaldb"
 	"net/http"
 	"time"
 
@@ -105,7 +106,7 @@ type User struct {
 	// API response, since phone numbers are sensitive PII.
 	HasPhoneNumber   bool
 	CanCreateProfile bool
-	BlockedPubKeys   map[string]struct{}
+	BlockedPubKeys   map[lib.PublicKey]struct{}
 	HasEmail         bool
 	EmailVerified    bool
 
@@ -114,9 +115,9 @@ type User struct {
 	// JumioFinishedTime = Time user completed flow in Jumio
 	JumioFinishedTime uint64
 	// JumioVerified = user was verified from Jumio flow
-	JumioVerified    bool
+	JumioVerified bool
 	// JumioReturned = jumio webhook called
-	JumioReturned    bool
+	JumioReturned bool
 
 	// Is this user an admin
 	IsAdmin bool
@@ -215,52 +216,61 @@ func makeUserMetadata(userMetadataBytes []byte, userPublicKeyBytes []byte) (_use
 	return &userMetadata, nil
 }
 
-func (fes *APIServer) getUserMetadataFromGlobalStateByPublicKeyBytes(userPublicKeyBytes []byte) (_userMetadata *UserMetadata, _err error) {
-	dbKey := GlobalStateKeyForPublicKeyToUserMetadata(userPublicKeyBytes)
-	userMetadataBytes, err := fes.GlobalStateGet(dbKey)
-	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf(
-			"getUserMetadataFromGlobalStateByPublicKeyBytes: Problem with GlobalStateGet: %v", err), "")
-	}
+func (fes *APIServer) getUserMetadataFromGlobalStateByPublicKeyBytes(userPublicKeyBytes []byte) (*UserMetadata, error) {
+	var userMetadata *UserMetadata
+	if fes.GlobalDB != nil {
+		publicKey := lib.NewPublicKey(userPublicKeyBytes)
+		user := fes.GlobalDB.GetUser(publicKey)
+		if user == nil {
+			user = &globaldb.User{
+				PublicKey: publicKey,
+			}
+		}
 
-	userMetadata, err := makeUserMetadata(userMetadataBytes, userPublicKeyBytes)
-	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf(
-			"getUserMetadataFromGlobalStateByPublicKeyBytes: Problem with makeUserMetadata: %v", err), "")
-	}
+		userMetadata = NewUserMetadata(user)
+	} else {
+		dbKey := GlobalStateKeyForPublicKeyToUserMetadata(userPublicKeyBytes)
+		userMetadataBytes, err := fes.GlobalStateGet(dbKey)
+		if err != nil {
+			return nil, errors.Wrap(fmt.Errorf("getUserMetadataFromGlobalState: Problem with GlobalStateGet: %v", err), "")
+		}
 
-	// Check if we need to add the public key to userMetadata
-	if len(userMetadata.PublicKey) != 33 {
-		userMetadata.PublicKey = userPublicKeyBytes
+		userMetadata, err = makeUserMetadata(userMetadataBytes, userPublicKeyBytes)
+		if err != nil {
+			return nil, errors.Wrap(fmt.Errorf("getUserMetadataFromGlobalState: Problem with makeUserMetadata: %v", err), "")
+		}
+
+		// Check if we need to add the public key to userMetadata
+		if len(userMetadata.PublicKey) != 33 {
+			userMetadata.PublicKey = userPublicKeyBytes
+		}
 	}
 
 	return userMetadata, nil
 }
 
-func (fes *APIServer) getUserMetadataFromGlobalState(
-	publicKeyBase58Check string,
-) (_userMetadata *UserMetadata, _err error) {
+func (fes *APIServer) getUserMetadataFromGlobalState(publicKeyBase58Check string) (*UserMetadata, error) {
 	userPublicKeyBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
 	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf(
-			"getUserMetadataFromGlobalState: Problem with lib.Base58CheckDecode: %v", err), "")
+		return nil, errors.Wrap(fmt.Errorf("getUserMetadataFromGlobalState: Problem with lib.Base58CheckDecode: %v", err), "")
 	}
 
 	return fes.getUserMetadataFromGlobalStateByPublicKeyBytes(userPublicKeyBytes)
 }
 
-func (fes *APIServer) putUserMetadataInGlobalState(
-	userMetadata *UserMetadata,
-) (_err error) {
-	dbKey := GlobalStateKeyForPublicKeyToUserMetadata(userMetadata.PublicKey)
+func (fes *APIServer) putUserMetadataInGlobalState(userMetadata *UserMetadata) error {
+	if fes.GlobalDB != nil {
+		//
+	} else {
+		dbKey := GlobalStateKeyForPublicKeyToUserMetadata(userMetadata.PublicKey)
 
-	// Encode the updated entry and stick it in the database.
-	metadataDataBuf := bytes.NewBuffer([]byte{})
-	gob.NewEncoder(metadataDataBuf).Encode(userMetadata)
-	err := fes.GlobalStatePut(dbKey, metadataDataBuf.Bytes())
-	if err != nil {
-		return errors.Wrap(fmt.Errorf(
-			"AdminUpdateUserGlobalMetadata: Problem putting updated user metadata: %v", err), "")
+		// Encode the updated entry and stick it in the database.
+		metadataDataBuf := bytes.NewBuffer([]byte{})
+		gob.NewEncoder(metadataDataBuf).Encode(userMetadata)
+		err := fes.GlobalStatePut(dbKey, metadataDataBuf.Bytes())
+		if err != nil {
+			return errors.Wrap(fmt.Errorf("putUserMetadataInGlobalState: Problem putting updated user metadata: %v", err), "")
+		}
 	}
 
 	return nil

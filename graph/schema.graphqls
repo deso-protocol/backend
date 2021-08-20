@@ -1,0 +1,29 @@
+# GraphQL schema example
+#
+# https://gqlgen.com/getting-started/
+
+type Notification {
+  transactionHash: String
+  from: User!
+  other: User
+  type: Int
+  amount: Float
+  postHash: String
+  timestamp: Int
+}
+
+type User {
+  name: String!
+}
+
+type Query {
+  notifications(publicKey: String): [Notification!]!
+}
+
+input NewTest {
+  text: String!
+}
+
+type Mutation {
+      createTest(input: NewTest): Notification!
+}

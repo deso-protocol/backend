@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/bitclout/backend/globaldb"
 	"io"
 	"net/http"
 	"strings"
@@ -196,25 +197,6 @@ type UserMetadata struct {
 	// Store the index of the last notification that the user saw
 	NotificationLastSeenIndex int64
 
-	// Amount of Bitcoin that users have burned so far via the Buy BitClout UI
-	//
-	// We track this so that, if the user does multiple burns,
-	// we can set HasBurnedEnoughSatoshisToCreateProfile based on the total
-	//
-	// This tracks the "total input satoshis" (i.e. it includes fees the user spends).
-	// Including fees makes it less expensive for a user to make a profile. We're cutting
-	// users a break, but we could change this later.
-	SatoshisBurnedSoFar uint64
-
-	// True if the user has burned enough satoshis to create a profile. This can be
-	// set to true from the BurnBitcoinStateless endpoint or canUserCreateProfile.
-	//
-	// We store this (instead of computing it when the user loads the page) to avoid issues
-	// where the user burns the required amount, and then we reboot the node and change the min
-	// satoshis required, and then the user hasn't burned enough. Once a user has burned enough,
-	// we want him to be allowed to create a profile forever.
-	HasBurnedEnoughSatoshisToCreateProfile bool
-
 	// Map of public keys of profiles this user has blocked.  The map here functions as a hashset to make look ups more
 	// efficient.  Values are empty structs to keep memory usage down.
 	BlockedPublicKeys map[string]struct{}
@@ -227,9 +209,9 @@ type UserMetadata struct {
 	// JumioFinishedTime = has user completed flow in Jumio
 	JumioFinishedTime uint64
 	// JumioVerified = user was verified from Jumio flow
-	JumioVerified    bool
+	JumioVerified bool
 	// JumioReturned = jumio webhook called
-	JumioReturned    bool
+	JumioReturned bool
 	// JumioTransactionID = jumio's tracking number for the transaction in which this user was verified.
 	JumioTransactionID string
 	// JumioDocumentKey = Country - Document Type - Document SubType - Document Number. Helps uniquely identify users
@@ -251,6 +233,50 @@ type UserMetadata struct {
 	// HasPurchasedCreatorCoin = set to true if user has purchased a creator coin, allows them to perform basic transfer
 	// after getting free CLOUT.
 	HasPurchasedCreatorCoin bool
+
+	// Extra fields that are only used by GlobalDB/Postgres. These exist on the badger struct
+	// so when we preserve their values when we call NewUser and NewUserMetadata
+	PhoneVerified bool
+	Verified      bool
+	Graylisted    bool
+	Blacklisted   bool
+}
+
+func (user *UserMetadata) NewUser() *globaldb.User {
+	return &globaldb.User{
+		PublicKey:       lib.NewPublicKey(user.PublicKey),
+		HideEverywhere:  user.RemoveEverywhere,
+		HideLeaderboard: user.RemoveFromLeaderboard,
+		Email:           user.Email,
+		EmailVerified:   user.EmailVerified,
+		PhoneNumber:     user.PhoneNumber,
+		PhoneCountry:    user.PhoneNumberCountryCode,
+		PhoneVerified:   user.PhoneVerified,
+		WhitelistPosts:  user.WhitelistPosts,
+		Verified:        user.Verified,
+		Graylisted:      user.Graylisted,
+		Blacklisted:     user.Blacklisted,
+	}
+}
+
+func NewUserMetadata(user *globaldb.User) *UserMetadata {
+	return &UserMetadata{
+		PublicKey:                 user.PublicKey.ToBytes(),
+		RemoveEverywhere:          user.HideEverywhere,
+		RemoveFromLeaderboard:     user.HideLeaderboard,
+		Email:                     user.Email,
+		EmailVerified:             user.EmailVerified,
+		PhoneNumber:               user.PhoneNumber,
+		PhoneNumberCountryCode:    user.PhoneCountry,
+		MessageReadStateByContact: nil,
+		NotificationLastSeenIndex: 0,
+		BlockedPublicKeys:         nil,
+		WhitelistPosts:            user.WhitelistPosts,
+		PhoneVerified:             user.PhoneVerified,
+		Verified:                  user.Verified,
+		Graylisted:                user.Graylisted,
+		Blacklisted:               user.Blacklisted,
+	}
 }
 
 // This struct contains all the metadata associated with a user's phone number.
@@ -270,16 +296,42 @@ type PhoneNumberMetadata struct {
 
 type WyreWalletOrderMetadata struct {
 	// Last payload received from Wyre webhook
-	LatestWyreWalletOrderWebhookPayload WyreWalletOrderWebhookPayload
+	LatestWyreWalletOrderWebhookPayload globaldb.WyreWalletOrderWebhookPayload
 
 	// Track Wallet Order response received based on the last payload received from Wyre Webhook
-	LatestWyreTrackWalletOrderResponse *WyreTrackOrderResponse
+	LatestWyreTrackWalletOrderResponse *globaldb.WyreTrackOrderResponse
 
 	// Amount of BitClout that was sent for this WyreWalletOrder
 	BitCloutPurchasedNanos uint64
 
 	// BlockHash of the transaction for sending the BitClout
 	BasicTransferTxnBlockHash *lib.BlockHash
+
+	// Extra fields only used by Postgres that we store here
+	WyreOrderId string
+	Processed   bool
+}
+
+func NewWyreWalletOrderMetadata(wyreOrder *globaldb.WyreOrder) *WyreWalletOrderMetadata {
+	return &WyreWalletOrderMetadata{
+		LatestWyreWalletOrderWebhookPayload: *wyreOrder.LastPayload,
+		LatestWyreTrackWalletOrderResponse:  wyreOrder.LastWalletOrder,
+		BitCloutPurchasedNanos:              wyreOrder.BitCloutNanos,
+		BasicTransferTxnBlockHash:           wyreOrder.TransferTxnHash,
+		WyreOrderId:                         wyreOrder.WyreOrderId,
+		Processed:                           wyreOrder.Processed,
+	}
+}
+
+func (order *WyreWalletOrderMetadata) NewWyreOrder() *globaldb.WyreOrder {
+	return &globaldb.WyreOrder{
+		LastPayload:     &order.LatestWyreWalletOrderWebhookPayload,
+		LastWalletOrder: order.LatestWyreTrackWalletOrderResponse,
+		BitCloutNanos:   order.BitCloutPurchasedNanos,
+		TransferTxnHash: order.BasicTransferTxnBlockHash,
+		WyreOrderId:     order.WyreOrderId,
+		Processed:       order.Processed,
+	}
 }
 
 func GlobalStateKeyForNFTDropEntry(dropNumber uint64) []byte {
@@ -494,6 +546,7 @@ func (fes *APIServer) CreateGlobalStatePutRequest(key []byte, value []byte) (
 	return url, json_data, nil
 }
 
+// Deprecated
 func (fes *APIServer) GlobalStatePut(key []byte, value []byte) error {
 	// If we have a remote node then use that node to fulfill this request.
 	if fes.Config.GlobalStateRemoteNode != "" {
@@ -579,6 +632,7 @@ func (fes *APIServer) CreateGlobalStateGetRequest(key []byte) (
 	return url, json_data, nil
 }
 
+// Deprecated
 func (fes *APIServer) GlobalStateGet(key []byte) (value []byte, _err error) {
 	// If we have a remote node then use that node to fulfill this request.
 	if fes.Config.GlobalStateRemoteNode != "" {
@@ -782,6 +836,7 @@ func (fes *APIServer) GlobalStateDeleteRemote(ww http.ResponseWriter, rr *http.R
 	}
 }
 
+// Deprecated
 func (fes *APIServer) GlobalStateDelete(key []byte) error {
 	// If we have a remote node then use that node to fulfill this request.
 	if fes.Config.GlobalStateRemoteNode != "" {

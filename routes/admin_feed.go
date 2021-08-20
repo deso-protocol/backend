@@ -134,6 +134,11 @@ func (fes *APIServer) AdminUpdateGlobalFeed(ww http.ResponseWriter, req *http.Re
 	// Create a key to access the global state object.
 	dbKey := GlobalStateKeyForTstampPostHash(postEntry.TimestampNanos, postHash)
 	if requestData.RemoveFromGlobalFeed {
+		if fes.GlobalDB != nil {
+
+		} else {
+
+		}
 		err = fes.GlobalStateDelete(dbKey)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem deleting post from global state: %v", err))

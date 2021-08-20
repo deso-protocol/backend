@@ -259,6 +259,7 @@ type UpdateProfileRequest struct {
 	NewCreatorBasisPoints       uint64 `safeForLogging:"true"`
 	NewStakeMultipleBasisPoints uint64 `safeForLogging:"true"`
 
+	// DEPRECATED
 	IsHidden bool `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"reflect"
 	"sort"
@@ -173,7 +174,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	if !skipForLeaderboard {
 		var youHodlMap map[string]*BalanceEntryResponse
 		// Get the users that the user hodls
-		youHodlMap, err = fes.GetYouHodlMap(pkid, true, utxoView)
+		youHodlMap, err = fes.GetHoldingsMap(pkid.PKID, true, utxoView)
 		if err != nil {
 			return errors.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err)
 		}
@@ -188,7 +189,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		})
 
 		var hodlYouMap map[string]*BalanceEntryResponse
-		hodlYouMap, err = fes.GetHodlYouMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView)
+		hodlYouMap, err = fes.GetHoldersMap(utxoView.GetPKIDForPublicKey(publicKeyBytes).PKID, false, utxoView)
 		// Assign the new hodl lists to the user object
 		user.UsersYouHODL = youHodlList
 		user.UsersWhoHODLYouCount = len(hodlYouMap)
@@ -267,51 +268,23 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 }
 
 // Get map of creators you hodl.
-func (fes *APIServer) GetYouHodlMap(pkid *lib.PKIDEntry, fetchProfiles bool, utxoView *lib.UtxoView) (
-	_youHodlMap map[string]*BalanceEntryResponse, _err error) {
+func (fes *APIServer) GetHoldingsMap(pkid *lib.PKID, fetchProfiles bool, utxoView *lib.UtxoView) (map[string]*BalanceEntryResponse, error) {
 	// Grab verified username map pointer
 	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
 	if err != nil {
-		return nil, fmt.Errorf(
-			"GetYouHodlMap: Error fetching verifiedMap: %v", err)
+		return nil, fmt.Errorf("GetHoldingsMap: Error fetching verifiedMap: %v", err)
 	}
 
-	// Get all the hodlings for this user from the db
-	entriesYouHodl, profilesYouHodl, err :=
-		lib.DbGetBalanceEntriesYouHodl(pkid, fetchProfiles, true /*filterOutZeroBalances*/, utxoView)
+	// Get all the holdings for this user from the db
+	holdingEntries, holdingProfiles, err := utxoView.GetHoldings(pkid, fetchProfiles)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"GetHodlingsForPublicKey: Error looking up balance entries in db: %v", err)
+		return nil, fmt.Errorf("GetHodlingsForPublicKey: Error looking up balance entries in db: %v", err)
 	}
 
-	// Map hodler pk -> their entry
-	youHodlMap := fes.getMapFromEntries(entriesYouHodl, profilesYouHodl, true, utxoView, verifiedMap)
+	// Map holder pk -> their entry
+	holdingsMap := fes.getMapFromEntries(holdingEntries, holdingProfiles, true, utxoView, verifiedMap)
 
-	// Iterate over the view and use the entries to update our maps.
-	//
-	// TODO: We need to screen out zero balances in the view. Right now we only screen them
-	// out from the DB query.
-	for _, balanceEntry := range utxoView.HODLerPKIDCreatorPKIDToBalanceEntry {
-		dbBalanceEntryResponse := &BalanceEntryResponse{}
-		if reflect.DeepEqual(balanceEntry.HODLerPKID, pkid.PKID) {
-			// In this case the user is the HODLer.
-
-			// Optionally look up the profile of the creator.
-			var profileEntry *lib.ProfileEntry
-			if fetchProfiles {
-				profileEntry = utxoView.GetProfileEntryForPKID(balanceEntry.CreatorPKID)
-			}
-
-			if _, ok := youHodlMap[lib.PkToString(balanceEntry.CreatorPKID[:], fes.Params)]; ok {
-				// If we made it here, we found both a mempool and a db balanceEntry.
-				// We update the dbBalanceEntry so it can be used in order to get net mempool data.
-				dbBalanceEntryResponse = youHodlMap[lib.PkToString(balanceEntry.CreatorPKID[:], fes.Params)]
-			}
-			youHodlMap[lib.PkToString(balanceEntry.CreatorPKID[:], fes.Params)] = _balanceEntryToResponse(
-				balanceEntry, dbBalanceEntryResponse.BalanceNanos, profileEntry, fes.Params, utxoView, verifiedMap)
-		}
-	}
-	return youHodlMap, nil
+	return holdingsMap, nil
 }
 
 // Convert list of BalanceEntries to a map of hodler / creator PKID to balance entry response.
@@ -358,7 +331,7 @@ func _balanceEntryToResponse(
 }
 
 // GetHodlingsForPublicKey ...
-func (fes *APIServer) GetHodlingsForPublicKey(pkid *lib.PKIDEntry, fetchProfiles bool, referenceUtxoView *lib.UtxoView) (
+func (fes *APIServer) GetHodlingsForPublicKey(pkid *lib.PKID, fetchProfiles bool, referenceUtxoView *lib.UtxoView) (
 	_youHodlMap map[string]*BalanceEntryResponse,
 	_hodlYouMap map[string]*BalanceEntryResponse, _err error) {
 	// Get a view that considers all of this user's transactions.
@@ -374,12 +347,12 @@ func (fes *APIServer) GetHodlingsForPublicKey(pkid *lib.PKIDEntry, fetchProfiles
 		}
 	}
 	// Get the map of entries this PKID hodls.
-	youHodlMap, err := fes.GetYouHodlMap(pkid, fetchProfiles, utxoView)
+	youHodlMap, err := fes.GetHoldingsMap(pkid, fetchProfiles, utxoView)
 	if err != nil {
 		return nil, nil, err
 	}
 	// Get the map of the entries hodlings this PKID
-	hodlYouMap, err := fes.GetHodlYouMap(pkid, fetchProfiles, utxoView)
+	hodlYouMap, err := fes.GetHoldersMap(pkid, fetchProfiles, utxoView)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -390,50 +363,23 @@ func (fes *APIServer) GetHodlingsForPublicKey(pkid *lib.PKIDEntry, fetchProfiles
 }
 
 // Get map of public keys hodling your coin.
-func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, utxoView *lib.UtxoView) (
-	_youHodlMap map[string]*BalanceEntryResponse, _err error) {
+func (fes *APIServer) GetHoldersMap(pkid *lib.PKID, fetchProfiles bool, utxoView *lib.UtxoView) (map[string]*BalanceEntryResponse, error) {
 	// Grab verified username map pointer
 	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
 	if err != nil {
-		return nil, fmt.Errorf(
-			"GetYouHodlMap: Error fetching verifiedMap: %v", err)
+		return nil, fmt.Errorf("GetHoldersMap: Error fetching verifiedMap: %v", err)
 	}
 
 	// Get all the hodlings for this user from the db
-	entriesHodlingYou, profileHodlingYou, err :=
-		lib.DbGetBalanceEntriesHodlingYou(pkid, fetchProfiles, true /*filterOutZeroBalances*/, utxoView)
+	holderEntries, holderProfiles, err := utxoView.GetHolders(pkid, fetchProfiles)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"GetHodlingsForPublicKey: Error looking up balance entries in db: %v", err)
+		return nil, fmt.Errorf("GetHoldersMap: Error looking up balance entries in db: %v", err)
 	}
+
 	// Map hodler pk -> their entry
-	hodlYouMap := fes.getMapFromEntries(entriesHodlingYou, profileHodlingYou, false, utxoView, verifiedMap)
+	holdersMap := fes.getMapFromEntries(holderEntries, holderProfiles, false, utxoView, verifiedMap)
 
-	// Iterate over the view and use the entries to update our maps.
-	//
-	// TODO: We need to screen out zero balances in the view. Right now we only screen them
-	// out from the DB query.
-	for _, balanceEntry := range utxoView.HODLerPKIDCreatorPKIDToBalanceEntry {
-		dbBalanceEntryResponse := &BalanceEntryResponse{}
-		if reflect.DeepEqual(balanceEntry.CreatorPKID, pkid.PKID) {
-			// In this case the user is the one *being* HODL'ed.
-
-			// Optionally ook up the profile of the person who is HODL'ing the user.
-			var profileEntry *lib.ProfileEntry
-			if fetchProfiles {
-				profileEntry = utxoView.GetProfileEntryForPKID(balanceEntry.HODLerPKID)
-			}
-
-			if _, ok := hodlYouMap[lib.PkToString(balanceEntry.HODLerPKID[:], fes.Params)]; ok {
-				// If we made it here, we found both a mempool and a db balanceEntry.
-				// We update the dbBalanceEntry so it can be used in order to get net mempool data.
-				dbBalanceEntryResponse = hodlYouMap[lib.PkToString(balanceEntry.HODLerPKID[:], fes.Params)]
-			}
-			hodlYouMap[lib.PkToString(balanceEntry.HODLerPKID[:], fes.Params)] = _balanceEntryToResponse(
-				balanceEntry, dbBalanceEntryResponse.BalanceNanos, profileEntry, fes.Params, utxoView, verifiedMap)
-		}
-	}
-	return hodlYouMap, nil
+	return holdersMap, nil
 }
 
 type DeleteIdentityRequest struct{}
@@ -518,11 +464,6 @@ type ProfileEntryResponse struct {
 	// Include current price for the frontend to display.
 	CoinPriceBitCloutNanos uint64
 
-	// TODO(DELETEME): Delete this field
-	StakeMultipleBasisPoints uint64
-	// TODO(DELETEME): Delete this field
-	StakeEntryStats *lib.StakeEntryStats
-
 	// Profiles of users that hold the coin + their balances.
 	UsersThatHODL []*BalanceEntryResponse
 }
@@ -585,8 +526,7 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 		profileEntries, err := fes.GetProfilesByUsernamePrefixAndBitCloutLocked(
 			fes.blockchain.DB(), requestData.UsernamePrefix, readerPubKey, utxoView)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"GetProfiles: Error fetching profiles from view: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("GetProfiles: Error fetching profiles from view: %v", err))
 			return
 		}
 
@@ -691,9 +631,8 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 		hodlYouList := []*BalanceEntryResponse{}
 		if requestData.FetchUsersThatHODL {
 			// Get the users that the user hodls and vice versa
-			pkid := utxoView.GetPKIDForPublicKey(startPubKey)
-			_, hodlYouMap, err := fes.GetHodlingsForPublicKey(
-				pkid, true /*fetchProfiles*/, utxoView)
+			pkid := utxoView.GetPKIDForPublicKey(startPubKey).PKID
+			_, hodlYouMap, err := fes.GetHodlingsForPublicKey(pkid, true, utxoView)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf(
 					"GetProfiles: Could not find HODLers for pub key: %v", startPubKey))
@@ -733,15 +672,7 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	if requestData.OrderBy == "influencer_stake" {
-		sort.Slice(profileEntryResponses, func(ii, jj int) bool {
-			return profileEntryResponses[ii].StakeEntryStats.TotalStakeNanos > profileEntryResponses[jj].StakeEntryStats.TotalStakeNanos
-		})
-	} else if requestData.OrderBy == "influencer_post_stake" {
-		sort.Slice(profileEntryResponses, func(ii, jj int) bool {
-			return profileEntryResponses[ii].StakeEntryStats.TotalPostStakeNanos > profileEntryResponses[jj].StakeEntryStats.TotalPostStakeNanos
-		})
-	} else if requestData.OrderBy == "newest_last_post" {
+	if requestData.OrderBy == "newest_last_post" {
 		// Sort each profile's posts so that the newest post is first.
 		for _, profileRes := range profileEntryResponses {
 			if len(profileRes.Posts) == 0 {
@@ -819,10 +750,14 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 }
 
 func (fes *APIServer) GetProfilesByUsernamePrefixAndBitCloutLocked(
-	db *badger.DB, usernamePrefix string, readerPK []byte, utxoView *lib.UtxoView) (
-	_profileEntries []*lib.ProfileEntry, _err error) {
+	db *badger.DB, usernamePrefix string, readerPK []byte, utxoView *lib.UtxoView) ([]*lib.ProfileEntry, error) {
 
-	profileEntries, err := lib.DBGetProfilesByUsernamePrefixAndBitCloutLocked(db, usernamePrefix, utxoView)
+	var profileEntries []*lib.ProfileEntry
+	if fes.Postgres != nil {
+		profileEntries = utxoView.GetProfilesForUsernamePrefixByCoinValue(usernamePrefix)
+	} else {
+		profileEntries, _ = lib.DBGetProfilesByUsernamePrefixAndBitCloutLocked(db, usernamePrefix, utxoView)
+	}
 
 	pubKeyMap := make(map[lib.PkMapKey][]byte)
 	for _, profileEntry := range profileEntries {
@@ -884,16 +819,14 @@ func _profileEntryToResponse(profileEntry *lib.ProfileEntry, params *lib.BitClou
 
 	// Generate profile entry response
 	profResponse := &ProfileEntryResponse{
-		PublicKeyBase58Check:     lib.PkToString(profileEntry.PublicKey, params),
-		Username:                 string(profileEntry.Username),
-		Description:              string(profileEntry.Description),
-		CoinEntry:                profileEntry.CoinEntry,
-		CoinPriceBitCloutNanos:   coinPriceBitCloutNanos,
-		IsHidden:                 profileEntry.IsHidden,
-		IsReserved:               isReserved,
-		IsVerified:               isVerified,
-		StakeMultipleBasisPoints: profileEntry.StakeMultipleBasisPoints,
-		StakeEntryStats:          lib.GetStakeEntryStats(profileEntry.StakeEntry, params),
+		PublicKeyBase58Check:   lib.PkToString(profileEntry.PublicKey, params),
+		Username:               string(profileEntry.Username),
+		Description:            string(profileEntry.Description),
+		CoinEntry:              profileEntry.CoinEntry,
+		CoinPriceBitCloutNanos: coinPriceBitCloutNanos,
+		IsHidden:               profileEntry.IsHidden,
+		IsReserved:             isReserved,
+		IsVerified:             isVerified,
 	}
 
 	return profResponse
@@ -1164,14 +1097,14 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 	var hodlMap map[string]*BalanceEntryResponse
 	hodlList := []*BalanceEntryResponse{}
 	if requestData.FetchHodlings {
-		hodlMap, err = fes.GetYouHodlMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView)
+		hodlMap, err = fes.GetHoldingsMap(utxoView.GetPKIDForPublicKey(publicKeyBytes).PKID, false, utxoView)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: error getting youHodlMap: %v", err))
 			return
 		}
 
 	} else {
-		hodlMap, err = fes.GetHodlYouMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView)
+		hodlMap, err = fes.GetHoldersMap(utxoView.GetPKIDForPublicKey(publicKeyBytes).PKID, false, utxoView)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: error getting youHodlMap: %v", err))
 			return
@@ -1812,7 +1745,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 			APIAddError(ww, err.Error())
 			return
 		}
-		if _, ok := blockedPubKeys[lib.PkToString(pkBytes, fes.Params)]; !ok {
+		if _, ok := blockedPubKeys[*lib.NewPublicKey(pkBytes)]; !ok {
 			filteredTxnMetadataList = append(filteredTxnMetadataList, txn)
 		}
 	}
@@ -2484,5 +2417,299 @@ func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Reque
 		_AddInternalServerError(ww, fmt.Sprintf("IsHodlingPublicKey: Problem serializing object to JSON: %v", err))
 		return
 	}
+}
 
+// Fetches all the profiles from the db starting with a given profilePubKey, up to numToFetch.
+// This is then joined with mempool and all profiles are returned.  Because the mempool may contain
+// profile changes, the number of profiles returned in the map is not guaranteed to be numEntries.
+func (fes *APIServer) GetProfilesByCoinValue(
+	bav *lib.UtxoView,
+	readerPK []byte,
+	startProfilePubKey []byte,
+	numToFetch int,
+	getPosts bool,
+	moderationType string,
+) (
+	_profiles map[lib.PkMapKey]*lib.ProfileEntry,
+	_postsByProfilePublicKey map[lib.PkMapKey][]*lib.PostEntry,
+	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, _err error,
+) {
+
+	var startProfile *lib.ProfileEntry
+	if startProfilePubKey != nil {
+		startProfile = bav.GetProfileEntryForPublicKey(startProfilePubKey)
+	}
+
+	var startBitCloutLockedNanos uint64 = math.MaxUint64
+	if startProfile != nil {
+		startBitCloutLockedNanos = startProfile.CoinEntry.BitCloutLockedNanos
+	}
+
+	validProfilePubKeys := [][]byte{}
+	if fes.Postgres != nil {
+		// Fetch extra because we don't do filtering in postgres yet
+		profiles := bav.GetProfilesByCoinValue(startBitCloutLockedNanos, numToFetch*2)
+		for _, profile := range profiles {
+			validProfilePubKeys = append(validProfilePubKeys, profile.PublicKey)
+		}
+	} else {
+		// As we fetch from the DB, we filter out moderated / deleted / hidden profiles.
+		// We stop fetching when the len(validProfilePubKeys) stops increasing or it hits numToFetch.
+		// Remember that we must also filter out profiles from the mempool.
+		prevCount := -1
+		nextStartKey := startProfilePubKey
+		for len(validProfilePubKeys) > prevCount && len(validProfilePubKeys) < numToFetch {
+			prevCount = len(validProfilePubKeys)
+			// Fetch some profile pub keys from the db.
+			dbProfilePubKeys, _, err := lib.DBGetPaginatedProfilesByBitCloutLocked(
+				bav.Handle, startBitCloutLockedNanos, nextStartKey, numToFetch, false /*fetchEntries*/)
+			if err != nil {
+				return nil, nil, nil, errors.Wrapf(err, "GetAllProfiles: Problem fetching ProfilePubKeys from db: ")
+			}
+
+			// Filter based on moderation level.
+			unrestrictedPubKeys, err := fes.FilterOutRestrictedPubKeysFromList(dbProfilePubKeys, readerPK, moderationType)
+			if err != nil {
+				return nil, nil, nil, errors.Wrapf(err, "GetAllProfiles: Problem filtering dbProfilePubKeys: ")
+			}
+
+			// Filter based on isDeleted / IsHidden.
+			visibleUnrestrictedPubKeys := [][]byte{}
+			for _, dbPubKey := range unrestrictedPubKeys {
+				profileEntry := bav.GetProfileEntryForPublicKey(dbPubKey)
+				// A profileEntry can be nil if we just transferred the profile associated with
+				// the public key to a *new* public key. In this case, the DB will be out of sync
+				// with the view and we should wait until the discrepancy is resolved before
+				// showing it.
+				if profileEntry != nil && !profileEntry.IsDeleted() && !profileEntry.IsHidden {
+					visibleUnrestrictedPubKeys = append(visibleUnrestrictedPubKeys, dbPubKey)
+				}
+			}
+
+			// If we didn't find any keys, break from the loop.
+			if len(visibleUnrestrictedPubKeys) == 0 {
+				break
+			}
+
+			// Append visible and unrestricted pub keys to our valid pub keys list.
+			if len(validProfilePubKeys) == 0 {
+				validProfilePubKeys = append(validProfilePubKeys, visibleUnrestrictedPubKeys...)
+			} else {
+				// If this is the second time through the loop, make sure we don't duplicate the start key.
+				validProfilePubKeys = append(validProfilePubKeys, visibleUnrestrictedPubKeys[1:]...)
+			}
+			nextStartKey = dbProfilePubKeys[len(dbProfilePubKeys)-1]
+		}
+	}
+
+	// At this point, all the profiles should be loaded into the view.
+	postsByPublicKey := make(map[lib.PkMapKey][]*lib.PostEntry)
+	postEntryReaderStates := make(map[lib.BlockHash]*lib.PostEntryReaderState)
+	if getPosts {
+		// Do one more pass to load all the posts associated with each profile into the view.
+		for _, pubKey := range validProfilePubKeys {
+			profileEntry := bav.GetProfileEntryForPublicKey(pubKey)
+
+			// Ignore deleted or rolled-back profiles.
+			if profileEntry.IsDeleted() || profileEntry.IsHidden {
+				continue
+			}
+
+			// Load all the posts
+			_, dbPostAndCommentHashes, _, err := lib.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
+				bav.Handle, profileEntry.PublicKey, false /*fetchEntries*/, 0 /*minTimestamp*/, 0, /*maxTimestamp*/
+			)
+			if err != nil {
+				return nil, nil, nil, errors.Wrapf(
+					err, "GetAllPosts: Problem fetching PostEntry's from db: ")
+			}
+
+			for _, dbPostOrCommentHash := range dbPostAndCommentHashes {
+				bav.GetPostEntryForPostHash(dbPostOrCommentHash)
+			}
+		}
+
+		// Iterate through all the posts loaded into the view and attach them
+		// to the relevant profiles.  Also adds the reader state if a reader pubkey is provided.
+		for _, postEntry := range bav.PostHashToPostEntry {
+			// Ignore deleted or rolled-back posts and any comments.
+			if postEntry.IsDeleted() || postEntry.IsHidden || len(postEntry.ParentStakeID) != 0 {
+				continue
+			}
+			posterPublicKey := lib.MakePkMapKey(postEntry.PosterPublicKey)
+			postsForProfile := postsByPublicKey[posterPublicKey]
+			postsForProfile = append(postsForProfile, postEntry)
+			postsByPublicKey[posterPublicKey] = postsForProfile
+
+			// Create reader state map. Ie, whether the reader has liked the post, etc.
+			// If nil is passed in as the readerPK, this is skipped.
+			if readerPK != nil {
+				postEntryReaderState := bav.GetPostEntryReaderState(readerPK, postEntry)
+				postEntryReaderStates[*postEntry.PostHash] = postEntryReaderState
+			}
+		}
+	}
+
+	// Now that the view is a complete picture, let's filter the public keys.
+	var viewPubKeys [][]byte
+	for _, profileEntry := range bav.ProfilePKIDToProfileEntry {
+		viewPubKeys = append(viewPubKeys, profileEntry.PublicKey)
+	}
+	filteredViewPubKeys, err := fes.FilterOutRestrictedPubKeysFromList(viewPubKeys, readerPK, moderationType)
+	if err != nil {
+		return nil, nil, nil, errors.Wrapf(err, "GetAllProfiles: Problem filtering restricted profiles: ")
+	}
+
+	// Now that the view mappings are a complete picture, iterate through them
+	// and set them on the map we're returning.
+	profilesByPublicKey := make(map[lib.PkMapKey]*lib.ProfileEntry)
+	for _, pubKey := range filteredViewPubKeys {
+		pkidEntry := bav.GetPKIDForPublicKey(pubKey)
+		profileEntry := bav.ProfilePKIDToProfileEntry[*pkidEntry.PKID]
+		// Ignore deleted or rolled-back profiles.
+		if profileEntry.IsDeleted() || profileEntry.IsHidden {
+			continue
+		}
+		profilesByPublicKey[lib.MakePkMapKey(profileEntry.PublicKey)] = profileEntry
+	}
+
+	return profilesByPublicKey, postsByPublicKey, postEntryReaderStates, nil
+}
+
+// Accepts a PkMapKey <> PubKey map and returns a map with a subset of those keys based on
+// the moderationType specified.  Passing an empty string will only filter out profiles
+// that are "RemovedEverywhere."
+//
+// NOTE: If a readerPK is passed, it will always be returned in the new map.
+func (fes *APIServer) FilterOutRestrictedPubKeysFromMap(profilePubKeyMap map[lib.PkMapKey][]byte, readerPK []byte, moderationType string,
+) (_filteredPubKeyMap map[lib.PkMapKey][]byte, _err error) {
+
+	// Convert the pub keys into graylist and blacklist db keys
+	graylistKeys := [][]byte{}
+	blacklistKeys := [][]byte{}
+	pkMapKeys := []lib.PkMapKey{}
+	for profilePubKey := range profilePubKeyMap {
+		graylistKeys = append(graylistKeys, GlobalStateKeyForGraylistedProfile(profilePubKey[:]))
+		blacklistKeys = append(blacklistKeys, GlobalStateKeyForBlacklistedProfile(profilePubKey[:]))
+		pkMapKeys = append(pkMapKeys, profilePubKey)
+	}
+
+	usersGraylistState, err := fes.GlobalStateBatchGet(graylistKeys)
+	if err != nil {
+		return nil, errors.Wrapf(err, "FilterOutRestrictedPubKeysFromList: Problem getting graylist: ")
+	}
+
+	// Sanity check that batch get worked properly.
+	if len(usersGraylistState) != len(profilePubKeyMap) {
+		return nil, errors.New("FilterOutRestrictedPubKeysFromList: usersGraylistState length mismatch.")
+	}
+
+	usersBlacklistState, err := fes.GlobalStateBatchGet(blacklistKeys)
+	if err != nil {
+		return nil, errors.Wrapf(err, "FilterOutRestrictedPubKeysFromList: Problem getting blacklist: ")
+	}
+
+	// Sanity check that batch get worked properly.
+	if len(usersBlacklistState) != len(profilePubKeyMap) {
+		return nil, errors.New("FilterOutRestrictedPubKeysFromList: usersBlacklistState length mismatch.")
+	}
+
+	filteredPubKeyMap := make(map[lib.PkMapKey][]byte)
+	for ii, pkMapKey := range pkMapKeys {
+		// If the key is restricted based on the current moderation type and the pkMapKey does not equal that of the currentPoster,
+		// we can filter out this public key.  We need to check the currentPoster's PK to support hiding comments from
+		// greylisted users (moderationType = "leaderboard") but still support getting posts from greylisted users.
+		if lib.IsRestrictedPubKey(usersGraylistState[ii], usersBlacklistState[ii], moderationType) {
+			continue
+		} else {
+			// If a public key does isn't restricted, add it to the map.
+			filteredPubKeyMap[pkMapKey] = profilePubKeyMap[pkMapKey]
+		}
+	}
+
+	if readerPK != nil {
+		filteredPubKeyMap[lib.MakePkMapKey(readerPK)] = readerPK
+	}
+
+	return filteredPubKeyMap, nil
+
+}
+
+// Accepts a list of profile public keys and returns a subset of those keys based on
+// the moderationType specified.  Passing an empty string will only filter out profiles
+// that are "RemovedEverywhere."
+func (fes *APIServer) FilterOutRestrictedPubKeysFromList(profilePubKeys [][]byte, readerPK []byte, moderationType string) (_filteredPubKeys [][]byte, _err error) {
+	// Convert the pub keys into graylist and blacklist db keys
+	graylistKeys := [][]byte{}
+	blacklistKeys := [][]byte{}
+	for _, profilePubKey := range profilePubKeys {
+		graylistKeys = append(graylistKeys, GlobalStateKeyForGraylistedProfile(profilePubKey))
+		blacklistKeys = append(blacklistKeys, GlobalStateKeyForBlacklistedProfile(profilePubKey))
+	}
+
+	usersGraylistState, err := fes.GlobalStateBatchGet(graylistKeys)
+	if err != nil {
+		return nil, errors.Wrapf(err, "FilterOutRestrictedPubKeysFromList: Problem getting graylist: ")
+	}
+
+	// Sanity check that batch get worked properly.
+	if len(usersGraylistState) != len(profilePubKeys) {
+		return nil, errors.New("FilterOutRestrictedPubKeysFromList: usersGraylistState length mismatch.")
+	}
+
+	usersBlacklistState, err := fes.GlobalStateBatchGet(blacklistKeys)
+	if err != nil {
+		return nil, errors.Wrapf(err, "FilterOutRestrictedPubKeysFromList: Problem getting blacklist: ")
+	}
+
+	// Sanity check that batch get worked properly.
+	if len(usersBlacklistState) != len(profilePubKeys) {
+		return nil, errors.New("FilterOutRestrictedPubKeysFromList: usersBlacklistState length mismatch.")
+	}
+
+	filteredPubKeys := [][]byte{}
+	for ii, profilePubKey := range profilePubKeys {
+		if lib.IsRestrictedPubKey(usersGraylistState[ii], usersBlacklistState[ii], moderationType) {
+			// Always let the reader access their content.
+			if reflect.DeepEqual(readerPK, profilePubKey) {
+				filteredPubKeys = append(filteredPubKeys, profilePubKey)
+			} else {
+				continue
+			}
+		} else {
+			// If a public key does not meet any of the above restictions, add it.
+			filteredPubKeys = append(filteredPubKeys, profilePubKey)
+		}
+	}
+	return filteredPubKeys, nil
+}
+
+//Get the map of public keys this user has blocked.  The _blockedPubKeyMap operates as a hashset to speed up look up time
+// while value are empty structs to keep memory usage down.
+func (fes *APIServer) GetBlockedPubKeysForUser(userPubKey []byte) (map[lib.PublicKey]struct{}, error) {
+	blockedPubKeyMap := make(map[lib.PublicKey]struct{})
+
+	if fes.GlobalDB != nil {
+		blocks := fes.GlobalDB.GetBlocks(lib.NewPublicKey(userPubKey))
+		for _, block := range blocks {
+			blockedPubKeyMap[*block.BlockedPublicKey] = struct{}{}
+		}
+	} else {
+		/* Get public keys of users the reader has blocked */
+		userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPubKey, fes.Params))
+		if err != nil {
+			return nil, errors.Wrap(fmt.Errorf("GetBlockedPubKeysForUser: Problem with getUserMetadataFromGlobalState: %v", err), "")
+		}
+
+		blockedPublicKeys := userMetadata.BlockedPublicKeys
+		if blockedPublicKeys == nil {
+			blockedPublicKeys = make(map[string]struct{})
+		}
+
+		for key, val := range blockedPublicKeys {
+			blockedPubKeyMap[*lib.NewPublicKey(lib.MustBase58CheckDecode(key))] = val
+		}
+	}
+
+	return blockedPubKeyMap, nil
 }
