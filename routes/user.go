@@ -1093,17 +1093,15 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 		res.IsGraylisted = true
 	}
 
-	if isAdmin, _ := fes.UserAdminStatus(publicKeyBase58Check); isAdmin {
-		var userMetadata *UserMetadata
-		userMetadata, err = fes.getUserMetadataFromGlobalState(publicKeyBase58Check)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: error getting usermetadata for public key: %v", err))
-			return
-		}
-
-		res.Profile.IsFeaturedTutorialUpAndComingCreator = userMetadata.IsFeaturedTutorialUpAndComingCreator
-		res.Profile.IsFeaturedTutorialWellKnownCreator = userMetadata.IsFeaturedTutorialWellKnownCreator
+	var userMetadata *UserMetadata
+	userMetadata, err = fes.getUserMetadataFromGlobalState(publicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: error getting usermetadata for public key: %v", err))
+		return
 	}
+
+	res.Profile.IsFeaturedTutorialUpAndComingCreator = userMetadata.IsFeaturedTutorialUpAndComingCreator
+	res.Profile.IsFeaturedTutorialWellKnownCreator = userMetadata.IsFeaturedTutorialWellKnownCreator
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetSingleProfile: Problem serializing object to JSON: %v", err))
