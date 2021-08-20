@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/bitclout/core/lib"
 	"github.com/btcsuite/btcd/btcec"
@@ -29,7 +30,7 @@ type AdminCreateReferralHashRequest struct {
 }
 
 type AdminCreateReferralHashResponse struct {
-	ReferralHashBase58 string `safeForLogging:"true"`
+	ReferralInfoResponse ReferralInfoResponse `safeForLogging:"true"`
 }
 
 func (fes *APIServer) putReferralHashWithInfo(
@@ -52,26 +53,41 @@ func (fes *APIServer) putReferralHashWithInfo(
 	return nil
 }
 
-func (fes *APIServer) setReferralHashStatusForPublicKey(
-	pkBytes []byte, referralHashBase58 string, isActive bool,
+func (fes *APIServer) getInfoForReferralHashBase58(
+	referralHashBase58 string,
+) (_referralInfo *ReferralInfo, _err error) {
+	referralHashBytes := base58.Decode(referralHashBase58)
+
+	dbKey := GlobalStateKeyForReferralHashToReferralInfo(referralHashBytes)
+
+	// Get the entry and decode the bytes.
+	referralInfoBytes, err := fes.GlobalStateGet(dbKey)
+	if err != nil {
+		return nil, errors.Wrap(fmt.Errorf(
+			"getInfoForReferralHash: Problem putting updated referralInfo: %v", err), "")
+	}
+	referralInfo := ReferralInfo{}
+	if referralInfoBytes != nil {
+		err = gob.NewDecoder(bytes.NewReader(referralInfoBytes)).Decode(&referralInfo)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"getInfoForReferralHash: Failed decoding referral info (%s): %v",
+				referralHashBase58, err)
+		}
+	}
+
+	return &referralInfo, nil
+}
+
+func (fes *APIServer) setReferralHashStatusForPKID(
+	pkid *lib.PKID, referralHashBase58 string, isActive bool,
 ) (_err error) {
 	referralHashBytes := base58.Decode(referralHashBase58)
 
-	// Get the PKID for the pub key passed in.
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		return errors.Wrap(fmt.Errorf("putReferralHashWithInfo: Problem getting utxoView: %v", err), "")
-	}
-	referrerPKID := utxoView.GetPKIDForPublicKey(pkBytes)
-	if referrerPKID == nil {
-		return errors.Wrap(fmt.Errorf(
-			"putReferralHashWithInfo: nil PKID for pubkey: %v", lib.PkToString(pkBytes, fes.Params)), "")
-	}
-
-	dbKey := GlobalStateKeyForPKIDReferralHashToIsActive(referrerPKID.PKID, referralHashBytes)
+	dbKey := GlobalStateKeyForPKIDReferralHashToIsActive(pkid, referralHashBytes)
 
 	// Encode the updated entry and stick it in the database.
-	err = fes.GlobalStatePut(dbKey, []byte{lib.BoolToByte(isActive)})
+	err := fes.GlobalStatePut(dbKey, []byte{lib.BoolToByte(isActive)})
 	if err != nil {
 		return errors.Wrap(fmt.Errorf(
 			"putReferralHashWithInfo: Problem putting updated referralInfo: %v", err), "")
@@ -129,6 +145,19 @@ func (fes *APIServer) AdminCreateReferralHash(ww http.ResponseWriter, req *http.
 		userPublicKeyBytes = profile.PublicKey
 	}
 
+	// Get the PKID for the pub key.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("putReferralHashWithInfo: Problem getting utxoView: %v", err))
+		return
+	}
+	referrerPKID := utxoView.GetPKIDForPublicKey(userPublicKeyBytes)
+	if referrerPKID == nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"putReferralHashWithInfo: nil PKID for pubkey: %v", lib.PkToString(userPublicKeyBytes, fes.Params)))
+		return
+	}
+
 	// Create a new referral hash. First we generate 16 random bytes of entropy (we should only need 8
 	// but we double this to be safe), then we Base58 encode those bytes and take the first 8 characters.
 	randBytes := make([]byte, 16)
@@ -147,28 +176,114 @@ func (fes *APIServer) AdminCreateReferralHash(ww http.ResponseWriter, req *http.
 		RefereeAmountUSDCents:  requestData.RefereeAmountUSDCents,
 		RequiresJumio:          requestData.RequiresJumio,
 		ReferralHashBase58:     referralHashBase58,
+		ReferrerPKID:           referrerPKID.PKID,
+		DateCreatedTStampNanos: uint64(time.Now().UnixNano()),
 	}
 
 	// Encode the updated entry and stick it in the database.
 	err = fes.putReferralHashWithInfo(referralHashBase58, referralInfo)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminCreateReferralHash: Problem putting new referral hash and info: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AdminCreateReferralHash: Problem putting new referral hash and info: %v", err))
 		return
 	}
 
 	// Set this as a new active referral hash for the user.
-	err = fes.setReferralHashStatusForPublicKey(userPublicKeyBytes, referralHashBase58, true)
+	err = fes.setReferralHashStatusForPKID(referrerPKID.PKID, referralHashBase58, true)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminCreateReferralHash: Problem putting new referral hash and info: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AdminCreateReferralHash: Problem setting referral hash status: %v", err))
 		return
 	}
 
 	// If we made it this far we were successful, return without error.
 	res := AdminCreateReferralHashResponse{
-		ReferralHashBase58: referralHashBase58,
+		ReferralInfoResponse: ReferralInfoResponse{
+			IsActive: true,
+			Info:     *referralInfo,
+		},
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminCreateReferralHash: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type AdminUpdateReferralHashRequest struct {
+	// Referral hash to update.
+	ReferralHashBase58 string `safeForLogging:"true"`
+
+	// ReferralInfo to updatethe referral hash with.
+	ReferrerAmountUSDCents uint64 `safeForLogging:"true"`
+	RefereeAmountUSDCents  uint64 `safeForLogging:"true"`
+	RequiresJumio          bool   `safeForLogging:"true"`
+	IsActive               bool   `safeForLogging:"true"`
+
+	AdminPublicKey string `safeForLogging:"true"`
+}
+
+type AdminUpdateReferralHashResponse struct {
+	ReferralInfoResponse ReferralInfoResponse `safeForLogging:"true"`
+}
+
+func (fes *APIServer) AdminUpdateReferralHash(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminUpdateReferralHashRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateReferralHash: Problem parsing request body: %v", err))
+		return
+	}
+
+	if requestData.ReferralHashBase58 == "" {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("AdminUpdateReferralHashRequest: Must provide a referral hash to update."))
+		return
+	}
+
+	referralInfo, err := fes.getInfoForReferralHashBase58(requestData.ReferralHashBase58)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AdminUpdateeReferralHash: Problem putting updated referral hash and info: %v", err))
+		return
+	}
+
+	// Make a copy of the referral info. Note that the referrerPKID is a pointer but it should
+	// be safe to leave them pointing to the same PKID in this endpoint.
+	var updatedReferralInfo *ReferralInfo
+	*updatedReferralInfo = *referralInfo
+
+	// Update the referral info for this referral hash.
+	updatedReferralInfo.ReferrerAmountUSDCents = requestData.ReferrerAmountUSDCents
+	updatedReferralInfo.RefereeAmountUSDCents = requestData.RefereeAmountUSDCents
+	updatedReferralInfo.RequiresJumio = requestData.RequiresJumio
+
+	// Encode the updated entry and stick it in the database.
+	err = fes.putReferralHashWithInfo(requestData.ReferralHashBase58, updatedReferralInfo)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AdminUpdateReferralHash: Problem putting updated referral hash and info: %v", err))
+		return
+	}
+
+	// Set the referral hash status.
+	err = fes.setReferralHashStatusForPKID(
+		referralInfo.ReferrerPKID, requestData.ReferralHashBase58, true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AdminUpdateReferralHash: Problem setting referral hash status: %v", err))
+		return
+	}
+
+	// If we made it this far we were successful, return without error.
+	res := AdminUpdateReferralHashResponse{
+		ReferralInfoResponse: ReferralInfoResponse{
+			IsActive: true,
+			Info:     *referralInfo,
+		},
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AdminUpdateReferralHash: Problem encoding response as JSON: %v", err))
 		return
 	}
 }

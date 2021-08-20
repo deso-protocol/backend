@@ -170,12 +170,14 @@ type ReferralInfo struct {
 	RefereeAmountUSDCents  uint64
 	RequiresJumio          bool
 	ReferralHashBase58     string
+	ReferrerPKID           *lib.PKID
 
 	// Stats
 	NumJumioAttempts           uint64
 	NumJumioSuccesses          uint64
 	TotalReferrerBitCloutNanos uint64
 	TotalRefereeBitCloutNanos  uint64
+	DateCreatedTStampNanos     uint64
 }
 
 type NFTDropEntry struct {

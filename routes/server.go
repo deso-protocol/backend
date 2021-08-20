@@ -883,6 +883,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.AdminGetAllReferralInfoForUser,
 			SuperAdminAccess,
 		},
+		{
+			"AdminUpdateReferralHash",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateReferralHash,
+			fes.AdminUpdateReferralHash,
+			SuperAdminAccess,
+		},
 		// End all /admin routes
 		// GET endpoints for managing parameters related to Buying BitClout
 		{
