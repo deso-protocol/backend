@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"reflect"
 	"sort"
@@ -66,8 +65,6 @@ type PostEntryResponse struct {
 	IsHidden                   bool
 	ConfirmationBlockHeight    uint32
 	InMempool                  bool
-	StakeEntry                 *StakeEntryResponse
-	StakeEntryStats            *lib.StakeEntryStats
 	// The profile associated with this post.
 	ProfileEntryResponse *ProfileEntryResponse
 	// The comments associated with this post.
@@ -100,42 +97,9 @@ type PostEntryResponse struct {
 	DiamondsFromSender uint64
 }
 
-type StakeEntryResponse struct {
-	TotalPostStake uint64
-	StakeList      []*SingleStakeResponse
-}
-
-type SingleStakeResponse struct {
-	InitialStakeNanos                   uint64
-	BlockHeight                         uint64
-	InitialStakeMultipleBasisPoints     uint64
-	InitialCreatorPercentageBasisPoints uint64
-	RemainingStakeOwedNanos             uint64
-	StakerPublicKeyBase58Check          string
-}
-
 // GetPostsStatelessResponse ...
 type GetPostsStatelessResponse struct {
 	PostsFound []*PostEntryResponse
-}
-
-func _stakeEntryToResponse(stakeEntry *lib.StakeEntry, params *lib.BitCloutParams) *StakeEntryResponse {
-	var stakeListResponse = []*SingleStakeResponse{}
-	for _, singleStakeEntry := range stakeEntry.StakeList {
-		var singleStake = &SingleStakeResponse{
-			InitialStakeNanos:                   singleStakeEntry.InitialStakeNanos,
-			BlockHeight:                         singleStakeEntry.BlockHeight,
-			InitialStakeMultipleBasisPoints:     singleStakeEntry.InitialStakeMultipleBasisPoints,
-			InitialCreatorPercentageBasisPoints: singleStakeEntry.InitialCreatorPercentageBasisPoints,
-			RemainingStakeOwedNanos:             singleStakeEntry.RemainingStakeOwedNanos,
-			StakerPublicKeyBase58Check:          lib.PkToString(singleStakeEntry.PublicKey, params),
-		}
-		stakeListResponse = append(stakeListResponse, singleStake)
-	}
-	return &StakeEntryResponse{
-		TotalPostStake: stakeEntry.TotalPostStake,
-		StakeList:      stakeListResponse,
-	}
 }
 
 // Given a post entry, check if it is reclouting another post and if so, get that post entry as a response.
@@ -237,8 +201,6 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 		IsHidden:                       postEntry.IsHidden,
 		ConfirmationBlockHeight:        postEntry.ConfirmationBlockHeight,
 		InMempool:                      inMempool,
-		StakeEntry:                     _stakeEntryToResponse(postEntry.StakeEntry, params),
-		StakeEntryStats:                lib.GetStakeEntryStats(postEntry.StakeEntry, params),
 		LikeCount:                      postEntry.LikeCount,
 		DiamondCount:                   postEntry.DiamondCount,
 		CommentCount:                   postEntry.CommentCount,
@@ -888,18 +850,6 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 		sort.Slice(postEntryResponses, func(ii, jj int) bool {
 			return postEntryResponses[ii].TimestampNanos < postEntryResponses[jj].TimestampNanos
 		})
-	} else if requestData.OrderBy == "post_stake" {
-		sort.Slice(postEntryResponses, func(ii, jj int) bool {
-			return postEntryResponses[ii].StakeEntryStats.TotalStakeNanos > postEntryResponses[jj].StakeEntryStats.TotalStakeNanos
-		})
-	} else if requestData.OrderBy == "influencer_stake" {
-		sort.Slice(postEntryResponses, func(ii, jj int) bool {
-			return postEntryResponses[ii].ProfileEntryResponse.StakeEntryStats.TotalStakeNanos > postEntryResponses[jj].ProfileEntryResponse.StakeEntryStats.TotalStakeNanos
-		})
-	} else if requestData.OrderBy == "influencer_post_stake" {
-		sort.Slice(postEntryResponses, func(ii, jj int) bool {
-			return postEntryResponses[ii].ProfileEntryResponse.StakeEntryStats.TotalPostStakeNanos > postEntryResponses[jj].ProfileEntryResponse.StakeEntryStats.TotalPostStakeNanos
-		})
 	} else if requestData.OrderBy == "last_comment" {
 		sort.Slice(postEntryResponses, func(ii, jj int) bool {
 			lastCommentTimeii := uint64(0)
@@ -911,27 +861,6 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 				lastCommentTimejj = postEntryResponses[jj].Comments[len(postEntryResponses[jj].Comments)-1].TimestampNanos
 			}
 			return lastCommentTimeii > lastCommentTimejj
-		})
-	} else if requestData.OrderBy == "time_decayed_post_stake" {
-		_computeTimeDecayedPostStake := func(postEntryRes *PostEntryResponse) float64 {
-			nowNanos := time.Now().UnixNano()
-
-			decayFactorii := math.Pow(2, float64(nowNanos-int64(postEntryRes.TimestampNanos))/float64(24*60*60*1000000000))
-			return float64(postEntryRes.StakeEntryStats.TotalStakeNanos) / decayFactorii
-		}
-
-		// For every 24 hours that have passed since this post was made,
-		// divide the amount of stake by 2.
-		sort.Slice(postEntryResponses, func(ii, jj int) bool {
-			postStakeii := _computeTimeDecayedPostStake(postEntryResponses[ii])
-			postStakejj := _computeTimeDecayedPostStake(postEntryResponses[jj])
-
-			// If there's a tie, break it with the raw timestamp.
-			if postStakeii == postStakejj {
-				return postEntryResponses[ii].TimestampNanos > postEntryResponses[jj].TimestampNanos
-			}
-
-			return postStakeii > postStakejj
 		})
 	}
 
@@ -1565,7 +1494,7 @@ func (fes *APIServer) GetDiamondedPosts(ww http.ResponseWriter, req *http.Reques
 			postEntryResponse.PostEntryReaderState = postEntryReaderState
 			postEntryResponse.DiamondsFromSender = uint64(diamondEntry.DiamondLevel)
 			if postEntry.ParentStakeID != nil && len(postEntry.ParentStakeID) == lib.HashSizeBytes {
-				parentPostEntry := utxoView.GetPostEntryForPostHash(lib.StakeIDToHash(postEntry.ParentStakeID))
+				parentPostEntry := utxoView.GetPostEntryForPostHash(lib.NewBlockHash(postEntry.ParentStakeID))
 				if parentPostEntry == nil {
 					_AddBadRequestError(ww, fmt.Sprintf(
 						"GetDiamondedPosts: Problem getting parent post with postHash %v for postEntry with hash %v",
