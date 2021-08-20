@@ -785,7 +785,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		}
 		// Set up a view to apply txns to.
 		//
-		utxoView, err := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.Params)
+		utxoView, err := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.Params, nil)
 		if err != nil {
 			APIAddError(ww, fmt.Sprintf("Update: Error initializing UtxoView "+
 				"for mempool request: %v", err))
@@ -864,7 +864,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 				return
 			}
 			// Set up a view to apply txns to.
-			utxoView, err := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.Params)
+			utxoView, err := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.Params, nil)
 			if err != nil {
 				APIAddError(ww, fmt.Sprintf("Update: Error initializing UtxoView: %v", err))
 				return
@@ -966,7 +966,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		return
 	}
 	// Set up a view to apply txns to.
-	utxoView, err := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.Params)
+	utxoView, err := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.Params, nil)
 	if err != nil {
 		APIAddError(ww, fmt.Sprintf("Update: Error initializing UtxoView: %v", err))
 		return
