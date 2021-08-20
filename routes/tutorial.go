@@ -6,7 +6,9 @@ import (
 	"github.com/bitclout/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"io"
+	"math/rand"
 	"net/http"
+	"time"
 )
 
 type GetTutorialCreatorsRequest struct {
@@ -64,6 +66,13 @@ func (fes *APIServer) GetTutorialCreatorsByFR(ww http.ResponseWriter, req *http.
 		_AddBadRequestError(ww, fmt.Sprintf("GetTutorialCreators: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+func ShuffleKeys(records *[][]byte) {
+	rand.Seed(time.Now().UnixNano())
+	rand.Shuffle(len(*records), func(i, j int) {
+		(*records)[i], (*records)[j] = (*records)[j], (*records)[i]
+	})
 }
 
 func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit int, seekKey []byte, verifiedMap map[string]*lib.PKID, disregardFR bool) (_profileEntryResponses []ProfileEntryResponse, _err error) {
