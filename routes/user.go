@@ -2536,7 +2536,7 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 	}
 
 	// Get all derived key entries for the owner public key.
-	derivedKeysByPKID, err := utxoView.GetAllDerivedKeyMappingsForOwner(publicKeyBytes)
+	derivedKeyMappings, err := utxoView.GetAllDerivedKeyMappingsForOwner(publicKeyBytes)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetUserDerivedKeys: Problem getting derived key mappings for owner: %v", err))
 		return
@@ -2546,7 +2546,7 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 	// We use the UserDerivedKey struct instead of the lib.DerivedKeyEntry type
 	// so that we can return public keys in base58Check.
 	derivedKeys := make(map[string]*UserDerivedKey)
-	for _, entry := range derivedKeysByPKID {
+	for _, entry := range derivedKeyMappings {
 		derivedPublicKey := lib.PkToString(entry.DerivedPublicKey, fes.Params)
 		derivedKeys[derivedPublicKey] = &UserDerivedKey{
 			OwnerPublicKeyBase58Check:   lib.PkToString(entry.OwnerPublicKey, fes.Params),
