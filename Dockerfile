@@ -27,6 +27,7 @@ COPY backend/main.go .
 COPY core/clouthash ../core/clouthash
 COPY core/cmd       ../core/cmd
 COPY core/lib       ../core/lib
+COPY core/migrate   ../core/migrate
 
 # build backend
 RUN GOOS=linux go build -mod=mod -a -installsuffix cgo -o bin/backend main.go

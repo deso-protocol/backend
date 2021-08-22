@@ -1,14 +1,10 @@
 package routes
 
 import (
-	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/btcsuite/btcd/wire"
-	"github.com/gorilla/mux"
 	"io"
-	"io/ioutil"
 	"math"
 	"net"
 	"net/http"
@@ -19,8 +15,6 @@ import (
 
 	"github.com/bitclout/core/lib"
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/golang/glog"
 )
 
 // NodeControlRequest ...
@@ -69,26 +63,15 @@ type PeerResponse struct {
 	IsSyncPeer   bool
 }
 
-type BitcoinExchangeResponseInfo struct {
-	BitcoinTxnHash string
-	BitcoinTxnHex  string
-	IsMined        bool
-}
-
 // NodeControlResponse ...
 type NodeControlResponse struct {
 	// The current status the BitClout node is at in terms of syncing the BitClout
 	// chain.
 	BitCloutStatus *NodeStatusResponse
-	BitcoinStatus  *NodeStatusResponse
 
 	BitCloutOutboundPeers    []*PeerResponse
 	BitCloutInboundPeers     []*PeerResponse
 	BitCloutUnconnectedPeers []*PeerResponse
-
-	BitcoinSyncPeer         *PeerResponse
-	BitcoinUnconnectedPeers []*PeerResponse
-	BitcoinExchangeTxns     []*BitcoinExchangeResponseInfo `safeForLogging:"true"`
 
 	MinerPublicKeys []string
 }
@@ -117,16 +100,11 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 	bitcloutChainState := fes.blockchain.ChainState()
 	bitcloutHeaderTip := fes.blockchain.HeaderTip()
 	bitcloutBlockTip := fes.blockchain.BlockTip()
-	isBitcoinChainCurrent := fes.backendServer.GetBitcoinManager().IsCurrent(false)
-	bitcoinHeaderTip := fes.backendServer.GetBitcoinManager().HeaderTip()
 
 	// Compute the fields for the BitClout NodeStatusResponse
 	bitcloutNodeStatus := &NodeStatusResponse{}
-	if !isBitcoinChainCurrent {
-		bitcloutNodeStatus.State = "SYNCING_BITCOIN"
-	} else {
-		bitcloutNodeStatus.State = bitcloutChainState.String()
-	}
+	bitcloutNodeStatus.State = bitcloutChainState.String()
+
 	// Main header chain fields
 	{
 		bitcloutNodeStatus.LatestHeaderHeight = bitcloutHeaderTip.Height
@@ -212,69 +190,6 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 		})
 	}
 
-	// Compute the fields for the Bitcoin NodeStatusResponse
-	bitcoinNodeStatus := &NodeStatusResponse{}
-	if fes.backendServer.GetBitcoinManager().IsCurrent(true) {
-		bitcoinNodeStatus.State = "FULLY_CURRENT"
-	} else if fes.backendServer.GetBitcoinManager().IsCurrent(false) {
-		bitcoinNodeStatus.State = "TENTATIVELY_CURRENT"
-	} else {
-		bitcoinNodeStatus.State = "SYNCING"
-	}
-	// For the Bitcoin part of this we only set information on headers.
-	{
-		bitcoinNodeStatus.LatestHeaderHeight = bitcoinHeaderTip.Height
-		bitcoinNodeStatus.LatestHeaderHash = (chainhash.Hash)(*bitcoinHeaderTip.Hash).String()
-		bitcoinNodeStatus.LatestHeaderTstampSecs = uint32(bitcoinHeaderTip.Header.TstampSecs)
-	}
-	if !isBitcoinChainCurrent {
-		bitcoinNodeStatus.HeadersRemaining = uint32(
-			(time.Now().Unix() - int64(bitcoinNodeStatus.LatestHeaderTstampSecs)) /
-				int64(fes.Params.BitcoinTimeBetweenBlocks.Seconds()))
-	}
-	// Set the current Bitcoin sync peer.
-	var bitcoinSyncPeer *PeerResponse
-	bitcoinSyncConn := fes.backendServer.GetBitcoinManager().SyncConn()
-	if bitcoinSyncConn != nil {
-		// This is annoying but for the sync peer we need to split the IP from the port
-		// because all we have is RemoteAddr which is a string. RemoteAddr is always
-		// <IP>:<port> and so the last element after the colon when we Split() the
-		// RemoteAddr is the port.
-		ip, port := parseIPAndPort(bitcoinSyncConn.RemoteAddr().String())
-
-		bitcoinSyncPeer = &PeerResponse{
-			IP:           ip,
-			ProtocolPort: port,
-			IsSyncPeer:   true,
-		}
-	}
-	// Get some alternative peers from the Bitcoin addrmgr
-	bitcoinUnconnectedPeers := []*PeerResponse{}
-	bitcoinAddrs := fes.backendServer.GetBitcoinManager().GetAddrManager().AddressCache()
-	sort.Slice(bitcoinAddrs, func(ii, jj int) bool {
-		// Use a hash to get a deterministic but random order.
-		hashI := string(lib.Sha256DoubleHash([]byte(bitcoinAddrs[ii].IP.String() + fmt.Sprintf(":%d", bitcoinAddrs[ii].Port)))[:])
-		hashJ := string(lib.Sha256DoubleHash([]byte(bitcoinAddrs[jj].IP.String() + fmt.Sprintf(":%d", bitcoinAddrs[jj].Port)))[:])
-		return hashI < hashJ
-	})
-	for _, netAddr := range bitcoinAddrs {
-		// Only IPV4 addresses are currently supported for Bitcoin.
-		if netAddr.IP.To4() == nil {
-			continue
-		}
-		if len(bitcoinUnconnectedPeers) >= 250 {
-			break
-		}
-		if bitcoinSyncPeer != nil && bitcoinSyncPeer.IP == netAddr.IP.String() {
-			continue
-		}
-		bitcoinUnconnectedPeers = append(bitcoinUnconnectedPeers, &PeerResponse{
-			IP:           netAddr.IP.String(),
-			ProtocolPort: netAddr.Port,
-			// This is not a sync peer by definition.
-		})
-	}
-
 	// Encode the miner public keys as strings.
 	minerPublicKeyStrs := []string{}
 	for _, publicKey := range fes.backendServer.GetMiner().PublicKeys {
@@ -282,40 +197,12 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 			publicKey.SerializeCompressed(), fes.Params))
 	}
 
-	// Iterate through the BitcoinExchange txns in the mempool and add them to the
-	// response as well.
-	// TODO: This could be made more general.
-	bitcoinExchangeTxns := []*BitcoinExchangeResponseInfo{}
-	txns, _, _ := fes.mempool.GetTransactionsOrderedByTimeAdded()
-	for _, txD := range txns {
-		txn := txD.Tx
-		if txn.TxnMeta.GetTxnType() == lib.TxnTypeBitcoinExchange {
-			txnMeta := txn.TxnMeta.(*lib.BitcoinExchangeMetadata)
-
-			bitcoinTxnBytes := bytes.Buffer{}
-			err := txnMeta.BitcoinTransaction.SerializeNoWitness(&bitcoinTxnBytes)
-			if err != nil {
-				glog.Error(err)
-			}
-			bitcoinExchangeTxns = append(bitcoinExchangeTxns, &BitcoinExchangeResponseInfo{
-				BitcoinTxnHash: txnMeta.BitcoinTransaction.TxHash().String(),
-				BitcoinTxnHex:  hex.EncodeToString(bitcoinTxnBytes.Bytes()),
-				IsMined:        !lib.IsUnminedBitcoinExchange(txnMeta),
-			})
-		}
-	}
-
 	res := NodeControlResponse{
 		BitCloutStatus: bitcloutNodeStatus,
-		BitcoinStatus:  bitcoinNodeStatus,
 
 		BitCloutOutboundPeers:    bitcloutOutboundPeers,
 		BitCloutInboundPeers:     bitcloutInboundPeers,
 		BitCloutUnconnectedPeers: bitcloutUnconnectedPeers,
-
-		BitcoinSyncPeer:         bitcoinSyncPeer,
-		BitcoinUnconnectedPeers: bitcoinUnconnectedPeers,
-		BitcoinExchangeTxns:     bitcoinExchangeTxns,
 
 		MinerPublicKeys: minerPublicKeyStrs,
 	}
@@ -447,28 +334,6 @@ func (fes *APIServer) _handleDisconnectBitCloutNode(
 	}
 }
 
-func (fes *APIServer) _handleChangeBitcoinSyncPeer(ww http.ResponseWriter, newPeerAddr string) {
-	// Let it block. We want to wait for the response.
-	replyChan := make(chan error)
-	fes.backendServer.GetBitcoinManager().SwitchPeerChan <- &lib.SwitchPeerMsg{
-		NewAddr:   newPeerAddr,
-		ReplyChan: replyChan,
-	}
-	err := <-replyChan
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("Problem connecting to new peer %s: %v", newPeerAddr, err))
-		return
-	}
-
-	res := NodeControlResponse{
-		// Return an empty response, which indicates we set the peer up to be connected.
-	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("NodeControl: Problem encoding response as JSON: %v", err))
-		return
-	}
-}
-
 // NodeControl ...
 func (fes *APIServer) NodeControl(ww http.ResponseWriter, req *http.Request) {
 	// This function doesn't change anything on the user object so no need to lock.
@@ -486,7 +351,6 @@ func (fes *APIServer) NodeControl(ww http.ResponseWriter, req *http.Request) {
 	allowedOperationTypes["get_info"] = true
 	allowedOperationTypes["connect_bitclout_node"] = true
 	allowedOperationTypes["disconnect_bitclout_node"] = true
-	allowedOperationTypes["connect_bitcoin_node"] = true
 	allowedOperationTypes["update_miner"] = true
 
 	if _, isOperationTypeAllowed := allowedOperationTypes[requestData.OperationType]; !isOperationTypeAllowed {
@@ -508,10 +372,6 @@ func (fes *APIServer) NodeControl(ww http.ResponseWriter, req *http.Request) {
 	} else if requestData.OperationType == "disconnect_bitclout_node" {
 		ip, port := parseIPAndPort(requestData.Address)
 		fes._handleDisconnectBitCloutNode(ww, ip, port)
-		return
-
-	} else if requestData.OperationType == "connect_bitcoin_node" {
-		fes._handleChangeBitcoinSyncPeer(ww, requestData.Address)
 		return
 
 	} else if requestData.OperationType == "update_miner" {
@@ -544,116 +404,6 @@ func (fes *APIServer) NodeControl(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
-type ReprocessBitcoinBlockResponse struct {
-	Message string
-}
-
-func ReprocessBitcoinBlockUsingAPI(blockHeightOrHash string, bitcoinManager *lib.BitcoinManager, params *lib.BitCloutParams) error {
-
-	URL := fmt.Sprintf("https://blockchain.info/rawblock/%v?format=hex", blockHeightOrHash)
-	glog.Debugf("ReprocessBitcoinBlockUsingAPI: URL: %v", URL)
-
-	req, err := http.NewRequest("GET", URL, nil)
-	if err != nil {
-		return fmt.Errorf("ReprocessBitcoinBlockUsingAPI: Problem with req: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("ReprocessBitcoinBlockUsingAPI: Problem with HTTP request %s: %v", URL, err)
-	}
-	defer resp.Body.Close()
-
-	// Read in the response. It should be the hex of a Bitcoin block.
-	bodyHexBB, _ := ioutil.ReadAll(resp.Body)
-	bodyHex := string(bodyHexBB)
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("ReprocessBitcoinBlockUsingAPI: Error code from Bitcoin API: %v, %v", resp.StatusCode, bodyHexBB)
-	}
-
-	bodyBytes, _ := hex.DecodeString(bodyHex)
-	// Ensure there is an error due to deserializing the block.
-	var msgBlock wire.MsgBlock
-	err = msgBlock.BtcDecode(
-		bytes.NewReader(bodyBytes), params.BitcoinProtocolVersion, wire.WitnessEncoding)
-	if err != nil {
-		return fmt.Errorf("ReprocessBitcoinBlockUsingAPI: Error parsing body: %v, %v, %v", URL, err, bodyHex)
-	}
-
-	glog.Infof("Got Bitcoin block to reprocess: %v", msgBlock.BlockHash())
-	bitcoinManager.ProcessBitcoinBlock(&msgBlock)
-
-	return nil
-}
-
-// ReprocessBitcoinBlock ...
-func (fes *APIServer) ReprocessBitcoinBlock(ww http.ResponseWriter, req *http.Request) {
-	// Parse all the vars from the URL
-	vars := mux.Vars(req)
-	blockHashHexOrHeight, blockHashHexOrHeightExists := vars["blockHashHexOrblockHeight"]
-	if !blockHashHexOrHeightExists {
-		_AddBadRequestError(ww, fmt.Sprintf("ReprocessBitcoinBlock: Missing block hash hex or height parameter after the slash. "+
-			"Usage: curl localhost:8080/reprocess-bitcoin-block/<block hash or block height>"))
-		return
-	}
-
-	res := &ReprocessBitcoinBlockResponse{}
-	// If the parameter has the length of a Bitcoin block hash then we interpret it as such.
-	if len(blockHashHexOrHeight) == lib.HashSizeBytes*2 {
-		hash, err := chainhash.NewHashFromStr(blockHashHexOrHeight)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("ReprocessBitcoinBlock: Problem decoding block hash hex: %v", err))
-			return
-		}
-
-		glog.Tracef("ReprocessBitcoinBlock: Requesting Bitcoin block with hash: %v", hash)
-		fes.backendServer.GetBitcoinManager().RequestBitcoinBlock(*hash)
-
-		res.Message = fmt.Sprintf("Requested block %v for reprocessing", hash)
-	} else {
-		// If the parameter does not look like a block hash then we interpret it as a block
-		// height.
-		blockHeight, err := strconv.Atoi(blockHashHexOrHeight)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("ReprocessBitcoinBlock: Problem decoding block height: %v", err))
-			return
-		}
-
-		// Subtract off the start block height
-		blockHeight -= int(fes.Params.BitcoinStartBlockNode.Height)
-
-		if blockHeight < 0 || int64(blockHeight) > int64(fes.backendServer.GetBitcoinManager().HeaderTip().Height) {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"ReprocessBitcoinBlock: Height provided is less than zero or exceeds "+
-					"maximum height known, which is %d", blockHeight))
-			return
-		}
-
-		blockNode := fes.backendServer.GetBitcoinManager().HeaderAtHeight(uint32(blockHeight))
-		if blockNode == nil {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"ReprocessBitcoinBlock: Did not find Bitcoin block with height: %d", blockHeight))
-			return
-		}
-		fes.backendServer.GetBitcoinManager().RequestBitcoinBlock((chainhash.Hash)(*blockNode.Hash))
-
-		res.Message = fmt.Sprintf("Requested block %v with height %d for reprocessing", (chainhash.Hash)(*blockNode.Hash), blockHeight)
-	}
-
-	if err := ReprocessBitcoinBlockUsingAPI(blockHashHexOrHeight, fes.backendServer.GetBitcoinManager(), fes.Params); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("ReprocessBitcoinBlock: Error processing Bitcoin block from API: %v", err))
-		return
-	}
-
-	// Return the response.
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("ReprocessBitcoinBlock: Problem encoding response as JSON: %v", err))
-		return
-	}
-}
-
 // AdminGetMempoolStatsRequest...
 type AdminGetMempoolStatsRequest struct{}
 
@@ -672,47 +422,6 @@ func (fes *APIServer) AdminGetMempoolStats(ww http.ResponseWriter, req *http.Req
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetMempoolStats: Problem encoding response as JSON: %v", err))
-		return
-	}
-}
-
-type EvictUnminedBitcoinTxnsRequest struct {
-	BitcoinTxnHashes []string
-	DryRun           bool
-}
-
-type EvictUnminedBitcoinTxnsResponse struct {
-	TotalMempoolTxns             int64
-	MempoolTxnsLeftAfterEviction int64
-	TxnTypesEvicted              map[string]int64
-	TxnHashesEvicted             []string
-
-	UnminedBitcoinExchangeTxns []string
-}
-
-func (fes *APIServer) EvictUnminedBitcoinTxns(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := EvictUnminedBitcoinTxnsRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("EvictUnminedBitcoinTxns: Problem parsing request body: %v", err))
-		return
-	}
-
-	totalMempoolTxns := fes.mempool.Count()
-	newPoolCount, evictedTxnsMap, evictedTxnsList, unminedBitcoinExchangeTxns :=
-		fes.mempool.EvictUnminedBitcoinTransactions(requestData.BitcoinTxnHashes, requestData.DryRun)
-
-	res := EvictUnminedBitcoinTxnsResponse{
-		TotalMempoolTxns:             int64(totalMempoolTxns),
-		MempoolTxnsLeftAfterEviction: newPoolCount,
-		TxnTypesEvicted:              evictedTxnsMap,
-		TxnHashesEvicted:             evictedTxnsList,
-
-		UnminedBitcoinExchangeTxns: unminedBitcoinExchangeTxns,
-	}
-
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("EvictUnminedBitcoinTxns: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
