@@ -3,22 +3,22 @@ package routes
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/core/lib"
-	"github.com/btcsuite/btcd/btcec"
 	"io"
 	"math/rand"
 	"net/http"
 	"time"
+
+	"github.com/bitclout/core/lib"
+	"github.com/btcsuite/btcd/btcec"
 )
 
 type GetTutorialCreatorsRequest struct {
 	ResponseLimit int
 }
 
-
 type GetTutorialCreatorResponse struct {
 	UpAndComingProfileEntryResponses []ProfileEntryResponse
-	WellKnownProfileEntryResponses []ProfileEntryResponse
+	WellKnownProfileEntryResponses   []ProfileEntryResponse
 }
 
 func (fes *APIServer) GetTutorialCreators(ww http.ResponseWriter, req *http.Request) {
@@ -87,7 +87,7 @@ func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit 
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("GetFeaturedCreators: Problem seeking through global state keys: #{err}")
+		return nil, fmt.Errorf("GetFeaturedCreators: Problem seeking through global state keys: %v", err)
 	}
 
 	var publicKeysUpperBound int
@@ -108,7 +108,7 @@ func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit 
 		profileEntryy := utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
 
 		// Only add creator if FR is 10% or less
-		if profileEntryy.CoinEntry.CreatorBasisPoints <= 10 * 100 || disregardFR {
+		if profileEntryy.CoinEntry.CreatorBasisPoints <= 10*100 || disregardFR {
 			profileEntryResponse := _profileEntryToResponse(profileEntryy, fes.Params, verifiedMap, utxoView)
 			profileEntryResponses = append(profileEntryResponses, *profileEntryResponse)
 		}
@@ -119,8 +119,8 @@ func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit 
 
 type StartOrSkipTutorialRequest struct {
 	PublicKeyBase58Check string
-	JWT string
-	IsSkip bool
+	JWT                  string
+	IsSkip               bool
 }
 
 func (fes *APIServer) StartOrSkipTutorial(ww http.ResponseWriter, req *http.Request) {
