@@ -1659,6 +1659,10 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		// TODO: Save which creator a user purchased by PKID in user metadata so we can bring them to the same place in the flow
 		// TODO: Do we need to save how much they bought for usage in tutorial?
 		if operationType == lib.CreatorCoinOperationTypeBuy && userMetadata.TutorialStatus == STARTED {
+			if reflect.DeepEqual(updaterPublicKeyBytes, creatorPublicKeyBytes) {
+				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Cannot purchase your own coin in the Invest in others step"))
+				return
+			}
 			creatorPKID := utxoView.GetPKIDForPublicKey(creatorPublicKeyBytes)
 			if creatorPKID == nil {
 				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: No PKID found for public key: %v", requestData.CreatorPublicKeyBase58Check))
