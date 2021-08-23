@@ -262,6 +262,7 @@ type UserMetadata struct {
 
 	TutorialStatus TutorialStatus
 	CreatorPurchasedInTutorialPKID *lib.PKID
+	CreatorCoinsPurchasedInTutorial uint64
 }
 
 type TutorialStatus string

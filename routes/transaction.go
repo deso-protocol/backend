@@ -1686,6 +1686,7 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 			}
 			userMetadata.TutorialStatus = INVEST_OTHERS_BUY
 			userMetadata.CreatorPurchasedInTutorialPKID = creatorPKID.PKID
+			userMetadata.CreatorCoinsPurchasedInTutorial = ExpectedCreatorCoinReturnedNanos
 			updateUserMetadata = true
 		}
 

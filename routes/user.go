@@ -223,6 +223,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 			}
 			username := string(tutorialCreatorProfileEntry.Username)
 			user.CreatorPurchasedInTutorialUsername = &username
+			user.CreatorCoinsPurchasedInTutorial = userMetadata.CreatorCoinsPurchasedInTutorial
 		}
 		if profileEntryy != nil {
 			user.ProfileEntryResponse.IsFeaturedTutorialUpAndComingCreator = userMetadata.IsFeaturedTutorialUpAndComingCreator

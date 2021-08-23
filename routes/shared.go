@@ -133,6 +133,9 @@ type User struct {
 	// Username of creator purchased during onboarding flow - used in case a user changes devices in the middle of the flow.
 	CreatorPurchasedInTutorialUsername *string `json:",omitempty"`
 
+	// Amount of creator coins purchased in the tutorial
+	CreatorCoinsPurchasedInTutorial uint64
+
 	// Does this user need to complete the tutorial
 	MustCompleteTutorial bool
 }
