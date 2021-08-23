@@ -141,14 +141,14 @@ func (fes *APIServer) StartOrSkipTutorial(ww http.ResponseWriter, req *http.Requ
 		return
 	}
 
-	if isAdmin, _ := fes.UserAdminStatus(requestData.PublicKeyBase58Check); !isAdmin && requestData.IsSkip {
-		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Only admins can skip tutorial"))
-		return
-	}
-
 	userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.PublicKeyBase58Check)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Error getting user metadata from global state: %v", err))
+		return
+	}
+
+	if isAdmin, _ := fes.UserAdminStatus(requestData.PublicKeyBase58Check); !isAdmin && requestData.IsSkip && userMetadata.MustCompleteTutorial {
+		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: You are not permitted to skip the tutorial"))
 		return
 	}
 
