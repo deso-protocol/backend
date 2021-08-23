@@ -74,6 +74,9 @@ func (fes *APIServer) getInfoForReferralHashBase58(
 				"getInfoForReferralHash: Failed decoding referral info (%s): %v",
 				referralHashBase58, err)
 		}
+	} else {
+		return nil, fmt.Errorf(
+			"getInfoForReferralHashBase58: got nil bytes for hash (%s)", referralHashBase58)
 	}
 
 	return &referralInfo, nil
@@ -249,7 +252,7 @@ func (fes *APIServer) AdminUpdateReferralHash(ww http.ResponseWriter, req *http.
 
 	// Make a copy of the referral info. Note that the referrerPKID is a pointer but it should
 	// be safe to leave them pointing to the same PKID in this endpoint.
-	var updatedReferralInfo *ReferralInfo
+	updatedReferralInfo := &ReferralInfo{}
 	*updatedReferralInfo = *referralInfo
 
 	// Update the referral info for this referral hash.
@@ -267,7 +270,7 @@ func (fes *APIServer) AdminUpdateReferralHash(ww http.ResponseWriter, req *http.
 
 	// Set the referral hash status.
 	err = fes.setReferralHashStatusForPKID(
-		referralInfo.ReferrerPKID, requestData.ReferralHashBase58, true)
+		referralInfo.ReferrerPKID, requestData.ReferralHashBase58, requestData.IsActive)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"AdminUpdateReferralHash: Problem setting referral hash status: %v", err))
@@ -277,8 +280,8 @@ func (fes *APIServer) AdminUpdateReferralHash(ww http.ResponseWriter, req *http.
 	// If we made it this far we were successful, return without error.
 	res := AdminUpdateReferralHashResponse{
 		ReferralInfoResponse: ReferralInfoResponse{
-			IsActive: true,
-			Info:     *referralInfo,
+			IsActive: requestData.IsActive,
+			Info:     *updatedReferralInfo,
 		},
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
