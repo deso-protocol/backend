@@ -118,9 +118,10 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 
 	// Get the ProfileEntry corresponding to this user's public key from the view.
 	profileEntryy := utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
+	var profileEntryResponse *ProfileEntryResponse
 	if profileEntryy != nil {
 		// Convert it to a response since that sanitizes the inputs.
-		profileEntryResponse := _profileEntryToResponse(profileEntryy, fes.Params, verifiedMap, utxoView)
+		profileEntryResponse = _profileEntryToResponse(profileEntryy, fes.Params, verifiedMap, utxoView)
 		user.ProfileEntryResponse = profileEntryResponse
 	}
 
@@ -212,6 +213,22 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		user.JumioVerified = userMetadata.JumioVerified
 		user.JumioReturned = userMetadata.JumioReturned
 		user.JumioFinishedTime = userMetadata.JumioFinishedTime
+		user.TutorialStatus = userMetadata.TutorialStatus
+		user.MustCompleteTutorial = userMetadata.MustCompleteTutorial
+		// We only need to fetch the creator purchased in the tutorial if the user is still in the tutorial
+		if user.TutorialStatus != COMPLETE && user.TutorialStatus != SKIPPED && userMetadata.CreatorPurchasedInTutorialPKID != nil {
+			tutorialCreatorProfileEntry := utxoView.GetProfileEntryForPKID(userMetadata.CreatorPurchasedInTutorialPKID)
+			if tutorialCreatorProfileEntry == nil {
+				return fmt.Errorf("updateUserFieldsStateless: Did not find profile entry for PKID for creator purchased in tutorial")
+			}
+			username := string(tutorialCreatorProfileEntry.Username)
+			user.CreatorPurchasedInTutorialUsername = &username
+			user.CreatorCoinsPurchasedInTutorial = userMetadata.CreatorCoinsPurchasedInTutorial
+		}
+		if profileEntryy != nil {
+			user.ProfileEntryResponse.IsFeaturedTutorialUpAndComingCreator = userMetadata.IsFeaturedTutorialUpAndComingCreator
+			user.ProfileEntryResponse.IsFeaturedTutorialWellKnownCreator = userMetadata.IsFeaturedTutorialWellKnownCreator
+		}
 		if user.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView); err != nil {
 			return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err), "")
 		}
@@ -241,29 +258,30 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 
 	// Only set User.IsAdmin in GetUsersStateless
 	// We don't want or need to set this on every endpoint that generates a ProfileEntryResponse
+	isAdmin, isSuperAdmin := fes.UserAdminStatus(user.PublicKeyBase58Check)
+	user.IsAdmin = isAdmin
+	user.IsSuperAdmin = isSuperAdmin
+
+
+	return nil
+}
+
+func (fes *APIServer) UserAdminStatus(publicKeyBase58Check string) (_isAdmin bool, _isSuperAdmin bool) {
 	if len(fes.Config.AdminPublicKeys) == 0 && len(fes.Config.SuperAdminPublicKeys) == 0 {
-		user.IsAdmin = true
-		user.IsSuperAdmin = true
+		return true, true
 	} else {
-		for _, k := range fes.Config.AdminPublicKeys {
-			if k == user.PublicKeyBase58Check {
-				user.IsAdmin = true
-				break
+		for _, k := range fes.Config.SuperAdminPublicKeys {
+			if k == publicKeyBase58Check {
+				return true, true
 			}
 		}
-		for _, k := range fes.Config.SuperAdminPublicKeys {
-			if k == user.PublicKeyBase58Check {
-				user.IsSuperAdmin = true
-				user.IsAdmin = true
-				break
+		for _, k := range fes.Config.AdminPublicKeys {
+			if k == publicKeyBase58Check {
+				return true, false
 			}
 		}
 	}
-
-	// We expect SeedInfo and LocalState are set and don't mess with them in this
-	// function.
-
-	return nil
+	return false, false
 }
 
 // Get map of creators you hodl.
@@ -518,6 +536,12 @@ type ProfileEntryResponse struct {
 
 	// Profiles of users that hold the coin + their balances.
 	UsersThatHODL []*BalanceEntryResponse
+
+	// If user is featured as a well known creator in the tutorial.
+	IsFeaturedTutorialWellKnownCreator bool
+	// If user is featured as an up and coming creator in the tutorial.
+	// Note: a user should not be both featured as well known and up and coming
+	IsFeaturedTutorialUpAndComingCreator bool
 }
 
 // GetProfiles ...
@@ -1012,7 +1036,9 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 	// Get profile entry by public key.  If public key not provided, get profileEntry by username.
 	var profileEntry *lib.ProfileEntry
 	var publicKeyBytes []byte
+	var publicKeyBase58Check string
 	if requestData.PublicKeyBase58Check != "" {
+		publicKeyBase58Check = requestData.PublicKeyBase58Check
 		publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Problem decoding user public key: %v", err))
@@ -1023,6 +1049,7 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 		profileEntry = utxoView.GetProfileEntryForUsername([]byte(requestData.Username))
 		if profileEntry != nil {
 			publicKeyBytes = profileEntry.PublicKey
+			publicKeyBase58Check = lib.Base58CheckEncode(publicKeyBytes, false, fes.Params)
 		}
 	}
 
@@ -1066,6 +1093,16 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 	if reflect.DeepEqual(userGraylistState, lib.IsGraylisted) {
 		res.IsGraylisted = true
 	}
+
+	var userMetadata *UserMetadata
+	userMetadata, err = fes.getUserMetadataFromGlobalState(publicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: error getting usermetadata for public key: %v", err))
+		return
+	}
+
+	res.Profile.IsFeaturedTutorialUpAndComingCreator = userMetadata.IsFeaturedTutorialUpAndComingCreator
+	res.Profile.IsFeaturedTutorialWellKnownCreator = userMetadata.IsFeaturedTutorialWellKnownCreator
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetSingleProfile: Problem serializing object to JSON: %v", err))

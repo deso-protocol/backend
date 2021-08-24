@@ -275,7 +275,8 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 
 	settingPhoneNumberForFirstTime := userMetadata.PhoneNumber == ""
 	userMetadata.PhoneNumber = requestData.PhoneNumber
-	userMetadata.MustPurchaseCreatorCoin = true
+	// TODO: do we want to require users who got money from twilio to go through the tutorial?
+	//userMetadata.MustPurchaseCreatorCoin = true
 	err = fes.putUserMetadataInGlobalState(userMetadata)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Error putting usermetadata in Global state: %v", err))
@@ -791,7 +792,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 		userMetadata.JumioVerified = true
 		userMetadata.JumioTransactionID = jumioTransactionId
 		userMetadata.JumioShouldCompProfileCreation = true
-		userMetadata.MustPurchaseCreatorCoin = true
+		userMetadata.MustCompleteTutorial = true
 		userMetadata.RedoJumio = false
 
 		if bitcloutNanos := fes.GetJumioBitCloutNanos(); bitcloutNanos > 0 {
