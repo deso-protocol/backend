@@ -367,7 +367,8 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 	if len(requestData.NewUsername) > 0 {
 
 		utxoView.GetProfileEntryForUsername([]byte(requestData.NewUsername))
-		if existingProfile, usernameExists := utxoView.ProfileUsernameToProfileEntry[lib.MakeUsernameMapKey([]byte(requestData.NewUsername))]; usernameExists && !existingProfile.IsDeleted() {
+		existingProfile, usernameExists := utxoView.ProfileUsernameToProfileEntry[lib.MakeUsernameMapKey([]byte(requestData.NewUsername))]
+		if usernameExists && existingProfile != nil && !existingProfile.IsDeleted() {
 			// Check that the existing profile does not belong to the profile public key
 			if utxoView.GetPKIDForPublicKey(profilePublicKey) != utxoView.GetPKIDForPublicKey(existingProfile.PublicKey) {
 				_AddBadRequestError(ww, fmt.Sprintf(
