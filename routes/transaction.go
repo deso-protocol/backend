@@ -1342,6 +1342,10 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 			return
 		}
 		userMetadata.TutorialStatus = COMPLETE
+		// Since the user has now completed the tutorial, we set must complete to false.
+		// Users are able to restart the tutorial, so we can't rely on tutorial status being COMPLETE to verify that
+		// they have done the tutorial.
+		userMetadata.MustCompleteTutorial = false
 		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Error putting user metadata in global state: %v", err))
 			return
