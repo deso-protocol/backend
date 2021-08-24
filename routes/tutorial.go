@@ -156,8 +156,8 @@ func (fes *APIServer) StartOrSkipTutorial(ww http.ResponseWriter, req *http.Requ
 		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Can only skip tutorial from empty state"))
 		return
 	}
-	if !requestData.IsSkip && userMetadata.TutorialStatus != EMPTY && userMetadata.TutorialStatus != SKIPPED {
-		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Can only start tutorial from empty or skipped state"))
+	if !requestData.IsSkip && userMetadata.TutorialStatus != EMPTY && userMetadata.TutorialStatus != SKIPPED  && userMetadata.TutorialStatus != COMPLETE {
+		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Can only start tutorial from empty, skipped, or completed state"))
 		return
 	}
 
