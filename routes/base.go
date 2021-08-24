@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/core/lib"
-	"github.com/golang/glog"
-	"github.com/montanaflynn/stats"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"time"
+
+	"github.com/bitclout/core/lib"
+	"github.com/golang/glog"
+	"github.com/montanaflynn/stats"
 )
 
 // Index ...
@@ -47,9 +48,13 @@ type GetExchangeRateResponse struct {
 }
 
 func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) {
-	// Get the Bitcoin to USD exchange rate by applying txns in the mempool.
 	readUtxoView, _ := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	usdCentsPerBitcoin := readUtxoView.GetCurrentUSDCentsPerBitcoin()
+
+	usdCentsPerBitcoin := fes.UsdCentsPerBitCoinExchangeRate
+	// If we don't have a valid value from monitoring at this time, use the price from the protocol
+	if usdCentsPerBitcoin == 0 {
+		usdCentsPerBitcoin = float64(readUtxoView.GetCurrentUSDCentsPerBitcoin())
+	}
 
 	startNanos := readUtxoView.NanosPurchased
 
@@ -57,7 +62,7 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 	nanosPerSat, err := fes.GetNanosFromSats(1, 0)
 	if err != nil {
 		glog.Errorf("GetExchangeRate: error getting BitCloutNanos per BitCoin: %v", err)
-		satoshisPerUnit = lib.GetSatoshisPerUnitExchangeRate(startNanos, usdCentsPerBitcoin)
+		satoshisPerUnit = lib.GetSatoshisPerUnitExchangeRate(startNanos, uint64(usdCentsPerBitcoin))
 	} else {
 		satoshisPerUnit = lib.NanosPerUnit / nanosPerSat
 	}
@@ -79,7 +84,7 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 	res := &GetExchangeRateResponse{
 		SatoshisPerBitCloutExchangeRate:        satoshisPerUnit,
 		NanosSold:                              startNanos,
-		USDCentsPerBitcoinExchangeRate:         usdCentsPerBitcoin,
+		USDCentsPerBitcoinExchangeRate:         uint64(usdCentsPerBitcoin),
 		USDCentsPerBitCloutExchangeRate:        usdCentsPerBitCloutExchangeRate,
 		USDCentsPerBitCloutReserveExchangeRate: usdCentsPerBitCloutReserveExchangeRate,
 		BuyBitCloutFeeBasisPoints:              feeBasisPoints,
@@ -238,7 +243,7 @@ type GetAppStateResponse struct {
 	HasJumioIntegration    bool
 
 	USDCentsPerBitCloutExchangeRate uint64
-	JumioBitCloutNanos     uint64
+	JumioBitCloutNanos              uint64
 
 	// Send back the password stored in our HTTPOnly cookie
 	// so amplitude can track which passwords people are using
@@ -276,8 +281,8 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		HasWyreIntegration:                  fes.IsConfiguredForWyre(),
 		HasJumioIntegration:                 fes.IsConfiguredForJumio(),
 
-		USDCentsPerBitCloutExchangeRate:     fes.GetExchangeBitCloutPrice(),
-		JumioBitCloutNanos:                  fes.GetJumioBitCloutNanos(),
+		USDCentsPerBitCloutExchangeRate: fes.GetExchangeBitCloutPrice(),
+		JumioBitCloutNanos:              fes.GetJumioBitCloutNanos(),
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
