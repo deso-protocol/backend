@@ -102,14 +102,14 @@ func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit 
 	ii := 0
 	for len(_profileEntryResponses) <= publicKeysUpperBound && ii < len(keys) {
 		dbKeyBytes := keys[ii]
-		// Chop the public key out of the db key.
+		// Chop the PKID out of the db key.
 		// The dbKeyBytes are: [One Prefix Byte][btcec.PubKeyBytesLenCompressed]
-		publicKeyBytes := dbKeyBytes[1:]
-		profileEntryy := utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
+		pkidBytes := dbKeyBytes[1:]
+		profileEntry := utxoView.GetProfileEntryForPKID(lib.NewPKID(pkidBytes))
 
 		// Only add creator if FR is 10% or less
-		if profileEntryy != nil && (profileEntryy.CoinEntry.CreatorBasisPoints <= 10*100 || disregardFR) {
-			profileEntryResponse := _profileEntryToResponse(profileEntryy, fes.Params, verifiedMap, utxoView)
+		if profileEntry != nil && (profileEntry.CoinEntry.CreatorBasisPoints <= 10*100 || disregardFR) {
+			profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
 			profileEntryResponses = append(profileEntryResponses, *profileEntryResponse)
 		}
 		ii++
@@ -156,7 +156,7 @@ func (fes *APIServer) StartOrSkipTutorial(ww http.ResponseWriter, req *http.Requ
 		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Can only skip tutorial from empty state"))
 		return
 	}
-	if !requestData.IsSkip && userMetadata.TutorialStatus != EMPTY && userMetadata.TutorialStatus != SKIPPED  && userMetadata.TutorialStatus != COMPLETE {
+	if !requestData.IsSkip && userMetadata.TutorialStatus != EMPTY && userMetadata.TutorialStatus != SKIPPED && userMetadata.TutorialStatus != COMPLETE {
 		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Can only start tutorial from empty, skipped, or completed state"))
 		return
 	}
