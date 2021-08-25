@@ -24,6 +24,7 @@ type AdminCreateReferralHashRequest struct {
 	// ReferralInfo to add for the new referral hash.
 	ReferrerAmountUSDCents uint64 `safeForLogging:"true"`
 	RefereeAmountUSDCents  uint64 `safeForLogging:"true"`
+	MaxReferrals           uint64 `safeForLogging:"true"`
 	RequiresJumio          bool   `safeForLogging:"true"`
 
 	AdminPublicKey string `safeForLogging:"true"`
@@ -177,6 +178,7 @@ func (fes *APIServer) AdminCreateReferralHash(ww http.ResponseWriter, req *http.
 	referralInfo := &ReferralInfo{
 		ReferrerAmountUSDCents: requestData.ReferrerAmountUSDCents,
 		RefereeAmountUSDCents:  requestData.RefereeAmountUSDCents,
+		MaxReferrals:           requestData.MaxReferrals,
 		RequiresJumio:          requestData.RequiresJumio,
 		ReferralHashBase58:     referralHashBase58,
 		ReferrerPKID:           referrerPKID.PKID,
@@ -219,6 +221,7 @@ type AdminUpdateReferralHashRequest struct {
 	// ReferralInfo to updatethe referral hash with.
 	ReferrerAmountUSDCents uint64 `safeForLogging:"true"`
 	RefereeAmountUSDCents  uint64 `safeForLogging:"true"`
+	MaxReferrals           uint64 `safeForLogging:"true"`
 	RequiresJumio          bool   `safeForLogging:"true"`
 	IsActive               bool   `safeForLogging:"true"`
 
@@ -258,6 +261,7 @@ func (fes *APIServer) AdminUpdateReferralHash(ww http.ResponseWriter, req *http.
 	// Update the referral info for this referral hash.
 	updatedReferralInfo.ReferrerAmountUSDCents = requestData.ReferrerAmountUSDCents
 	updatedReferralInfo.RefereeAmountUSDCents = requestData.RefereeAmountUSDCents
+	updatedReferralInfo.MaxReferrals = requestData.MaxReferrals
 	updatedReferralInfo.RequiresJumio = requestData.RequiresJumio
 
 	// Encode the updated entry and stick it in the database.

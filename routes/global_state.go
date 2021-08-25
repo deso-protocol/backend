@@ -168,6 +168,7 @@ var (
 type ReferralInfo struct {
 	ReferrerAmountUSDCents uint64
 	RefereeAmountUSDCents  uint64
+	MaxReferrals           uint64 // If set to zero, there is no cap on referrals.
 	RequiresJumio          bool
 	ReferralHashBase58     string
 	ReferrerPKID           *lib.PKID
