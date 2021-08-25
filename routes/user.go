@@ -1817,26 +1817,6 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		return
 	}
 
-	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(userPublicKeyBytes)
-	if err != nil {
-		_AddBadRequestError(ww, err.Error())
-		return
-	}
-
-	// Filter out blocked public keys from transactions metadata response
-	filteredTxnMetadataList := []*TransactionMetadataResponse{}
-	for _, txn := range finalTxnMetadataList {
-		var pkBytes []byte
-		pkBytes, _, err = lib.Base58CheckDecode(txn.Metadata.TransactorPublicKeyBase58Check)
-		if err != nil {
-			APIAddError(ww, err.Error())
-			return
-		}
-		if _, ok := blockedPubKeys[lib.PkToString(pkBytes, fes.Params)]; !ok {
-			filteredTxnMetadataList = append(filteredTxnMetadataList, txn)
-		}
-	}
-
 	// Grab verified username map pointer
 	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
 	if err != nil {
@@ -1869,7 +1849,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		}
 		return nil
 	}
-	for _, txnMeta := range filteredTxnMetadataList {
+	for _, txnMeta := range finalTxnMetadataList {
 		if err := addProfileForPubKey(txnMeta.Metadata.TransactorPublicKeyBase58Check); err != nil {
 			APIAddError(ww, err.Error())
 			return
@@ -1919,7 +1899,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		postEntryResponses[postHashHex] = postEntryResponse
 	}
 
-	for _, txnMeta := range filteredTxnMetadataList {
+	for _, txnMeta := range finalTxnMetadataList {
 		postMetadata := txnMeta.Metadata.SubmitPostTxindexMetadata
 		likeMetadata := txnMeta.Metadata.LikeTxindexMetadata
 		transferCreatorCoinMetadata := txnMeta.Metadata.CreatorCoinTransferTxindexMetadata
@@ -1958,7 +1938,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	//
 	// only try to update the index if we're requesting the first page of results
 	// and we have at least one notification
-	if requestData.FetchStartIndex < 0 && len(filteredTxnMetadataList) > 0 {
+	if requestData.FetchStartIndex < 0 && len(finalTxnMetadataList) > 0 {
 		// global state does not have good support for concurrency. if someone
 		// else fetches this user's data and writes at the same time we could
 		// overwrite each other. there's a task in jira to investigate concurrency
@@ -1971,7 +1951,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		}
 
 		// only update the index if it's greater than the current index we have stored
-		lastSeenIndex := filteredTxnMetadataList[0].Index
+		lastSeenIndex := finalTxnMetadataList[0].Index
 		if lastSeenIndex > userMetadata.NotificationLastSeenIndex {
 			userMetadata.NotificationLastSeenIndex = lastSeenIndex
 
@@ -1988,7 +1968,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	// At this point, we should have all the profiles and all the notifications
 	// that the user requested so return them in the response.
 	res := &GetNotificationsResponse{
-		Notifications:       filteredTxnMetadataList,
+		Notifications:       finalTxnMetadataList,
 		ProfilesByPublicKey: profileEntryResponses,
 		PostsByHash:         postEntryResponses,
 	}
@@ -2013,6 +1993,12 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 	if err != nil {
 		return nil, nil, errors.Errorf("GetNotifications: Problem parsing public key: %v", err)
 	}
+
+	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(pkBytes)
+	if err != nil {
+		return nil, nil, errors.Errorf("GetNotifications: Error getting blocked public keys for user: %v", err)
+	}
+
 
 	// A valid mempool object is used to compute the TransactionMetadata for the mempool
 	// and to allow for things like: filtering notifications for a hidden post.
@@ -2061,11 +2047,20 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 			if txnMeta == nil {
 				// We should never be missing a transaction for a given txid, but
 				// just continue in this case.
-				errors.Errorf("GetNotifications: Missing TransactionMetadata for txid %v", txID)
+				glog.Errorf("GetNotifications: Missing TransactionMetadata for txid %v", txID)
 				continue
 			}
 			// Skip transactions that aren't notifications
 			if !TxnMetaIsNotification(txnMeta, request.PublicKeyBase58Check, utxoView) {
+				continue
+			}
+			transactorPkBytes, _, err := lib.Base58CheckDecode(txnMeta.TransactorPublicKeyBase58Check)
+			if err != nil {
+				glog.Errorf("GetNotifications: unable to decode public key %v", txnMeta.TransactorPublicKeyBase58Check)
+				continue
+			}
+			// Skip transactions from blocked users.
+			if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
 				continue
 			}
 			currentIndexBytes := keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]
