@@ -100,7 +100,7 @@ func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit 
 	var profileEntryResponses []ProfileEntryResponse
 	ShuffleKeys(&keys)
 	ii := 0
-	for len(_profileEntryResponses) <= publicKeysUpperBound && ii < len(keys) {
+	for len(profileEntryResponses) <= publicKeysUpperBound && ii < len(keys) {
 		dbKeyBytes := keys[ii]
 		// Chop the PKID out of the db key.
 		// The dbKeyBytes are: [One Prefix Byte][btcec.PubKeyBytesLenCompressed]
@@ -152,10 +152,6 @@ func (fes *APIServer) StartOrSkipTutorial(ww http.ResponseWriter, req *http.Requ
 		return
 	}
 
-	if requestData.IsSkip && userMetadata.TutorialStatus != EMPTY {
-		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Can only skip tutorial from empty state"))
-		return
-	}
 	if !requestData.IsSkip && userMetadata.TutorialStatus != EMPTY && userMetadata.TutorialStatus != SKIPPED && userMetadata.TutorialStatus != COMPLETE {
 		_AddBadRequestError(ww, fmt.Sprintf("StartOrSkipTutorial: Can only start tutorial from empty, skipped, or completed state"))
 		return

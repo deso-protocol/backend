@@ -91,6 +91,7 @@ func (fes *APIServer) AdminResetJumioForPublicKey(ww http.ResponseWriter, req *h
 	userMetadata.JumioShouldCompProfileCreation = false
 	userMetadata.JumioFinishedTime = 0
 	userMetadata.JumioInternalReference = ""
+	userMetadata.MustCompleteTutorial = false
 	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminResetJumioForPublicKey: Problem putting updated user metadata in Global state: %v", err))
 		return
