@@ -2145,8 +2145,18 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 			}
 
 			// If the transaction is a notification then add it to our list with the proper
-			// index value set.
+			// index value if the transactor is not a blocked public key
 			if TxnMetaIsNotification(txnMeta, request.PublicKeyBase58Check, utxoView) {
+				transactorPkBytes, _, err := lib.Base58CheckDecode(txnMeta.TransactorPublicKeyBase58Check)
+				if err != nil {
+					glog.Errorf("GetNotifications: unable to decode public key %v", txnMeta.TransactorPublicKeyBase58Check)
+					continue
+				}
+
+				// Skip transactions from blocked users.
+				if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
+					continue
+				}
 				mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
 					Metadata: txnMeta,
 					Index:    currentIndex,
