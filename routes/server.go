@@ -170,6 +170,8 @@ const (
 	RoutePathAdminCreateReferralHash        = "/api/v0/admin/create-referral-hash"
 	RoutePathAdminGetAllReferralInfoForUser = "/api/v0/admin/get-all-referral-info-for-user"
 	RoutePathAdminUpdateReferralHash        = "/api/v0/admin/update-referral-hash"
+	RoutePathAdminUploadReferralCSV         = "/api/v0/admin/upload-referral-csv"
+	RoutePathAdminDownloadReferralCSV       = "/api/v0/admin/download-referral-csv"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -888,6 +890,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateReferralHash,
 			fes.AdminUpdateReferralHash,
+			SuperAdminAccess,
+		},
+		{
+			"AdminUploadReferralCSV",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUploadReferralCSV,
+			fes.AdminUploadReferralCSV,
+			SuperAdminAccess,
+		},
+		{
+			"AdminDownloadReferralCSV",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminDownloadReferralCSV,
+			fes.AdminDownloadReferralCSV,
 			SuperAdminAccess,
 		},
 		// End all /admin routes

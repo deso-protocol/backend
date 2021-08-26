@@ -166,16 +166,17 @@ var (
 
 // A ReferralInfo struct holds all of the params and stats for a referral link/hash.
 type ReferralInfo struct {
+	ReferralHashBase58     string
+	ReferrerPKID           *lib.PKID
 	ReferrerAmountUSDCents uint64
 	RefereeAmountUSDCents  uint64
 	MaxReferrals           uint64 // If set to zero, there is no cap on referrals.
 	RequiresJumio          bool
-	ReferralHashBase58     string
-	ReferrerPKID           *lib.PKID
 
 	// Stats
 	NumJumioAttempts           uint64
 	NumJumioSuccesses          uint64
+	TotalReferrals             uint64
 	TotalReferrerBitCloutNanos uint64
 	TotalRefereeBitCloutNanos  uint64
 	DateCreatedTStampNanos     uint64
