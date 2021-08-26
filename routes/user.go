@@ -2137,15 +2137,12 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 			// Set the current index we will use to identify this transaction.
 			currentIndex := NextIndex
 
-
-
 			// Increment the NextIndex if this transaction is associated with the user's
 			// public key in any way. This is what the db would do when storing it, and so
 			// this treatment should be consistent.
 			if TxnIsAssociatedWithPublicKey(txnMeta, request.PublicKeyBase58Check) {
 				NextIndex++
 			}
-
 
 			// If the transaction is a notification then add it to our list with the proper
 			// index value if the transactor is not a blocked public key
