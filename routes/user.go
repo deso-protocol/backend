@@ -1930,6 +1930,9 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 						AmountNanos:          output.AmountNanos,
 					})
 			}
+			if basicTransferMetadata.PostHashHex != "" {
+				addPostForHash(basicTransferMetadata.PostHashHex, userPublicKeyBytes)
+			}
 		}
 	}
 
