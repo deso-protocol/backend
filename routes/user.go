@@ -2137,6 +2137,8 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 			// Set the current index we will use to identify this transaction.
 			currentIndex := NextIndex
 
+
+
 			// Increment the NextIndex if this transaction is associated with the user's
 			// public key in any way. This is what the db would do when storing it, and so
 			// this treatment should be consistent.
@@ -2144,9 +2146,20 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 				NextIndex++
 			}
 
+
 			// If the transaction is a notification then add it to our list with the proper
-			// index value set.
+			// index value if the transactor is not a blocked public key
 			if TxnMetaIsNotification(txnMeta, request.PublicKeyBase58Check, utxoView) {
+				transactorPkBytes, _, err := lib.Base58CheckDecode(txnMeta.TransactorPublicKeyBase58Check)
+				if err != nil {
+					glog.Errorf("GetNotifications: unable to decode public key %v", txnMeta.TransactorPublicKeyBase58Check)
+					continue
+				}
+
+				// Skip transactions from blocked users.
+				if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
+					continue
+				}
 				mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
 					Metadata: txnMeta,
 					Index:    currentIndex,
