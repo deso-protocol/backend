@@ -172,6 +172,9 @@ const (
 	RoutePathAdminUpdateReferralHash        = "/api/v0/admin/update-referral-hash"
 	RoutePathAdminUploadReferralCSV         = "/api/v0/admin/upload-referral-csv"
 	RoutePathAdminDownloadReferralCSV       = "/api/v0/admin/download-referral-csv"
+
+	// referrals.go
+	RoutePathGetReferralInfoForUser = "/api/v0/get-referral-info-for-user"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -697,6 +700,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetJumioStatusForPublicKey,
 			fes.GetJumioStatusForPublicKey,
+			PublicAccess,
+		},
+		{
+			"GetReferralInfoForUser",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetReferralInfoForUser,
+			fes.GetReferralInfoForUser,
 			PublicAccess,
 		},
 		// Begin all /admin routes
