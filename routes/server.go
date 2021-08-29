@@ -112,6 +112,10 @@ const (
 	RoutePathJumioFlowFinished                 = "/api/v0/jumio-flow-finished"
 	RoutePathGetJumioStatusForPublicKey        = "/api/v0/get-jumio-status-for-public-key"
 
+	// tutorial.go
+	RoutePathGetTutorialCreators = "/api/v0/get-tutorial-creators"
+	RoutePathStartOrSkipTutorial = "/api/v0/start-or-skip-tutorial"
+
 	// wyre.go
 	RoutePathGetWyreWalletOrderQuotation     = "/api/v0/get-wyre-wallet-order-quotation"
 	RoutePathGetWyreWalletOrderReservation   = "/api/v0/get-wyre-wallet-order-reservation"
@@ -125,10 +129,8 @@ const (
 	// Admin route paths can only be accessed if a user's public key is whitelisted as an admin.
 
 	// admin_node.go
-	RoutePathNodeControl             = "/api/v0/admin/node-control"
-	RoutePathReprocessBitcoinBlock   = "/api/v0/admin/reprocess-bitcoin-block"
-	RoutePathAdminGetMempoolStats    = "/api/v0/admin/get-mempool-stats"
-	RoutePathEvictUnminedBitcoinTxns = "/api/v0/admin/evict-unmined-bitcoin-txns"
+	RoutePathNodeControl          = "/api/v0/admin/node-control"
+	RoutePathAdminGetMempoolStats = "/api/v0/admin/get-mempool-stats"
 
 	// admin_buy_bitclout.go
 	RoutePathSetUSDCentsToBitCloutReserveExchangeRate = "/api/v0/admin/set-usd-cents-to-bitclout-reserve-exchange-rate"
@@ -175,6 +177,11 @@ const (
 
 	// referrals.go
 	RoutePathGetReferralInfoForUser = "/api/v0/get-referral-info-for-user"
+
+	// admin_tutorial.go
+	RoutePathAdminUpdateTutorialCreators = "/api/v0/admin/update-tutorial-creators"
+	RoutePathAdminResetTutorialStatus    = "/api/v0/admin/reset-tutorial-status"
+	RoutePathAdminGetTutorialCreators    = "/api/v0/admin/get-tutorial-creators"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -214,6 +221,8 @@ type APIServer struct {
 	mtxSeedBitClout sync.RWMutex
 
 	UsdCentsPerBitCloutExchangeRate uint64
+
+	UsdCentsPerBitCoinExchangeRate float64
 
 	// List of prices retrieved.  This is culled everytime we update the current price.
 	LastTradeBitCloutPriceHistory []LastTradePriceHistoryItem
@@ -363,15 +372,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathDeleteIdentities,
 			fes.DeleteIdentities,
-			PublicAccess,
-		},
-
-		// Endpoint to trigger the reprocessing of a particular Bitcoin block.
-		{
-			"ReprocessBitcoinBlock",
-			[]string{"GET", "POST", "OPTIONS"},
-			RoutePathReprocessBitcoinBlock + "/{blockHashHexOrblockHeight:[0-9abcdefABCDEF]+}",
-			fes.ReprocessBitcoinBlock,
 			PublicAccess,
 		},
 		// Endpoint to trigger granting a user a verified badge
@@ -660,6 +660,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"StartOrSkipTutorial",
+			[]string{"POST", "OPTIONS"},
+			RoutePathStartOrSkipTutorial,
+			fes.StartOrSkipTutorial,
+			PublicAccess,
+		},
+		{
 			"ResendVerifyEmail",
 			[]string{"POST", "OPTIONS"},
 			RoutePathResendVerifyEmail,
@@ -707,6 +714,14 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetReferralInfoForUser,
 			fes.GetReferralInfoForUser,
+			PublicAccess,
+		},
+		// Tutorial Routes
+		{
+			"GetTutorialCreators",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetTutorialCreators,
+			fes.GetTutorialCreators,
 			PublicAccess,
 		},
 		// Begin all /admin routes
@@ -795,9 +810,22 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.AdminUpdateNFTDrop,
 			AdminAccess,
 		},
+		{
+			"AdminResetTutorialStatus",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminResetTutorialStatus,
+			fes.AdminResetTutorialStatus,
+			AdminAccess,
+		},
+		{
+			"AdminGetTutorialCreators",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetTutorialCreators,
+			fes.AdminGetTutorialCreators,
+			AdminAccess,
+		},
 		// Super Admin routes
 		{
-
 			"AdminGetUserAdminData",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminGetUserAdminData,
@@ -837,13 +865,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathUpdateGlobalParams,
 			fes.UpdateGlobalParams,
-			SuperAdminAccess,
-		},
-		{
-			"EvictUnminedBitcoinTxns",
-			[]string{"POST", "OPTIONS"},
-			RoutePathEvictUnminedBitcoinTxns,
-			fes.EvictUnminedBitcoinTxns,
 			SuperAdminAccess,
 		},
 		{
@@ -914,6 +935,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminDownloadReferralCSV,
 			fes.AdminDownloadReferralCSV,
+			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateTutorialCreators",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateTutorialCreators,
+			fes.AdminUpdateTutorialCreator,
 			SuperAdminAccess,
 		},
 		// End all /admin routes
@@ -1146,11 +1174,16 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 		if r.RequestURI == RoutePathUploadImage && strings.HasPrefix(contentType, "multipart/form-data") {
 			match = true
 			actualOrigin = "*"
+		} else if r.RequestURI == RoutePathGetJumioStatusForPublicKey {
+			// we set the headers for all requests to GetJumioStatusForPublicKey. This allows third-party frontends to
+			// access this endpoint
+			match = true
+			actualOrigin = "*"
 		} else if r.Method == "POST" && contentType != "application/json" && r.RequestURI != RoutePathJumioCallback {
 			invalidPostRequest = true
 		}
 
-		if match {
+		if match || r.RequestURI == RoutePathUploadImage || r.RequestURI == RoutePathGetJumioStatusForPublicKey {
 			// Needed in order for the user's browser to set a cookie
 			w.Header().Add("Access-Control-Allow-Credentials", "true")
 
@@ -1345,6 +1378,7 @@ func (fes *APIServer) StartExchangePriceMonitoring() {
 			select {
 			case <-time.After(10 * time.Second):
 				fes.UpdateUSDCentsToBitCloutExchangeRate()
+				fes.UpdateUSDToBTCPrice()
 			case <-fes.quit:
 				break out
 			}

@@ -55,6 +55,10 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	txnFound := fes.mempool.IsTransactionInPool(txnHash)
+	// Only check DB in testnet for now.
+	if !txnFound && fes.Params.NetworkType == lib.NetworkType_TESTNET {
+		txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), txnHash)
+	}
 	res := &GetTxnResponse{
 		TxnFound: txnFound,
 	}
@@ -98,40 +102,22 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	// If this is a creator coin transaction, we update global state user metadata to say user has purchased CC.
-	if txn.TxnMeta.GetTxnType() == lib.TxnTypeCreatorCoin && txn.TxnMeta.(*lib.CreatorCoinMetadataa).OperationType == lib.CreatorCoinOperationTypeBuy {
-		var userMetadata *UserMetadata
-		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(txn.PublicKey)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem getting usermetadata from global state for basic transfer: %v", err))
-			return
-		}
-		if !userMetadata.HasPurchasedCreatorCoin {
-			userMetadata.HasPurchasedCreatorCoin = true
-			if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem updating HasPurchasedCreatorCoin in global state user metadata: %v", err))
-				return
-			}
-		}
-	}
-
 	_, diamondPostHashKeyExists := txn.ExtraData[lib.DiamondPostHashKey]
-	// If this is a basic transfer (but not a diamond action), we check if user has purchased CC (if this node is configured for Jumio or Twilio)
-	if !diamondPostHashKeyExists && txn.TxnMeta.GetTxnType() == lib.TxnTypeBasicTransfer && (fes.IsConfiguredForJumio() || fes.Twilio != nil) {
+	// If this is a basic transfer (but not a diamond action), we check if user has completed the tutorial (if this node is configured for Jumio)
+	if !diamondPostHashKeyExists && txn.TxnMeta.GetTxnType() == lib.TxnTypeBasicTransfer && fes.IsConfiguredForJumio() {
 		var userMetadata *UserMetadata
 		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(txn.PublicKey)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem getting usermetadata from global state for basic transfer: %v", err))
 			return
 		}
-		if (userMetadata.JumioVerified || userMetadata.PhoneNumber != "" ) && !userMetadata.HasPurchasedCreatorCoin && userMetadata.MustPurchaseCreatorCoin {
-			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: You must purchase a creator coin before performing a transfer: %v", err))
+		if userMetadata.MustCompleteTutorial && userMetadata.TutorialStatus != COMPLETE && userMetadata.TutorialStatus != SKIPPED {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: If you receive money from Jumio, you must complete the tutorial: %v", err))
 			return
 		}
 	}
 
-	err = fes.backendServer.VerifyAndBroadcastTransaction(txn)
-	if err != nil {
+	if err = fes.backendServer.VerifyAndBroadcastTransaction(txn); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitTransaction: Problem processing transaction: %v", err))
 		return
 	}
@@ -381,7 +367,8 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 	if len(requestData.NewUsername) > 0 {
 
 		utxoView.GetProfileEntryForUsername([]byte(requestData.NewUsername))
-		if existingProfile, usernameExists := utxoView.ProfileUsernameToProfileEntry[lib.MakeUsernameMapKey([]byte(requestData.NewUsername))]; usernameExists && !existingProfile.IsDeleted() {
+		existingProfile, usernameExists := utxoView.ProfileUsernameToProfileEntry[lib.MakeUsernameMapKey([]byte(requestData.NewUsername))]
+		if usernameExists && existingProfile != nil && !existingProfile.IsDeleted() {
 			// Check that the existing profile does not belong to the profile public key
 			if utxoView.GetPKIDForPublicKey(profilePublicKey) != utxoView.GetPKIDForPublicKey(existingProfile.PublicKey) {
 				_AddBadRequestError(ww, fmt.Sprintf(
@@ -423,6 +410,15 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem serializing transaction: %v", err))
 		return
+	}
+
+	// TODO: for consistency, should we add InTutorial to the request data. It doesn't save us much since we need fetch the user metadata regardless.
+	if userMetadata.TutorialStatus == INVEST_OTHERS_SELL {
+		userMetadata.TutorialStatus = CREATE_PROFILE
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem updating tutorial status to update profile completed: %v", err))
+			return
+		}
 	}
 
 	// Return all the data associated with the transaction in the response
@@ -798,16 +794,8 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 				return
 			}
 
-		}
-		// We have the Bitcoin transaction now so broadcast it to the Bitcoin
-		// chain. This waits for confirmation from the Bitcoin node before
-		// returning.
-		glog.Infof("ExchangeBitcoinStateless: Broadcasting txn to Bitcoin nodes: %v", &bitcoinTxnHash)
-		if err = fes.backendServer.GetBitcoinManager().BroadcastTxnAndCheckAddedRedundant(
-			bitcoinTxn, 30 /*timeoutSecs*/, 10 /*numNodesToPing*/); err != nil {
-
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"ExchangeBitcoinStateless: Error broadcasting transaction: %v", err))
+		} else {
+			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: BlockCypher API is required for bitcoin transactions"))
 			return
 		}
 
@@ -844,11 +832,12 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 
 // GetNanosFromSats - convert Satoshis to BitClout nanos
 func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) (uint64, error) {
-	usdToBTC, err := GetUSDToBTCPrice()
-	if err != nil {
-		return 0, fmt.Errorf(" Problem getting usd to btc exchange rate: %v", err)
+	usdCentsPerBitcoin := fes.UsdCentsPerBitCoinExchangeRate
+	// If we don't have a valid value from monitoring at this time, use the price from the protocol
+	if usdCentsPerBitcoin == 0 {
+		readUtxoView, _ := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+		usdCentsPerBitcoin = float64(readUtxoView.GetCurrentUSDCentsPerBitcoin())
 	}
-	usdCentsPerBitcoin := usdToBTC * 100
 	usdCents := (float64(satoshis) * usdCentsPerBitcoin) / lib.SatoshisPerBitcoin
 	return fes.GetNanosFromUSDCents(usdCents, feeBasisPoints)
 }
@@ -908,8 +897,8 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 			_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: problem getting user metadata from global state: %v", err))
 			return
 		}
-		if userMetadata.JumioVerified && !userMetadata.HasPurchasedCreatorCoin {
-			_AddBadRequestError(ww, fmt.Sprintf("You must purchase a creator coin before you can send $CLOUT"))
+		if userMetadata.JumioVerified && userMetadata.MustCompleteTutorial && userMetadata.TutorialStatus != COMPLETE {
+			_AddBadRequestError(ww, fmt.Sprintf("You must complete the tutorial before you can perform a basic transfer"))
 			return
 		}
 	}
@@ -1154,6 +1143,8 @@ type SubmitPostRequest struct {
 	IsHidden bool `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	InTutorial bool `safeForLogging:"true"`
 }
 
 // SubmitPostResponse ...
@@ -1237,6 +1228,13 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		postHashToModify = postHashToModifyBytes
 	}
 
+	var utxoView *lib.UtxoView
+	utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Error getting utxoView"))
+		return
+	}
+
 	// If we're not modifying a post then do a bunch of checks.
 	var bodyBytes []byte
 	var recloutPostHashBytes []byte
@@ -1261,13 +1259,6 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 			// Check that the post being reclouted isn't a reclout without a comment.  A user should only be able to reclout
 			// a reclout post if it is a quote reclout.
 			if requestData.BodyObj.Body == "" && len(requestData.BodyObj.ImageURLs) == 0 {
-				var utxoView *lib.UtxoView
-				utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
-				if err != nil {
-					_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Error getting utxoView"))
-					return
-				}
-
 				// Convert reclout post hash from bytes to block hash and look up postEntry by postHash.
 				recloutPostHash := &lib.BlockHash{}
 				copy(recloutPostHash[:], recloutPostHashBytes)
@@ -1338,6 +1329,28 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if requestData.InTutorial {
+		var userMetadata *UserMetadata
+		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(updaterPublicKeyBytes)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Problem getting user metadata from global state: %v", err))
+			return
+		}
+
+		if userMetadata.TutorialStatus != DIAMOND {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Must be in the GiveADiamondComplete status in tutorial in order to post at this point in the tutorial: %v", err))
+			return
+		}
+		userMetadata.TutorialStatus = COMPLETE
+		// Since the user has now completed the tutorial, we set must complete to false.
+		// Users are able to restart the tutorial, so we can't rely on tutorial status being COMPLETE to verify that
+		// they have done the tutorial.
+		userMetadata.MustCompleteTutorial = false
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Error putting user metadata in global state: %v", err))
+			return
+		}
+	}
 	/******************************************************************************************/
 
 	// Return all the data associated with the transaction in the response
@@ -1500,6 +1513,8 @@ type BuyOrSellCreatorCoinRequest struct {
 	MinCreatorCoinExpectedNanos uint64 `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	InTutorial bool `safeForLogging:"true"`
 }
 
 // BuyOrSellCreatorCoinResponse ...
@@ -1589,6 +1604,12 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
+	utxoView, err := fes.mempool.GetAugmentedUtxoViewForPublicKey(updaterPublicKeyBytes, txn)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem computing view for transaction: %v", err))
+		return
+	}
+
 	// Compute how much CreatorCoin or BitClout we expect to be returned
 	// from applying this transaction. This helps the UI display an estimated
 	// price.
@@ -1596,11 +1617,6 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 	ExpectedCreatorCoinReturnedNanos := uint64(0)
 	FounderRewardGeneratedNanos := uint64(0)
 	{
-		utxoView, err := fes.mempool.GetAugmentedUtxoViewForPublicKey(updaterPublicKeyBytes, txn)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem computing view for transaction: %v", err))
-			return
-		}
 		txHash := txn.Hash()
 		blockHeight := fes.blockchain.BlockTip().Height + 1
 		if operationType == lib.CreatorCoinOperationTypeBuy {
@@ -1634,6 +1650,78 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem serializing transaction: %v", err))
 		return
 	}
+
+	if requestData.InTutorial {
+		var userMetadata *UserMetadata
+		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(updaterPublicKeyBytes)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem getting user metadata from global state: %v", err))
+			return
+		}
+
+		var updateUserMetadata bool
+		// TODO: check that user is buying from list of creators included in tutorial
+		// TODO: Save which creator a user purchased by PKID in user metadata so we can bring them to the same place in the flow
+		// TODO: Do we need to save how much they bought for usage in tutorial?
+		if operationType == lib.CreatorCoinOperationTypeBuy && userMetadata.TutorialStatus == STARTED {
+			if reflect.DeepEqual(updaterPublicKeyBytes, creatorPublicKeyBytes) {
+				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Cannot purchase your own coin in the Invest in others step"))
+				return
+			}
+			creatorPKID := utxoView.GetPKIDForPublicKey(creatorPublicKeyBytes)
+			if creatorPKID == nil {
+				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: No PKID found for public key: %v", requestData.CreatorPublicKeyBase58Check))
+				return
+			}
+			wellKnownVal, err := fes.GlobalStateGet(GlobalStateKeyWellKnownTutorialCreators(creatorPKID.PKID))
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Error trying to look up creator in well known index: %v", err))
+				return
+			}
+			if wellKnownVal == nil {
+				upAndComing, err := fes.GlobalStateGet(GlobalStateKeyUpAndComingTutorialCreators(creatorPKID.PKID))
+				if err != nil {
+					_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Error trying to look up creator in up and coming index: %v", err))
+					return
+				}
+				if upAndComing == nil {
+					_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Creator is not in either of the featured creators indexes"))
+					return
+				}
+			}
+			userMetadata.TutorialStatus = INVEST_OTHERS_BUY
+			userMetadata.CreatorPurchasedInTutorialPKID = creatorPKID.PKID
+			userMetadata.CreatorCoinsPurchasedInTutorial = ExpectedCreatorCoinReturnedNanos
+			updateUserMetadata = true
+		}
+
+		// Tutorial state: user is investing in themselves
+		if operationType == lib.CreatorCoinOperationTypeBuy && userMetadata.TutorialStatus == CREATE_PROFILE && requestData.CreatorPublicKeyBase58Check == requestData.UpdaterPublicKeyBase58Check {
+			userMetadata.TutorialStatus = INVEST_SELF
+			updateUserMetadata = true
+		}
+
+		if operationType == lib.CreatorCoinOperationTypeSell && userMetadata.TutorialStatus == INVEST_OTHERS_BUY {
+			creatorPKID := utxoView.GetPKIDForPublicKey(creatorPublicKeyBytes)
+			if !reflect.DeepEqual(creatorPKID.PKID, userMetadata.CreatorPurchasedInTutorialPKID) {
+				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Must sell the same creator as purchased in previous step"))
+				return
+			}
+			userMetadata.TutorialStatus = INVEST_OTHERS_SELL
+			updateUserMetadata = true
+		}
+
+		if !updateUserMetadata {
+			_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Current tutorial status (%v) does not allow this %v transaction", userMetadata.TutorialStatus, requestData.OperationType))
+			return
+		}
+
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem updating user metadata's tutorial status in global state: %v", err))
+			return
+		}
+	}
+
 
 	// Return all the data associated with the transaction in the response
 	res := BuyOrSellCreatorCoinResponse{
@@ -1805,6 +1893,8 @@ type SendDiamondsRequest struct {
 	DiamondLevel int64 `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	InTutorial bool `safeForLogging:"true"`
 }
 
 // SendDiamondsResponse ...
@@ -1825,7 +1915,6 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem parsing request body: %v", err))
 		return
-
 	}
 
 	if requestData.SenderPublicKeyBase58Check == "" ||
@@ -1915,6 +2004,25 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem serializing transaction: %v", err))
 		return
 	}
+
+	if requestData.InTutorial {
+		var userMetadata *UserMetadata
+		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(senderPublicKeyBytes)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem getting user metadata from global state: %v", err))
+			return
+		}
+		if userMetadata.TutorialStatus != INVEST_SELF {
+			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: User should not be sending diamonds at this point in the tutorial"))
+			return
+		}
+		userMetadata.TutorialStatus = DIAMOND
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem putting user metadata in global state: %v", err))
+			return
+		}
+	}
+
 
 	// Return all the data associated with the transaction in the response
 	res := SendDiamondsResponse{

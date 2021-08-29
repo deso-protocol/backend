@@ -402,10 +402,8 @@ type WyreWalletOrderReservationPayload struct {
 	SourceCurrency    string   `json:"sourceCurrency"`
 	Dest              string   `json:"dest"`
 	DestCurrency      string   `json:"destCurrency"`
-	AmountIncludeFees bool     `json:"amountIncludeFees"`
 	Country           string   `json:"country"`
-	SourceAmount      string   `json:"sourceAmount"`
-	PaymentMethod     string   `json:"paymentMethod"`
+	Amount            string   `json:"amount"`
 	ReferrerAccountId string   `json:"referrerAccountId"`
 	LockFields        []string `json:"lockFields"`
 	RedirectUrl       string   `json:"redirectUrl"`
@@ -430,12 +428,10 @@ func (fes *APIServer) GetWyreWalletOrderReservation(ww http.ResponseWriter, req 
 	body := WyreWalletOrderReservationPayload{
 		ReferrerAccountId: fes.Config.WyreAccountId,
 		Dest:              fes.GetBTCAddress(),
-		AmountIncludeFees: true,
 		DestCurrency:      "BTC",
 		SourceCurrency:    wyreWalletOrderReservationRequest.SourceCurrency,
 		Country:           wyreWalletOrderReservationRequest.Country,
-		PaymentMethod:     "debit-card",
-		SourceAmount:      fmt.Sprintf("%f", wyreWalletOrderReservationRequest.SourceAmount),
+		Amount:            fmt.Sprintf("%f", wyreWalletOrderReservationRequest.SourceAmount),
 		LockFields:        []string{"dest", "destCurrency"},
 		RedirectUrl:       fmt.Sprintf("https://%v/buy-bitclout", req.Host),
 		ReferenceId:       fmt.Sprintf("%v:%v", wyreWalletOrderReservationRequest.ReferenceId, currentTime),
