@@ -296,3 +296,33 @@ func (fes *APIServer) GetFullTikTokURL(ww http.ResponseWriter, req *http.Request
 		return
 	}
 }
+
+func (fes *APIServer) UploadVideo(ww http.ResponseWriter, req *http.Request) {
+	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%v/stream?direct_user=true", "0b05395b43320b1c064aed00e907965d")
+	client := &http.Client{}
+
+	request, err := http.NewRequest("POST", url, nil)
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %v", "n2MZa5EE3Fl7uUAm2JACVftg0nmuHMLSlbRKQszm"))
+	request.Header.Add("Tus-Resumable", "1.0.0")
+	request.Header.Add("Upload-Length", req.Header.Get("Upload-Length"))
+	request.Header.Add("Upload-Metadata", req.Header.Get("Upload-Metadata"))
+	resp, err := client.Do(request)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetVideoUploadURL: error performing POST request: %v", err))
+		return
+	}
+	if resp.StatusCode != 201 {
+		_AddBadRequestError(ww, fmt.Sprintf("GetVideoUploadURL: GET request did not return 201 status code but instead a status code of %v", resp.StatusCode))
+		return
+	}
+	ww.Header().Add("Access-Control-Expose-Headers", "Location, Stream-Media-Id")
+	ww.Header().Add("Location", resp.Header.Get("Location"))
+	if ww.Header().Get("Access-Control-Allow-Origin") != "" {
+		ww.Header().Set("Access-Control-Allow-Origin", "*")
+	}
+	if ww.Header().Get("Access-Control-Allow-Headers") != "*" {
+		ww.Header().Set("Access-Control-Allow-Headers", "*")
+	}
+	ww.WriteHeader(200)
+}
