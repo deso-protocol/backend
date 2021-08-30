@@ -620,7 +620,7 @@ func (fes *APIServer) GetWyreWalletOrdersForPublicKey(ww http.ResponseWriter, re
 			_AddBadRequestError(ww, fmt.Sprintf("GetWyreWalletOrdersForPublicKey: error decoding order: %v", wyreOrderMetadataBytes))
 			return
 		}
-		res.WyreWalletOrderMetadataResponses = append(res.WyreWalletOrderMetadataResponses, WyreWalletOrderMetadataToResponse(wyreOrderMetadata))
+		res.WyreWalletOrderMetadataResponses = append(res.WyreWalletOrderMetadataResponses, fes.WyreWalletOrderMetadataToResponse(wyreOrderMetadata))
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetWyreWalletOrdersForPublicKey: Problem encoding response as JSON: #{err}"))
@@ -648,7 +648,7 @@ type WyreWalletOrderMetadataResponse struct {
 	Timestamp *time.Time
 }
 
-func WyreWalletOrderMetadataToResponse(metadata *WyreWalletOrderMetadata) *WyreWalletOrderMetadataResponse {
+func (fes *APIServer) WyreWalletOrderMetadataToResponse(metadata *WyreWalletOrderMetadata) *WyreWalletOrderMetadataResponse {
 	orderMetadataResponse := WyreWalletOrderMetadataResponse{
 		LatestWyreTrackWalletOrderResponse:  metadata.LatestWyreTrackWalletOrderResponse,
 		LatestWyreWalletOrderWebhookPayload: metadata.LatestWyreWalletOrderWebhookPayload,
@@ -657,7 +657,7 @@ func WyreWalletOrderMetadataToResponse(metadata *WyreWalletOrderMetadata) *WyreW
 	}
 	basicTransferTxnHash := metadata.BasicTransferTxnBlockHash
 	if basicTransferTxnHash != nil {
-		orderMetadataResponse.BasicTransferTxnHash = hex.EncodeToString(basicTransferTxnHash[:])
+		orderMetadataResponse.BasicTransferTxnHash = lib.PkToString(basicTransferTxnHash[:], fes.Params)
 	}
 	return &orderMetadataResponse
 }
