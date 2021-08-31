@@ -794,7 +794,7 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 		// If the creator who posted postEntry is in the map of blocked pub keys, skip this postEntry
 		if _, ok := blockedPubKeys[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]; !ok {
 			var postEntryResponse *PostEntryResponse
-			postEntryResponse, err = fes._postEntryToResponse(postEntry, requestData.AddGlobalFeedBool, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap,2)
+			postEntryResponse, err = fes._postEntryToResponse(postEntry, requestData.AddGlobalFeedBool, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap, 2)
 			if err != nil {
 				// Just ignore posts that fail to convert for whatever reason.
 				continue
@@ -1080,7 +1080,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Create the postEntryResponse.
-	postEntryResponse, err := fes._postEntryToResponse(postEntry, requestData.AddGlobalFeedBool /*AddGlobalFeedBool*/, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap,2)
+	postEntryResponse, err := fes._postEntryToResponse(postEntry, requestData.AddGlobalFeedBool /*AddGlobalFeedBool*/, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap, 2)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error creating postEntryResponse: %v", err))
 		return
@@ -1100,7 +1100,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 			continue
 		}
 		// Build the parent entry response and append.
-		parentEntryResponse, err := fes._postEntryToResponse(parentEntry, requestData.AddGlobalFeedBool /*AddGlobalFeed*/, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap,2)
+		parentEntryResponse, err := fes._postEntryToResponse(parentEntry, requestData.AddGlobalFeedBool /*AddGlobalFeed*/, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap, 2)
 
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error creating parentEntryResponse: %v", err))
@@ -1132,7 +1132,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		}
 
 		// Build the comments entry response and append.
-		commentEntryResponse, err := fes._postEntryToResponse(commentEntry, requestData.AddGlobalFeedBool /*AddGlobalFeed*/, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap,2)
+		commentEntryResponse, err := fes._postEntryToResponse(commentEntry, requestData.AddGlobalFeedBool /*AddGlobalFeed*/, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap, 2)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error creating commentEntryResponse: %v", err))
 			return
@@ -1341,7 +1341,7 @@ func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Req
 	var postEntryResponses []*PostEntryResponse
 	for _, post := range posts {
 		var postEntryResponse *PostEntryResponse
-		postEntryResponse, err = fes._postEntryToResponse(post, true, fes.Params, utxoView, readerPk, verifiedMap,2)
+		postEntryResponse, err = fes._postEntryToResponse(post, true, fes.Params, utxoView, readerPk, verifiedMap, 2)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetPostsForPublicKey: Problem converting post entry to response: %v", err))
 			return
@@ -1491,7 +1491,7 @@ func (fes *APIServer) GetDiamondedPosts(ww http.ResponseWriter, req *http.Reques
 		postEntry := utxoView.GetPostEntryForPostHash(diamondEntry.DiamondPostHash)
 		if postEntry != nil && !postEntry.IsDeleted() && !postEntry.IsHidden {
 			var postEntryResponse *PostEntryResponse
-			postEntryResponse, err = fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap,2)
+			postEntryResponse, err = fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap, 2)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("GetDiamondedPosts: Problem converting post entry to response: %v", err))
 				return
@@ -1508,7 +1508,7 @@ func (fes *APIServer) GetDiamondedPosts(ww http.ResponseWriter, req *http.Reques
 					return
 				}
 				var parentPostEntryResponse *PostEntryResponse
-				parentPostEntryResponse, err = fes._postEntryToResponse(parentPostEntry, false, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap,2)
+				parentPostEntryResponse, err = fes._postEntryToResponse(parentPostEntry, false, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap, 2)
 				if err != nil {
 					_AddBadRequestError(ww, fmt.Sprintf("GetDiamondedPosts: Problem converting parent post entry to response: %v", err))
 				}
@@ -2033,7 +2033,7 @@ func (fes *APIServer) GetQuoteRecloutsForPost(ww http.ResponseWriter, req *http.
 		profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
 		for _, recloutPostEntry := range recloutPostEntries {
 			recloutPostEntryResponse, err := fes._postEntryToResponse(
-				recloutPostEntry, false, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap,2)
+				recloutPostEntry, false, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap, 2)
 			if err != nil {
 				_AddInternalServerError(ww, fmt.Sprintf("GetQuoteRecloutsForPost: Error creating PostEntryResponse: %v", err))
 				return

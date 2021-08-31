@@ -692,7 +692,7 @@ func (fes *APIServer) GetNFTShowcase(ww http.ResponseWriter, req *http.Request) 
 		nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
 
 		postEntryResponse, err := fes._postEntryToResponse(
-			postEntry, false, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap,2)
+			postEntry, false, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap, 2)
 		if err != nil {
 			_AddInternalServerError(ww, fmt.Sprint("GetNFTShowcase: Found invalid post entry for NFT hash."))
 			return
@@ -838,7 +838,7 @@ func (fes *APIServer) GetNFTsForUser(ww http.ResponseWriter, req *http.Request) 
 		postEntryResponse := postHashToEntryResponseMap[nftEntry.NFTPostHash]
 		if postEntryResponse == nil {
 			postEntry := utxoView.GetPostEntryForPostHash(nftEntry.NFTPostHash)
-			postEntryResponse, err = fes._postEntryToResponse(postEntry, true, fes.Params, utxoView, readerPublicKeyBytes, verifiedUsernameMap,2)
+			postEntryResponse, err = fes._postEntryToResponse(postEntry, true, fes.Params, utxoView, readerPublicKeyBytes, verifiedUsernameMap, 2)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("GetNFTsForUser: Problem converting post entry to response: %v", err))
 				return
@@ -941,7 +941,7 @@ func (fes *APIServer) GetNFTBidsForUser(ww http.ResponseWriter, req *http.Reques
 		if _, exists := postHashToPostEntryResponse[postHashHex]; !exists {
 			postEntry := utxoView.GetPostEntryForPostHash(bidEntry.NFTPostHash)
 			var newPostEntryResponse *PostEntryResponse
-			newPostEntryResponse, err = fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap,2)
+			newPostEntryResponse, err = fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap, 2)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForUser: Error getting PostEntryResponse: %v", err))
 				return
@@ -1027,7 +1027,7 @@ func (fes *APIServer) GetNFTBidsForNFTPost(ww http.ResponseWriter, req *http.Req
 		readerPKID = readerPKIDEntry.PKID
 	}
 	postEntry := utxoView.GetPostEntryForPostHash(postHash)
-	postEntryResponse, err := fes._postEntryToResponse(postEntry, true, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap,2)
+	postEntryResponse, err := fes._postEntryToResponse(postEntry, true, fes.Params, utxoView, readerPublicKeyBytes, verifiedMap, 2)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForNFTPost: Error converting post entry to response: %v", err))
 		return

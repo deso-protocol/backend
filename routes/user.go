@@ -1871,7 +1871,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		if postEntry == nil {
 			return
 		}
-		postEntryResponse, err := fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, userPublicKeyBytes, verifiedMap,2)
+		postEntryResponse, err := fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, userPublicKeyBytes, verifiedMap, 2)
 		if err != nil {
 			return
 		}
