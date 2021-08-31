@@ -78,9 +78,14 @@ func (fes *APIServer) GetPostsForNFTDropEntry(dropEntryToReturn *NFTDropEntry,
 		return nil, fmt.Errorf("AdminGetPostsForNFTDropEntry: Error getting utxoView: %v", err)
 	}
 
+	// Grab verified username map pointer
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+	if err != nil {
+		return nil, fmt.Errorf("GetTutorialCreators: Problem fetching verifiedMap: %v", err)
+	}
 	for _, postHash := range dropEntryToReturn.NFTHashes {
 		postEntry := utxoView.GetPostEntryForPostHash(postHash)
-		postEntryResponse, err := fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, nil, 2)
+		postEntryResponse, err := fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, nil, verifiedMap, 2)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"AdminGetPostsForNFTDropEntry: Error building postEntryResponse: %v, %s", err, postHash.String())
