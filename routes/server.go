@@ -275,6 +275,7 @@ func NewAPIServer(
 	fes.RefreshVerifiedUsernameToPKIDMap()
 
 	fes.StartSeedBalancesMonitoring()
+	fes.StartVerifiedUsernameRefresh()
 	// Call this once upon starting server to ensure we have a good initial value
 	fes.UpdateUSDCentsToBitCloutExchangeRate()
 	fes.StartExchangePriceMonitoring()
@@ -1352,6 +1353,19 @@ func (fes *APIServer) StartSeedBalancesMonitoring() {
 				tags := []string{}
 				fes.logBalanceForSeed(fes.Config.StarterBitcloutSeed, "STARTER_BITCLOUT", tags)
 				fes.logBalanceForSeed(fes.Config.BuyBitCloutSeed, "BUY_BITCLOUT", tags)
+			case <-fes.quit:
+				break out
+			}
+		}
+	}()
+}
+
+func (fes *APIServer) StartVerifiedUsernameRefresh() {
+	go func() {
+	out:
+		for {
+			select {
+			case <-time.After(5 * time.Second):
 				fes.RefreshVerifiedUsernameToPKIDMap()
 			case <-fes.quit:
 				break out
