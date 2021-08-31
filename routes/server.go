@@ -218,6 +218,9 @@ type APIServer struct {
 	LastTradeBitCloutPriceHistory []LastTradePriceHistoryItem
 	// How far back do we consider trade prices when we set the current price of $CLOUT in nanoseconds
 	LastTradePriceLookback uint64
+
+	VerifiedUsernameMap map[string]*lib.PKID
+
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
 }
@@ -268,6 +271,8 @@ func NewAPIServer(
 		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
 		quit:                   make(chan struct{}),
 	}
+
+	fes.RefreshVerifiedUsernameToPKIDMap()
 
 	fes.StartSeedBalancesMonitoring()
 	// Call this once upon starting server to ensure we have a good initial value
@@ -1347,12 +1352,14 @@ func (fes *APIServer) StartSeedBalancesMonitoring() {
 				tags := []string{}
 				fes.logBalanceForSeed(fes.Config.StarterBitcloutSeed, "STARTER_BITCLOUT", tags)
 				fes.logBalanceForSeed(fes.Config.BuyBitCloutSeed, "BUY_BITCLOUT", tags)
+				fes.RefreshVerifiedUsernameToPKIDMap()
 			case <-fes.quit:
 				break out
 			}
 		}
 	}()
 }
+
 
 func (fes *APIServer) logBalanceForSeed(seed string, seedName string, tags []string) {
 	if seed == "" {
