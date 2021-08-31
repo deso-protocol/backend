@@ -167,6 +167,7 @@ const (
 	// admin_jumio.go
 	RoutePathAdminResetJumioForPublicKey = "/api/v0/admin/reset-jumio-for-public-key"
 	RoutePathAdminUpdateJumioBitClout    = "/api/v0/admin/update-jumio-bitclout"
+	RoutePathAdminJumioCallback          = "/api/v0/admin/jumio-callback"
 
 	// admin_referrals.go
 	RoutePathAdminCreateReferralHash        = "/api/v0/admin/create-referral-hash"
@@ -177,6 +178,7 @@ const (
 
 	// referrals.go
 	RoutePathGetReferralInfoForUser = "/api/v0/get-referral-info-for-user"
+	RoutePathGetReferralInfoForReferralHash = "/api/v0/get-referral-info-for-referral-hash"
 
 	// admin_tutorial.go
 	RoutePathAdminUpdateTutorialCreators = "/api/v0/admin/update-tutorial-creators"
@@ -716,6 +718,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetReferralInfoForUser,
 			PublicAccess,
 		},
+		{
+			"GetReferralInfoForReferralHash",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetReferralInfoForReferralHash,
+			fes.GetReferralInfoForReferralHash,
+			PublicAccess,
+		},
 		// Tutorial Routes
 		{
 			"GetTutorialCreators",
@@ -900,6 +909,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateJumioBitClout,
 			fes.AdminUpdateJumioBitClout,
+			SuperAdminAccess,
+		},
+		{
+			"AdminJumioCallback",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminJumioCallback,
+			fes.AdminJumioCallback,
 			SuperAdminAccess,
 		},
 		{

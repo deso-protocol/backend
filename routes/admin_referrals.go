@@ -22,7 +22,7 @@ func (fes *APIServer) putReferralHashWithInfo(
 	referralHashBase58 string,
 	referralInfo *ReferralInfo,
 ) (_err error) {
-	referralHashBytes := base58.Decode(referralHashBase58)
+	referralHashBytes := []byte(referralHashBase58)
 
 	dbKey := GlobalStateKeyForReferralHashToReferralInfo(referralHashBytes)
 
@@ -41,7 +41,7 @@ func (fes *APIServer) putReferralHashWithInfo(
 func (fes *APIServer) getInfoForReferralHashBase58(
 	referralHashBase58 string,
 ) (_referralInfo *ReferralInfo, _err error) {
-	referralHashBytes := base58.Decode(referralHashBase58)
+	referralHashBytes := []byte(referralHashBase58)
 
 	dbKey := GlobalStateKeyForReferralHashToReferralInfo(referralHashBytes)
 
@@ -67,10 +67,22 @@ func (fes *APIServer) getInfoForReferralHashBase58(
 	return &referralInfo, nil
 }
 
+func (fes *APIServer) getReferralHashStatus(pkid *lib.PKID, referralHashBase58 string) bool {
+	referralHashBytes := []byte(referralHashBase58)
+
+	dbKey := GlobalStateKeyForPKIDReferralHashToIsActive(pkid, referralHashBytes)
+
+	val, err := fes.GlobalStateGet(dbKey)
+	if err != nil {
+		return false
+	}
+	return reflect.DeepEqual(val, []byte{1})
+}
+
 func (fes *APIServer) setReferralHashStatusForPKID(
 	pkid *lib.PKID, referralHashBase58 string, isActive bool,
 ) (_err error) {
-	referralHashBytes := base58.Decode(referralHashBase58)
+	referralHashBytes := []byte(referralHashBase58)
 
 	dbKey := GlobalStateKeyForPKIDReferralHashToIsActive(pkid, referralHashBytes)
 
@@ -347,7 +359,7 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte,
 	for keyIndex, key := range keysFound {
 		// Chop out all the referral hashes from the keys found.
 		referralHashBytes := key[referralHashStartIndex:]
-		referralHash := base58.Encode(referralHashBytes)
+		referralHash := string(referralHashBytes)
 
 		// Grab the 'IsActive' status for this hash.
 		isActiveBytes := valsFound[keyIndex]
@@ -522,7 +534,7 @@ func (fes *APIServer) AdminDownloadReferralCSV(ww http.ResponseWriter, req *http
 		csvRows = append(csvRows, nextRow)
 
 		// Store this info to look up whether the link is active next.
-		referralHashBytes := base58.Decode(referralInfo.ReferralHashBase58)
+		referralHashBytes := []byte(referralInfo.ReferralHashBase58)
 		activeStatusKey := GlobalStateKeyForPKIDReferralHashToIsActive(referralInfo.ReferrerPKID, referralHashBytes)
 		activeStatusKeys = append(activeStatusKeys, activeStatusKey)
 	}

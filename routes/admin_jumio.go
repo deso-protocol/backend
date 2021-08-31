@@ -130,3 +130,74 @@ func (fes *APIServer) AdminUpdateJumioBitClout(ww http.ResponseWriter, req *http
 		return
 	}
 }
+
+type AdminSetJumioVerifiedRequest struct {
+	PublicKeyBase58Check string
+	Username             string
+}
+
+type AdminJumioCallback struct {
+	PublicKeyBase58Check string
+	Username             string
+}
+// AdminJumioCallback Note: this endpoint is mainly for testing purposes.
+func (fes *APIServer) AdminJumioCallback(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminJumioCallback{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminJumioCallback: Problem parsing request body: %v", err))
+		return
+	}
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: error getting utxoview: %v", err))
+		return
+	}
+
+	// Look up the user metadata
+	var userMetadata *UserMetadata
+	var publicKeyBytes []byte
+	if requestData.PublicKeyBase58Check != "" {
+		publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminJumioCallback: Problem with lib.Base58CheckDecode: %v", err))
+			return
+		}
+		userMetadata, err = fes.getUserMetadataFromGlobalState(requestData.PublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminJumioCallback: error getting usermetadata for public key: %v", err))
+			return
+		}
+	} else if requestData.Username != "" {
+		profileEntry := utxoView.GetProfileEntryForUsername([]byte(requestData.Username))
+		if profileEntry == nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminJumioCallback: error getting profile entry for username %v", requestData.Username))
+			return
+		}
+		publicKeyBytes = profileEntry.PublicKey
+		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(profileEntry.PublicKey)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminJumioCallback: Problem getting UserMetadata from global state: %v", err))
+			return
+		}
+	} else {
+		_AddBadRequestError(ww, "AdminJumioCallback: must provide either a public key or username")
+		return
+	}
+
+	if userMetadata.JumioVerified {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminJumioCallback: User is already JumioVerified"))
+		return
+	}
+	userMetadata.JumioReturned = true
+	userMetadata, err = fes.JumioVerifiedHandler(userMetadata, "admin-jumio-call", publicKeyBytes, utxoView)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminJumioCallback: Error in JumioVerifiedHandler: %v", err))
+		return
+	}
+
+	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminJumioCallback: Error updating user metadata in global state: %v", err))
+		return
+	}
+}

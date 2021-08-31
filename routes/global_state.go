@@ -157,17 +157,20 @@ var (
 	_GlobalStateKeyUpAndComingTutorialCreators = []byte{23}
 
 	// Referral program indexes.
-	// 	- <prefix, referral hash (6-8 bytes)> -> <ReferralInfo>
+	// 	- <prefix, referral hash (8 bytes)> -> <ReferralInfo>
 	_GlobalStatePrefixReferralHashToReferralInfo = []byte{24}
-	// 	- <prefix, PKID, referral hash (6-8 bytes)> -> <IsActive bool>
+	// 	- <prefix, PKID, referral hash (8 bytes)> -> <IsActive bool>
 	_GlobalStatePrefixPKIDReferralHashToIsActive = []byte{25}
+
+	// - <prefx, PKID, referral hash (6-8 bytes), Referred PKID
+	_GlobalStatePrefixPKIDReferralHashRefereePKID = []byte{26}
 
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
 
-	// NEXT_TAG: 26
+	// NEXT_TAG: 27
 )
 
 // A ReferralInfo struct holds all of the params and stats for a referral link/hash.
@@ -287,6 +290,12 @@ type UserMetadata struct {
 	TutorialStatus                  TutorialStatus
 	CreatorPurchasedInTutorialPKID  *lib.PKID
 	CreatorCoinsPurchasedInTutorial uint64
+
+	// ReferralHashBase58Check with which user signed up
+	ReferralHashBase58Check string
+
+	// Txn hash in which the referrer was paid
+	ReferrerBitCloutTxnHash string
 }
 
 type TutorialStatus string
@@ -387,6 +396,14 @@ func GlobalStateKeyForPKIDReferralHashToIsActive(pkid *lib.PKID, referralHashByt
 func GlobalStateSeekKeyForPKIDReferralHashes(pkid *lib.PKID) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDReferralHashToIsActive...)
 	key := append(prefixCopy, pkid[:]...)
+	return key
+}
+
+func GlobalStateKeyForPKIDReferralHashRefereePKID(pkid *lib.PKID, referralHash []byte, refereePKID *lib.PKID) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDReferralHashRefereePKID...)
+	key := append(prefixCopy, pkid[:]...)
+	key = append(key, referralHash[:]...)
+	key = append(key, refereePKID[:]...)
 	return key
 }
 
