@@ -191,6 +191,13 @@ type ReferralInfo struct {
 	DateCreatedTStampNanos     uint64
 }
 
+type SimpleReferralInfo struct {
+	ReferralHashBase58     string
+	RefereeAmountUSDCents  uint64
+	MaxReferrals           uint64 // If set to zero, there is no cap on referrals.
+	TotalReferrals         uint64
+}
+
 type NFTDropEntry struct {
 	IsActive        bool
 	DropNumber      uint64

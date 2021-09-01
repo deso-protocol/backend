@@ -71,7 +71,7 @@ type GetReferralInfoForReferralHashRequest struct {
 }
 
 type GetReferralInfoForReferralHashResponse struct {
-	ReferralInfoResponse *ReferralInfoResponse
+	ReferralInfoResponse *SimpleReferralInfoResponse
 }
 
 func (fes *APIServer) GetReferralInfoForReferralHash(ww http.ResponseWriter, req *http.Request) {
@@ -89,9 +89,16 @@ func (fes *APIServer) GetReferralInfoForReferralHash(ww http.ResponseWriter, req
 		return
 	}
 
+	simpleReferralInfo := SimpleReferralInfo{
+		ReferralHashBase58: referralInfo.ReferralHashBase58,
+		RefereeAmountUSDCents: referralInfo.RefereeAmountUSDCents,
+		MaxReferrals: referralInfo.MaxReferrals,
+		TotalReferrals: referralInfo.TotalReferrals,
+	}
+
 	res := GetReferralInfoForReferralHashResponse{
-		ReferralInfoResponse: &ReferralInfoResponse{
-			Info: *referralInfo,
+		ReferralInfoResponse: &SimpleReferralInfoResponse{
+			Info: simpleReferralInfo,
 			IsActive: fes.getReferralHashStatus(referralInfo.ReferrerPKID, referralInfo.ReferralHashBase58),
 		},
 	}

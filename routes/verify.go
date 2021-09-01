@@ -856,7 +856,7 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			referralInfo, err = fes.getInfoForReferralHashBase58(userMetadata.ReferralHashBase58Check)
 			if err != nil {
 				glog.Errorf("JumioVerifiedHandler: Error getting referral info: %v", err)
-			} else if referralInfo != nil && referralInfo.TotalReferrals < referralInfo.MaxReferrals && fes.getReferralHashStatus(referralInfo.ReferrerPKID, referralInfo.ReferralHashBase58) {
+			} else if referralInfo != nil && (referralInfo.TotalReferrals < referralInfo.MaxReferrals || referralInfo.MaxReferrals == 0) && fes.getReferralHashStatus(referralInfo.ReferrerPKID, referralInfo.ReferralHashBase58) {
 				var refereeBitcloutNanos uint64
 				refereeBitcloutNanos, err = fes.GetNanosFromUSDCents(float64(referralInfo.RefereeAmountUSDCents), 0)
 				if err != nil {
@@ -908,7 +908,7 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			if err != nil {
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error getting referrer bitclout nanos: %v", err)
 			}
-			if referralInfo.TotalReferrals >= referralInfo.MaxReferrals {
+			if referralInfo.TotalReferrals >= referralInfo.MaxReferrals && referralInfo.MaxReferrals > 0 {
 				return userMetadata, nil
 			}
 			// Check the balance of the starter bitclout seed compared to the referrer bitclout nanos.

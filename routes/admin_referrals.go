@@ -323,6 +323,11 @@ type ReferralInfoResponse struct {
 	Info     ReferralInfo
 }
 
+type SimpleReferralInfoResponse struct {
+	IsActive bool
+	Info     SimpleReferralInfo
+}
+
 type AdminGetAllReferralInfoForUserRequest struct {
 	// A username or public name can be provided. If both are provided, public key is used.
 	UserPublicKeyBase58Check string `safeForLogging:"true"`
