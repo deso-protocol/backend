@@ -60,7 +60,50 @@ func (fes *APIServer) GetReferralInfoForUser(ww http.ResponseWriter, req *http.R
 	res := GetReferralInfoForUserResponse{
 		ReferralInfoResponses: referralInfoResponses,
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetReferralInfoForUser: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type GetReferralInfoForReferralHashRequest struct {
+	ReferralHash string
+}
+
+type GetReferralInfoForReferralHashResponse struct {
+	ReferralInfoResponse *SimpleReferralInfoResponse
+}
+
+func (fes *APIServer) GetReferralInfoForReferralHash(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetReferralInfoForReferralHashRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetReferralInfoForReferralHash: Problem parsing request body: %v", err))
+		return
+	}
+
+	referralInfo, err := fes.getInfoForReferralHashBase58(requestData.ReferralHash)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetReferralInfoForReferralHash: Error getting referral info for referral hash: %v", err))
+		return
+	}
+
+	simpleReferralInfo := SimpleReferralInfo{
+		ReferralHashBase58: referralInfo.ReferralHashBase58,
+		RefereeAmountUSDCents: referralInfo.RefereeAmountUSDCents,
+		MaxReferrals: referralInfo.MaxReferrals,
+		TotalReferrals: referralInfo.TotalReferrals,
+	}
+
+	res := GetReferralInfoForReferralHashResponse{
+		ReferralInfoResponse: &SimpleReferralInfoResponse{
+			Info: simpleReferralInfo,
+			IsActive: fes.getReferralHashStatus(referralInfo.ReferrerPKID, referralInfo.ReferralHashBase58),
+		},
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetReferralInfoForUser: Problem encoding response as JSON: %v", err))
 		return
 	}
