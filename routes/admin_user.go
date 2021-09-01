@@ -353,7 +353,7 @@ func (fes *APIServer) AdminGetUserGlobalMetadata(ww http.ResponseWriter, req *ht
 	// If we made it this far we were successful, return without error.
 	res := AdminGetUserGlobalMetadataResponse{
 		UserMetadata:             *userMetadata,
-		UserProfileEntryResponse: _profileEntryToResponse(profileEntry, fes.Params, nil, utxoView),
+		UserProfileEntryResponse: fes._profileEntryToResponse(profileEntry, utxoView),
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserGlobalMetadata: Problem encoding response as JSON: %v", err))
@@ -594,15 +594,11 @@ func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *h
 		return
 	}
 
-	// Pull the verified map from global state
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("AdminGrantVerificationBadge: Failed fetching verified map from database: %v", err))
-		return
-	}
+	fes.RefreshVerifiedUsernameToPKIDMap()
+
 	verifiedMapStruct := VerifiedUsernameToPKID{}
-	if verifiedMap != nil {
-		verifiedMapStruct.VerifiedUsernameToPKID = verifiedMap
+	if fes.VerifiedUsernameMap != nil {
+		verifiedMapStruct.VerifiedUsernameToPKID = fes.VerifiedUsernameMap
 	} else {
 		verifiedMapStruct.VerifiedUsernameToPKID = make(map[string]*lib.PKID)
 	}
@@ -766,19 +762,8 @@ func (fes *APIServer) AdminGetVerifiedUsers(ww http.ResponseWriter, req *http.Re
 		return
 	}
 
-	// Pull the verified map from global state
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("AdminGetVerifiedUsers: Failed fetching verified map from database: %v", err))
-		return
-	}
-	if verifiedMap == nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetVerifiedUsers: No verified user map in global state."))
-		return
-	}
-
 	verifiedUsers := []string{}
-	for userName := range verifiedMap {
+	for userName := range fes.VerifiedUsernameMap {
 		verifiedUsers = append(verifiedUsers, userName)
 	}
 
@@ -922,17 +907,8 @@ func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Re
 	lastVerifyRemoverPublicKey := ""
 	if profileEntry != nil {
 		username := strings.ToLower(string(profileEntry.Username))
-		verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-		if err != nil {
-			_AddInternalServerError(ww, fmt.Sprintf("AdminGetUserMetadata: Failed fetching verified map from database: %v", err))
-			return
-		}
-		if verifiedMap == nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: No verified user map in global state."))
-			return
-		}
-		if _, hasEntry := verifiedMap[username]; hasEntry {
-			isVerified = reflect.DeepEqual(verifiedMap[username], userPKID)
+		if _, hasEntry := fes.VerifiedUsernameMap[username]; hasEntry {
+			isVerified = reflect.DeepEqual(fes.VerifiedUsernameMap[username], userPKID)
 		}
 
 		// Get the verification audit logs from global state.

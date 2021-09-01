@@ -78,14 +78,9 @@ func (fes *APIServer) GetPostsForNFTDropEntry(dropEntryToReturn *NFTDropEntry,
 		return nil, fmt.Errorf("AdminGetPostsForNFTDropEntry: Error getting utxoView: %v", err)
 	}
 
-	// Grab verified username map pointer
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		return nil, fmt.Errorf("GetTutorialCreators: Problem fetching verifiedMap: %v", err)
-	}
 	for _, postHash := range dropEntryToReturn.NFTHashes {
 		postEntry := utxoView.GetPostEntryForPostHash(postHash)
-		postEntryResponse, err := fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, nil, verifiedMap, 2)
+		postEntryResponse, err := fes._postEntryToResponse(postEntry, false, utxoView, nil, 2)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"AdminGetPostsForNFTDropEntry: Error building postEntryResponse: %v, %s", err, postHash.String())
@@ -100,7 +95,7 @@ func (fes *APIServer) GetPostsForNFTDropEntry(dropEntryToReturn *NFTDropEntry,
 				// If we didn't find a profile entry, skip this post.
 				continue
 			} else {
-				profileEntryResponse = _profileEntryToResponse(profileEntry, fes.Params, nil, utxoView)
+				profileEntryResponse = fes._profileEntryToResponse(profileEntry, utxoView)
 				profileEntryResponseMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] = profileEntryResponse
 			}
 		}

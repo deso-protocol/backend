@@ -164,13 +164,13 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 	}
 
 	updaterPublicKeyBytes := txn.PublicKey
-	postEntryResponse, err := fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, updaterPublicKeyBytes, nil, 2)
+	postEntryResponse, err := fes._postEntryToResponse(postEntry, false, utxoView, updaterPublicKeyBytes, 2)
 	if err != nil {
 		return errors.Errorf("Problem obtaining post entry response: %v", err)
 	}
 
 	profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
-	postEntryResponse.ProfileEntryResponse = _profileEntryToResponse(profileEntry, fes.Params, nil, utxoView)
+	postEntryResponse.ProfileEntryResponse = fes._profileEntryToResponse(profileEntry, utxoView)
 
 	// attach everything to the response
 	response.PostEntryResponse = postEntryResponse
