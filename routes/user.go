@@ -2568,10 +2568,10 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 	// so that we can return public keys in base58Check.
 	derivedKeys := make(map[string]*UserDerivedKey)
 	for _, entry := range derivedKeyMappings {
-		derivedPublicKey := lib.PkToString(entry.DerivedPublicKey, fes.Params)
+		derivedPublicKey := lib.PkToString(entry.DerivedPublicKey[:], fes.Params)
 		derivedKeys[derivedPublicKey] = &UserDerivedKey{
-			OwnerPublicKeyBase58Check:   lib.PkToString(entry.OwnerPublicKey, fes.Params),
-			DerivedPublicKeyBase58Check: lib.PkToString(entry.DerivedPublicKey, fes.Params),
+			OwnerPublicKeyBase58Check:   lib.PkToString(entry.OwnerPublicKey[:], fes.Params),
+			DerivedPublicKeyBase58Check: lib.PkToString(entry.DerivedPublicKey[:], fes.Params),
 			ExpirationBlock:             entry.ExpirationBlock,
 			IsValid:                     entry.OperationType == lib.AuthorizeDerivedKeyOperationValid,
 		}

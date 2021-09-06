@@ -331,12 +331,14 @@ func (fes *APIServer) SignTransactionWithDerivedKey(ww http.ResponseWriter, req 
 		return
 	}
 
+	// Get the transaction bytes from the request data.
 	txnBytes, err := hex.DecodeString(requestData.TransactionHex)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SignTransactionWithDerivedKey: Problem decoding transaction hex %v", err))
 		return
 	}
 
+	// Get the derived private key from the request data.
 	privBytes, err := hex.DecodeString(requestData.DerivedKeySeedHex)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SignTransactionWithDerivedKey: Problem decoding seed hex %v", err))
@@ -344,14 +346,17 @@ func (fes *APIServer) SignTransactionWithDerivedKey(ww http.ResponseWriter, req 
 	}
 	privKeyBytes, _ := btcec.PrivKeyFromBytes(btcec.S256(), privBytes)
 
-	txnSignatureBytes, err := lib.SignTransactionWithDerivedKey(txnBytes, privKeyBytes)
+	// Sign the transaction with a derived key. Since the txn extraData must be modified,
+	// we also get new transaction bytes, along with the signature.
+	newTxnBytes, txnSignatureBytes, err := lib.SignTransactionWithDerivedKey(txnBytes, privKeyBytes)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SignTransactionWithDerivedKey: Problem signing transaction: %v", err))
 		return
 	}
 
+	// The response will contain the new transaction bytes and a signature.
 	var signedTransactionHex []byte
-	signedTransactionHex = txnBytes[0 : len(txnBytes)-1]
+	signedTransactionHex = newTxnBytes[0 : len(newTxnBytes)-1]
 	signedTransactionHex = append(signedTransactionHex, lib.UintToBuf(uint64(len(txnSignatureBytes)))...)
 	signedTransactionHex = append(signedTransactionHex, txnSignatureBytes...)
 	res := SignTransactionWithDerivedKeyResponse {
