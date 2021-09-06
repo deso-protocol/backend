@@ -118,9 +118,10 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 
 	// Get the ProfileEntry corresponding to this user's public key from the view.
 	profileEntryy := utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
+	var profileEntryResponse *ProfileEntryResponse
 	if profileEntryy != nil {
 		// Convert it to a response since that sanitizes the inputs.
-		profileEntryResponse := _profileEntryToResponse(profileEntryy, fes.Params, verifiedMap, utxoView)
+		profileEntryResponse = _profileEntryToResponse(profileEntryy, fes.Params, verifiedMap, utxoView)
 		user.ProfileEntryResponse = profileEntryResponse
 	}
 
@@ -152,7 +153,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		// a lot of users and all their followers.
 		// Set NumToFetch to 0 and fetchAll to true to retrieve all followed public keys.
 		publicKeyToProfileEntry, _, err := fes.getPublicKeyToProfileEntryMapForFollows(
-			publicKeyBytes, false, utxoView, nil, 0, false, true)
+			publicKeyBytes, false, utxoView, nil, 0, false, true, verifiedMap)
 		if err != nil {
 			return errors.Wrapf(err, "GetFollowsStateless: Problem fetching and decrypting follows:")
 		}
@@ -173,7 +174,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	if !skipForLeaderboard {
 		var youHodlMap map[string]*BalanceEntryResponse
 		// Get the users that the user hodls
-		youHodlMap, err = fes.GetYouHodlMap(pkid, true, utxoView)
+		youHodlMap, err = fes.GetYouHodlMap(pkid, true, utxoView, verifiedMap)
 		if err != nil {
 			return errors.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err)
 		}
@@ -188,7 +189,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		})
 
 		var hodlYouMap map[string]*BalanceEntryResponse
-		hodlYouMap, err = fes.GetHodlYouMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView)
+		hodlYouMap, err = fes.GetHodlYouMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView, verifiedMap)
 		// Assign the new hodl lists to the user object
 		user.UsersYouHODL = youHodlList
 		user.UsersWhoHODLYouCount = len(hodlYouMap)
@@ -212,6 +213,22 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		user.JumioVerified = userMetadata.JumioVerified
 		user.JumioReturned = userMetadata.JumioReturned
 		user.JumioFinishedTime = userMetadata.JumioFinishedTime
+		user.TutorialStatus = userMetadata.TutorialStatus
+		user.MustCompleteTutorial = userMetadata.MustCompleteTutorial
+		// We only need to fetch the creator purchased in the tutorial if the user is still in the tutorial
+		if user.TutorialStatus != COMPLETE && user.TutorialStatus != SKIPPED && userMetadata.CreatorPurchasedInTutorialPKID != nil {
+			tutorialCreatorProfileEntry := utxoView.GetProfileEntryForPKID(userMetadata.CreatorPurchasedInTutorialPKID)
+			if tutorialCreatorProfileEntry == nil {
+				return fmt.Errorf("updateUserFieldsStateless: Did not find profile entry for PKID for creator purchased in tutorial")
+			}
+			username := string(tutorialCreatorProfileEntry.Username)
+			user.CreatorPurchasedInTutorialUsername = &username
+			user.CreatorCoinsPurchasedInTutorial = userMetadata.CreatorCoinsPurchasedInTutorial
+		}
+		if profileEntryy != nil {
+			user.ProfileEntryResponse.IsFeaturedTutorialUpAndComingCreator = userMetadata.IsFeaturedTutorialUpAndComingCreator
+			user.ProfileEntryResponse.IsFeaturedTutorialWellKnownCreator = userMetadata.IsFeaturedTutorialWellKnownCreator
+		}
 		if user.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView); err != nil {
 			return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err), "")
 		}
@@ -241,41 +258,35 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 
 	// Only set User.IsAdmin in GetUsersStateless
 	// We don't want or need to set this on every endpoint that generates a ProfileEntryResponse
-	if len(fes.Config.AdminPublicKeys) == 0 && len(fes.Config.SuperAdminPublicKeys) == 0 {
-		user.IsAdmin = true
-		user.IsSuperAdmin = true
-	} else {
-		for _, k := range fes.Config.AdminPublicKeys {
-			if k == user.PublicKeyBase58Check {
-				user.IsAdmin = true
-				break
-			}
-		}
-		for _, k := range fes.Config.SuperAdminPublicKeys {
-			if k == user.PublicKeyBase58Check {
-				user.IsSuperAdmin = true
-				user.IsAdmin = true
-				break
-			}
-		}
-	}
+	isAdmin, isSuperAdmin := fes.UserAdminStatus(user.PublicKeyBase58Check)
+	user.IsAdmin = isAdmin
+	user.IsSuperAdmin = isSuperAdmin
 
-	// We expect SeedInfo and LocalState are set and don't mess with them in this
-	// function.
 
 	return nil
 }
 
-// Get map of creators you hodl.
-func (fes *APIServer) GetYouHodlMap(pkid *lib.PKIDEntry, fetchProfiles bool, utxoView *lib.UtxoView) (
-	_youHodlMap map[string]*BalanceEntryResponse, _err error) {
-	// Grab verified username map pointer
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		return nil, fmt.Errorf(
-			"GetYouHodlMap: Error fetching verifiedMap: %v", err)
+func (fes *APIServer) UserAdminStatus(publicKeyBase58Check string) (_isAdmin bool, _isSuperAdmin bool) {
+	if len(fes.Config.AdminPublicKeys) == 0 && len(fes.Config.SuperAdminPublicKeys) == 0 {
+		return true, true
+	} else {
+		for _, k := range fes.Config.SuperAdminPublicKeys {
+			if k == publicKeyBase58Check {
+				return true, true
+			}
+		}
+		for _, k := range fes.Config.AdminPublicKeys {
+			if k == publicKeyBase58Check {
+				return true, false
+			}
+		}
 	}
+	return false, false
+}
 
+// Get map of creators you hodl.
+func (fes *APIServer) GetYouHodlMap(pkid *lib.PKIDEntry, fetchProfiles bool, utxoView *lib.UtxoView, verifiedMap map[string]*lib.PKID) (
+	_youHodlMap map[string]*BalanceEntryResponse, _err error) {
 	// Get all the hodlings for this user from the db
 	entriesYouHodl, profilesYouHodl, err := utxoView.GetHoldings(pkid.PKID, fetchProfiles)
 	if err != nil {
@@ -357,7 +368,7 @@ func _balanceEntryToResponse(
 }
 
 // GetHodlingsForPublicKey ...
-func (fes *APIServer) GetHodlingsForPublicKey(pkid *lib.PKIDEntry, fetchProfiles bool, referenceUtxoView *lib.UtxoView) (
+func (fes *APIServer) GetHodlingsForPublicKey(pkid *lib.PKIDEntry, fetchProfiles bool, referenceUtxoView *lib.UtxoView, verifiedMap map[string]*lib.PKID) (
 	_youHodlMap map[string]*BalanceEntryResponse,
 	_hodlYouMap map[string]*BalanceEntryResponse, _err error) {
 	// Get a view that considers all of this user's transactions.
@@ -373,12 +384,12 @@ func (fes *APIServer) GetHodlingsForPublicKey(pkid *lib.PKIDEntry, fetchProfiles
 		}
 	}
 	// Get the map of entries this PKID hodls.
-	youHodlMap, err := fes.GetYouHodlMap(pkid, fetchProfiles, utxoView)
+	youHodlMap, err := fes.GetYouHodlMap(pkid, fetchProfiles, utxoView, verifiedMap)
 	if err != nil {
 		return nil, nil, err
 	}
 	// Get the map of the entries hodlings this PKID
-	hodlYouMap, err := fes.GetHodlYouMap(pkid, fetchProfiles, utxoView)
+	hodlYouMap, err := fes.GetHodlYouMap(pkid, fetchProfiles, utxoView, verifiedMap)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -389,15 +400,8 @@ func (fes *APIServer) GetHodlingsForPublicKey(pkid *lib.PKIDEntry, fetchProfiles
 }
 
 // Get map of public keys hodling your coin.
-func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, utxoView *lib.UtxoView) (
+func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, utxoView *lib.UtxoView, verifiedMap map[string]*lib.PKID) (
 	_youHodlMap map[string]*BalanceEntryResponse, _err error) {
-	// Grab verified username map pointer
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		return nil, fmt.Errorf(
-			"GetYouHodlMap: Error fetching verifiedMap: %v", err)
-	}
-
 	// Get all the hodlings for this user from the db
 	entriesHodlingYou, profileHodlingYou, err := utxoView.GetHolders(pkid.PKID, fetchProfiles)
 	if err != nil {
@@ -518,6 +522,12 @@ type ProfileEntryResponse struct {
 
 	// Profiles of users that hold the coin + their balances.
 	UsersThatHODL []*BalanceEntryResponse
+
+	// If user is featured as a well known creator in the tutorial.
+	IsFeaturedTutorialWellKnownCreator bool
+	// If user is featured as an up and coming creator in the tutorial.
+	// Note: a user should not be both featured as well known and up and coming
+	IsFeaturedTutorialUpAndComingCreator bool
 }
 
 // GetProfiles ...
@@ -686,7 +696,7 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 			// Get the users that the user hodls and vice versa
 			pkid := utxoView.GetPKIDForPublicKey(startPubKey)
 			_, hodlYouMap, err := fes.GetHodlingsForPublicKey(
-				pkid, true /*fetchProfiles*/, utxoView)
+				pkid, true /*fetchProfiles*/, utxoView, verifiedMap)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf(
 					"GetProfiles: Could not find HODLers for pub key: %v", startPubKey))
@@ -897,7 +907,7 @@ func (fes *APIServer) augmentProfileEntry(
 	// Attach the posts to the profile
 	profilePostsFound := postsByProfilePublicKey[lib.MakePkMapKey(profileEntry.PublicKey)]
 	for _, profilePostEntry := range profilePostsFound {
-		profilePostRes, err := fes._postEntryToResponse(profilePostEntry, addGlobalFeedBool, fes.Params, utxoView, readerPK, 2)
+		profilePostRes, err := fes._postEntryToResponse(profilePostEntry, addGlobalFeedBool, fes.Params, utxoView, readerPK, verifiedMap, 2)
 
 		if err != nil {
 			glog.Error(err)
@@ -907,9 +917,7 @@ func (fes *APIServer) augmentProfileEntry(
 		// Attach reader state to each post.
 		profilePostRes.PostEntryReaderState = postEntryReaderStates[*profilePostEntry.PostHash]
 
-		profileEntryFound := profileEntriesByPublicKey[lib.MakePkMapKey(profilePostEntry.PosterPublicKey)]
-		profilePostRes.ProfileEntryResponse = _profileEntryToResponse(
-			profileEntryFound, fes.Params, verifiedMap, utxoView)
+		profilePostRes.ProfileEntryResponse = profileEntryResponse
 		if profilePostRes.IsHidden {
 			// Don't show posts that this user has chosen to hide.
 			continue
@@ -1012,7 +1020,9 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 	// Get profile entry by public key.  If public key not provided, get profileEntry by username.
 	var profileEntry *lib.ProfileEntry
 	var publicKeyBytes []byte
+	var publicKeyBase58Check string
 	if requestData.PublicKeyBase58Check != "" {
+		publicKeyBase58Check = requestData.PublicKeyBase58Check
 		publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Problem decoding user public key: %v", err))
@@ -1023,6 +1033,7 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 		profileEntry = utxoView.GetProfileEntryForUsername([]byte(requestData.Username))
 		if profileEntry != nil {
 			publicKeyBytes = profileEntry.PublicKey
+			publicKeyBase58Check = lib.Base58CheckEncode(publicKeyBytes, false, fes.Params)
 		}
 	}
 
@@ -1066,6 +1077,16 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 	if reflect.DeepEqual(userGraylistState, lib.IsGraylisted) {
 		res.IsGraylisted = true
 	}
+
+	var userMetadata *UserMetadata
+	userMetadata, err = fes.getUserMetadataFromGlobalState(publicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: error getting usermetadata for public key: %v", err))
+		return
+	}
+
+	res.Profile.IsFeaturedTutorialUpAndComingCreator = userMetadata.IsFeaturedTutorialUpAndComingCreator
+	res.Profile.IsFeaturedTutorialWellKnownCreator = userMetadata.IsFeaturedTutorialWellKnownCreator
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetSingleProfile: Problem serializing object to JSON: %v", err))
@@ -1142,19 +1163,24 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 		}
 		publicKeyBytes = profileEntry.PublicKey
 	}
+	// Grab verified username map pointer
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Error fetching verifiedMap: %v", err))
+	}
 
 	// Get the appropriate hodl map, convert to a slice, and order by balance.
 	var hodlMap map[string]*BalanceEntryResponse
 	hodlList := []*BalanceEntryResponse{}
 	if requestData.FetchHodlings {
-		hodlMap, err = fes.GetYouHodlMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView)
+		hodlMap, err = fes.GetYouHodlMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView, verifiedMap)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: error getting youHodlMap: %v", err))
 			return
 		}
 
 	} else {
-		hodlMap, err = fes.GetHodlYouMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView)
+		hodlMap, err = fes.GetHodlYouMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView, verifiedMap)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: error getting youHodlMap: %v", err))
 			return
@@ -1192,11 +1218,6 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 		}
 	}
 
-	// Grab verified username map pointer
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Error fetching verifiedMap: %v", err))
-	}
 	for _, balanceEntryResponse := range hodlList {
 		publicKeyBase58Check := getHodlerOrHodlingPublicKey(balanceEntryResponse, requestData.FetchHodlings)
 
@@ -1417,7 +1438,7 @@ func (fes *APIServer) sortFollowEntries(followEntryPKIDii *lib.PKID, followEntry
 // followers / following
 func (fes *APIServer) getPublicKeyToProfileEntryMapForFollows(publicKeyBytes []byte,
 	getEntriesFollowingPublicKey bool, referenceUtxoView *lib.UtxoView,
-	lastFollowPublicKeyBytes []byte, numToFetch uint64, fetchValues bool, fetchAllFollows bool) (
+	lastFollowPublicKeyBytes []byte, numToFetch uint64, fetchValues bool, fetchAllFollows bool, verifiedMap map[string]*lib.PKID) (
 	_publicKeyToProfileEntry map[string]*ProfileEntryResponse, numFollowers uint64,
 	_err error) {
 
@@ -1451,13 +1472,6 @@ func (fes *APIServer) getPublicKeyToProfileEntryMapForFollows(publicKeyBytes []b
 	//
 	// Sorry this is confusing
 	publicKeyToProfileEntry := make(map[string]*ProfileEntryResponse)
-
-	// Grab verified username map pointer
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		return nil, 0, errors.Wrapf(
-			err, "getPublicKeyToProfileEntryMapForFollows: Problem fetching verifiedMap: ")
-	}
 
 	// We only need to sort if we are fetching values.  When we do not fetch values, we are getting all public keys and
 	// their ordering doesn't mean anything.  Currently, fetchValues is only false for GetUsersStateless calls for which
@@ -1565,12 +1579,22 @@ func (fes *APIServer) GetFollowsStateless(ww http.ResponseWriter, rr *http.Reque
 		}
 	}
 
+	var verifiedMap map[string]*lib.PKID
+	if getFollowsRequest.NumToFetch > 0 {
+		verifiedMap, err = fes.GetVerifiedUsernameToPKIDMap()
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetNFTCollectionSummary: Error getting verified user map: %v", err))
+			return
+		}
+	}
+
+
 	publicKeyToProfileEntry, numFollowers, err := fes.getPublicKeyToProfileEntryMapForFollows(
 		publicKeyBytes,
 		getFollowsRequest.GetEntriesFollowingUsername,
 		utxoView,
 		lastPublicKeySeenBytes,
-		getFollowsRequest.NumToFetch, true, false)
+		getFollowsRequest.NumToFetch, true, false, verifiedMap)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetFollowsStateless: Problem fetching and decrypting follows: %v", err))
 		return
@@ -1780,26 +1804,6 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		return
 	}
 
-	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(userPublicKeyBytes)
-	if err != nil {
-		_AddBadRequestError(ww, err.Error())
-		return
-	}
-
-	// Filter out blocked public keys from transactions metadata response
-	filteredTxnMetadataList := []*TransactionMetadataResponse{}
-	for _, txn := range finalTxnMetadataList {
-		var pkBytes []byte
-		pkBytes, _, err = lib.Base58CheckDecode(txn.Metadata.TransactorPublicKeyBase58Check)
-		if err != nil {
-			APIAddError(ww, err.Error())
-			return
-		}
-		if _, ok := blockedPubKeys[lib.PkToString(pkBytes, fes.Params)]; !ok {
-			filteredTxnMetadataList = append(filteredTxnMetadataList, txn)
-		}
-	}
-
 	// Grab verified username map pointer
 	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
 	if err != nil {
@@ -1832,7 +1836,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		}
 		return nil
 	}
-	for _, txnMeta := range filteredTxnMetadataList {
+	for _, txnMeta := range finalTxnMetadataList {
 		if err := addProfileForPubKey(txnMeta.Metadata.TransactorPublicKeyBase58Check); err != nil {
 			APIAddError(ww, err.Error())
 			return
@@ -1867,7 +1871,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		if postEntry == nil {
 			return
 		}
-		postEntryResponse, err := fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, userPublicKeyBytes, 2)
+		postEntryResponse, err := fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, userPublicKeyBytes, verifiedMap, 2)
 		if err != nil {
 			return
 		}
@@ -1882,7 +1886,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		postEntryResponses[postHashHex] = postEntryResponse
 	}
 
-	for _, txnMeta := range filteredTxnMetadataList {
+	for _, txnMeta := range finalTxnMetadataList {
 		postMetadata := txnMeta.Metadata.SubmitPostTxindexMetadata
 		likeMetadata := txnMeta.Metadata.LikeTxindexMetadata
 		transferCreatorCoinMetadata := txnMeta.Metadata.CreatorCoinTransferTxindexMetadata
@@ -1913,6 +1917,9 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 						AmountNanos:          output.AmountNanos,
 					})
 			}
+			if basicTransferMetadata.PostHashHex != "" {
+				addPostForHash(basicTransferMetadata.PostHashHex, userPublicKeyBytes)
+			}
 		}
 	}
 
@@ -1921,7 +1928,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	//
 	// only try to update the index if we're requesting the first page of results
 	// and we have at least one notification
-	if requestData.FetchStartIndex < 0 && len(filteredTxnMetadataList) > 0 {
+	if requestData.FetchStartIndex < 0 && len(finalTxnMetadataList) > 0 {
 		// global state does not have good support for concurrency. if someone
 		// else fetches this user's data and writes at the same time we could
 		// overwrite each other. there's a task in jira to investigate concurrency
@@ -1934,7 +1941,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		}
 
 		// only update the index if it's greater than the current index we have stored
-		lastSeenIndex := filteredTxnMetadataList[0].Index
+		lastSeenIndex := finalTxnMetadataList[0].Index
 		if lastSeenIndex > userMetadata.NotificationLastSeenIndex {
 			userMetadata.NotificationLastSeenIndex = lastSeenIndex
 
@@ -1951,7 +1958,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	// At this point, we should have all the profiles and all the notifications
 	// that the user requested so return them in the response.
 	res := &GetNotificationsResponse{
-		Notifications:       filteredTxnMetadataList,
+		Notifications:       finalTxnMetadataList,
 		ProfilesByPublicKey: profileEntryResponses,
 		PostsByHash:         postEntryResponses,
 	}
@@ -1976,6 +1983,12 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 	if err != nil {
 		return nil, nil, errors.Errorf("GetNotifications: Problem parsing public key: %v", err)
 	}
+
+	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(pkBytes)
+	if err != nil {
+		return nil, nil, errors.Errorf("GetNotifications: Error getting blocked public keys for user: %v", err)
+	}
+
 
 	// A valid mempool object is used to compute the TransactionMetadata for the mempool
 	// and to allow for things like: filtering notifications for a hidden post.
@@ -2024,11 +2037,20 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 			if txnMeta == nil {
 				// We should never be missing a transaction for a given txid, but
 				// just continue in this case.
-				errors.Errorf("GetNotifications: Missing TransactionMetadata for txid %v", txID)
+				glog.Errorf("GetNotifications: Missing TransactionMetadata for txid %v", txID)
 				continue
 			}
 			// Skip transactions that aren't notifications
 			if !TxnMetaIsNotification(txnMeta, request.PublicKeyBase58Check, utxoView) {
+				continue
+			}
+			transactorPkBytes, _, err := lib.Base58CheckDecode(txnMeta.TransactorPublicKeyBase58Check)
+			if err != nil {
+				glog.Errorf("GetNotifications: unable to decode public key %v", txnMeta.TransactorPublicKeyBase58Check)
+				continue
+			}
+			// Skip transactions from blocked users.
+			if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
 				continue
 			}
 			currentIndexBytes := keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]
@@ -2113,8 +2135,18 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 			}
 
 			// If the transaction is a notification then add it to our list with the proper
-			// index value set.
+			// index value if the transactor is not a blocked public key
 			if TxnMetaIsNotification(txnMeta, request.PublicKeyBase58Check, utxoView) {
+				transactorPkBytes, _, err := lib.Base58CheckDecode(txnMeta.TransactorPublicKeyBase58Check)
+				if err != nil {
+					glog.Errorf("GetNotifications: unable to decode public key %v", txnMeta.TransactorPublicKeyBase58Check)
+					continue
+				}
+
+				// Skip transactions from blocked users.
+				if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
+					continue
+				}
 				mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
 					Metadata: txnMeta,
 					Index:    currentIndex,

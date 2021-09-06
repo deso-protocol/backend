@@ -150,6 +150,12 @@ var (
 	// Jumio BitCloutNanos
 	_GlobalStatePrefixJumioBitCloutNanos = []byte{21}
 
+	// Tutorial featured well-known creators
+	_GlobalStateKeyWellKnownTutorialCreators = []byte{22}
+
+	// Tutorial featured up and coming creators
+	_GlobalStateKeyUpAndComingTutorialCreators = []byte{23}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
@@ -245,13 +251,33 @@ type UserMetadata struct {
 	// Jumio flow.
 	JumioShouldCompProfileCreation bool
 
-	// MustPurchaseCreatorCoin = set to true if a user gets money from Jumio or Twilio flow and prevents user from
-	// performing a basic transfer before purchasing a creator coin.
-	MustPurchaseCreatorCoin bool
-	// HasPurchasedCreatorCoin = set to true if user has purchased a creator coin, allows them to perform basic transfer
-	// after getting free CLOUT.
-	HasPurchasedCreatorCoin bool
+	// User must complete tutorial if they have been jumio verified.
+	MustCompleteTutorial bool
+
+	// If user is featured as a well known creator in the tutorial.
+	IsFeaturedTutorialWellKnownCreator bool
+	// If user is featured as an up and coming creator in the tutorial.
+	// Note: a user should not be both featured as well known and up and coming
+	IsFeaturedTutorialUpAndComingCreator bool
+
+	TutorialStatus TutorialStatus
+	CreatorPurchasedInTutorialPKID *lib.PKID
+	CreatorCoinsPurchasedInTutorial uint64
 }
+
+type TutorialStatus string
+
+const (
+	EMPTY TutorialStatus = ""
+	STARTED TutorialStatus = "TutorialStarted"
+	SKIPPED TutorialStatus = "TutorialSkipped"
+	INVEST_OTHERS_BUY TutorialStatus = "InvestInOthersBuyComplete"
+	INVEST_OTHERS_SELL TutorialStatus = "InvestInOthersSellComplete"
+	CREATE_PROFILE TutorialStatus = "TutorialCreateProfileComplete"
+	INVEST_SELF TutorialStatus = "InvestInYourselfComplete"
+	DIAMOND TutorialStatus = "GiveADiamondComplete"
+	COMPLETE TutorialStatus = "TutorialComplete"
+)
 
 // This struct contains all the metadata associated with a user's phone number.
 type PhoneNumberMetadata struct {
@@ -441,6 +467,18 @@ func GlobalStateKeyForCountryIDDocumentTypeSubTypeDocumentNumber(countryID strin
 func GlobalStateKeyForJumioBitCloutNanos() []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixJumioBitCloutNanos...)
 	return prefixCopy
+}
+
+func GlobalStateKeyWellKnownTutorialCreators(pkid *lib.PKID) []byte {
+	prefixCopy := append([]byte{}, _GlobalStateKeyWellKnownTutorialCreators...)
+	key := append(prefixCopy, pkid[:]...)
+	return key
+}
+
+func GlobalStateKeyUpAndComingTutorialCreators(pkid *lib.PKID) []byte {
+	prefixCopy := append([]byte{}, _GlobalStateKeyUpAndComingTutorialCreators...)
+	key := append(prefixCopy, pkid[:]...)
+	return key
 }
 
 type GlobalStatePutRemoteRequest struct {

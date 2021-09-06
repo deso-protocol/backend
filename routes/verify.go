@@ -275,7 +275,8 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 
 	settingPhoneNumberForFirstTime := userMetadata.PhoneNumber == ""
 	userMetadata.PhoneNumber = requestData.PhoneNumber
-	userMetadata.MustPurchaseCreatorCoin = true
+	// TODO: do we want to require users who got money from twilio to go through the tutorial?
+	//userMetadata.MustPurchaseCreatorCoin = true
 	err = fes.putUserMetadataInGlobalState(userMetadata)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Error putting usermetadata in Global state: %v", err))
@@ -747,7 +748,19 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error logging failed scan in amplitude: %v", err))
 			return
 		}
-		// This means the scan failed. We've logged the payload in global state above, so now we save that Jumio returned and bail.
+		// This means the scan failed. We save that Jumio returned and bail.
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting user metdata in global state: %v", err))
+		}
+		return
+	}
+
+	if len(req.Form["livenessImages"]) == 0 {
+		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : liveness : fail", nil); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error logging failed scan in amplitude: %v", err))
+			return
+		}
+		// This means there wasn't a liveness check. We save that Jumio returned and bail.
 		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting user metdata in global state: %v", err))
 		}
@@ -791,7 +804,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 		userMetadata.JumioVerified = true
 		userMetadata.JumioTransactionID = jumioTransactionId
 		userMetadata.JumioShouldCompProfileCreation = true
-		userMetadata.MustPurchaseCreatorCoin = true
+		userMetadata.MustCompleteTutorial = true
 		userMetadata.RedoJumio = false
 
 		if bitcloutNanos := fes.GetJumioBitCloutNanos(); bitcloutNanos > 0 {

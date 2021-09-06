@@ -114,6 +114,10 @@ const (
 	RoutePathJumioFlowFinished                 = "/api/v0/jumio-flow-finished"
 	RoutePathGetJumioStatusForPublicKey        = "/api/v0/get-jumio-status-for-public-key"
 
+	// tutorial.go
+	RoutePathGetTutorialCreators = "/api/v0/get-tutorial-creators"
+	RoutePathStartOrSkipTutorial = "/api/v0/start-or-skip-tutorial"
+
 	// wyre.go
 	RoutePathGetWyreWalletOrderQuotation     = "/api/v0/get-wyre-wallet-order-quotation"
 	RoutePathGetWyreWalletOrderReservation   = "/api/v0/get-wyre-wallet-order-reservation"
@@ -164,8 +168,13 @@ const (
 	RoutePathAdminUpdateNFTDrop = "/api/v0/admin/update-nft-drop"
 
 	// admin_jumio.go
-	RoutePathAdminResetJumioForPublicKey       = "/api/v0/admin/reset-jumio-for-public-key"
-	RoutePathAdminUpdateJumioBitClout          = "/api/v0/admin/update-jumio-bitclout"
+	RoutePathAdminResetJumioForPublicKey = "/api/v0/admin/reset-jumio-for-public-key"
+	RoutePathAdminUpdateJumioBitClout    = "/api/v0/admin/update-jumio-bitclout"
+
+	// admin_tutorial.go
+	RoutePathAdminUpdateTutorialCreators = "/api/v0/admin/update-tutorial-creators"
+	RoutePathAdminResetTutorialStatus    = "/api/v0/admin/reset-tutorial-status"
+	RoutePathAdminGetTutorialCreators    = "/api/v0/admin/get-tutorial-creators"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -212,6 +221,9 @@ type APIServer struct {
 	LastTradeBitCloutPriceHistory []LastTradePriceHistoryItem
 	// How far back do we consider trade prices when we set the current price of $CLOUT in nanoseconds
 	LastTradePriceLookback uint64
+
+	VerifiedUsernameMap map[string]*lib.PKID
+
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
 }
@@ -263,7 +275,10 @@ func NewAPIServer(
 		quit:                   make(chan struct{}),
 	}
 
+	fes.RefreshVerifiedUsernameToPKIDMap()
+
 	fes.StartSeedBalancesMonitoring()
+	fes.StartVerifiedUsernameRefresh()
 	// Call this once upon starting server to ensure we have a good initial value
 	fes.UpdateUSDCentsToBitCloutExchangeRate()
 	fes.StartExchangePriceMonitoring()
@@ -651,6 +666,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"StartOrSkipTutorial",
+			[]string{"POST", "OPTIONS"},
+			RoutePathStartOrSkipTutorial,
+			fes.StartOrSkipTutorial,
+			PublicAccess,
+		},
+		{
 			"ResendVerifyEmail",
 			[]string{"POST", "OPTIONS"},
 			RoutePathResendVerifyEmail,
@@ -698,6 +720,14 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetJumioStatusForPublicKey,
 			fes.GetJumioStatusForPublicKey,
+			PublicAccess,
+		},
+		// Tutorial Routes
+		{
+			"GetTutorialCreators",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetTutorialCreators,
+			fes.GetTutorialCreators,
 			PublicAccess,
 		},
 		// Begin all /admin routes
@@ -786,9 +816,22 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.AdminUpdateNFTDrop,
 			AdminAccess,
 		},
+		{
+			"AdminResetTutorialStatus",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminResetTutorialStatus,
+			fes.AdminResetTutorialStatus,
+			AdminAccess,
+		},
+		{
+			"AdminGetTutorialCreators",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetTutorialCreators,
+			fes.AdminGetTutorialCreators,
+			AdminAccess,
+		},
 		// Super Admin routes
 		{
-
 			"AdminGetUserAdminData",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminGetUserAdminData,
@@ -870,6 +913,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathSignTransactionWithDerivedKey,
 			fes.SignTransactionWithDerivedKey,
+			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateTutorialCreators",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateTutorialCreators,
+			fes.AdminUpdateTutorialCreator,
 			SuperAdminAccess,
 		},
 		// End all /admin routes
@@ -1111,7 +1161,7 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 			invalidPostRequest = true
 		}
 
-		if match {
+		if match || r.RequestURI == RoutePathUploadImage || r.RequestURI == RoutePathGetJumioStatusForPublicKey {
 			// Needed in order for the user's browser to set a cookie
 			w.Header().Add("Access-Control-Allow-Credentials", "true")
 
@@ -1333,6 +1383,21 @@ func (fes *APIServer) StartSeedBalancesMonitoring() {
 		}
 	}()
 }
+
+func (fes *APIServer) StartVerifiedUsernameRefresh() {
+	go func() {
+	out:
+		for {
+			select {
+			case <-time.After(5 * time.Second):
+				fes.RefreshVerifiedUsernameToPKIDMap()
+			case <-fes.quit:
+				break out
+			}
+		}
+	}()
+}
+
 
 func (fes *APIServer) logBalanceForSeed(seed string, seedName string, tags []string) {
 	if seed == "" {
