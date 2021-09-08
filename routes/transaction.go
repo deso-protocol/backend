@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"reflect"
 	"strings"
@@ -726,11 +727,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 	// Update the current exchange price.
 	fes.UpdateUSDCentsToBitCloutExchangeRate()
 
-	nanosPurchased, err := fes.GetNanosFromSats(uint64(burnAmountSatoshis), feeBasisPoints)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error computing nanos purchased: %v", err))
-		return
-	}
+	nanosPurchased := fes.GetNanosFromSats(uint64(burnAmountSatoshis), feeBasisPoints)
 	balanceInsufficient, err := fes.ExceedsBitCloutBalance(nanosPurchased, fes.Config.BuyBitCloutSeed)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error checking if send bitclout balance is sufficient: %v", err))
@@ -831,7 +828,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 }
 
 // GetNanosFromSats - convert Satoshis to BitClout nanos
-func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) (uint64, error) {
+func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) uint64 {
 	usdCentsPerBitcoin := fes.UsdCentsPerBitCoinExchangeRate
 	// If we don't have a valid value from monitoring at this time, use the price from the protocol
 	if usdCentsPerBitcoin == 0 {
@@ -842,13 +839,21 @@ func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) (
 	return fes.GetNanosFromUSDCents(usdCents, feeBasisPoints)
 }
 
+// GetNanosFromETH - convert ETH to BitClout nanos
+func (fes *APIServer) GetNanosFromETH(eth *big.Float, feeBasisPoints uint64) uint64 {
+	usdCentsPerETH := big.NewFloat(float64(fes.UsdCentsPerETHExchangeRate))
+	usdCentsETH := big.NewFloat(0).Mul(eth, usdCentsPerETH)
+	usdCentsFloat, _ := usdCentsETH.Float64()
+	return fes.GetNanosFromUSDCents(usdCentsFloat, feeBasisPoints)
+}
+
 // GetNanosFromUSDCents - convert USD cents to BitClout nanos
-func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint64) (uint64, error) {
+func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint64) uint64 {
 	// Get Exchange Price gets the max of price from blockchain.com and the reserve price.
 	usdCentsPerBitClout := fes.GetExchangeBitCloutPrice()
 	conversionRateAfterFee := float64(usdCentsPerBitClout) * (1 + (float64(feeBasisPoints) / (100.0 * 100.0)))
 	nanosPurchased := uint64(usdCents * float64(lib.NanosPerUnit) / conversionRateAfterFee)
-	return nanosPurchased, nil
+	return nanosPurchased
 }
 
 // ExceedsSendBitCloutBalance - Check if nanosPurchased is greater than the balance of the BuyBitClout wallet.
@@ -859,8 +864,6 @@ func (fes *APIServer) ExceedsBitCloutBalance(nanosPurchased uint64, seed string)
 	}
 	return nanosPurchased > buyBitCloutSeedBalance, nil
 }
-
-
 
 // SendBitCloutRequest ...
 type SendBitCloutRequest struct {
@@ -1722,7 +1725,6 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		}
 	}
 
-
 	// Return all the data associated with the transaction in the response
 	res := BuyOrSellCreatorCoinResponse{
 		ExpectedBitCloutReturnedNanos:    ExpectedBitCloutReturnedNanos,
@@ -2022,7 +2024,6 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 			return
 		}
 	}
-
 
 	// Return all the data associated with the transaction in the response
 	res := SendDiamondsResponse{

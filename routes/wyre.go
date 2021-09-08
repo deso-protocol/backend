@@ -190,12 +190,7 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 				_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error getting buy bitclout premium basis points from global state: %v", err))
 				return
 			}
-			var nanosPurchased uint64
-			nanosPurchased, err = fes.GetNanosFromSats(satsPurchased, feeBasisPoints)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrdersubscription: error calculating nanos purchased: %v", err))
-				return
-			}
+			nanosPurchased := fes.GetNanosFromSats(satsPurchased, feeBasisPoints)
 			var balanceInsufficient bool
 			balanceInsufficient, err = fes.ExceedsBitCloutBalance(nanosPurchased, fes.Config.BuyBitCloutSeed)
 			if err != nil {
