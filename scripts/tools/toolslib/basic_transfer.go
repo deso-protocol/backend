@@ -71,7 +71,7 @@ func SendBitClout(senderPubKey *btcec.PublicKey,
 	if err != nil {
 		return errors.Wrap(err, "SendBitclout() failed to sign transaction")
 	}
-	txn.Signature = signature.Serialize()
+	txn.Signature = signature
 
 	// Submit the transaction to the node
 	err = SubmitTransactionToNode(txn, node)

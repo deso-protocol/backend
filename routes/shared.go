@@ -342,7 +342,7 @@ func (fes *APIServer) SendSeedBitClout(recipientPkBytes []byte, amountNanos uint
 		if err != nil {
 			return nil, fmt.Errorf("SendSeedBitClout: Error adding inputs for seed BitClout: %v", err)
 		}
-		txn.Signature = txnSignature.Serialize()
+		txn.Signature = txnSignature
 
 		err = fes.backendServer.VerifyAndBroadcastTransaction(txn)
 		if err != nil {
