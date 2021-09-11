@@ -6,8 +6,6 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
-	"github.com/sendgrid/sendgrid-go"
-	"github.com/sendgrid/sendgrid-go/helpers/mail"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -16,6 +14,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sendgrid/sendgrid-go"
+	"github.com/sendgrid/sendgrid-go/helpers/mail"
 
 	"github.com/bitclout/core/lib"
 	"github.com/golang/glog"
@@ -205,7 +206,7 @@ func (fes *APIServer) validatePhoneNumberNotAlreadyInUse(phoneNumber string, use
 }
 
 type SubmitPhoneNumberVerificationCodeRequest struct {
-	JWT string
+	JWT                  string
 	PublicKeyBase58Check string
 	PhoneNumber          string
 	VerificationCode     string
@@ -232,7 +233,6 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Invalid token: %v", err))
 		return
 	}
-
 
 	/**************************************************************/
 	// Validations
@@ -492,7 +492,7 @@ func (fes *APIServer) IsConfiguredForSendgrid() bool {
 //
 
 func (fes *APIServer) IsConfiguredForJumio() bool {
-	return fes.Config.JumioToken != ""  && fes.Config.JumioSecret != ""
+	return fes.Config.JumioToken != "" && fes.Config.JumioSecret != ""
 }
 
 type JumioInitRequest struct {
@@ -643,9 +643,9 @@ func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
 }
 
 type JumioFlowFinishedRequest struct {
-	PublicKey string
+	PublicKey              string
 	JumioInternalReference string
-	JWT string
+	JWT                    string
 }
 
 func (fes *APIServer) JumioFlowFinished(ww http.ResponseWriter, req *http.Request) {
@@ -687,9 +687,9 @@ func (fes *APIServer) JumioFlowFinished(ww http.ResponseWriter, req *http.Reques
 }
 
 type JumioIdentityVerification struct {
-	Similarity  string `json:"similarity"`
-	Validity    bool `json:"validity"`
-	Reason      string `json:"reason"`
+	Similarity string `json:"similarity"`
+	Validity   bool   `json:"validity"`
+	Reason     string `json:"reason"`
 }
 
 // Jumio webhook - If Jumio verified user is a human that we haven't paid already, pay them some starter CLOUT.
@@ -848,10 +848,12 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 	userMetadata.MustCompleteTutorial = true
 	userMetadata.RedoJumio = false
 
+	// Decide whether or not the user is going to get paid.
 	if bitcloutNanos := fes.GetJumioBitCloutNanos(); bitcloutNanos > 0 || userMetadata.ReferralHashBase58Check != "" {
 		payReferrer := false
+
+		// Decide whether the user should be paid the standard amount or a special referral amount.
 		if userMetadata.ReferralHashBase58Check != "" {
-			// TODO: pay the referrer
 			var referralInfo *ReferralInfo
 			referralInfo, err = fes.getInfoForReferralHashBase58(userMetadata.ReferralHashBase58Check)
 			if err != nil {
@@ -868,6 +870,7 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			}
 		}
 
+		// Pay the referee.
 		if bitcloutNanos > 0 {
 			// Check the balance of the starter bitclout seed.
 			var balanceInsufficient bool
@@ -889,6 +892,7 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			userMetadata.JumioStarterBitCloutTxnHashHex = txnHash.String()
 		}
 
+		// Pay the referrer.
 		if userMetadata.ReferralHashBase58Check != "" && payReferrer {
 			// We get the referral info again from global state. It is possible that another referral has been given out
 			// and to make sure the stats are correct, we pull the latest referral info.
@@ -963,7 +967,7 @@ func (fes *APIServer) GetJumioBitCloutNanos() uint64 {
 }
 
 type GetJumioStatusForPublicKeyRequest struct {
-	JWT string
+	JWT                  string
 	PublicKeyBase58Check string
 }
 
@@ -972,7 +976,7 @@ type GetJumioStatusForPublicKeyResponse struct {
 	JumioReturned     bool
 	JumioVerified     bool
 
-	BalanceNanos      *uint64
+	BalanceNanos *uint64
 }
 
 func (fes *APIServer) GetJumioStatusForPublicKey(ww http.ResponseWriter, rr *http.Request) {
