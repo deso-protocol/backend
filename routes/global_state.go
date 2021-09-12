@@ -156,13 +156,47 @@ var (
 	// Tutorial featured up and coming creators
 	_GlobalStateKeyUpAndComingTutorialCreators = []byte{23}
 
+	// Referral program indexes.
+	// 	- <prefix, referral hash (8 bytes)> -> <ReferralInfo>
+	_GlobalStatePrefixReferralHashToReferralInfo = []byte{24}
+	// 	- <prefix, PKID, referral hash (8 bytes)> -> <IsActive bool>
+	_GlobalStatePrefixPKIDReferralHashToIsActive = []byte{25}
+
+	// - <prefx, PKID, referral hash (6-8 bytes), Referred PKID
+	_GlobalStatePrefixPKIDReferralHashRefereePKID = []byte{26}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
 
-	// NEXT_TAG: 22
+	// NEXT_TAG: 27
 )
+
+// A ReferralInfo struct holds all of the params and stats for a referral link/hash.
+type ReferralInfo struct {
+	ReferralHashBase58     string
+	ReferrerPKID           *lib.PKID
+	ReferrerAmountUSDCents uint64
+	RefereeAmountUSDCents  uint64
+	MaxReferrals           uint64 // If set to zero, there is no cap on referrals.
+	RequiresJumio          bool
+
+	// Stats
+	NumJumioAttempts           uint64
+	NumJumioSuccesses          uint64
+	TotalReferrals             uint64
+	TotalReferrerBitCloutNanos uint64
+	TotalRefereeBitCloutNanos  uint64
+	DateCreatedTStampNanos     uint64
+}
+
+type SimpleReferralInfo struct {
+	ReferralHashBase58     string
+	RefereeAmountUSDCents  uint64
+	MaxReferrals           uint64 // If set to zero, there is no cap on referrals.
+	TotalReferrals         uint64
+}
 
 type NFTDropEntry struct {
 	IsActive        bool
@@ -233,9 +267,9 @@ type UserMetadata struct {
 	// JumioFinishedTime = has user completed flow in Jumio
 	JumioFinishedTime uint64
 	// JumioVerified = user was verified from Jumio flow
-	JumioVerified    bool
+	JumioVerified bool
 	// JumioReturned = jumio webhook called
-	JumioReturned    bool
+	JumioReturned bool
 	// JumioTransactionID = jumio's tracking number for the transaction in which this user was verified.
 	JumioTransactionID string
 	// JumioDocumentKey = Country - Document Type - Document SubType - Document Number. Helps uniquely identify users
@@ -260,23 +294,29 @@ type UserMetadata struct {
 	// Note: a user should not be both featured as well known and up and coming
 	IsFeaturedTutorialUpAndComingCreator bool
 
-	TutorialStatus TutorialStatus
-	CreatorPurchasedInTutorialPKID *lib.PKID
+	TutorialStatus                  TutorialStatus
+	CreatorPurchasedInTutorialPKID  *lib.PKID
 	CreatorCoinsPurchasedInTutorial uint64
+
+	// ReferralHashBase58Check with which user signed up
+	ReferralHashBase58Check string
+
+	// Txn hash in which the referrer was paid
+	ReferrerBitCloutTxnHash string
 }
 
 type TutorialStatus string
 
 const (
-	EMPTY TutorialStatus = ""
-	STARTED TutorialStatus = "TutorialStarted"
-	SKIPPED TutorialStatus = "TutorialSkipped"
-	INVEST_OTHERS_BUY TutorialStatus = "InvestInOthersBuyComplete"
+	EMPTY              TutorialStatus = ""
+	STARTED            TutorialStatus = "TutorialStarted"
+	SKIPPED            TutorialStatus = "TutorialSkipped"
+	INVEST_OTHERS_BUY  TutorialStatus = "InvestInOthersBuyComplete"
 	INVEST_OTHERS_SELL TutorialStatus = "InvestInOthersSellComplete"
-	CREATE_PROFILE TutorialStatus = "TutorialCreateProfileComplete"
-	INVEST_SELF TutorialStatus = "InvestInYourselfComplete"
-	DIAMOND TutorialStatus = "GiveADiamondComplete"
-	COMPLETE TutorialStatus = "TutorialComplete"
+	CREATE_PROFILE     TutorialStatus = "TutorialCreateProfileComplete"
+	INVEST_SELF        TutorialStatus = "InvestInYourselfComplete"
+	DIAMOND            TutorialStatus = "GiveADiamondComplete"
+	COMPLETE           TutorialStatus = "TutorialComplete"
 )
 
 // This struct contains all the metadata associated with a user's phone number.
@@ -341,6 +381,36 @@ func globalStateKeyForPhoneNumberBytesToPhoneNumberMetadata(phoneNumberBytes []b
 func GlobalStateKeyForPublicKeyToUserMetadata(profilePubKey []byte) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixPublicKeyToUserMetadata...)
 	key := append(prefixCopy, profilePubKey[:]...)
+	return key
+}
+
+// Key for accessing the referral info for a specific referral hash.
+func GlobalStateKeyForReferralHashToReferralInfo(referralHashBytes []byte) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixReferralHashToReferralInfo...)
+	key := append(prefixCopy, referralHashBytes[:]...)
+	return key
+}
+
+// Key for getting a pub key's referral hashes and "IsActive" status.
+func GlobalStateKeyForPKIDReferralHashToIsActive(pkid *lib.PKID, referralHashBytes []byte) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDReferralHashToIsActive...)
+	key := append(prefixCopy, pkid[:]...)
+	key = append(key, referralHashBytes[:]...)
+	return key
+}
+
+// Key for seeking the DB for all referral hashes with a specific PKID.
+func GlobalStateSeekKeyForPKIDReferralHashes(pkid *lib.PKID) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDReferralHashToIsActive...)
+	key := append(prefixCopy, pkid[:]...)
+	return key
+}
+
+func GlobalStateKeyForPKIDReferralHashRefereePKID(pkid *lib.PKID, referralHash []byte, refereePKID *lib.PKID) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDReferralHashRefereePKID...)
+	key := append(prefixCopy, pkid[:]...)
+	key = append(key, referralHash[:]...)
+	key = append(key, refereePKID[:]...)
 	return key
 }
 

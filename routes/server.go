@@ -170,6 +170,18 @@ const (
 	// admin_jumio.go
 	RoutePathAdminResetJumioForPublicKey = "/api/v0/admin/reset-jumio-for-public-key"
 	RoutePathAdminUpdateJumioBitClout    = "/api/v0/admin/update-jumio-bitclout"
+	RoutePathAdminJumioCallback          = "/api/v0/admin/jumio-callback"
+
+	// admin_referrals.go
+	RoutePathAdminCreateReferralHash        = "/api/v0/admin/create-referral-hash"
+	RoutePathAdminGetAllReferralInfoForUser = "/api/v0/admin/get-all-referral-info-for-user"
+	RoutePathAdminUpdateReferralHash        = "/api/v0/admin/update-referral-hash"
+	RoutePathAdminUploadReferralCSV         = "/api/v0/admin/upload-referral-csv"
+	RoutePathAdminDownloadReferralCSV       = "/api/v0/admin/download-referral-csv"
+
+	// referrals.go
+	RoutePathGetReferralInfoForUser = "/api/v0/get-referral-info-for-user"
+	RoutePathGetReferralInfoForReferralHash = "/api/v0/get-referral-info-for-referral-hash"
 
 	// admin_tutorial.go
 	RoutePathAdminUpdateTutorialCreators = "/api/v0/admin/update-tutorial-creators"
@@ -221,9 +233,6 @@ type APIServer struct {
 	LastTradeBitCloutPriceHistory []LastTradePriceHistoryItem
 	// How far back do we consider trade prices when we set the current price of $CLOUT in nanoseconds
 	LastTradePriceLookback uint64
-
-	VerifiedUsernameMap map[string]*lib.PKID
-
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
 }
@@ -275,10 +284,7 @@ func NewAPIServer(
 		quit:                   make(chan struct{}),
 	}
 
-	fes.RefreshVerifiedUsernameToPKIDMap()
-
 	fes.StartSeedBalancesMonitoring()
-	fes.StartVerifiedUsernameRefresh()
 	// Call this once upon starting server to ensure we have a good initial value
 	fes.UpdateUSDCentsToBitCloutExchangeRate()
 	fes.StartExchangePriceMonitoring()
@@ -722,6 +728,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetJumioStatusForPublicKey,
 			PublicAccess,
 		},
+		{
+			"GetReferralInfoForUser",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetReferralInfoForUser,
+			fes.GetReferralInfoForUser,
+			PublicAccess,
+		},
+		{
+			"GetReferralInfoForReferralHash",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetReferralInfoForReferralHash,
+			fes.GetReferralInfoForReferralHash,
+			PublicAccess,
+		},
 		// Tutorial Routes
 		{
 			"GetTutorialCreators",
@@ -913,6 +933,48 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathSignTransactionWithDerivedKey,
 			fes.SignTransactionWithDerivedKey,
+			SuperAdminAccess,
+		},
+		{
+			"AdminJumioCallback",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminJumioCallback,
+			fes.AdminJumioCallback,
+			SuperAdminAccess,
+		},
+		{
+			"AdminCreateReferralHash",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminCreateReferralHash,
+			fes.AdminCreateReferralHash,
+			SuperAdminAccess,
+		},
+		{
+			"AdminGetAllReferralInfoForUser",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetAllReferralInfoForUser,
+			fes.AdminGetAllReferralInfoForUser,
+			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateReferralHash",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateReferralHash,
+			fes.AdminUpdateReferralHash,
+			SuperAdminAccess,
+		},
+		{
+			"AdminUploadReferralCSV",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUploadReferralCSV,
+			fes.AdminUploadReferralCSV,
+			SuperAdminAccess,
+		},
+		{
+			"AdminDownloadReferralCSV",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminDownloadReferralCSV,
+			fes.AdminDownloadReferralCSV,
 			SuperAdminAccess,
 		},
 		{
@@ -1383,21 +1445,6 @@ func (fes *APIServer) StartSeedBalancesMonitoring() {
 		}
 	}()
 }
-
-func (fes *APIServer) StartVerifiedUsernameRefresh() {
-	go func() {
-	out:
-		for {
-			select {
-			case <-time.After(5 * time.Second):
-				fes.RefreshVerifiedUsernameToPKIDMap()
-			case <-fes.quit:
-				break out
-			}
-		}
-	}()
-}
-
 
 func (fes *APIServer) logBalanceForSeed(seed string, seedName string, tags []string) {
 	if seed == "" {
