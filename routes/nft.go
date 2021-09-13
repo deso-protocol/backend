@@ -1442,6 +1442,13 @@ func (fes *APIServer) TransferNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Check the NFT owner is correct.
+	senderPKID := utxoView.GetPKIDForPublicKey(senderPublicKeyBytes)
+	if !reflect.DeepEqual(nftEntry.OwnerPKID, senderPKID.PKID) {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Sender must own the NFT being transferred."))
+		return
+	}
+
 	// Get the post so we can check if it needs an unlockable.
 	nftPostEntry := utxoView.GetPostEntryForPostHash(nftPostHash)
 	if nftPostEntry.HasUnlockable && requestData.EncryptedUnlockableText == "" {
@@ -1572,6 +1579,13 @@ func (fes *APIServer) AcceptNFTTransfer(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	// Check the NFT accepter is the owner of the NFT.
+	accepterPKID := utxoView.GetPKIDForPublicKey(updaterPublicKeyBytes)
+	if !reflect.DeepEqual(nftEntry.OwnerPKID, accepterPKID.PKID) {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: Accepter must own the NFT being accepted."))
+		return
+	}
+
 	// Try and create the accept NFT transfer txn for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateAcceptNFTTransferTxn(
 		updaterPublicKeyBytes,
@@ -1688,6 +1702,13 @@ func (fes *APIServer) BurnNFT(ww http.ResponseWriter, req *http.Request) {
 
 	} else if nftEntry.IsForSale {
 		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Cannot burn an NFT that is for sale."))
+		return
+	}
+
+	// Check the NFT burner is the owner of the NFT.
+	burnerPKID := utxoView.GetPKIDForPublicKey(updaterPublicKeyBytes)
+	if !reflect.DeepEqual(nftEntry.OwnerPKID, burnerPKID.PKID) {
+		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Burner must own the NFT being burned."))
 		return
 	}
 
