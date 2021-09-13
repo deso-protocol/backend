@@ -91,6 +91,9 @@ const (
 	RoutePathGetNextNFTShowcase       = "/api/v0/get-next-nft-showcase"
 	RoutePathGetNFTCollectionSummary  = "/api/v0/get-nft-collection-summary"
 	RoutePathGetNFTEntriesForPostHash = "/api/v0/get-nft-entries-for-nft-post"
+	RoutePathTransferNFT              = "/api/v0/transfer-nft"
+	RoutePathAcceptNFTTransfer        = "/api/v0/accept-nft-transfer"
+	RoutePathBurnNFT                  = "/api/v0/burn-nft"
 
 	// media.go
 	RoutePathUploadImage      = "/api/v0/upload-image"
@@ -477,6 +480,27 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathCreateNFT,
 			fes.CreateNFT,
+			PublicAccess,
+		},
+		{
+			"TransferNFT",
+			[]string{"POST", "OPTIONS"},
+			RoutePathTransferNFT,
+			fes.TransferNFT,
+			PublicAccess,
+		},
+		{
+			"AcceptNFTTransfer",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAcceptNFTTransfer,
+			fes.AcceptNFTTransfer,
+			PublicAccess,
+		},
+		{
+			"BurnNFT",
+			[]string{"POST", "OPTIONS"},
+			RoutePathBurnNFT,
+			fes.BurnNFT,
 			PublicAccess,
 		},
 		{
