@@ -283,6 +283,7 @@ func NewAPIServer(
 		// We consider last trade prices from the last hour when determining the current price of BitClout.
 		// This helps prevents attacks that attempt to purchase $CLOUT at below market value.
 		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
+		VerifiedUsernameMap:    make(map[string]*lib.PKID),
 		quit:                   make(chan struct{}),
 	}
 

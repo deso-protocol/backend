@@ -598,15 +598,10 @@ func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *h
 	fes.RefreshVerifiedUsernameToPKIDMap()
 
 	verifiedMapStruct := VerifiedUsernameToPKID{}
-	if fes.VerifiedUsernameMap != nil {
-		verifiedMapStruct.VerifiedUsernameToPKID = fes.VerifiedUsernameMap
-	} else {
-		verifiedMapStruct.VerifiedUsernameToPKID = make(map[string]*lib.PKID)
-	}
+	verifiedMapStruct.VerifiedUsernameToPKID = fes.VerifiedUsernameMap
 
 	// Add a new audit log record for this verification request.
-	err = fes.UpdateUsernameVerificationAuditLog(usernameToVerify, pkidEntryToVerify, false, requestData.AdminPublicKey, utxoView)
-	if err != nil {
+	if err = fes.UpdateUsernameVerificationAuditLog(usernameToVerify, pkidEntryToVerify, false, requestData.AdminPublicKey, utxoView); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGrantVerificationBadge: error updating audit log of username verification: %v", err))
 		return
 	}
@@ -624,7 +619,6 @@ func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *h
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGrantVerificationBadge: Failed to encode the verifiedMapStruct: %v", err))
 		return
 	}
-
 
 	if err = fes.GlobalStatePut(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes()); err != nil {
 		_AddBadRequestError(ww, "AdminGrantVerificationBadge: Failed placing new verification map into the database.")
