@@ -99,7 +99,7 @@ func (fes *APIServer) AdminResetTutorialStatus(ww http.ResponseWriter, req *http
 		return
 	}
 
-	if userMetadata.TutorialStatus != EMPTY || userMetadata.CreatorPurchasedInTutorialPKID != nil || userMetadata.CreatorCoinsPurchasedInTutorial != 0 {
+	if userMetadata.TutorialStatus != EMPTY || userMetadata.CreatorPurchasedInTutorialPKID != nil || userMetadata.CreatorCoinsPurchasedInTutorial != 0 || userMetadata.MustCompleteTutorial {
 		userMetadata.TutorialStatus = EMPTY
 		userMetadata.CreatorPurchasedInTutorialPKID = nil
 		userMetadata.CreatorCoinsPurchasedInTutorial = 0
