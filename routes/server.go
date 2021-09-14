@@ -287,7 +287,10 @@ func NewAPIServer(
 		quit:                   make(chan struct{}),
 	}
 
-	fes.RefreshVerifiedUsernameToPKIDMap()
+	if err := fes.RefreshVerifiedUsernameToPKIDMap(); err != nil {
+		// We swallow the error here
+		glog.Errorf("NewAPIServer: Unable to refresh the verified username map: %v", err)
+	}
 
 	fes.StartSeedBalancesMonitoring()
 	fes.StartVerifiedUsernameRefresh()
@@ -1370,7 +1373,9 @@ func (fes *APIServer) StartVerifiedUsernameRefresh() {
 		for {
 			select {
 			case <-time.After(5 * time.Second):
-				fes.RefreshVerifiedUsernameToPKIDMap()
+				if err := fes.RefreshVerifiedUsernameToPKIDMap(); err != nil {
+					glog.Errorf("StartVerifiedUsernameRefresh: Unable to refresh the verified username map: %v", err)
+				}
 			case <-fes.quit:
 				break out
 			}

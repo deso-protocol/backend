@@ -180,23 +180,22 @@ func (fes *APIServer) GetBalanceForPublicKey(publicKeyBytes []byte) (
 // If the map does not already exist, this function will create one in global state.
 // Does not set the VerifiedUsernameMap if it encounters an error. Returning nil is not dangerous, as
 // _profileEntryToResponse() will ignore the map entirely in that case.
-func (fes *APIServer) RefreshVerifiedUsernameToPKIDMap() {
+func (fes *APIServer) RefreshVerifiedUsernameToPKIDMap() error {
 	// Pull the verified map from global state.
 	verifiedMapBytes, err := fes.GlobalStateGet(_GlobalStatePrefixForVerifiedMap)
 	if err != nil {
-		glog.Errorf("RefreshVerifiedUsernameToPKIDMap: Cannot Decode Verification Map: %v", err)
-		return
+		return fmt.Errorf("RefreshVerifiedUsernameToPKIDMap: Cannot Decode Verification Map: %v", err)
 	}
 	verifiedMapStruct := VerifiedUsernameToPKID{}
 
 	// Check if a map exists right now
 	if len(verifiedMapBytes) > 0 {
 		if err = gob.NewDecoder(bytes.NewReader(verifiedMapBytes)).Decode(&verifiedMapStruct); err != nil {
-			glog.Errorf("RefreshVerifiedUsernameToPKIDMap: Cannot Decode Verification Map: %v", err)
-			return
+			return fmt.Errorf("RefreshVerifiedUsernameToPKIDMap: Cannot Decode Verification Map: %v", err)
 		}
 		fes.VerifiedUsernameMap = verifiedMapStruct.VerifiedUsernameToPKID
 	}
+	return nil
 }
 
 // TODO: We may want to move this into getUserMetadataFromGlobalState and change

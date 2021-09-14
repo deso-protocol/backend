@@ -595,7 +595,10 @@ func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *h
 	}
 
 	// Force a refresh before we grant a new badge to ensure we have the latest verified username map
-	fes.RefreshVerifiedUsernameToPKIDMap()
+	if err = fes.RefreshVerifiedUsernameToPKIDMap(); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGrantVerificationBadge: Unable to refresh the verified username map before adding new verification badge: %v", err))
+		return
+	}
 
 	verifiedMapStruct := VerifiedUsernameToPKID{}
 	verifiedMapStruct.VerifiedUsernameToPKID = fes.VerifiedUsernameMap
@@ -690,7 +693,11 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 	}
 
 	// Force a refresh before we grant a new badge to ensure we have the latest verified username map
-	fes.RefreshVerifiedUsernameToPKIDMap()
+	// Force a refresh before we grant a new badge to ensure we have the latest verified username map
+	if err = fes.RefreshVerifiedUsernameToPKIDMap(); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Unable to refresh the verified username map before removing verification badge: %v", err))
+		return
+	}
 
 	if fes.VerifiedUsernameMap == nil || len(fes.VerifiedUsernameMap) == 0 {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Verified Username map is empty or nil"))
