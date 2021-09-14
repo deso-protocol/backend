@@ -89,6 +89,7 @@ type PostEntryResponse struct {
 	IsNFT                          bool
 	NumNFTCopies                   uint64
 	NumNFTCopiesForSale            uint64
+	NumNFTCopiesBurned             uint64
 	HasUnlockable                  bool
 	NFTRoyaltyToCreatorBasisPoints uint64
 	NFTRoyaltyToCoinBasisPoints    uint64
@@ -209,6 +210,7 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 		IsNFT:                          postEntry.IsNFT,
 		NumNFTCopies:                   postEntry.NumNFTCopies,
 		NumNFTCopiesForSale:            postEntry.NumNFTCopiesForSale,
+		NumNFTCopiesBurned:             postEntry.NumNFTCopiesBurned,
 		HasUnlockable:                  postEntry.HasUnlockable,
 		NFTRoyaltyToCreatorBasisPoints: postEntry.NFTRoyaltyToCreatorBasisPoints,
 		NFTRoyaltyToCoinBasisPoints:    postEntry.NFTRoyaltyToCoinBasisPoints,
@@ -1087,7 +1089,6 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		}
 		// Build the parent entry response and append.
 		parentEntryResponse, err := fes._postEntryToResponse(parentEntry, requestData.AddGlobalFeedBool /*AddGlobalFeed*/, utxoView, readerPublicKeyBytes, 2)
-
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error creating parentEntryResponse: %v", err))
 			return

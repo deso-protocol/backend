@@ -169,6 +169,7 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 		return errors.Errorf("Problem obtaining post entry response: %v", err)
 	}
 
+	// attach a ProfileEntry to the PostEntryResponse
 	profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
 	postEntryResponse.ProfileEntryResponse = fes._profileEntryToResponse(profileEntry, utxoView)
 

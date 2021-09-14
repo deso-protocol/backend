@@ -852,7 +852,7 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 	if verifiedUsernameMap != nil && utxoView != nil {
 		pkidEntry := utxoView.GetPKIDForPublicKey(profileEntry.PublicKey)
 		verifiedUsernamePKID := verifiedUsernameMap[strings.ToLower(string(profileEntry.Username))]
-		if verifiedUsernamePKID != nil {
+		if verifiedUsernamePKID != nil && reflect.DeepEqual(verifiedUsernamePKID, verifiedUsernamePKID) {
 			// TODO: Delete the "isVerified" or statement once we kell reserved_usernames.go.
 			isVerified = (*verifiedUsernamePKID == *pkidEntry.PKID) || isVerified
 		}
@@ -897,7 +897,8 @@ func (fes *APIServer) augmentProfileEntry(
 		// Attach reader state to each post.
 		profilePostRes.PostEntryReaderState = postEntryReaderStates[*profilePostEntry.PostHash]
 
-		profilePostRes.ProfileEntryResponse = profileEntryResponse
+		profileEntryFound := profileEntriesByPublicKey[lib.MakePkMapKey(profilePostEntry.PosterPublicKey)]
+		profilePostRes.ProfileEntryResponse = fes._profileEntryToResponse(profileEntryFound, utxoView)
 		if profilePostRes.IsHidden {
 			// Don't show posts that this user has chosen to hide.
 			continue

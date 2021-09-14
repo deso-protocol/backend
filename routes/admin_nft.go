@@ -81,6 +81,7 @@ func (fes *APIServer) GetPostsForNFTDropEntry(dropEntryToReturn *NFTDropEntry,
 	for _, postHash := range dropEntryToReturn.NFTHashes {
 		postEntry := utxoView.GetPostEntryForPostHash(postHash)
 		postEntryResponse, err := fes._postEntryToResponse(postEntry, false, utxoView, nil, 2)
+
 		if err != nil {
 			return nil, fmt.Errorf(
 				"AdminGetPostsForNFTDropEntry: Error building postEntryResponse: %v, %s", err, postHash.String())
