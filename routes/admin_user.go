@@ -594,6 +594,7 @@ func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *h
 		return
 	}
 
+	// Force a refresh before we grant a new badge to ensure we have the latest verified username map
 	fes.RefreshVerifiedUsernameToPKIDMap()
 
 	verifiedMapStruct := VerifiedUsernameToPKID{}
@@ -619,12 +620,18 @@ func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *h
 
 	// Encode the updated entry and stick it in the database.
 	metadataDataBuf := bytes.NewBuffer([]byte{})
-	gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct)
-	err = fes.GlobalStatePut(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
-	if err != nil {
+	if err = gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGrantVerificationBadge: Failed to encode the verifiedMapStruct: %v", err))
+		return
+	}
+
+
+	if err = fes.GlobalStatePut(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes()); err != nil {
 		_AddBadRequestError(ww, "AdminGrantVerificationBadge: Failed placing new verification map into the database.")
 		return
 	}
+	// Update the cached VerifiedUsernameMap to match what is currently in global state
+	fes.VerifiedUsernameMap = verifiedMapStruct.VerifiedUsernameToPKID
 
 	// Return a success message
 	res := AdminGrantVerificationBadgeResponse{
@@ -643,7 +650,7 @@ type AdminRemoveVerificationBadgeRequest struct {
 	AdminPublicKey                      string
 }
 
-// AdminGrantVerificationBadgeResponse ...
+// AdminRemoveVerificationBadgeResponse ...
 type AdminRemoveVerificationBadgeResponse struct {
 	Message string
 }
@@ -688,35 +695,19 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 		return
 	}
 
-	// Pull the verified map from global state
-	verifiedMapBytes, err := fes.GlobalStateGet(_GlobalStatePrefixForVerifiedMap)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Failed fetching verified map from database."))
-		return
-	}
-	verifiedMapStruct := VerifiedUsernameToPKID{}
-	if verifiedMapBytes != nil {
-		err = gob.NewDecoder(bytes.NewReader(verifiedMapBytes)).Decode(&verifiedMapStruct)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Failed decoding verified map from database."))
-			return
-		}
-	} else {
-		// If we don't find a map in global state, return early.
-		res := AdminRemoveVerificationBadgeResponse{
-			Message: "Couldn't find a verified username map in global state.  Nothing to delete.",
-		}
-		if err := json.NewEncoder(ww).Encode(res); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Problem encoding response as "+
-				"JSON: %v", err))
-			return
-		}
+	// Force a refresh before we grant a new badge to ensure we have the latest verified username map
+	fes.RefreshVerifiedUsernameToPKIDMap()
+
+	if fes.VerifiedUsernameMap == nil || len(fes.VerifiedUsernameMap) == 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Verified Username map is empty or nil"))
 		return
 	}
 
+	verifiedMapStruct := VerifiedUsernameToPKID{}
+	verifiedMapStruct.VerifiedUsernameToPKID = fes.VerifiedUsernameMap
+
 	// Add a new audit log for this verification removal request.
-	err = fes.UpdateUsernameVerificationAuditLog(usernameToRemove, pkidEntryToUnverify, true, requestData.AdminPublicKey, utxoView)
-	if err != nil {
+	if err = fes.UpdateUsernameVerificationAuditLog(usernameToRemove, pkidEntryToUnverify, true, requestData.AdminPublicKey, utxoView); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: error updating audit log of username verification: %v", err))
 		return
 	}
@@ -726,18 +717,22 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 
 	// Encode the updated entry and stick it in the database.
 	metadataDataBuf := bytes.NewBuffer([]byte{})
-	gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct)
-	err = fes.GlobalStatePut(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
-	if err != nil {
+	if err = gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct); err != nil {
+		_AddBadRequestError(ww, "AdminRemoveVerifiedBadge: Failed to encode VerifiedMapStruct")
+		return
+	}
+	if err = fes.GlobalStatePut(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes()); err != nil {
 		_AddBadRequestError(ww, "AdminRemoveVerificationBadge: Failed placing new verification map into the database.")
 		return
 	}
+	// Update the cached VerifiedUsernameMap to match what is currently in global state
+	fes.VerifiedUsernameMap = verifiedMapStruct.VerifiedUsernameToPKID
 
 	// Return a success message
 	res := AdminRemoveVerificationBadgeResponse{
 		Message: "Successfully removed verification badge for: " + usernameToRemove,
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Problem encoding response as JSON: %v", err))
 		return
 	}
