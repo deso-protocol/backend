@@ -320,10 +320,9 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		profilePublicKey = profilePublicKeyBytess
 	}
 
-	if len(requestData.NewUsername) > 0 && (strings.Index(requestData.NewUsername, "BC") == 0 ||
-		strings.Index(requestData.NewUsername, "tBC") == 0) {
+	if len(requestData.NewUsername) > 0 && strings.Index(requestData.NewUsername, fes.PublicKeyBase58Prefix) == 0 {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"UpdateProfile: Username cannot start with BC or tBC"))
+			"UpdateProfile: Username cannot start with %s", fes.PublicKeyBase58Prefix))
 		return
 	}
 
@@ -907,8 +906,7 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 	// a public key. Otherwise we interpret it as a username and try to look up
 	// the corresponding profile.
 	var recipientPkBytes []byte
-	if strings.Index(requestData.RecipientPublicKeyOrUsername, "BC") == 0 ||
-		strings.Index(requestData.RecipientPublicKeyOrUsername, "tBC") == 0 {
+	if strings.Index(requestData.RecipientPublicKeyOrUsername, fes.PublicKeyBase58Prefix) == 0 {
 
 		// Decode the recipient's public key.
 		var err error
@@ -1189,8 +1187,7 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 					requestData.ParentStakeID, err))
 				return
 			}
-		} else if strings.Index(requestData.ParentStakeID, "BC") == 0 ||
-			strings.Index(requestData.ParentStakeID, "tBC") == 0 {
+		} else if strings.Index(requestData.ParentStakeID, fes.PublicKeyBase58Prefix) == 0 {
 
 			parentStakeID, _, err = lib.Base58CheckDecode(requestData.ParentStakeID)
 			if err != nil || len(parentStakeID) != btcec.PubKeyBytesLenCompressed {
