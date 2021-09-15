@@ -1371,13 +1371,14 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 
 func (fes *APIServer) cleanBody(bodyObj *lib.BitCloutBodySchema, isReclout bool) ([]byte, error) {
 	// Sanitize the Body field on the body object, which should exist.
-	if bodyObj.Body == "" && len(bodyObj.ImageURLs) == 0 && !isReclout {
+	if bodyObj.Body == "" && len(bodyObj.ImageURLs) == 0 && len(bodyObj.VideoURLs) == 0 && !isReclout {
 		return nil, fmt.Errorf("SubmitPost: Body or Image is required if not reclouting.")
 	}
 
 	bitcloutBodySchema := &lib.BitCloutBodySchema{
 		Body:      bodyObj.Body,
 		ImageURLs: bodyObj.ImageURLs,
+		VideoURLs: bodyObj.VideoURLs,
 	}
 	// Serialize the body object to JSON.
 	bodyBytes, err := json.Marshal(bitcloutBodySchema)

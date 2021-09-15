@@ -65,6 +65,10 @@ type Config struct {
 	// Jumio
 	JumioToken             string
 	JumioSecret            string
+
+	// Video Upload
+	CloudflareStreamToken  string
+	CloudflareAccountId    string
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -142,6 +146,10 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	// Jumio
 	config.JumioToken = viper.GetString("jumio-token")
 	config.JumioSecret = viper.GetString("jumio-secret")
+
+	// Video Upload
+	config.CloudflareStreamToken = viper.GetString("cloudflare-stream-token")
+	config.CloudflareAccountId = viper.GetString("cloudflare-account-id")
 
 	return &config
 }

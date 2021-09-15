@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/gorilla/mux"
 	"io"
 	"net/http"
 	"strings"
@@ -298,22 +299,26 @@ func (fes *APIServer) GetFullTikTokURL(ww http.ResponseWriter, req *http.Request
 }
 
 func (fes *APIServer) UploadVideo(ww http.ResponseWriter, req *http.Request) {
-	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%v/stream?direct_user=true", "0b05395b43320b1c064aed00e907965d")
+	if fes.Config.CloudflareStreamToken == "" || fes.Config.CloudflareAccountId == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: This node is not configured to support video uploads"))
+		return
+	}
+	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%v/stream?direct_user=true", fes.Config.CloudflareAccountId)
 	client := &http.Client{}
 
 	request, err := http.NewRequest("POST", url, nil)
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %v", "n2MZa5EE3Fl7uUAm2JACVftg0nmuHMLSlbRKQszm"))
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %v", fes.Config.CloudflareStreamToken))
 	request.Header.Add("Tus-Resumable", "1.0.0")
 	request.Header.Add("Upload-Length", req.Header.Get("Upload-Length"))
 	request.Header.Add("Upload-Metadata", req.Header.Get("Upload-Metadata"))
 	resp, err := client.Do(request)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetVideoUploadURL: error performing POST request: %v", err))
+			"UploadVideo: error performing POST request: %v", err))
 		return
 	}
 	if resp.StatusCode != 201 {
-		_AddBadRequestError(ww, fmt.Sprintf("GetVideoUploadURL: GET request did not return 201 status code but instead a status code of %v", resp.StatusCode))
+		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: POST request did not return 201 status code but instead a status code of %v", resp.StatusCode))
 		return
 	}
 	ww.Header().Add("Access-Control-Expose-Headers", "Location, Stream-Media-Id")
@@ -325,4 +330,60 @@ func (fes *APIServer) UploadVideo(ww http.ResponseWriter, req *http.Request) {
 		ww.Header().Set("Access-Control-Allow-Headers", "*")
 	}
 	ww.WriteHeader(200)
+}
+
+type CFVideoDetailsResponse struct {
+	Result map[string]interface{} `json:"result"`
+	Success bool `json:"success"`
+	Errors []interface{} `json:"errors"`
+	Messages []interface{} `json:"messages"`
+}
+
+type GetVideoStatusResponse struct {
+	ReadyToStream bool
+}
+
+func (fes *APIServer) GetVideoStatus(ww http.ResponseWriter, req *http.Request) {
+	if fes.Config.CloudflareStreamToken == "" || fes.Config.CloudflareAccountId == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: This node is not configured to support video uploads"))
+		return
+	}
+	vars := mux.Vars(req)
+	videoId, videoIdExists := vars["videoId"]
+	if !videoIdExists {
+		_AddBadRequestError(ww, fmt.Sprintf("GetVideoStatus: Missing videoId"))
+		return
+	}
+	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%v/stream/%v", fes.Config.CloudflareAccountId, videoId)
+	client := &http.Client{}
+	request, err := http.NewRequest("GET", url, nil)
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %v", fes.Config.CloudflareStreamToken))
+	request.Header.Add("Content-Type", "application/json")
+	resp, err := client.Do(request)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetVideoStatus: error performing GET request: %v", err))
+		return
+	}
+	if resp.StatusCode != 200 {
+		_AddBadRequestError(ww, fmt.Sprintf("GetVideoStatus: GET request did not return 200 status code but instead a status code of %v", resp.StatusCode))
+		return
+	}
+	cfVideoDetailsResponse := &CFVideoDetailsResponse{}
+	if err = json.NewDecoder(resp.Body).Decode(&cfVideoDetailsResponse); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetVideoStatus: failed decoding body: %v", err))
+		return
+	}
+	if err = resp.Body.Close(); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetVideoStatus: failed closing body: %v", err))
+		return
+	}
+	isReady, _ := cfVideoDetailsResponse.Result["readyToStream"]
+	res := &GetVideoStatusResponse{
+		ReadyToStream: isReady.(bool),
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetVideoStatus: Problem serializing object to JSON: %v", err))
+		return
+	}
 }

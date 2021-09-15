@@ -58,6 +58,7 @@ type PostEntryResponse struct {
 	ParentStakeID              string
 	Body                       string
 	ImageURLs                  []string
+	VideoURLs                  []string
 	RecloutedPostEntryResponse *PostEntryResponse
 	CreatorBasisPoints         uint64
 	StakeMultipleBasisPoints   uint64
@@ -194,6 +195,7 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 		ParentStakeID:                  stakeIDStr,
 		Body:                           bodyJSONObj.Body,
 		ImageURLs:                      bodyJSONObj.ImageURLs,
+		VideoURLs:                      bodyJSONObj.VideoURLs,
 		RecloutedPostEntryResponse:     recloutPostEntryResponse,
 		CreatorBasisPoints:             postEntry.CreatorBasisPoints,
 		StakeMultipleBasisPoints:       postEntry.StakeMultipleBasisPoints,

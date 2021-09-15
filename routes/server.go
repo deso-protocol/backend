@@ -96,6 +96,7 @@ const (
 	RoutePathUploadImage      = "/api/v0/upload-image"
 	RoutePathGetFullTikTokURL = "/api/v0/get-full-tiktok-url"
 	RoutePathUploadVideo      = "/api/v0/upload-video"
+	RoutePathGetVideoStatus   = "/api/v0/get-video-status"
 
 	// message.go
 	RoutePathSendMessageStateless    = "/api/v0/send-message-stateless"
@@ -1004,7 +1005,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.UploadVideo,
 			PublicAccess,
 		},
-
+		{
+			"GetVideoStatus",
+			[]string{"GET"},
+			RoutePathGetVideoStatus + "/{videoId:[0-9a-z]{25,35}}",
+			fes.GetVideoStatus,
+			PublicAccess,
+		},
 		// Paths for wyre
 		{
 			"GetWyreWalletOrderQuotation",
