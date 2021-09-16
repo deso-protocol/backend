@@ -8,7 +8,6 @@ import (
 	"github.com/bitclout/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"
-	"github.com/golang/glog"
 	"io"
 	"io/ioutil"
 	"math/big"
@@ -219,6 +218,13 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Record pending transaction in global state
+	globalStateKey := GlobalStateKeyETHPurchases(requestData.Tx.Hash)
+	if err = fes.GlobalStatePut(globalStateKey, []byte{0}); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error processing GlobalStatePut: %v", err))
+		return
+	}
+
 	// Submit the transaction
 	submitTx, err := fes.BlockCypherSubmitETHTx(requestData.Tx, requestData.ToSign, []string{normalizedSig})
 	if err != nil {
@@ -226,16 +232,28 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Wait a few seconds to check for a double spend
-	time.Sleep(time.Duration(fes.Params.BitcoinDoubleSpendWaitSeconds) * time.Second)
-	ethTx, err := fes.BlockCypherGetETHTx(submitTx.Tx.Hash)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to get ETH transaction: %v", err))
-		return
+	// Wait up to 10 minutes
+	// TODO: Long running requests are bad. Replace this with polling (or websockets etc)
+	var ethTx *BlockCypherTx
+	for i := 0; i < 60; i++ {
+		// Check if the transaction was mined every 10 seconds
+		time.Sleep(10 * time.Second)
+
+		ethTx, err = fes.BlockCypherGetETHTx(submitTx.Tx.Hash)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to get ETH transaction: %v", err))
+			return
+		}
+
+		// A block height means the transaction mined
+		if ethTx.BlockHeight > 0 {
+			break
+		}
 	}
 
-	if ethTx.DoubleSpend {
-		_AddBadRequestError(ww, "SubmitETHTx: Double spend detected")
+	// Ensure the transaction mined
+	if ethTx.BlockHeight < 0 {
+		_AddBadRequestError(ww, "SubmitETHTx: Transaction failed to mine")
 		return
 	}
 
@@ -256,6 +274,12 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 	bitcloutTxnHash, err := fes.SendSeedBitClout(pkBytes, nanosPurchased, true)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error sending BitClout: %v", err))
+		return
+	}
+
+	// Record transaction success in global state
+	if err = fes.GlobalStatePut(globalStateKey, []byte{1}); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error processing GlobalStatePut: %v", err))
 		return
 	}
 

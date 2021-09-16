@@ -156,12 +156,15 @@ var (
 	// Tutorial featured up and coming creators
 	_GlobalStateKeyUpAndComingTutorialCreators = []byte{23}
 
+	// ETH purchases
+	_GlobalStateKeyETHPurchases = []byte{24}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
 
-	// NEXT_TAG: 22
+	// NEXT_TAG: 25
 )
 
 type NFTDropEntry struct {
@@ -233,9 +236,9 @@ type UserMetadata struct {
 	// JumioFinishedTime = has user completed flow in Jumio
 	JumioFinishedTime uint64
 	// JumioVerified = user was verified from Jumio flow
-	JumioVerified    bool
+	JumioVerified bool
 	// JumioReturned = jumio webhook called
-	JumioReturned    bool
+	JumioReturned bool
 	// JumioTransactionID = jumio's tracking number for the transaction in which this user was verified.
 	JumioTransactionID string
 	// JumioDocumentKey = Country - Document Type - Document SubType - Document Number. Helps uniquely identify users
@@ -260,23 +263,23 @@ type UserMetadata struct {
 	// Note: a user should not be both featured as well known and up and coming
 	IsFeaturedTutorialUpAndComingCreator bool
 
-	TutorialStatus TutorialStatus
-	CreatorPurchasedInTutorialPKID *lib.PKID
+	TutorialStatus                  TutorialStatus
+	CreatorPurchasedInTutorialPKID  *lib.PKID
 	CreatorCoinsPurchasedInTutorial uint64
 }
 
 type TutorialStatus string
 
 const (
-	EMPTY TutorialStatus = ""
-	STARTED TutorialStatus = "TutorialStarted"
-	SKIPPED TutorialStatus = "TutorialSkipped"
-	INVEST_OTHERS_BUY TutorialStatus = "InvestInOthersBuyComplete"
+	EMPTY              TutorialStatus = ""
+	STARTED            TutorialStatus = "TutorialStarted"
+	SKIPPED            TutorialStatus = "TutorialSkipped"
+	INVEST_OTHERS_BUY  TutorialStatus = "InvestInOthersBuyComplete"
 	INVEST_OTHERS_SELL TutorialStatus = "InvestInOthersSellComplete"
-	CREATE_PROFILE TutorialStatus = "TutorialCreateProfileComplete"
-	INVEST_SELF TutorialStatus = "InvestInYourselfComplete"
-	DIAMOND TutorialStatus = "GiveADiamondComplete"
-	COMPLETE TutorialStatus = "TutorialComplete"
+	CREATE_PROFILE     TutorialStatus = "TutorialCreateProfileComplete"
+	INVEST_SELF        TutorialStatus = "InvestInYourselfComplete"
+	DIAMOND            TutorialStatus = "GiveADiamondComplete"
+	COMPLETE           TutorialStatus = "TutorialComplete"
 )
 
 // This struct contains all the metadata associated with a user's phone number.
@@ -478,6 +481,12 @@ func GlobalStateKeyWellKnownTutorialCreators(pkid *lib.PKID) []byte {
 func GlobalStateKeyUpAndComingTutorialCreators(pkid *lib.PKID) []byte {
 	prefixCopy := append([]byte{}, _GlobalStateKeyUpAndComingTutorialCreators...)
 	key := append(prefixCopy, pkid[:]...)
+	return key
+}
+
+func GlobalStateKeyETHPurchases(txnHash string) []byte {
+	prefixCopy := append([]byte{}, _GlobalStateKeyETHPurchases...)
+	key := append(prefixCopy, txnHash[:]...)
 	return key
 }
 
