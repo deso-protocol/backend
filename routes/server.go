@@ -233,6 +233,10 @@ type APIServer struct {
 	LastTradeBitCloutPriceHistory []LastTradePriceHistoryItem
 	// How far back do we consider trade prices when we set the current price of $CLOUT in nanoseconds
 	LastTradePriceLookback uint64
+
+	// Base-58 prefix to check for to determine if a string could be a public key.
+	PublicKeyBase58Prefix string
+
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
 }
@@ -262,6 +266,8 @@ func NewAPIServer(
 			"NewAPIServer: Error: A globalStateDB or a globalStateRemoteNode is required")
 	}
 
+	publicKeyBase58Prefix := lib.Base58CheckEncode(make([]byte, btcec.PubKeyBytesLenCompressed), false, params)[0:3]
+
 	fes := &APIServer{
 		// TODO: It would be great if we could eliminate the dependency on
 		// the backendServer. Right now it's here because it was the easiest
@@ -278,6 +284,7 @@ func NewAPIServer(
 		Twilio:                        twilio,
 		BlockCypherAPIKey:             blockCypherAPIKey,
 		LastTradeBitCloutPriceHistory: []LastTradePriceHistoryItem{},
+		PublicKeyBase58Prefix:         publicKeyBase58Prefix,
 		// We consider last trade prices from the last hour when determining the current price of BitClout.
 		// This helps prevents attacks that attempt to purchase $CLOUT at below market value.
 		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
