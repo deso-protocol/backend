@@ -8,7 +8,6 @@ import (
 	"github.com/bitclout/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"
-	"github.com/golang/glog"
 	"io"
 	"io/ioutil"
 	"math/big"
@@ -248,16 +247,8 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 
 	// Calculate nanos purchased
 	totalWei := big.NewFloat(0).SetInt(ethTx.Total)
-	totalFees := big.NewFloat(0).SetInt(ethTx.Fees)
-	totalMinusFees := big.NewFloat(0).Sub(totalWei, totalFees)
-	totalEth := big.NewFloat(0).Quo(totalMinusFees, big.NewFloat(1e18))
+	totalEth := big.NewFloat(0).Quo(totalWei, big.NewFloat(1e18))
 	nanosPurchased := fes.GetNanosFromETH(totalEth, feeBasisPoints)
-
-	glog.Info(totalWei)
-	glog.Info(totalFees)
-	glog.Info(totalMinusFees)
-	glog.Info(totalEth)
-	glog.Info(nanosPurchased)
 
 	bitcloutTxnHash, err := fes.SendSeedBitClout(pkBytes, nanosPurchased, true)
 	if err != nil {
