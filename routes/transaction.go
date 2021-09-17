@@ -844,6 +844,11 @@ func (fes *APIServer) GetNanosFromETH(eth *big.Float, feeBasisPoints uint64) uin
 	usdCentsPerETH := big.NewFloat(float64(fes.UsdCentsPerETHExchangeRate))
 	usdCentsETH := big.NewFloat(0).Mul(eth, usdCentsPerETH)
 	usdCentsFloat, _ := usdCentsETH.Float64()
+
+	glog.Info(usdCentsPerETH)
+	glog.Info(usdCentsETH)
+	glog.Info(usdCentsFloat)
+
 	return fes.GetNanosFromUSDCents(usdCentsFloat, feeBasisPoints)
 }
 
