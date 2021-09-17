@@ -51,7 +51,7 @@ func (fes *APIServer) GetETHBalance(ww http.ResponseWriter, req *http.Request) {
 	// The only way to determine the fee BlockCypher wants to use is to create a useless transaction
 	// and extract the gas price. We care about no fee data (errors are ok because zero balance addresses can't
 	// create transactions).
-	fees, _ := fes.BlockCypherCreateETHTx(requestData.Address, big.NewInt(0))
+	fees, err := fes.BlockCypherCreateETHTx(requestData.Address, big.NewInt(0))
 	if fees == nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetETHFees: Failed to create fee transaction: %v", err))
 		return
@@ -90,7 +90,15 @@ func (fes *APIServer) CreateETHTx(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	ethTx, err := fes.BlockCypherCreateETHTx(requestData.Address, requestData.Amount)
+	// See GetETHBalance for fees explanation
+	fees, err := fes.BlockCypherCreateETHTx(requestData.Address, big.NewInt(0))
+	if fees == nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetETHFees: Failed to create fee transaction: %v", err))
+		return
+	}
+
+	amountMinusFees := big.NewInt(0).Sub(requestData.Amount, fees.Tx.Fees)
+	ethTx, err := fes.BlockCypherCreateETHTx(requestData.Address, amountMinusFees)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateETHTx: Failed to create ETH transaction: %v", err))
 		return
