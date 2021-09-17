@@ -117,7 +117,6 @@ const (
 	RoutePathStartOrSkipTutorial = "/api/v0/start-or-skip-tutorial"
 
 	// eth.go
-	RoutePathGetETHFees    = "/api/v0/get-eth-fees"
 	RoutePathGetETHBalance = "/api/v0/get-eth-balance"
 	RoutePathCreateETHTx   = "/api/v0/create-eth-tx"
 	RoutePathSubmitETHTx   = "/api/v0/submit-eth-tx"
@@ -715,13 +714,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		},
 
 		// ETH Routes
-		{
-			"GetETHFees",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetETHFees,
-			fes.GetETHFees,
-			PublicAccess,
-		},
 		{
 			"GetETHBalance",
 			[]string{"POST", "OPTIONS"},

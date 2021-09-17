@@ -20,50 +20,13 @@ func (fes *APIServer) IsConfiguredForETH() bool {
 	return fes.Config.BuyBitCloutETHAddress != "" && fes.BlockCypherAPIKey != ""
 }
 
-type GetETHFeesRequest struct {
-}
-
-type GetETHFeesResponse struct {
-	FeeEstimate *big.Int
-}
-
-func (fes *APIServer) GetETHFees(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := GetETHFeesRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetETHFees: Problem parsing request body: %v", err))
-		return
-	}
-
-	if !fes.IsConfiguredForETH() {
-		_AddBadRequestError(ww, "GetETHFees: Not configured for ETH")
-		return
-	}
-
-	blockchain, err := fes.BlockCypherBlockchain()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetETHBalance: Failed to get ETH balance: %v", err))
-		return
-	}
-
-	// BlockCypher sets gasLimit for ETH transfers to 21,000. Use the medium gas price.
-	feeEstimate := big.NewInt(0).Mul(blockchain.MediumGasPrice, big.NewInt(21000))
-
-	res := GetETHFeesResponse{
-		FeeEstimate: feeEstimate,
-	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetETHFees: Problem encoding response: %v", err))
-		return
-	}
-}
-
 type GetETHBalanceRequest struct {
 	Address string
 }
 
 type GetETHBalanceResponse struct {
 	Balance *big.Int
+	Fees    *big.Int
 }
 
 func (fes *APIServer) GetETHBalance(ww http.ResponseWriter, req *http.Request) {
@@ -85,8 +48,18 @@ func (fes *APIServer) GetETHBalance(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// The only way to determine the fee BlockCypher wants to use is to create a useless transaction
+	// and extract the gas price. We care about no fee data (errors are ok because zero balance addresses can't
+	// create transactions).
+	fees, _ := fes.BlockCypherCreateETHTx(requestData.Address, big.NewInt(0))
+	if fees == nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetETHFees: Failed to create fee transaction: %v", err))
+		return
+	}
+
 	res := GetETHBalanceResponse{
 		Balance: balance.FinalBalance,
+		Fees:    fees.Tx.Fees,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetETHBalance: Problem encoding response: %v", err))
@@ -374,18 +347,17 @@ func (fes *APIServer) BlockCypherCreateETHTx(ethAddress string, amount *big.Int)
 	}
 	defer resp.Body.Close()
 
-	// API returns a 201 for Created
-	if resp.StatusCode != 201 {
-		body, _ := ioutil.ReadAll(resp.Body)
-		return nil, fmt.Errorf("BlockCypherCreateETHTx: Error code returned from BlockCypher: %v %v", resp.StatusCode, string(body))
-	}
-
 	// Decode the response into the appropriate struct.
 	body, _ := ioutil.ReadAll(resp.Body)
 	responseData := &BlockCypherCreateETHTxResponse{}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	if err := decoder.Decode(responseData); err != nil {
 		return nil, fmt.Errorf("BlockCypherCreateETHTx: Problem decoding response JSON: %v, response: %v, error: %v", responseData, resp, err)
+	}
+
+	// API returns a 201 for Created
+	if resp.StatusCode != 201 {
+		return responseData, fmt.Errorf("BlockCypherCreateETHTx: Error code returned from BlockCypher: %v %v", resp.StatusCode, string(body))
 	}
 
 	return responseData, nil
