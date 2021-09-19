@@ -8,6 +8,7 @@ import (
 	"github.com/bitclout/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"
+	"github.com/golang/glog"
 	"io"
 	"io/ioutil"
 	"math/big"
@@ -212,6 +213,15 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// TEMP: Re-broadcast via etherscan to ensure the transaction propagates to the network
+	txHex, err := fes.BlockCypherGetETHTx(submitTx.Tx.Hash)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to fetch ETH transaction hex: %v", err))
+		return
+	}
+
+	fes.EtherscanSendRawTransaction(txHex.Hex)
+
 	// Wait up to 10 minutes
 	// TODO: Long running requests are bad. Replace this with polling (or websockets etc)
 	var ethTx *BlockCypherTx
@@ -278,6 +288,7 @@ type BlockCypherTx struct {
 	BlockHeight int64                 `json:"block_height"`
 	BlockIndex  uint64                `json:"block_index"`
 	Hash        string                `json:"hash"`
+	Hex         string                `json:"hex"`
 	Addresses   []string              `json:"addresses"`
 	Total       *big.Int              `json:"total"`
 	Fees        *big.Int              `json:"fees"`
@@ -527,6 +538,7 @@ func (fes *APIServer) BlockCypherGetETHTx(txnHash string) (*BlockCypherTx, error
 	req, _ := http.NewRequest("GET", URL, nil)
 	q := req.URL.Query()
 	q.Add("token", fes.BlockCypherAPIKey)
+	q.Add("includeHex", "true")
 	req.URL.RawQuery = q.Encode()
 
 	client := &http.Client{}
@@ -550,4 +562,33 @@ func (fes *APIServer) BlockCypherGetETHTx(txnHash string) (*BlockCypherTx, error
 	}
 
 	return responseData, nil
+}
+
+func (fes *APIServer) EtherscanSendRawTransaction(txHex string) {
+	URL := "https://api.etherscan.io/api"
+
+	req, _ := http.NewRequest("GET", URL, nil)
+	q := req.URL.Query()
+	q.Add("module", "proxy")
+	q.Add("action", "eth_sendRawTransaction")
+	q.Add("hex", txHex)
+	// TODO: Make this a configuration value. This method is probably being deleted soon so we're leaving it for now
+	q.Add("apikey", "21QBFB9E8JRCAY9G9N8FTJRSY9P9M6RTSR")
+	req.URL.RawQuery = q.Encode()
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		glog.Errorf("EtherscanSendRawTransaction: Problem with HTTP request %s: %v", URL, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := ioutil.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		glog.Errorf("EtherscanSendRawTransaction: Error code returned from BlockCypher: %v %v", resp.StatusCode, string(body))
+		return
+	}
+
+	glog.Infof("EtherscanSendRawTransaction: %s", string(body))
 }
