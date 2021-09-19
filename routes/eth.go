@@ -220,9 +220,9 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		time.Sleep(10 * time.Second)
 
 		ethTx, err = fes.BlockCypherGetETHTx(submitTx.Tx.Hash)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to get ETH transaction: %v", err))
-			return
+		if ethTx == nil {
+			// Sometimes these requests can fail. Ignore the failure and keep polling
+			continue
 		}
 
 		// A block height means the transaction mined
@@ -232,7 +232,7 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Ensure the transaction mined
-	if ethTx.BlockHeight < 0 {
+	if ethTx == nil || ethTx.BlockHeight < 0 {
 		_AddBadRequestError(ww, "SubmitETHTx: Transaction failed to mine")
 		return
 	}
