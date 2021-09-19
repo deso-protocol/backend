@@ -91,6 +91,9 @@ const (
 	RoutePathGetNextNFTShowcase       = "/api/v0/get-next-nft-showcase"
 	RoutePathGetNFTCollectionSummary  = "/api/v0/get-nft-collection-summary"
 	RoutePathGetNFTEntriesForPostHash = "/api/v0/get-nft-entries-for-nft-post"
+	RoutePathTransferNFT              = "/api/v0/transfer-nft"
+	RoutePathAcceptNFTTransfer        = "/api/v0/accept-nft-transfer"
+	RoutePathBurnNFT                  = "/api/v0/burn-nft"
 
 	// media.go
 	RoutePathUploadImage      = "/api/v0/upload-image"
@@ -172,6 +175,18 @@ const (
 	// admin_jumio.go
 	RoutePathAdminResetJumioForPublicKey = "/api/v0/admin/reset-jumio-for-public-key"
 	RoutePathAdminUpdateJumioBitClout    = "/api/v0/admin/update-jumio-bitclout"
+	RoutePathAdminJumioCallback          = "/api/v0/admin/jumio-callback"
+
+	// admin_referrals.go
+	RoutePathAdminCreateReferralHash        = "/api/v0/admin/create-referral-hash"
+	RoutePathAdminGetAllReferralInfoForUser = "/api/v0/admin/get-all-referral-info-for-user"
+	RoutePathAdminUpdateReferralHash        = "/api/v0/admin/update-referral-hash"
+	RoutePathAdminUploadReferralCSV         = "/api/v0/admin/upload-referral-csv"
+	RoutePathAdminDownloadReferralCSV       = "/api/v0/admin/download-referral-csv"
+
+	// referrals.go
+	RoutePathGetReferralInfoForUser = "/api/v0/get-referral-info-for-user"
+	RoutePathGetReferralInfoForReferralHash = "/api/v0/get-referral-info-for-referral-hash"
 
 	// admin_tutorial.go
 	RoutePathAdminUpdateTutorialCreators = "/api/v0/admin/update-tutorial-creators"
@@ -223,6 +238,10 @@ type APIServer struct {
 	LastTradeBitCloutPriceHistory []LastTradePriceHistoryItem
 	// How far back do we consider trade prices when we set the current price of $CLOUT in nanoseconds
 	LastTradePriceLookback uint64
+
+	// Base-58 prefix to check for to determine if a string could be a public key.
+	PublicKeyBase58Prefix string
+
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
 }
@@ -252,6 +271,8 @@ func NewAPIServer(
 			"NewAPIServer: Error: A globalStateDB or a globalStateRemoteNode is required")
 	}
 
+	publicKeyBase58Prefix := lib.Base58CheckEncode(make([]byte, btcec.PubKeyBytesLenCompressed), false, params)[0:3]
+
 	fes := &APIServer{
 		// TODO: It would be great if we could eliminate the dependency on
 		// the backendServer. Right now it's here because it was the easiest
@@ -268,6 +289,7 @@ func NewAPIServer(
 		Twilio:                        twilio,
 		BlockCypherAPIKey:             blockCypherAPIKey,
 		LastTradeBitCloutPriceHistory: []LastTradePriceHistoryItem{},
+		PublicKeyBase58Prefix:         publicKeyBase58Prefix,
 		// We consider last trade prices from the last hour when determining the current price of BitClout.
 		// This helps prevents attacks that attempt to purchase $CLOUT at below market value.
 		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
@@ -476,6 +498,27 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathCreateNFT,
 			fes.CreateNFT,
+			PublicAccess,
+		},
+		{
+			"TransferNFT",
+			[]string{"POST", "OPTIONS"},
+			RoutePathTransferNFT,
+			fes.TransferNFT,
+			PublicAccess,
+		},
+		{
+			"AcceptNFTTransfer",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAcceptNFTTransfer,
+			fes.AcceptNFTTransfer,
+			PublicAccess,
+		},
+		{
+			"BurnNFT",
+			[]string{"POST", "OPTIONS"},
+			RoutePathBurnNFT,
+			fes.BurnNFT,
 			PublicAccess,
 		},
 		{
@@ -710,6 +753,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetJumioStatusForPublicKey,
 			PublicAccess,
 		},
+		{
+			"GetReferralInfoForUser",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetReferralInfoForUser,
+			fes.GetReferralInfoForUser,
+			PublicAccess,
+		},
+		{
+			"GetReferralInfoForReferralHash",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetReferralInfoForReferralHash,
+			fes.GetReferralInfoForReferralHash,
+			PublicAccess,
+		},
 		// Tutorial Routes
 		{
 			"GetTutorialCreators",
@@ -918,6 +975,48 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateJumioBitClout,
 			fes.AdminUpdateJumioBitClout,
+			SuperAdminAccess,
+		},
+		{
+			"AdminJumioCallback",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminJumioCallback,
+			fes.AdminJumioCallback,
+			SuperAdminAccess,
+		},
+		{
+			"AdminCreateReferralHash",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminCreateReferralHash,
+			fes.AdminCreateReferralHash,
+			SuperAdminAccess,
+		},
+		{
+			"AdminGetAllReferralInfoForUser",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetAllReferralInfoForUser,
+			fes.AdminGetAllReferralInfoForUser,
+			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateReferralHash",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateReferralHash,
+			fes.AdminUpdateReferralHash,
+			SuperAdminAccess,
+		},
+		{
+			"AdminUploadReferralCSV",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUploadReferralCSV,
+			fes.AdminUploadReferralCSV,
+			SuperAdminAccess,
+		},
+		{
+			"AdminDownloadReferralCSV",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminDownloadReferralCSV,
+			fes.AdminDownloadReferralCSV,
 			SuperAdminAccess,
 		},
 		{
