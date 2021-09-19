@@ -52,6 +52,7 @@ type Config struct {
 	WyreApiKey            string
 	WyreSecretKey         string
 	BuyBitCloutBTCAddress string
+	BuyBitCloutETHAddress string
 	BuyBitCloutSeed       string
 
 	// Emails
@@ -63,8 +64,8 @@ type Config struct {
 	SendgridConfirmEmailId string
 
 	// Jumio
-	JumioToken             string
-	JumioSecret            string
+	JumioToken  string
+	JumioSecret string
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -128,6 +129,10 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 
 	// BTC address to send all Bitcoin received from Wyre purchases and "Buy With BTC" purchases.
 	config.BuyBitCloutBTCAddress = viper.GetString("buy-bitclout-btc-address")
+
+	// ETH address to send all ETH received from "Buy With ETH" purchases.
+	config.BuyBitCloutETHAddress = viper.GetString("buy-bitclout-eth-address")
+
 	// Seed from which BitClout will be sent for orders placed through Wyre and "Buy With BTC" purchases"
 	config.BuyBitCloutSeed = viper.GetString("buy-bitclout-seed")
 

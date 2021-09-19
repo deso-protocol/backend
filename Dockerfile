@@ -17,6 +17,7 @@ WORKDIR /bitclout/src/backend
 RUN go mod download
 
 # include backend src
+COPY backend/apis    apis
 COPY backend/config  config
 COPY backend/cmd     cmd
 COPY backend/miner   miner

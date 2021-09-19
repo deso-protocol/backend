@@ -119,6 +119,11 @@ const (
 	RoutePathGetTutorialCreators = "/api/v0/get-tutorial-creators"
 	RoutePathStartOrSkipTutorial = "/api/v0/start-or-skip-tutorial"
 
+	// eth.go
+	RoutePathGetETHBalance = "/api/v0/get-eth-balance"
+	RoutePathCreateETHTx   = "/api/v0/create-eth-tx"
+	RoutePathSubmitETHTx   = "/api/v0/submit-eth-tx"
+
 	// wyre.go
 	RoutePathGetWyreWalletOrderQuotation     = "/api/v0/get-wyre-wallet-order-quotation"
 	RoutePathGetWyreWalletOrderReservation   = "/api/v0/get-wyre-wallet-order-reservation"
@@ -226,8 +231,8 @@ type APIServer struct {
 	mtxSeedBitClout sync.RWMutex
 
 	UsdCentsPerBitCloutExchangeRate uint64
-
-	UsdCentsPerBitCoinExchangeRate float64
+	UsdCentsPerBitCoinExchangeRate  float64
+	UsdCentsPerETHExchangeRate      uint64
 
 	// List of prices retrieved.  This is culled everytime we update the current price.
 	LastTradeBitCloutPriceHistory []LastTradePriceHistoryItem
@@ -292,9 +297,15 @@ func NewAPIServer(
 	}
 
 	fes.StartSeedBalancesMonitoring()
-	// Call this once upon starting server to ensure we have a good initial value
+
+	// Call these once upon starting server to ensure we have a good initial value
 	fes.UpdateUSDCentsToBitCloutExchangeRate()
+	fes.UpdateUSDToBTCPrice()
+	fes.UpdateUSDToETHPrice()
+
+	// Then monitor them
 	fes.StartExchangePriceMonitoring()
+
 	return fes, nil
 }
 
@@ -764,6 +775,30 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetTutorialCreators,
 			PublicAccess,
 		},
+
+		// ETH Routes
+		{
+			"GetETHBalance",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetETHBalance,
+			fes.GetETHBalance,
+			PublicAccess,
+		},
+		{
+			"CreateETHTx",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateETHTx,
+			fes.CreateETHTx,
+			PublicAccess,
+		},
+		{
+			"SubmitETHTx",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSubmitETHTx,
+			fes.SubmitETHTx,
+			PublicAccess,
+		},
+
 		// Begin all /admin routes
 		{
 			// Route for all low-level node operations.
@@ -1418,6 +1453,8 @@ func (fes *APIServer) logAmplitudeEvent(publicKey string, event string, eventDat
 	return nil
 }
 
+// StartExchangePriceMonitoring gives every exchange rate update
+// its own go routine so a blocked routine doesn't impede others
 func (fes *APIServer) StartExchangePriceMonitoring() {
 	go func() {
 	out:
@@ -1425,7 +1462,30 @@ func (fes *APIServer) StartExchangePriceMonitoring() {
 			select {
 			case <-time.After(10 * time.Second):
 				fes.UpdateUSDCentsToBitCloutExchangeRate()
+			case <-fes.quit:
+				break out
+			}
+		}
+	}()
+
+	go func() {
+	out:
+		for {
+			select {
+			case <-time.After(10 * time.Second):
 				fes.UpdateUSDToBTCPrice()
+			case <-fes.quit:
+				break out
+			}
+		}
+	}()
+
+	go func() {
+	out:
+		for {
+			select {
+			case <-time.After(10 * time.Second):
+				fes.UpdateUSDToETHPrice()
 			case <-fes.quit:
 				break out
 			}
