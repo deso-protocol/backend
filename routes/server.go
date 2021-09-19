@@ -275,9 +275,15 @@ func NewAPIServer(
 	}
 
 	fes.StartSeedBalancesMonitoring()
-	// Call this once upon starting server to ensure we have a good initial value
+
+	// Call these once upon starting server to ensure we have a good initial value
 	fes.UpdateUSDCentsToBitCloutExchangeRate()
+	fes.UpdateUSDToBTCPrice()
+	fes.UpdateUSDToETHPrice()
+
+	// Then monitor them
 	fes.StartExchangePriceMonitoring()
+
 	return fes, nil
 }
 
