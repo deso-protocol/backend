@@ -90,7 +90,7 @@ func (fes *APIServer) CreateETHTx(ww http.ResponseWriter, req *http.Request) {
 
 	// The only way to determine the fee BlockCypher wants to use is to create a useless transaction
 	// and extract the gas price.
-	fees, err := fes.BlockCypherCreateETHTx(requestData.Address, requestData.Amount)
+	fees, err := fes.BlockCypherCreateETHTx(requestData.Address, big.NewInt(1))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateETHTx: Failed to create fee transaction: %v", err))
 		return
