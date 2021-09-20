@@ -3,143 +3,143 @@ package routes
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"io"
 	"net/http"
 )
 
-type SetUSDCentsToBitCloutExchangeRateRequest struct {
-	USDCentsPerBitClout uint64
+type SetUSDCentsToDeSoExchangeRateRequest struct {
+	USDCentsPerDeSo uint64
 	AdminPublicKey      string
 }
 
-type SetUSDCentsToBitCloutExchangeRateResponse struct {
-	USDCentsPerBitClout uint64
+type SetUSDCentsToDeSoExchangeRateResponse struct {
+	USDCentsPerDeSo uint64
 }
 
-// SetUSDCentsToBitCloutReserveExchangeRate sets the minimum price to buy BitClout from this node.
-func (fes *APIServer) SetUSDCentsToBitCloutReserveExchangeRate(ww http.ResponseWriter, req *http.Request) {
+// SetUSDCentsToDeSoReserveExchangeRate sets the minimum price to buy DeSo from this node.
+func (fes *APIServer) SetUSDCentsToDeSoReserveExchangeRate(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := SetUSDCentsToBitCloutExchangeRateRequest{}
+	requestData := SetUSDCentsToDeSoExchangeRateRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SetUSDCentsToBitCloutReserveExchangeRate: Problem parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SetUSDCentsToDeSoReserveExchangeRate: Problem parsing request body: %v", err))
 		return
 	}
 
 	// Put the new value in global state
 	if err := fes.GlobalStatePut(
-		GlobalStateKeyForUSDCentsToBitCloutReserveExchangeRate(),
-		lib.UintToBuf(requestData.USDCentsPerBitClout)); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SetUSDCentsToBitCloutReserveExchangeRate: Problem putting exchange rate in global state: %v", err))
+		GlobalStateKeyForUSDCentsToDeSoReserveExchangeRate(),
+		lib.UintToBuf(requestData.USDCentsPerDeSo)); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SetUSDCentsToDeSoReserveExchangeRate: Problem putting exchange rate in global state: %v", err))
 		return
 	}
 
-	// Force refresh the USD Cent to BitClout exchange rate
-	fes.UpdateUSDCentsToBitCloutExchangeRate()
+	// Force refresh the USD Cent to DeSo exchange rate
+	fes.UpdateUSDCentsToDeSoExchangeRate()
 
-	res := SetUSDCentsToBitCloutExchangeRateResponse{
-		USDCentsPerBitClout: requestData.USDCentsPerBitClout,
+	res := SetUSDCentsToDeSoExchangeRateResponse{
+		USDCentsPerDeSo: requestData.USDCentsPerDeSo,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SetUSDCentsToBitCloutReserveExchangeRate: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SetUSDCentsToDeSoReserveExchangeRate: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
 
-type GetUSDCentsToBitCloutExchangeRateResponse struct {
-	USDCentsPerBitClout uint64
+type GetUSDCentsToDeSoExchangeRateResponse struct {
+	USDCentsPerDeSo uint64
 }
 
-// GetUSDCentsToBitCloutReserveExchangeRate get the current reserve exchange rate
-func (fes *APIServer) GetUSDCentsToBitCloutReserveExchangeRate(ww http.ResponseWriter, req *http.Request) {
-	exchangeRate, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
+// GetUSDCentsToDeSoReserveExchangeRate get the current reserve exchange rate
+func (fes *APIServer) GetUSDCentsToDeSoReserveExchangeRate(ww http.ResponseWriter, req *http.Request) {
+	exchangeRate, err := fes.GetUSDCentsToDeSoReserveExchangeRateFromGlobalState()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetUSDCentsToBitCloutExchangeRate: error getting exchange rate: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetUSDCentsToDeSoExchangeRate: error getting exchange rate: %v", err))
 		return
 	}
-	res := GetUSDCentsToBitCloutExchangeRateResponse{
-		USDCentsPerBitClout: exchangeRate,
+	res := GetUSDCentsToDeSoExchangeRateResponse{
+		USDCentsPerDeSo: exchangeRate,
 	}
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetUSDCentsToBitCloutExchangeRate: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetUSDCentsToDeSoExchangeRate: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
 
-// GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState is a helper function to get the current USD cents to BitClout exchange rate
-func (fes *APIServer) GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState() (uint64, error) {
-	val, err := fes.GlobalStateGet(GlobalStateKeyForUSDCentsToBitCloutReserveExchangeRate())
+// GetUSDCentsToDeSoReserveExchangeRateFromGlobalState is a helper function to get the current USD cents to DeSo exchange rate
+func (fes *APIServer) GetUSDCentsToDeSoReserveExchangeRateFromGlobalState() (uint64, error) {
+	val, err := fes.GlobalStateGet(GlobalStateKeyForUSDCentsToDeSoReserveExchangeRate())
 	if err != nil {
-		return 0, fmt.Errorf("Problem getting bitclout to usd exchange rate from global state: %v", err)
+		return 0, fmt.Errorf("Problem getting deso to usd exchange rate from global state: %v", err)
 	}
-	usdCentsPerBitClout, bytesRead := lib.Uvarint(val)
+	usdCentsPerDeSo, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {
 		return 0, fmt.Errorf("Problem reading bytes from global state: %v", err)
 	}
-	return usdCentsPerBitClout, nil
+	return usdCentsPerDeSo, nil
 }
 
-type SetBuyBitCloutFeeBasisPointsRequest struct {
-	BuyBitCloutFeeBasisPoints uint64
+type SetBuyDeSoFeeBasisPointsRequest struct {
+	BuyDeSoFeeBasisPoints uint64
 	AdminPublicKey            string
 }
 
-type SetBuyBitCloutFeeBasisPointsResponse struct {
-	BuyBitCloutFeeBasisPoints uint64
+type SetBuyDeSoFeeBasisPointsResponse struct {
+	BuyDeSoFeeBasisPoints uint64
 }
 
-// SetBuyBitCloutFeeBasisPoints sets the percentage fee applied to all BitClout buys on this node.
-func (fes *APIServer) SetBuyBitCloutFeeBasisPoints(ww http.ResponseWriter, req *http.Request) {
+// SetBuyDeSoFeeBasisPoints sets the percentage fee applied to all DeSo buys on this node.
+func (fes *APIServer) SetBuyDeSoFeeBasisPoints(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := SetBuyBitCloutFeeBasisPointsRequest{}
+	requestData := SetBuyDeSoFeeBasisPointsRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SetBuyBitCloutFeeBasisPoints: Problem parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SetBuyDeSoFeeBasisPoints: Problem parsing request body: %v", err))
 		return
 	}
 
 	if err := fes.GlobalStatePut(
-		GlobalStateKeyForBuyBitCloutFeeBasisPoints(),
-		lib.UintToBuf(requestData.BuyBitCloutFeeBasisPoints)); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SetBuyBitCloutFeeBasisPoints: Problem putting premium basis points in global state: %v", err))
+		GlobalStateKeyForBuyDeSoFeeBasisPoints(),
+		lib.UintToBuf(requestData.BuyDeSoFeeBasisPoints)); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SetBuyDeSoFeeBasisPoints: Problem putting premium basis points in global state: %v", err))
 		return
 	}
 
-	res := SetBuyBitCloutFeeBasisPointsResponse{
-		BuyBitCloutFeeBasisPoints: requestData.BuyBitCloutFeeBasisPoints,
+	res := SetBuyDeSoFeeBasisPointsResponse{
+		BuyDeSoFeeBasisPoints: requestData.BuyDeSoFeeBasisPoints,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SetBuyBitCloutFeeBasisPoints: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SetBuyDeSoFeeBasisPoints: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
 
-type GetBuyBitCloutFeeBasisPointsResponse struct {
-	BuyBitCloutFeeBasisPoints uint64
+type GetBuyDeSoFeeBasisPointsResponse struct {
+	BuyDeSoFeeBasisPoints uint64
 }
 
-// GetBuyBitCloutFeeBasisPoints gets the current value of the buy BitClout fee.
-func (fes *APIServer) GetBuyBitCloutFeeBasisPoints(ww http.ResponseWriter, req *http.Request) {
-	feeBasisPoints, err := fes.GetBuyBitCloutFeeBasisPointsResponseFromGlobalState()
+// GetBuyDeSoFeeBasisPoints gets the current value of the buy DeSo fee.
+func (fes *APIServer) GetBuyDeSoFeeBasisPoints(ww http.ResponseWriter, req *http.Request) {
+	feeBasisPoints, err := fes.GetBuyDeSoFeeBasisPointsResponseFromGlobalState()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBuyBitCloutFeeBasisPoints: error getting exchange rate: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetBuyDeSoFeeBasisPoints: error getting exchange rate: %v", err))
 		return
 	}
-	res := GetBuyBitCloutFeeBasisPointsResponse{
-		BuyBitCloutFeeBasisPoints: feeBasisPoints,
+	res := GetBuyDeSoFeeBasisPointsResponse{
+		BuyDeSoFeeBasisPoints: feeBasisPoints,
 	}
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBuyBitCloutFeeBasisPoints: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetBuyDeSoFeeBasisPoints: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
 
-// GetBuyBitCloutFeeBasisPointsResponseFromGlobalState is a utility to get the current buy BitClout fee from global state.
-func (fes *APIServer) GetBuyBitCloutFeeBasisPointsResponseFromGlobalState() (uint64, error) {
-	val, err := fes.GlobalStateGet(GlobalStateKeyForBuyBitCloutFeeBasisPoints())
+// GetBuyDeSoFeeBasisPointsResponseFromGlobalState is a utility to get the current buy DeSo fee from global state.
+func (fes *APIServer) GetBuyDeSoFeeBasisPointsResponseFromGlobalState() (uint64, error) {
+	val, err := fes.GlobalStateGet(GlobalStateKeyForBuyDeSoFeeBasisPoints())
 	if err != nil {
-		return 0, fmt.Errorf("Problem getting buy bitclout premium basis points from global state: %v", err)
+		return 0, fmt.Errorf("Problem getting buy deso premium basis points from global state: %v", err)
 	}
 	feeBasisPoints, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {

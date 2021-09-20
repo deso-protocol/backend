@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil/base58"
 	"github.com/pkg/errors"
@@ -490,8 +490,8 @@ func (fes *APIServer) getAllReferralInfos() (
 func ReferralCSVHeaders() (_headers []string) {
 	return []string{
 		"ReferralHashBase58", "ReferrerPKIDBase58Check", "ReferrerAmountUSDCents", "RefereeAmountUSDCents",
-		"MaxReferrals", "RequiresJumio", "NumJumioAttempts", "NumJumioSuccesses", "TotalReferrerBitCloutNanos",
-		"TotalRefereeBitCloutNanos", "DateCreatedTStampNanos", "IsActive",
+		"MaxReferrals", "RequiresJumio", "NumJumioAttempts", "NumJumioSuccesses", "TotalReferrerDeSoNanos",
+		"TotalRefereeDeSoNanos", "DateCreatedTStampNanos", "IsActive",
 	}
 }
 
@@ -533,8 +533,8 @@ func (fes *APIServer) AdminDownloadReferralCSV(ww http.ResponseWriter, req *http
 		nextRow = append(nextRow, strconv.FormatBool(referralInfo.RequiresJumio))
 		nextRow = append(nextRow, strconv.FormatUint(referralInfo.NumJumioAttempts, 10))
 		nextRow = append(nextRow, strconv.FormatUint(referralInfo.NumJumioSuccesses, 10))
-		nextRow = append(nextRow, strconv.FormatUint(referralInfo.TotalReferrerBitCloutNanos, 10))
-		nextRow = append(nextRow, strconv.FormatUint(referralInfo.TotalRefereeBitCloutNanos, 10))
+		nextRow = append(nextRow, strconv.FormatUint(referralInfo.TotalReferrerDeSoNanos, 10))
+		nextRow = append(nextRow, strconv.FormatUint(referralInfo.TotalRefereeDeSoNanos, 10))
 		nextRow = append(nextRow, strconv.FormatUint(referralInfo.DateCreatedTStampNanos, 10))
 		csvRows = append(csvRows, nextRow)
 

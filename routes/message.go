@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io"
 	"net/http"
@@ -44,7 +44,7 @@ type GetMessagesStatelessRequest struct {
 	FollowingOnly bool `safeForLogging:"true"`
 
 	// SortAlgorithm determines how the messages should be returned. Currently
-	// it support time, clout, and followers based sorting.
+	// it support time, deso, and followers based sorting.
 	SortAlgorithm string `safeForLogging:"true"`
 }
 
@@ -93,14 +93,14 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	publicKeyToClout := make(map[string]uint64)
 	publicKeyToNumberOfFollowers := make(map[string]uint64)
 	publicKeyToNanosUserHeld := make(map[string]uint64)
-	if sortAlgorithm == "clout" {
+	if sortAlgorithm == "deso" {
 		for _, messageEntry := range messageEntries {
 			otherPartyPublicKeyBytes, otherPartyPublicKeyBase58Check := fes.getOtherPartyInThread(messageEntry, publicKeyBytes)
 
 			if _, alreadySeen := publicKeyToClout[otherPartyPublicKeyBase58Check]; !alreadySeen {
 				otherPartyProfileEntry := utxoView.GetProfileEntryForPublicKey(otherPartyPublicKeyBytes)
 				if otherPartyProfileEntry != nil {
-					publicKeyToClout[otherPartyPublicKeyBase58Check] = otherPartyProfileEntry.BitCloutLockedNanos
+					publicKeyToClout[otherPartyPublicKeyBase58Check] = otherPartyProfileEntry.DeSoLockedNanos
 				} else {
 					publicKeyToClout[otherPartyPublicKeyBase58Check] = 0
 				}
@@ -341,7 +341,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	}
 
 	// Order the messages in the inbox based on the selected sort algorithm.
-	if sortAlgorithm == "clout" {
+	if sortAlgorithm == "deso" {
 		sort.Slice(newContactEntries, func(ii, jj int) bool {
 			return publicKeyToClout[newContactEntries[ii].PublicKeyBase58Check] >
 				publicKeyToClout[newContactEntries[jj].PublicKeyBase58Check]
@@ -475,7 +475,7 @@ type SendMessageStatelessResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 }
 
@@ -519,7 +519,7 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Problem serializing transaction: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem serializing transaction: %v", err))
 		return
 	}
 

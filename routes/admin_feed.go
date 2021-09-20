@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"io"
 	"net/http"
 )

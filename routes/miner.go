@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"io"
 	"net/http"
@@ -155,7 +155,7 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 	blockFound.Txns[0].TxOutputs[0].PublicKey = pkBytes
 	blockFound.Txns[0].TxnMeta.(*lib.BlockRewardMetadataa).ExtraData = lib.UintToBuf(requestData.ExtraData)
 
-	header := &lib.MsgBitCloutHeader{}
+	header := &lib.MsgDeSoHeader{}
 	if err := header.FromBytes(requestData.Header); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitBlock: Problem parsing header: %v", err))
 		return

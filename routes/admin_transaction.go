@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/pkg/errors"
 )
@@ -102,7 +102,7 @@ type UpdateGlobalParamsResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 }
 
@@ -209,7 +209,7 @@ type SwapIdentityResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 }
 

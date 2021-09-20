@@ -1,10 +1,10 @@
 package cmd
 
 import (
-	"github.com/bitclout/backend/config"
-	"github.com/bitclout/backend/routes"
-	coreCmd "github.com/bitclout/core/cmd"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/backend/config"
+	"github.com/deso-protocol/backend/routes"
+	coreCmd "github.com/deso-protocol/core/cmd"
+	"github.com/deso-protocol/core/lib"
 	"github.com/dgraph-io/badger/v3"
 	"github.com/golang/glog"
 	"github.com/kevinburke/twilio-go"
