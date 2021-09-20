@@ -41,12 +41,12 @@ type GetPostsStatelessRequest struct {
 	GetPostsForGlobalWhitelist bool `safeForLogging:"true"`
 
 	// This gets posts sorted by deso
-	GetPostsByClout bool `safeForLogging:"true"`
+	GetPostsByDESO bool `safeForLogging:"true"`
 
 	// This only gets posts that include media, like photos and videos
 	MediaRequired bool `safeForLogging:"true"`
 
-	PostsByCloutMinutesLookback uint64 `safeForLogging:"true"`
+	PostsByDESOMinutesLookback uint64 `safeForLogging:"true"`
 
 	// If set to true, then the posts in the response will contain a boolean about whether they're in the global feed
 	AddGlobalFeedBool bool `safeForLogging:"true"`
@@ -322,14 +322,14 @@ func (fes *APIServer) GetPostEntriesForFollowFeed(
 }
 
 // Get the top numToFetch posts ordered by poster's coin price in the last number of minutes as defined by minutesLookback.
-func (fes *APIServer) GetPostEntriesByCloutAfterTimePaginated(readerPK []byte,
+func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
 	minutesLookback uint64, numToFetch int) (
 	_postEntries []*lib.PostEntry,
 	_profilesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry, err error) {
 	// As a safeguard, we should only be able to look at least one hour in the past -- can be changed later.
 
 	if minutesLookback > 60 {
-		return nil, nil, fmt.Errorf("GetPostEntriesByClout: Cannot fetch posts by deso more than an hour back")
+		return nil, nil, fmt.Errorf("GetPostEntriesByDESO: Cannot fetch posts by deso more than an hour back")
 	}
 
 	currentTime := time.Now().UnixNano()
@@ -338,13 +338,13 @@ func (fes *APIServer) GetPostEntriesByCloutAfterTimePaginated(readerPK []byte,
 	// Get a view with all the mempool transactions (used to get all posts / reader state).
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		return nil, nil, fmt.Errorf("GetPostEntriesByClout: Error fetching mempool view: %v", err)
+		return nil, nil, fmt.Errorf("GetPostEntriesByDESO: Error fetching mempool view: %v", err)
 	}
 	// Start by fetching the posts we have in the db.
 	dbPostHashes, _, _, err := lib.DBGetPaginatedPostsOrderedByTime(
 		utxoView.Handle, startTstampNanos, nil, -1, false /*fetchEntries*/, false)
 	if err != nil {
-		return nil, nil, errors.Wrapf(err, "GetPostEntriesByClout: Problem fetching ProfileEntrys from db: ")
+		return nil, nil, errors.Wrapf(err, "GetPostEntriesByDESO: Problem fetching ProfileEntrys from db: ")
 	}
 
 	// Iterate through the entries found in the db and force the view to load them.
@@ -371,7 +371,7 @@ func (fes *APIServer) GetPostEntriesByCloutAfterTimePaginated(readerPK []byte,
 	// Filter restricted public keys out of the posts.
 	filteredPostEntryPubKeyMap, err := fes.FilterOutRestrictedPubKeysFromMap(postEntryPubKeyMap, readerPK, "leaderboard")
 	if err != nil {
-		return nil, nil, errors.Wrapf(err, "GetPostsByClout: Problem filtering restricted profiles from map: ")
+		return nil, nil, errors.Wrapf(err, "GetPostsByDESO: Problem filtering restricted profiles from map: ")
 	}
 
 	// At this point, all the posts should be loaded into the view.
@@ -755,10 +755,10 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 			err = fes.GetPostEntriesForGlobalWhitelist(startPostHash, readerPublicKeyBytes, numToFetch, utxoView, requestData.MediaRequired)
 		// if we're getting posts for the global whitelist, no comments are returned (they aren't necessary)
 		commentsByPostHash = make(map[lib.BlockHash][]*lib.PostEntry)
-	} else if requestData.GetPostsByClout {
+	} else if requestData.GetPostsByDESO {
 		postEntries,
 			profileEntryMap,
-			err = fes.GetPostEntriesByCloutAfterTimePaginated(readerPublicKeyBytes, requestData.PostsByCloutMinutesLookback, numToFetch)
+			err = fes.GetPostEntriesByDESOAfterTimePaginated(readerPublicKeyBytes, requestData.PostsByDESOMinutesLookback, numToFetch)
 	} else {
 		postEntries,
 			commentsByPostHash,

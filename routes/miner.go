@@ -72,7 +72,7 @@ func (fes *APIServer) GetBlockTemplate(ww http.ResponseWriter, req *http.Request
 	if requestData.HeaderVersion == lib.HeaderVersion0 {
 		_AddBadRequestError(ww, fmt.Sprintf("GetBlockTemplate: Error: Header version v0 not supported. "+
 			"Please upgrade your miner to request v1 headers, and to hash "+
-			"with CloutHashV1"))
+			"with DeSoHashV1"))
 		return
 	}
 

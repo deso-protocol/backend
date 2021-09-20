@@ -350,16 +350,16 @@ func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, 
 	}
 
 	// Here we retry sending DeSo once if there is an error.  This is concerning, but we believe it is safe at this
-	// time as no Clout will be sent if there is an error.  We wait for 5 seconds
+	// time as no DESO will be sent if there is an error.  We wait for 5 seconds
 	var hash *lib.BlockHash
 	hash, err = sendDeSo()
 	if err != nil {
 		publicKeyBase58Check := lib.PkToString(recipientPkBytes, fes.Params)
-		glog.Errorf("SendSeedDeSo: 1st attempt - error sending %d nanos of Clout to public key %v: error - %v", amountNanos, publicKeyBase58Check, err)
+		glog.Errorf("SendSeedDeSo: 1st attempt - error sending %d nanos of DESO to public key %v: error - %v", amountNanos, publicKeyBase58Check, err)
 		time.Sleep(5 * time.Second)
 		hash, err = sendDeSo()
 		if err != nil {
-			glog.Errorf("SendSeedDeSo: 2nd attempt - error sending %d nanos of Clout to public key %v: error - %v", amountNanos, publicKeyBase58Check, err)
+			glog.Errorf("SendSeedDeSo: 2nd attempt - error sending %d nanos of DESO to public key %v: error - %v", amountNanos, publicKeyBase58Check, err)
 		}
 	}
 	return hash, err
