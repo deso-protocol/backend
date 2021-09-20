@@ -165,12 +165,15 @@ var (
 	// - <prefx, PKID, referral hash (6-8 bytes), Referred PKID
 	_GlobalStatePrefixPKIDReferralHashRefereePKID = []byte{26}
 
+  // ETH purchases <prefix, ETH Txn Hash> -> <Complete bool>
+	_GlobalStateKeyETHPurchases = []byte{27}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
 
-	// NEXT_TAG: 27
+	// NEXT_TAG: 28
 )
 
 // A ReferralInfo struct holds all of the params and stats for a referral link/hash.
@@ -548,6 +551,12 @@ func GlobalStateKeyWellKnownTutorialCreators(pkid *lib.PKID) []byte {
 func GlobalStateKeyUpAndComingTutorialCreators(pkid *lib.PKID) []byte {
 	prefixCopy := append([]byte{}, _GlobalStateKeyUpAndComingTutorialCreators...)
 	key := append(prefixCopy, pkid[:]...)
+	return key
+}
+
+func GlobalStateKeyETHPurchases(txnHash string) []byte {
+	prefixCopy := append([]byte{}, _GlobalStateKeyETHPurchases...)
+	key := append(prefixCopy, txnHash[:]...)
 	return key
 }
 
