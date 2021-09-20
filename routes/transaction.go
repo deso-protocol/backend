@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"reflect"
 	"strings"
@@ -320,10 +321,9 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		profilePublicKey = profilePublicKeyBytess
 	}
 
-	if len(requestData.NewUsername) > 0 && (strings.Index(requestData.NewUsername, "BC") == 0 ||
-		strings.Index(requestData.NewUsername, "tBC") == 0) {
+	if len(requestData.NewUsername) > 0 && strings.Index(requestData.NewUsername, fes.PublicKeyBase58Prefix) == 0 {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"UpdateProfile: Username cannot start with BC or tBC"))
+			"UpdateProfile: Username cannot start with %s", fes.PublicKeyBase58Prefix))
 		return
 	}
 
@@ -726,11 +726,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 	// Update the current exchange price.
 	fes.UpdateUSDCentsToDeSoExchangeRate()
 
-	nanosPurchased, err := fes.GetNanosFromSats(uint64(burnAmountSatoshis), feeBasisPoints)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error computing nanos purchased: %v", err))
-		return
-	}
+	nanosPurchased := fes.GetNanosFromSats(uint64(burnAmountSatoshis), feeBasisPoints)
 	balanceInsufficient, err := fes.ExceedsDeSoBalance(nanosPurchased, fes.Config.BuyDeSoSeed)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error checking if send deso balance is sufficient: %v", err))
@@ -831,7 +827,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 }
 
 // GetNanosFromSats - convert Satoshis to DeSo nanos
-func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) (uint64, error) {
+func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) uint64 {
 	usdCentsPerBitcoin := fes.UsdCentsPerBitCoinExchangeRate
 	// If we don't have a valid value from monitoring at this time, use the price from the protocol
 	if usdCentsPerBitcoin == 0 {
@@ -842,13 +838,22 @@ func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) (
 	return fes.GetNanosFromUSDCents(usdCents, feeBasisPoints)
 }
 
+// GetNanosFromETH - convert ETH to DESO nanos
+func (fes *APIServer) GetNanosFromETH(eth *big.Float, feeBasisPoints uint64) uint64 {
+	usdCentsPerETH := big.NewFloat(float64(fes.UsdCentsPerETHExchangeRate))
+	usdCentsETH := big.NewFloat(0).Mul(eth, usdCentsPerETH)
+	usdCentsFloat, _ := usdCentsETH.Float64()
+
+	return fes.GetNanosFromUSDCents(usdCentsFloat, feeBasisPoints)
+}
+
 // GetNanosFromUSDCents - convert USD cents to DeSo nanos
-func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint64) (uint64, error) {
+func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint64) uint64 {
 	// Get Exchange Price gets the max of price from blockchain.com and the reserve price.
 	usdCentsPerDeSo := fes.GetExchangeDeSoPrice()
 	conversionRateAfterFee := float64(usdCentsPerDeSo) * (1 + (float64(feeBasisPoints) / (100.0 * 100.0)))
 	nanosPurchased := uint64(usdCents * float64(lib.NanosPerUnit) / conversionRateAfterFee)
-	return nanosPurchased, nil
+	return nanosPurchased
 }
 
 // ExceedsSendDeSoBalance - Check if nanosPurchased is greater than the balance of the BuyDeSo wallet.
@@ -859,8 +864,6 @@ func (fes *APIServer) ExceedsDeSoBalance(nanosPurchased uint64, seed string) (bo
 	}
 	return nanosPurchased > buyDeSoSeedBalance, nil
 }
-
-
 
 // SendDeSoRequest ...
 type SendDeSoRequest struct {
@@ -907,8 +910,7 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 	// a public key. Otherwise we interpret it as a username and try to look up
 	// the corresponding profile.
 	var recipientPkBytes []byte
-	if strings.Index(requestData.RecipientPublicKeyOrUsername, "BC") == 0 ||
-		strings.Index(requestData.RecipientPublicKeyOrUsername, "tBC") == 0 {
+	if strings.Index(requestData.RecipientPublicKeyOrUsername, fes.PublicKeyBase58Prefix) == 0 {
 
 		// Decode the recipient's public key.
 		var err error
@@ -1189,8 +1191,7 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 					requestData.ParentStakeID, err))
 				return
 			}
-		} else if strings.Index(requestData.ParentStakeID, "BC") == 0 ||
-			strings.Index(requestData.ParentStakeID, "tBC") == 0 {
+		} else if strings.Index(requestData.ParentStakeID, fes.PublicKeyBase58Prefix) == 0 {
 
 			parentStakeID, _, err = lib.Base58CheckDecode(requestData.ParentStakeID)
 			if err != nil || len(parentStakeID) != btcec.PubKeyBytesLenCompressed {
@@ -1722,7 +1723,6 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		}
 	}
 
-
 	// Return all the data associated with the transaction in the response
 	res := BuyOrSellCreatorCoinResponse{
 		ExpectedDeSoReturnedNanos:    ExpectedDeSoReturnedNanos,
@@ -2022,7 +2022,6 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 			return
 		}
 	}
-
 
 	// Return all the data associated with the transaction in the response
 	res := SendDiamondsResponse{

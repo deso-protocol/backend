@@ -119,6 +119,11 @@ const (
 	RoutePathGetTutorialCreators = "/api/v0/get-tutorial-creators"
 	RoutePathStartOrSkipTutorial = "/api/v0/start-or-skip-tutorial"
 
+	// eth.go
+	RoutePathGetETHBalance = "/api/v0/get-eth-balance"
+	RoutePathCreateETHTx   = "/api/v0/create-eth-tx"
+	RoutePathSubmitETHTx   = "/api/v0/submit-eth-tx"
+
 	// wyre.go
 	RoutePathGetWyreWalletOrderQuotation     = "/api/v0/get-wyre-wallet-order-quotation"
 	RoutePathGetWyreWalletOrderReservation   = "/api/v0/get-wyre-wallet-order-reservation"
@@ -225,14 +230,18 @@ type APIServer struct {
 	// causing one to error.
 	mtxSeedDeSo sync.RWMutex
 
-	UsdCentsPerDeSoExchangeRate uint64
-
+	UsdCentsPerDeSoExchangeRate    uint64
 	UsdCentsPerBitCoinExchangeRate float64
+	UsdCentsPerETHExchangeRate     uint64
 
 	// List of prices retrieved.  This is culled everytime we update the current price.
 	LastTradeDeSoPriceHistory []LastTradePriceHistoryItem
 	// How far back do we consider trade prices when we set the current price of $DESO in nanoseconds
 	LastTradePriceLookback uint64
+
+	// Base-58 prefix to check for to determine if a string could be a public key.
+	PublicKeyBase58Prefix string
+
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
 }
@@ -262,6 +271,8 @@ func NewAPIServer(
 			"NewAPIServer: Error: A globalStateDB or a globalStateRemoteNode is required")
 	}
 
+	publicKeyBase58Prefix := lib.Base58CheckEncode(make([]byte, btcec.PubKeyBytesLenCompressed), false, params)[0:3]
+
 	fes := &APIServer{
 		// TODO: It would be great if we could eliminate the dependency on
 		// the backendServer. Right now it's here because it was the easiest
@@ -278,6 +289,7 @@ func NewAPIServer(
 		Twilio:                        twilio,
 		BlockCypherAPIKey:             blockCypherAPIKey,
 		LastTradeDeSoPriceHistory: []LastTradePriceHistoryItem{},
+		PublicKeyBase58Prefix:         publicKeyBase58Prefix,
 		// We consider last trade prices from the last hour when determining the current price of DeSo.
 		// This helps prevents attacks that attempt to purchase $DESO at below market value.
 		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
@@ -285,9 +297,15 @@ func NewAPIServer(
 	}
 
 	fes.StartSeedBalancesMonitoring()
+
 	// Call this once upon starting server to ensure we have a good initial value
 	fes.UpdateUSDCentsToDeSoExchangeRate()
+	fes.UpdateUSDToBTCPrice()
+	fes.UpdateUSDToETHPrice()
+
+	// Then monitor them
 	fes.StartExchangePriceMonitoring()
+
 	return fes, nil
 }
 
@@ -757,6 +775,30 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetTutorialCreators,
 			PublicAccess,
 		},
+
+		// ETH Routes
+		{
+			"GetETHBalance",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetETHBalance,
+			fes.GetETHBalance,
+			PublicAccess,
+		},
+		{
+			"CreateETHTx",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateETHTx,
+			fes.CreateETHTx,
+			PublicAccess,
+		},
+		{
+			"SubmitETHTx",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSubmitETHTx,
+			fes.SubmitETHTx,
+			PublicAccess,
+		},
+
 		// Begin all /admin routes
 		{
 			// Route for all low-level node operations.
@@ -1411,6 +1453,8 @@ func (fes *APIServer) logAmplitudeEvent(publicKey string, event string, eventDat
 	return nil
 }
 
+// StartExchangePriceMonitoring gives every exchange rate update
+// its own go routine so a blocked routine doesn't impede others
 func (fes *APIServer) StartExchangePriceMonitoring() {
 	go func() {
 	out:
@@ -1418,7 +1462,30 @@ func (fes *APIServer) StartExchangePriceMonitoring() {
 			select {
 			case <-time.After(10 * time.Second):
 				fes.UpdateUSDCentsToDeSoExchangeRate()
+			case <-fes.quit:
+				break out
+			}
+		}
+	}()
+
+	go func() {
+	out:
+		for {
+			select {
+			case <-time.After(10 * time.Second):
 				fes.UpdateUSDToBTCPrice()
+			case <-fes.quit:
+				break out
+			}
+		}
+	}()
+
+	go func() {
+	out:
+		for {
+			select {
+			case <-time.After(10 * time.Second):
+				fes.UpdateUSDToETHPrice()
 			case <-fes.quit:
 				break out
 			}

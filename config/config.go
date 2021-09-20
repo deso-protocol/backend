@@ -52,7 +52,9 @@ type Config struct {
 	WyreApiKey            string
 	WyreSecretKey         string
 	BuyDeSoBTCAddress string
+	BuyDeSoETHAddress string
 	BuyDeSoSeed       string
+
 
 	// Emails
 	SendgridApiKey         string
@@ -63,8 +65,8 @@ type Config struct {
 	SendgridConfirmEmailId string
 
 	// Jumio
-	JumioToken             string
-	JumioSecret            string
+	JumioToken  string
+	JumioSecret string
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -128,8 +130,13 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 
 	// BTC address to send all Bitcoin received from Wyre purchases and "Buy With BTC" purchases.
 	config.BuyDeSoBTCAddress = viper.GetString("buy-deso-btc-address")
+
+	// ETH address to send all ETH received from "Buy With ETH" purchases.
+	config.BuyDeSoETHAddress = viper.GetString("buy-deso-eth-address")
+
 	// Seed from which DeSo will be sent for orders placed through Wyre and "Buy With BTC" purchases"
 	config.BuyDeSoSeed = viper.GetString("buy-deso-seed")
+
 
 	// Email
 	config.SendgridApiKey = viper.GetString("sendgrid-api-key")

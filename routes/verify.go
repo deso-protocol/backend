@@ -859,14 +859,8 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			if err != nil {
 				glog.Errorf("JumioVerifiedHandler: Error getting referral info: %v", err)
 			} else if referralInfo != nil && (referralInfo.TotalReferrals < referralInfo.MaxReferrals || referralInfo.MaxReferrals == 0) && fes.getReferralHashStatus(referralInfo.ReferrerPKID, referralInfo.ReferralHashBase58) {
-				var refereeDeSoNanos uint64
-				refereeDeSoNanos, err = fes.GetNanosFromUSDCents(float64(referralInfo.RefereeAmountUSDCents), 0)
-				if err != nil {
-					glog.Errorf("JumioVerifiedHandler: Error getting nanos for referee: %v", err)
-				} else {
-					desoNanos = refereeDeSoNanos
-					payReferrer = true
-				}
+				desoNanos = fes.GetNanosFromUSDCents(float64(referralInfo.RefereeAmountUSDCents), 0)
+				payReferrer = true
 			}
 		}
 
@@ -907,11 +901,7 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 				glog.Errorf("JumioVerifiedHandler: Error adding to the index of users who were referred by a given referral code")
 			}
 			// Calculate how much to pay the referrer
-			var referrerDeSoNanos uint64
-			referrerDeSoNanos, err = fes.GetNanosFromUSDCents(float64(referralInfo.ReferrerAmountUSDCents), 0)
-			if err != nil {
-				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error getting referrer deso nanos: %v", err)
-			}
+			referrerDeSoNanos := fes.GetNanosFromUSDCents(float64(referralInfo.ReferrerAmountUSDCents), 0)
 			if referralInfo.TotalReferrals >= referralInfo.MaxReferrals && referralInfo.MaxReferrals > 0 {
 				return userMetadata, nil
 			}

@@ -128,6 +128,7 @@ func init() {
 	runCmd.PersistentFlags().String("wyre-secret-key", "", "Wyre Secret Key")
 	runCmd.PersistentFlags().String("buy-deso-btc-address", "", "BTC Address for all Wyre Wallet Orders and 'Buy With BTC' purchases")
 	runCmd.PersistentFlags().String("buy-deso-seed", "", "Seed phrase from which DeSo will be sent for orders placed through Wyre and 'Buy With BTC' purchases")
+	runCmd.PersistentFlags().String("buy-deso-eth-address", "", "ETH Address for all 'Buy With ETH' purchases")
 
 	// Email
 	runCmd.PersistentFlags().String("sendgrid-api-key", "", "Sendgrid API key")
@@ -137,6 +138,7 @@ func init() {
 	runCmd.PersistentFlags().String("sendgrid-from-email", "", "Sendgrid from email")
 	runCmd.PersistentFlags().String("sendgrid-confirm-email-id", "", "Sendgrid confirmation email template ID")
 
+	// Jumio
 	runCmd.PersistentFlags().String("jumio-token", "", "Jumio Token")
 	runCmd.PersistentFlags().String("jumio-secret", "", "Jumio Secret Key")
 

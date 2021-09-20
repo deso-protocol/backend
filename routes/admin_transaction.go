@@ -214,7 +214,7 @@ type SwapIdentityResponse struct {
 }
 
 func (fes *APIServer) getPublicKeyFromUsernameOrPublicKeyString(usernameOrPublicKey string) ([]byte, error) {
-	if (strings.HasPrefix(usernameOrPublicKey, "BC") || strings.HasPrefix(usernameOrPublicKey, "tBC")) &&
+	if (strings.HasPrefix(usernameOrPublicKey, fes.PublicKeyBase58Prefix)) &&
 		len(usernameOrPublicKey) >= btcec.PubKeyBytesLenCompressed {
 
 		// In this case parse the string as a public key.
