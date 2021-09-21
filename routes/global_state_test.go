@@ -185,18 +185,18 @@ func TestGlobalStateServiceURLCreation(t *testing.T) {
 	_, _ = assert, require
 
 	apiServer, _, _ := newTestAPIServer(
-		t, "https://bitclout.com:17001" /*globalStateRemoteNode*/)
+		t, "https://deso.com:17001" /*globalStateRemoteNode*/)
 
 	{
 		url, _, err := apiServer.CreateGlobalStateGetRequest([]byte("woo"))
 		require.NoError(err)
-		assert.Equal("https://bitclout.com:17001/api/v1/global-state/get?shared_secret=abcdef", url)
+		assert.Equal("https://deso.com:17001/api/v1/global-state/get?shared_secret=abcdef", url)
 	}
 
 	{
 		url, _, err := apiServer.CreateGlobalStatePutRequest([]byte("woo"), []byte("hoo"))
 		require.NoError(err)
-		assert.Equal("https://bitclout.com:17001/api/v1/global-state/put?shared_secret=abcdef", url)
+		assert.Equal("https://deso.com:17001/api/v1/global-state/put?shared_secret=abcdef", url)
 	}
 
 	{
@@ -204,12 +204,12 @@ func TestGlobalStateServiceURLCreation(t *testing.T) {
 			[][]byte{[]byte("woo"), []byte("fantastic"), []byte("great")},
 		)
 		require.NoError(err)
-		assert.Equal("https://bitclout.com:17001/api/v1/global-state/batch-get?shared_secret=abcdef", url)
+		assert.Equal("https://deso.com:17001/api/v1/global-state/batch-get?shared_secret=abcdef", url)
 	}
 
 	{
 		url, _, err := apiServer.CreateGlobalStateDeleteRequest([]byte("woo"))
 		require.NoError(err)
-		assert.Equal("https://bitclout.com:17001/api/v1/global-state/delete?shared_secret=abcdef", url)
+		assert.Equal("https://deso.com:17001/api/v1/global-state/delete?shared_secret=abcdef", url)
 	}
 }

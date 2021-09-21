@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/bitclout/backend/config"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/backend/config"
+	"github.com/deso-protocol/core/lib"
 	chainlib "github.com/btcsuite/btcd/blockchain"
 	"io"
 	"io/ioutil"
@@ -57,16 +57,16 @@ func GetTestBadgerDb() (_db *badger.DB, _dir string) {
 	return db, dir
 }
 
-func NewLowDifficultyBlockchain() (*lib.Blockchain, *lib.BitCloutParams, *badger.DB) {
+func NewLowDifficultyBlockchain() (*lib.Blockchain, *lib.DeSoParams, *badger.DB) {
 
 	// Set the number of txns per view regeneration to one while creating the txns
 	lib.ReadOnlyUtxoViewRegenerationIntervalTxns = 1
 
-	return NewLowDifficultyBlockchainWithParams(&lib.BitCloutTestnetParams)
+	return NewLowDifficultyBlockchainWithParams(&lib.DeSoTestnetParams)
 }
 
-func NewLowDifficultyBlockchainWithParams(params *lib.BitCloutParams) (
-	*lib.Blockchain, *lib.BitCloutParams, *badger.DB) {
+func NewLowDifficultyBlockchainWithParams(params *lib.DeSoParams) (
+	*lib.Blockchain, *lib.DeSoParams, *badger.DB) {
 
 	// Set the number of txns per view regeneration to one while creating the txns
 	lib.ReadOnlyUtxoViewRegenerationIntervalTxns = 1
@@ -77,8 +77,8 @@ func NewLowDifficultyBlockchainWithParams(params *lib.BitCloutParams) (
 	// Set some special parameters for testing. If the blocks above are changed
 	// these values should be updated to reflect the latest testnet values.
 	paramsCopy := *params
-	paramsCopy.GenesisBlock = &lib.MsgBitCloutBlock{
-		Header: &lib.MsgBitCloutHeader{
+	paramsCopy.GenesisBlock = &lib.MsgDeSoBlock{
+		Header: &lib.MsgDeSoHeader{
 			Version:               0,
 			PrevBlockHash:         lib.MustDecodeHexBlockHash("0000000000000000000000000000000000000000000000000000000000000000"),
 			TransactionMerkleRoot: lib.MustDecodeHexBlockHash("097158f0d27e6d10565c4dc696c784652c3380e0ff8382d3599a4d18b782e965"),
@@ -87,10 +87,10 @@ func NewLowDifficultyBlockchainWithParams(params *lib.BitCloutParams) (
 			Nonce:                 uint64(0),
 			// No ExtraNonce is set in the genesis block
 		},
-		Txns: []*lib.MsgBitCloutTxn{
+		Txns: []*lib.MsgDeSoTxn{
 			{
-				TxInputs:  []*lib.BitCloutInput{},
-				TxOutputs: []*lib.BitCloutOutput{},
+				TxInputs:  []*lib.DeSoInput{},
+				TxOutputs: []*lib.DeSoOutput{},
 				TxnMeta: &lib.BlockRewardMetadataa{
 					ExtraData: []byte("They came here, to the new world. World 2.0, version 1776."),
 				},
@@ -109,7 +109,7 @@ func NewLowDifficultyBlockchainWithParams(params *lib.BitCloutParams) (
 	paramsCopy.BlockRewardMaturity = time.Second * 4
 	paramsCopy.TimeBetweenDifficultyRetargets = 100 * time.Second
 	paramsCopy.MaxDifficultyRetargetFactor = 2
-	paramsCopy.SeedBalances = []*lib.BitCloutOutput{
+	paramsCopy.SeedBalances = []*lib.DeSoOutput{
 		{
 			PublicKey:   lib.MustBase58CheckDecode(moneyPkString),
 			AmountNanos: uint64(2000000 * lib.NanosPerUnit),
@@ -117,7 +117,7 @@ func NewLowDifficultyBlockchainWithParams(params *lib.BitCloutParams) (
 	}
 
 	// Temporarily modify the seed balances to make a specific public
-	// key have some BitClout
+	// key have some DeSo
 	chain, err := lib.NewBlockchain([]string{blockSignerPk}, 0,
 		&paramsCopy, timesource, db, nil, nil)
 	if err != nil {
@@ -127,13 +127,13 @@ func NewLowDifficultyBlockchainWithParams(params *lib.BitCloutParams) (
 	return chain, &paramsCopy, db
 }
 
-func NewTestMiner(t *testing.T, chain *lib.Blockchain, params *lib.BitCloutParams, isSender bool) (*lib.BitCloutMempool, *lib.BitCloutMiner) {
+func NewTestMiner(t *testing.T, chain *lib.Blockchain, params *lib.DeSoParams, isSender bool) (*lib.DeSoMempool, *lib.DeSoMiner) {
 	assert := assert.New(t)
 	require := require.New(t)
 	_ = assert
 	_ = require
 
-	mempool := lib.NewBitCloutMempool(
+	mempool := lib.NewDeSoMempool(
 		chain, 0, /* rateLimitFeeRateNanosPerKB */
 		0 /* minFeeRateNanosPerKB */, "", true,
 		"" /*dataDir*/, "")
@@ -144,19 +144,19 @@ func NewTestMiner(t *testing.T, chain *lib.Blockchain, params *lib.BitCloutParam
 		minerPubKeys = append(minerPubKeys, recipientPkString)
 	}
 
-	blockProducer, err := lib.NewBitCloutBlockProducer(
+	blockProducer, err := lib.NewDeSoBlockProducer(
 		0, 1,
 		blockSignerSeed,
 		mempool, chain,
 		nil, params)
 	require.NoError(err)
 
-	newMiner, err := lib.NewBitCloutMiner(minerPubKeys, 1 /*numThreads*/, blockProducer, params)
+	newMiner, err := lib.NewDeSoMiner(minerPubKeys, 1 /*numThreads*/, blockProducer, params)
 	require.NoError(err)
 	return mempool, newMiner
 }
 
-func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *APIServer, *lib.BitCloutMiner) {
+func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *APIServer, *lib.DeSoMiner) {
 	assert := assert.New(t)
 	require := require.New(t)
 	_, _ = assert, require
@@ -165,7 +165,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	txIndexDb, _ := GetTestBadgerDb()
 	txIndex, _ := lib.NewTXIndex(chain, nil, params, txIndexDb.Opts().Dir)
 	mempool, miner := NewTestMiner(t, chain, params, true /*isSender*/)
-	// Mine two blocks to give the sender some BitClout.
+	// Mine two blocks to give the sender some DeSo.
 	block1, err := miner.MineAndProcessSingleBlock(0 /*threadIndex*/, mempool)
 	require.NoError(err)
 	block2, err := miner.MineAndProcessSingleBlock(0 /*threadIndex*/, mempool)
@@ -224,7 +224,7 @@ func TestAPI(t *testing.T) {
 	// Index=0, Mainnet
 	{
 		// Run this test as mainnet.
-		apiServer.Params = &lib.BitCloutMainnetParams
+		apiServer.Params = &lib.DeSoMainnetParams
 		keyPairRequest := &APIKeyPairRequest{
 			Mnemonic:  "elegant express swarm mercy divorce conduct actor brain critic subject fit broom",
 			ExtraText: "extra text",
@@ -253,12 +253,12 @@ func TestAPI(t *testing.T) {
 		assert.Equal("BC1YLgjfMDyes7FkCoWsXYbHxW5h6QNZGLmHdmJaEWzUPd2jRhVZHQT", keyPairResponse.PublicKeyBase58Check)
 		assert.Equal("bc6EzXTBvGcciQoTge3Fb43mBVs14FLxW5RjZLebB4QYRdXrd1oEb", keyPairResponse.PrivateKeyBase58Check)
 
-		apiServer.Params = &lib.BitCloutTestnetParams
+		apiServer.Params = &lib.DeSoTestnetParams
 	}
 	// Index=5, Mainnet
 	{
 		// Run this test as mainnet.
-		apiServer.Params = &lib.BitCloutMainnetParams
+		apiServer.Params = &lib.DeSoMainnetParams
 		keyPairRequest := &APIKeyPairRequest{
 			Mnemonic:  "elegant express swarm mercy divorce conduct actor brain critic subject fit broom",
 			ExtraText: "extra text",
@@ -286,7 +286,7 @@ func TestAPI(t *testing.T) {
 		assert.Equal("BC1YLhSwLFat8r1WW6GgzL41ppeWRVBdwMuAgW9uPnatsG3XnWxR4zV", keyPairResponse.PublicKeyBase58Check)
 		assert.Equal("bc6EzbZVTKbZXZBNk39feiAsVKK1WQKcVTzbcwJXHWrcjZ5zHo7D5", keyPairResponse.PrivateKeyBase58Check)
 
-		apiServer.Params = &lib.BitCloutTestnetParams
+		apiServer.Params = &lib.DeSoTestnetParams
 	}
 	// Index=0, Testnet
 	{
@@ -350,7 +350,7 @@ func TestAPI(t *testing.T) {
 	// Generate keypairs for an account with no password and no extra text
 	{
 		// Run this test as mainnet.
-		apiServer.Params = &lib.BitCloutMainnetParams
+		apiServer.Params = &lib.DeSoMainnetParams
 		keyPairRequest := &APIKeyPairRequest{
 			Mnemonic: "trial economy dentist mistake engage enact blur segment helmet evoke taste bulb",
 			Index:    0,
@@ -377,13 +377,13 @@ func TestAPI(t *testing.T) {
 		assert.Equal("BC1YLhNxzU7cwo2Vr5xCMWvVsHiWUwB6myo56QDsxfUyiu5cf3UaDVc", keyPairResponse.PublicKeyBase58Check)
 		assert.Equal("bc6EjWM6p9C5yPLtNRE9GRpPAJePqT7WsCAFEi51mYULQZfEawjA6", keyPairResponse.PrivateKeyBase58Check)
 
-		apiServer.Params = &lib.BitCloutTestnetParams
+		apiServer.Params = &lib.DeSoTestnetParams
 	}
 
 	// Generate keypairs for a deep index
 	{
 		// Run this test as mainnet.
-		apiServer.Params = &lib.BitCloutMainnetParams
+		apiServer.Params = &lib.DeSoMainnetParams
 		keyPairRequest := &APIKeyPairRequest{
 			Mnemonic: "trial economy dentist mistake engage enact blur segment helmet evoke taste bulb",
 			Index:    1019,
@@ -410,7 +410,7 @@ func TestAPI(t *testing.T) {
 		assert.Equal("BC1YLhsGETW1BghV5WtddyySZrwVeXvMSUcujD1r6FH2Jggzh87T1Cg", keyPairResponse.PublicKeyBase58Check)
 		assert.Equal("bc6FnVXYfBNKD8UN9M8134zUcLEYRiZ14UCvm57BMbM7sbvhxbftg", keyPairResponse.PrivateKeyBase58Check)
 
-		apiServer.Params = &lib.BitCloutTestnetParams
+		apiServer.Params = &lib.DeSoTestnetParams
 	}
 
 	// The balance of the miner public key should be nonzero and there should
@@ -563,8 +563,8 @@ func TestAPI(t *testing.T) {
 		assert.Equal(1, len(transactionInfoRes.Transactions[0].Outputs))
 	}
 	// Lookup the info for the first block reward transaction.
-	var firstBlockTxn *lib.MsgBitCloutTxn
-	var secondBlockTxn *lib.MsgBitCloutTxn
+	var firstBlockTxn *lib.MsgDeSoTxn
+	var secondBlockTxn *lib.MsgDeSoTxn
 	{
 		blockHash := apiServer.blockchain.BestChain()[1].Hash
 		blockLookup, err := lib.GetBlock(blockHash, apiServer.blockchain.DB())
@@ -608,9 +608,9 @@ func TestAPI(t *testing.T) {
 			int64(transactionInfoRes.Transactions[0].Outputs[0].AmountNanos))
 	}
 
-	// Sending BitClout with a bad private key should fail.
+	// Sending DeSo with a bad private key should fail.
 	{
-		transferBitCloutRequest := &APITransferBitCloutRequest{
+		transferDeSoRequest := &APITransferDeSoRequest{
 			SenderPrivateKeyBase58Check:   "un5aPDDWFUVkbGKFUm6S9ftSPWSpeQhVM4oftYbYJys6dk9XxXh",
 			RecipientPublicKeyBase58Check: "UNG4YzvzLe3dKA7S8dA5w5akft13MJfThje5J4pPZStoUPe1CNFcaZ",
 			AmountNanos:                   500,
@@ -620,10 +620,10 @@ func TestAPI(t *testing.T) {
 			// MinFeeRateNanosPerKB
 			// DryRun
 		}
-		jsonRequest, err := json.Marshal(transferBitCloutRequest)
+		jsonRequest, err := json.Marshal(transferDeSoRequest)
 		require.NoError(err)
 		request, _ := http.NewRequest(
-			"POST", RoutePathAPITransferBitClout,
+			"POST", RoutePathAPITransferDeSo,
 			bytes.NewBuffer(jsonRequest))
 		request.Header.Set("Content-Type", "application/json")
 		response := httptest.NewRecorder()
@@ -632,12 +632,12 @@ func TestAPI(t *testing.T) {
 		assert.Contains(string(response.Body.Bytes()), "Problem decoding")
 	}
 
-	// Send BitClout from the miner public key to another public key.
+	// Send DeSo from the miner public key to another public key.
 	// When DryRun is set to true, the balances shouldn't change.
 	apiServer.MinFeeRateNanosPerKB = 2000
 	txn1Hex := ""
 	{
-		transferBitCloutRequest := &APITransferBitCloutRequest{
+		transferDeSoRequest := &APITransferDeSoRequest{
 			SenderPrivateKeyBase58Check: senderPrivString,
 			// Account "account2" index 0
 			RecipientPublicKeyBase58Check: "tUN2P5LeqFy1ucd2rYdzND7Fgis5zgNuZa69UGsXYcGJPjvvjgXk8P",
@@ -648,10 +648,10 @@ func TestAPI(t *testing.T) {
 			// MinFeeRateNanosPerKB
 			DryRun: true,
 		}
-		jsonRequest, err := json.Marshal(transferBitCloutRequest)
+		jsonRequest, err := json.Marshal(transferDeSoRequest)
 		require.NoError(err)
 		request, _ := http.NewRequest(
-			"POST", RoutePathAPITransferBitClout,
+			"POST", RoutePathAPITransferDeSo,
 			bytes.NewBuffer(jsonRequest))
 		request.Header.Set("Content-Type", "application/json")
 		response := httptest.NewRecorder()
@@ -660,24 +660,24 @@ func TestAPI(t *testing.T) {
 
 		// Check the values of the response
 		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
-		transferBitCloutResponse := APITransferBitCloutResponse{}
-		if err := decoder.Decode(&transferBitCloutResponse); err != nil {
+		transferDeSoResponse := APITransferDeSoResponse{}
+		if err := decoder.Decode(&transferDeSoResponse); err != nil {
 			require.NoError(err, "Problem decoding response")
 		}
-		assert.Equal("", transferBitCloutResponse.Error)
+		assert.Equal("", transferDeSoResponse.Error)
 		assert.Equal(senderPkString,
-			transferBitCloutResponse.TransactionInfo.SenderPublicKeyBase58Check)
+			transferDeSoResponse.TransactionInfo.SenderPublicKeyBase58Check)
 		assert.Equal("tBCKVruNQFcHDAfwi6BybBXkuPiUitLCRWMZUyVyXNHSZwgrpF2Leq",
-			transferBitCloutResponse.TransactionInfo.RecipientPublicKeyBase58Check)
-		assert.Equal(int64(446), int64(transferBitCloutResponse.TransactionInfo.FeeNanos))
-		assert.Equal(int64(500), int64(transferBitCloutResponse.TransactionInfo.SpendAmountNanos))
-		assert.Equal(int64(1000000000-500-446), int64(transferBitCloutResponse.TransactionInfo.ChangeAmountNanos))
-		assert.LessOrEqual(int64(2000), int64(transferBitCloutResponse.TransactionInfo.FeeRateNanosPerKB))
-		assert.Equal(int64(1000000000), int64(transferBitCloutResponse.TransactionInfo.TotalInputNanos))
-		assert.Equal("BASIC_TRANSFER", transferBitCloutResponse.Transaction.TransactionType)
-		assert.Equal(1, len(transferBitCloutResponse.Transaction.Inputs))
-		assert.Equal(2, len(transferBitCloutResponse.Transaction.Outputs))
-		txn1Hex = transferBitCloutResponse.Transaction.RawTransactionHex
+			transferDeSoResponse.TransactionInfo.RecipientPublicKeyBase58Check)
+		assert.Equal(int64(446), int64(transferDeSoResponse.TransactionInfo.FeeNanos))
+		assert.Equal(int64(500), int64(transferDeSoResponse.TransactionInfo.SpendAmountNanos))
+		assert.Equal(int64(1000000000-500-446), int64(transferDeSoResponse.TransactionInfo.ChangeAmountNanos))
+		assert.LessOrEqual(int64(2000), int64(transferDeSoResponse.TransactionInfo.FeeRateNanosPerKB))
+		assert.Equal(int64(1000000000), int64(transferDeSoResponse.TransactionInfo.TotalInputNanos))
+		assert.Equal("BASIC_TRANSFER", transferDeSoResponse.Transaction.TransactionType)
+		assert.Equal(1, len(transferDeSoResponse.Transaction.Inputs))
+		assert.Equal(2, len(transferDeSoResponse.Transaction.Outputs))
+		txn1Hex = transferDeSoResponse.Transaction.RawTransactionHex
 	}
 	{
 		balanceRequest := &APIBalanceRequest{
@@ -713,7 +713,7 @@ func TestAPI(t *testing.T) {
 	}
 	// Adding the transaction to the mempool should cause changes to the
 	// confirmed and unconfirmed balances.
-	txn1 := &lib.MsgBitCloutTxn{}
+	txn1 := &lib.MsgDeSoTxn{}
 	txn1Bytes, _ := hex.DecodeString(txn1Hex)
 	_ = txn1.FromBytes(txn1Bytes)
 	_, err := apiServer.mempool.ProcessTransaction(
@@ -786,7 +786,7 @@ func TestAPI(t *testing.T) {
 	// to a third public key.
 	txn2Hex := ""
 	{
-		transferBitCloutRequest := &APITransferBitCloutRequest{
+		transferDeSoRequest := &APITransferDeSoRequest{
 			SenderPrivateKeyBase58Check: "tunSFqT5W5enayqKcx9Lqcwep5w85NejpbsMtvjKXZ74f5UVZmULQ",
 			// Account "account2" index 0
 			RecipientPublicKeyBase58Check: "tUN2PncdrsCHeNPL9JTT9fq81HgR5VTaahyCD8CgpCgn2kjHauD7L6",
@@ -797,10 +797,10 @@ func TestAPI(t *testing.T) {
 			MinFeeRateNanosPerKB: 100,
 			DryRun:               true,
 		}
-		jsonRequest, err := json.Marshal(transferBitCloutRequest)
+		jsonRequest, err := json.Marshal(transferDeSoRequest)
 		require.NoError(err)
 		request, _ := http.NewRequest(
-			"POST", RoutePathAPITransferBitClout,
+			"POST", RoutePathAPITransferDeSo,
 			bytes.NewBuffer(jsonRequest))
 		request.Header.Set("Content-Type", "application/json")
 		response := httptest.NewRecorder()
@@ -809,26 +809,26 @@ func TestAPI(t *testing.T) {
 
 		// Check the values of the response
 		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
-		transferBitCloutResponse := APITransferBitCloutResponse{}
-		if err := decoder.Decode(&transferBitCloutResponse); err != nil {
+		transferDeSoResponse := APITransferDeSoResponse{}
+		if err := decoder.Decode(&transferDeSoResponse); err != nil {
 			require.NoError(err, "Problem decoding response")
 		}
-		assert.Equal("", transferBitCloutResponse.Error)
+		assert.Equal("", transferDeSoResponse.Error)
 		assert.Equal("tBCKVruNQFcHDAfwi6BybBXkuPiUitLCRWMZUyVyXNHSZwgrpF2Leq",
-			transferBitCloutResponse.TransactionInfo.SenderPublicKeyBase58Check)
+			transferDeSoResponse.TransactionInfo.SenderPublicKeyBase58Check)
 		assert.Equal("tBCKWaBMRrqYwvSEzr1SNeFdDxXoohQsSeEcDpq8nxhvCxVDcg8Hgf",
-			transferBitCloutResponse.TransactionInfo.RecipientPublicKeyBase58Check)
-		assert.Equal(int64(22), int64(transferBitCloutResponse.TransactionInfo.FeeNanos))
-		assert.Equal(int64(100), int64(transferBitCloutResponse.TransactionInfo.SpendAmountNanos))
-		assert.Equal(int64(500-100-22), int64(transferBitCloutResponse.TransactionInfo.ChangeAmountNanos))
-		assert.LessOrEqual(int64(100), int64(transferBitCloutResponse.TransactionInfo.FeeRateNanosPerKB))
-		assert.Equal(int64(500), int64(transferBitCloutResponse.TransactionInfo.TotalInputNanos))
-		assert.Equal("BASIC_TRANSFER", transferBitCloutResponse.Transaction.TransactionType)
-		assert.Equal(1, len(transferBitCloutResponse.Transaction.Inputs))
-		assert.Equal(2, len(transferBitCloutResponse.Transaction.Outputs))
-		txn2Hex = transferBitCloutResponse.Transaction.RawTransactionHex
+			transferDeSoResponse.TransactionInfo.RecipientPublicKeyBase58Check)
+		assert.Equal(int64(22), int64(transferDeSoResponse.TransactionInfo.FeeNanos))
+		assert.Equal(int64(100), int64(transferDeSoResponse.TransactionInfo.SpendAmountNanos))
+		assert.Equal(int64(500-100-22), int64(transferDeSoResponse.TransactionInfo.ChangeAmountNanos))
+		assert.LessOrEqual(int64(100), int64(transferDeSoResponse.TransactionInfo.FeeRateNanosPerKB))
+		assert.Equal(int64(500), int64(transferDeSoResponse.TransactionInfo.TotalInputNanos))
+		assert.Equal("BASIC_TRANSFER", transferDeSoResponse.Transaction.TransactionType)
+		assert.Equal(1, len(transferDeSoResponse.Transaction.Inputs))
+		assert.Equal(2, len(transferDeSoResponse.Transaction.Outputs))
+		txn2Hex = transferDeSoResponse.Transaction.RawTransactionHex
 	}
-	txn2 := &lib.MsgBitCloutTxn{}
+	txn2 := &lib.MsgDeSoTxn{}
 	txn2Bytes, _ := hex.DecodeString(txn2Hex)
 	_ = txn2.FromBytes(txn2Bytes)
 	apiServer.mempool.ProcessTransaction(

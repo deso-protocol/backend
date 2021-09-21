@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 
 	"github.com/dgraph-io/badger/v3"
 	"github.com/nyaruka/phonenumbers"
@@ -115,7 +115,7 @@ var (
 	// The prefix for checking the state of a user's wyre order.
 	_GlobalStatePrefixUserPublicKeyWyreOrderIdToWyreOrderMetadata = []byte{9}
 
-	// The prefix for checking whether or not bitclout has been sent for a given a wyre order
+	// The prefix for checking whether or not deso has been sent for a given a wyre order
 	_GlobalStatePrefixWyreOrderIdProcessed = []byte{10}
 
 	// Keeps a record of all wyre orders so we can see what has been processed or not.
@@ -133,11 +133,11 @@ var (
 	// <prefix, username string> -> <BlacklistAudiLog>
 	_GlobalStatePrefixBlacklistAuditLog = []byte{14}
 
-	// Stores the current USD Cents per BitClout reserve exchange rate.
+	// Stores the current USD Cents per DeSo reserve exchange rate.
 	// If rate received from exchanges goes below this value, use this value instead.
-	_GlobalStatePrefixUSDCentsToBitCloutReserveExchangeRate = []byte{15}
+	_GlobalStatePrefixUSDCentsToDeSoReserveExchangeRate = []byte{15}
 
-	_GlobalStatePrefixBuyBitCloutFeeBasisPoints = []byte{16}
+	_GlobalStatePrefixBuyDeSoFeeBasisPoints = []byte{16}
 
 	// NFT drop info.
 	_GlobalStatePrefixNFTDropNumberToNFTDropEntry = []byte{17}
@@ -147,8 +147,8 @@ var (
 
 	_GlobalStatePrefixCountryIDDocumentTypeSubTypeDocumentNumber = []byte{19}
 
-	// Jumio BitCloutNanos
-	_GlobalStatePrefixJumioBitCloutNanos = []byte{21}
+	// Jumio DeSoNanos
+	_GlobalStatePrefixJumioDeSoNanos = []byte{21}
 
 	// Tutorial featured well-known creators
 	_GlobalStateKeyWellKnownTutorialCreators = []byte{22}
@@ -189,8 +189,8 @@ type ReferralInfo struct {
 	NumJumioAttempts           uint64
 	NumJumioSuccesses          uint64
 	TotalReferrals             uint64
-	TotalReferrerBitCloutNanos uint64
-	TotalRefereeBitCloutNanos  uint64
+	TotalReferrerDeSoNanos uint64
+	TotalRefereeDeSoNanos  uint64
 	DateCreatedTStampNanos     uint64
 }
 
@@ -239,7 +239,7 @@ type UserMetadata struct {
 	// Store the index of the last notification that the user saw
 	NotificationLastSeenIndex int64
 
-	// Amount of Bitcoin that users have burned so far via the Buy BitClout UI
+	// Amount of Bitcoin that users have burned so far via the Buy DeSo UI
 	//
 	// We track this so that, if the user does multiple burns,
 	// we can set HasBurnedEnoughSatoshisToCreateProfile based on the total
@@ -281,9 +281,9 @@ type UserMetadata struct {
 	JumioDocumentKey []byte
 	// RedoJumio = boolean which allows user to skip the duplicate ID check in JumioCallback
 	RedoJumio bool
-	// JumioStarterBitCloutTxnHashHex = Txn hash hex of the transaction in which the user was paid for
+	// JumioStarterDeSoTxnHashHex = Txn hash hex of the transaction in which the user was paid for
 	// going through the Jumio flow
-	JumioStarterBitCloutTxnHashHex string
+	JumioStarterDeSoTxnHashHex string
 	// JumioShouldCompProfileCreation = True if we should comp the create profile fee because the user went through the
 	// Jumio flow.
 	JumioShouldCompProfileCreation bool
@@ -305,7 +305,7 @@ type UserMetadata struct {
 	ReferralHashBase58Check string
 
 	// Txn hash in which the referrer was paid
-	ReferrerBitCloutTxnHash string
+	ReferrerDeSoTxnHash string
 }
 
 type TutorialStatus string
@@ -344,10 +344,10 @@ type WyreWalletOrderMetadata struct {
 	// Track Wallet Order response received based on the last payload received from Wyre Webhook
 	LatestWyreTrackWalletOrderResponse *WyreTrackOrderResponse
 
-	// Amount of BitClout that was sent for this WyreWalletOrder
-	BitCloutPurchasedNanos uint64
+	// Amount of DeSo that was sent for this WyreWalletOrder
+	DeSoPurchasedNanos uint64
 
-	// BlockHash of the transaction for sending the BitClout
+	// BlockHash of the transaction for sending the DeSo
 	BasicTransferTxnBlockHash *lib.BlockHash
 }
 
@@ -505,13 +505,13 @@ func GlobalStateKeyForWyreOrderID(orderIdBytes []byte) []byte {
 	return key
 }
 
-func GlobalStateKeyForUSDCentsToBitCloutReserveExchangeRate() []byte {
-	prefixCopy := append([]byte{}, _GlobalStatePrefixUSDCentsToBitCloutReserveExchangeRate...)
+func GlobalStateKeyForUSDCentsToDeSoReserveExchangeRate() []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixUSDCentsToDeSoReserveExchangeRate...)
 	return prefixCopy
 }
 
-func GlobalStateKeyForBuyBitCloutFeeBasisPoints() []byte {
-	prefixCopy := append([]byte{}, _GlobalStatePrefixBuyBitCloutFeeBasisPoints...)
+func GlobalStateKeyForBuyDeSoFeeBasisPoints() []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixBuyDeSoFeeBasisPoints...)
 	return prefixCopy
 }
 
@@ -537,8 +537,8 @@ func GlobalStateKeyForCountryIDDocumentTypeSubTypeDocumentNumber(countryID strin
 	return key
 }
 
-func GlobalStateKeyForJumioBitCloutNanos() []byte {
-	prefixCopy := append([]byte{}, _GlobalStatePrefixJumioBitCloutNanos...)
+func GlobalStateKeyForJumioDeSoNanos() []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixJumioDeSoNanos...)
 	return prefixCopy
 }
 

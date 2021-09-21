@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -75,7 +75,7 @@ type SubmitTransactionRequest struct {
 }
 
 type SubmitTransactionResponse struct {
-	Transaction *lib.MsgBitCloutTxn
+	Transaction *lib.MsgDeSoTxn
 	TxnHashHex  string
 
 	// include the PostEntryResponse if a post was submitted
@@ -96,7 +96,7 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	txn := &lib.MsgBitCloutTxn{}
+	txn := &lib.MsgDeSoTxn{}
 	err = txn.FromBytes(txnBytes)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem deserializing transaction from bytes: %v", err))
@@ -144,7 +144,7 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 // After we submit a new post transaction we need to do run a few callbacks
 // 1. Attach the PostEntry to the response so the client can render it
 // 2. Attempt to auto-whitelist the post for the global feed
-func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn, response *SubmitTransactionResponse) error {
+func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgDeSoTxn, response *SubmitTransactionResponse) error {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return errors.Errorf("Problem with GetAugmentedUniversalView: %v", err)
@@ -182,8 +182,8 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 	// attach everything to the response
 	response.PostEntryResponse = postEntryResponse
 
-	// Try to whitelist a post if it is not a comment and is not a vanilla reclout.
-	if len(postHashToModify) == 0 && !lib.IsVanillaReclout(postEntry) {
+	// Try to whitelist a post if it is not a comment and is not a vanilla repost.
+	if len(postHashToModify) == 0 && !lib.IsVanillaRepost(postEntry) {
 		// If this is a new post, let's try and auto-whitelist it now that it has been broadcast.
 		// First we need to figure out if the user is whitelisted.
 		userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(updaterPublicKeyBytes, fes.Params))
@@ -192,8 +192,8 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 				"metadata from global state.")
 		}
 
-		// Only whitelist posts for users that are auto-whitelisted and the post is not a comment or a vanilla reclout.
-		if userMetadata.WhitelistPosts && len(postEntry.ParentStakeID) == 0 && (postEntry.IsQuotedReclout || postEntry.RecloutedPostHash == nil) {
+		// Only whitelist posts for users that are auto-whitelisted and the post is not a comment or a vanilla repost.
+		if userMetadata.WhitelistPosts && len(postEntry.ParentStakeID) == 0 && (postEntry.IsQuotedRepost || postEntry.RepostedPostHash == nil) {
 			minTimestampNanos := time.Now().UTC().AddDate(0, 0, -1).UnixNano() // last 24 hours
 			_, dbPostAndCommentHashes, _, err := lib.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
 				fes.blockchain.DB(), updaterPublicKeyBytes, false /*fetchEntries*/, uint64(minTimestampNanos), 0, /*maxTimestampNanos*/
@@ -206,7 +206,7 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 			maxAutoWhitelistPostsPerDay := 5
 			postEntriesInLastDay := 0
 			for _, dbPostOrCommentHash := range dbPostAndCommentHashes {
-				if existingPostEntry := utxoView.GetPostEntryForPostHash(dbPostOrCommentHash); len(existingPostEntry.ParentStakeID) == 0 && !lib.IsVanillaReclout(existingPostEntry) {
+				if existingPostEntry := utxoView.GetPostEntryForPostHash(dbPostOrCommentHash); len(existingPostEntry.ParentStakeID) == 0 && !lib.IsVanillaRepost(existingPostEntry) {
 					postEntriesInLastDay += 1
 				}
 				if maxAutoWhitelistPostsPerDay >= postEntriesInLastDay {
@@ -256,7 +256,7 @@ type UpdateProfileResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 	TxnHashHex        string
 }
@@ -298,7 +298,7 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 	}
 	if !canCreateProfile {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"UpdateProfile: Not allowed to update profile. Please verify your phone number or buy BitClout."))
+			"UpdateProfile: Not allowed to update profile. Please verify your phone number or buy DeSo."))
 		return
 	}
 
@@ -446,9 +446,9 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	// Additional fee is set to the create profile fee when we are creating a profile
 	additionalFees := utxoView.GlobalParamsEntry.CreateProfileFeeNanos
 
-	// Only comp create profile fee if frontend server has both twilio and starter bitclout seed configured and the user
+	// Only comp create profile fee if frontend server has both twilio and starter deso seed configured and the user
 	// has verified their profile.
-	if !fes.Config.CompProfileCreation || fes.Config.StarterBitcloutSeed == "" || fes.Twilio == nil || (userMetadata.PhoneNumber == "" && !userMetadata.JumioVerified) {
+	if !fes.Config.CompProfileCreation || fes.Config.StarterDeSoSeed == "" || fes.Twilio == nil || (userMetadata.PhoneNumber == "" && !userMetadata.JumioVerified) {
 		return additionalFees, nil
 	}
 	var currentBalanceNanos uint64
@@ -460,7 +460,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 
 	// If a user is jumio verified, we just comp the profile even if their balance is greater than the create profile fee.
 	// If a user has a phone number verified but is not jumio verified, we need to check that they haven't spent all their
-	// starter bitclout already and that ShouldCompProfileCreation is true
+	// starter deso already and that ShouldCompProfileCreation is true
 	var phoneNumberMetadata *PhoneNumberMetadata
 	if userMetadata.PhoneNumber != "" && !userMetadata.JumioVerified {
 		phoneNumberMetadata, err = fes.getPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
@@ -480,21 +480,21 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 		}
 	}
 
-	// Find the minimum starter bit clout amount
-	minStarterBitCloutNanos := fes.Config.StarterBitcloutNanos
+	// Find the minimum starter bit deso amount
+	minStarterDeSoNanos := fes.Config.StarterDeSoNanos
 	if len(fes.Config.StarterPrefixNanosMap) > 0 {
-		for _, starterBitClout := range fes.Config.StarterPrefixNanosMap {
-			if starterBitClout < minStarterBitCloutNanos {
-				minStarterBitCloutNanos = starterBitClout
+		for _, starterDeSo := range fes.Config.StarterPrefixNanosMap {
+			if starterDeSo < minStarterDeSoNanos {
+				minStarterDeSoNanos = starterDeSo
 			}
 		}
 	}
-	// We comp the create profile fee minus the minimum starter bitclout amount divided by 2.
+	// We comp the create profile fee minus the minimum starter deso amount divided by 2.
 	// This discourages botting while covering users who verify a phone number.
-	compAmount := createProfileFeeNanos - (minStarterBitCloutNanos / 2)
-	// If the user won't have enough bitclout to cover the fee, this is an error.
+	compAmount := createProfileFeeNanos - (minStarterDeSoNanos / 2)
+	// If the user won't have enough deso to cover the fee, this is an error.
 	if currentBalanceNanos+compAmount < createProfileFeeNanos {
-		return 0, errors.Wrap(fmt.Errorf("Creating a profile requires BitClout.  Please purchase some to create a profile."), "")
+		return 0, errors.Wrap(fmt.Errorf("Creating a profile requires DeSo.  Please purchase some to create a profile."), "")
 	}
 	// Set should comp to false so we don't continually comp a public key.  PhoneNumberMetadata is only non-nil if
 	// a user verified their phone number but is not jumio verified.
@@ -512,7 +512,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	}
 
 	// Send the comp amount to the public key
-	_, err = fes.SendSeedBitClout(profilePublicKey, compAmount, false)
+	_, err = fes.SendSeedDeSo(profilePublicKey, compAmount, false)
 	if err != nil {
 		return 0, errors.Wrap(fmt.Errorf("UpdateProfile: error comping create profile fee: %v", err), "")
 	}
@@ -571,15 +571,15 @@ type ExchangeBitcoinResponse struct {
 
 	SerializedTxnHex   string
 	TxnHashHex         string
-	BitCloutTxnHashHex string
+	DeSoTxnHashHex string
 
 	UnsignedHashes []string
 }
 
 // ExchangeBitcoinStateless ...
 func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http.Request) {
-	if fes.Config.BuyBitCloutSeed == "" {
-		_AddBadRequestError(ww, "ExchangeBitcoinStateless: This node is not configured to sell BitClout for Bitcoin")
+	if fes.Config.BuyDeSoSeed == "" {
+		_AddBadRequestError(ww, "ExchangeBitcoinStateless: This node is not configured to sell DeSo for Bitcoin")
 		return
 	}
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
@@ -637,7 +637,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 
 	// Get a UtxoSource from the user's BitcoinAPI data. Note we could change the API
 	// around a bit to not have to do this but oh well.
-	utxoSource := func(spendAddr string, params *lib.BitCloutParams) ([]*lib.BitcoinUtxo, error) {
+	utxoSource := func(spendAddr string, params *lib.DeSoParams) ([]*lib.BitcoinUtxo, error) {
 		if spendAddr != requestData.BTCDepositAddress {
 			return nil, fmt.Errorf("ExchangeBitcoinStateless.UtxoSource: Expecting deposit address %s "+
 				"but got unrecognized address %s", requestData.BTCDepositAddress, spendAddr)
@@ -663,7 +663,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		uint64(burnAmountSatoshis),
 		uint64(requestData.FeeRateSatoshisPerKB),
 		pubKey,
-		fes.Config.BuyBitCloutBTCAddress,
+		fes.Config.BuyDeSoBTCAddress,
 		fes.Params,
 		utxoSource)
 
@@ -715,29 +715,29 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 	bitcoinTxnBytes := bitcoinTxnBuffer.Bytes()
 	bitcoinTxnHash := bitcoinTxn.TxHash()
 
-	// Check that BitClout purchased they would get does not exceed current balance.
+	// Check that DeSo purchased they would get does not exceed current balance.
 	var feeBasisPoints uint64
-	feeBasisPoints, err = fes.GetBuyBitCloutFeeBasisPointsResponseFromGlobalState()
+	feeBasisPoints, err = fes.GetBuyDeSoFeeBasisPointsResponseFromGlobalState()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error getting buy bitclout premium basis points from global state: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error getting buy deso premium basis points from global state: %v", err))
 		return
 	}
 
 	// Update the current exchange price.
-	fes.UpdateUSDCentsToBitCloutExchangeRate()
+	fes.UpdateUSDCentsToDeSoExchangeRate()
 
 	nanosPurchased := fes.GetNanosFromSats(uint64(burnAmountSatoshis), feeBasisPoints)
-	balanceInsufficient, err := fes.ExceedsBitCloutBalance(nanosPurchased, fes.Config.BuyBitCloutSeed)
+	balanceInsufficient, err := fes.ExceedsDeSoBalance(nanosPurchased, fes.Config.BuyDeSoSeed)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error checking if send bitclout balance is sufficient: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error checking if send deso balance is sufficient: %v", err))
 		return
 	}
 	if balanceInsufficient {
-		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: SendBitClout wallet balance is below nanos purchased"))
+		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: SendDeSo wallet balance is below nanos purchased"))
 		return
 	}
 
-	var bitcloutTxnHash *lib.BlockHash
+	var desoTxnHash *lib.BlockHash
 	if requestData.Broadcast {
 		glog.Infof("ExchangeBitcoinStateless: Broadcasting Bitcoin txn: %v", bitcoinTxn)
 
@@ -795,16 +795,16 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 			return
 		}
 
-		bitcloutTxnHash, err = fes.SendSeedBitClout(pkBytes, nanosPurchased, true)
+		desoTxnHash, err = fes.SendSeedDeSo(pkBytes, nanosPurchased, true)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error sending BitClout: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error sending DeSo: %v", err))
 			return
 		}
 	}
 
-	bitcloutTxnHashString := ""
-	if bitcloutTxnHash != nil {
-		bitcloutTxnHashString = bitcloutTxnHash.String()
+	desoTxnHashString := ""
+	if desoTxnHash != nil {
+		desoTxnHashString = desoTxnHash.String()
 	}
 
 	res := &ExchangeBitcoinResponse{
@@ -816,7 +816,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 
 		SerializedTxnHex:   hex.EncodeToString(bitcoinTxnBytes),
 		TxnHashHex:         bitcoinTxn.TxHash().String(),
-		BitCloutTxnHashHex: bitcloutTxnHashString,
+		DeSoTxnHashHex: desoTxnHashString,
 
 		UnsignedHashes: unsignedHashes,
 	}
@@ -826,7 +826,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 	}
 }
 
-// GetNanosFromSats - convert Satoshis to BitClout nanos
+// GetNanosFromSats - convert Satoshis to DeSo nanos
 func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) uint64 {
 	usdCentsPerBitcoin := fes.UsdCentsPerBitCoinExchangeRate
 	// If we don't have a valid value from monitoring at this time, use the price from the protocol
@@ -838,7 +838,7 @@ func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) u
 	return fes.GetNanosFromUSDCents(usdCents, feeBasisPoints)
 }
 
-// GetNanosFromETH - convert ETH to BitClout nanos
+// GetNanosFromETH - convert ETH to DESO nanos
 func (fes *APIServer) GetNanosFromETH(eth *big.Float, feeBasisPoints uint64) uint64 {
 	usdCentsPerETH := big.NewFloat(float64(fes.UsdCentsPerETHExchangeRate))
 	usdCentsETH := big.NewFloat(0).Mul(eth, usdCentsPerETH)
@@ -847,57 +847,57 @@ func (fes *APIServer) GetNanosFromETH(eth *big.Float, feeBasisPoints uint64) uin
 	return fes.GetNanosFromUSDCents(usdCentsFloat, feeBasisPoints)
 }
 
-// GetNanosFromUSDCents - convert USD cents to BitClout nanos
+// GetNanosFromUSDCents - convert USD cents to DeSo nanos
 func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint64) uint64 {
 	// Get Exchange Price gets the max of price from blockchain.com and the reserve price.
-	usdCentsPerBitClout := fes.GetExchangeBitCloutPrice()
-	conversionRateAfterFee := float64(usdCentsPerBitClout) * (1 + (float64(feeBasisPoints) / (100.0 * 100.0)))
+	usdCentsPerDeSo := fes.GetExchangeDeSoPrice()
+	conversionRateAfterFee := float64(usdCentsPerDeSo) * (1 + (float64(feeBasisPoints) / (100.0 * 100.0)))
 	nanosPurchased := uint64(usdCents * float64(lib.NanosPerUnit) / conversionRateAfterFee)
 	return nanosPurchased
 }
 
-// ExceedsSendBitCloutBalance - Check if nanosPurchased is greater than the balance of the BuyBitClout wallet.
-func (fes *APIServer) ExceedsBitCloutBalance(nanosPurchased uint64, seed string) (bool, error) {
-	buyBitCloutSeedBalance, err := fes.getBalanceForSeed(seed)
+// ExceedsSendDeSoBalance - Check if nanosPurchased is greater than the balance of the BuyDeSo wallet.
+func (fes *APIServer) ExceedsDeSoBalance(nanosPurchased uint64, seed string) (bool, error) {
+	buyDeSoSeedBalance, err := fes.getBalanceForSeed(seed)
 	if err != nil {
-		return false, fmt.Errorf("Error getting buy bitclout balance: %v", err)
+		return false, fmt.Errorf("Error getting buy deso balance: %v", err)
 	}
-	return nanosPurchased > buyBitCloutSeedBalance, nil
+	return nanosPurchased > buyDeSoSeedBalance, nil
 }
 
-// SendBitCloutRequest ...
-type SendBitCloutRequest struct {
+// SendDeSoRequest ...
+type SendDeSoRequest struct {
 	SenderPublicKeyBase58Check   string `safeForLogging:"true"`
 	RecipientPublicKeyOrUsername string `safeForLogging:"true"`
 	AmountNanos                  int64  `safeForLogging:"true"`
 	MinFeeRateNanosPerKB         uint64 `safeForLogging:"true"`
 }
 
-// SendBitCloutResponse ...
-type SendBitCloutResponse struct {
+// SendDeSoResponse ...
+type SendDeSoResponse struct {
 	TotalInputNanos          uint64
 	SpendAmountNanos         uint64
 	ChangeAmountNanos        uint64
 	FeeNanos                 uint64
 	TransactionIDBase58Check string
-	Transaction              *lib.MsgBitCloutTxn
+	Transaction              *lib.MsgDeSoTxn
 	TransactionHex           string
 	TxnHashHex               string
 }
 
-// SendBitClout ...
-func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
+// SendDeSo ...
+func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := SendBitCloutRequest{}
+	requestData := SendDeSoRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Problem parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem parsing request body: %v", err))
 		return
 	}
 
 	if fes.IsConfiguredForJumio() {
 		userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.SenderPublicKeyBase58Check)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: problem getting user metadata from global state: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: problem getting user metadata from global state: %v", err))
 			return
 		}
 		if userMetadata.JumioVerified && userMetadata.MustCompleteTutorial && userMetadata.TutorialStatus != COMPLETE {
@@ -916,7 +916,7 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 		var err error
 		recipientPkBytes, _, err = lib.Base58CheckDecode(requestData.RecipientPublicKeyOrUsername)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Problem decoding recipient "+
+			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem decoding recipient "+
 				"base58 public key %s: %v", requestData.RecipientPublicKeyOrUsername, err))
 			return
 		}
@@ -925,34 +925,34 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 		// transactions.
 		utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Error generating "+
+			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error generating "+
 				"view to verify username: %v", err))
 			return
 		}
 		profileEntry := utxoView.GetProfileEntryForUsername(
 			[]byte(requestData.RecipientPublicKeyOrUsername))
 		if profileEntry == nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Profile with username "+
+			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Profile with username "+
 				"%v does not exist", requestData.RecipientPublicKeyOrUsername))
 			return
 		}
 		recipientPkBytes = profileEntry.PublicKey
 	}
 	if len(recipientPkBytes) == 0 {
-		_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Unknown error parsing public key."))
+		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Unknown error parsing public key."))
 		return
 	}
 
 	// Decode the sender public key.
 	senderPkBytes, _, err := lib.Base58CheckDecode(requestData.SenderPublicKeyBase58Check)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Problem decoding sender base58 public key %s: %v", requestData.SenderPublicKeyBase58Check, err))
+		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem decoding sender base58 public key %s: %v", requestData.SenderPublicKeyBase58Check, err))
 		return
 	}
 
 	// If the AmountNanos is less than zero then we have a special case where we create
 	// a transaction with the maximum spend.
-	var txnn *lib.MsgBitCloutTxn
+	var txnn *lib.MsgDeSoTxn
 	var totalInputt uint64
 	var spendAmountt uint64
 	var changeAmountt uint64
@@ -963,7 +963,7 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 			senderPkBytes, recipientPkBytes, requestData.MinFeeRateNanosPerKB,
 			fes.backendServer.GetMempool())
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Error processing MAX transaction: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error processing MAX transaction: %v", err))
 			return
 		}
 
@@ -973,8 +973,8 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 
 		// Create the transaction outputs and add the recipient's public key and the
 		// amount we want to pay them
-		txnOutputs := []*lib.BitCloutOutput{}
-		txnOutputs = append(txnOutputs, &lib.BitCloutOutput{
+		txnOutputs := []*lib.DeSoOutput{}
+		txnOutputs = append(txnOutputs, &lib.DeSoOutput{
 			PublicKey: recipientPkBytes,
 			// If we get here we know the amount is non-negative.
 			AmountNanos: uint64(requestData.AmountNanos),
@@ -982,9 +982,9 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 
 		// Assemble the transaction so that inputs can be found and fees can
 		// be computed.
-		txnn = &lib.MsgBitCloutTxn{
+		txnn = &lib.MsgDeSoTxn{
 			// The inputs will be set below.
-			TxInputs:  []*lib.BitCloutInput{},
+			TxInputs:  []*lib.DeSoInput{},
 			TxOutputs: txnOutputs,
 			PublicKey: senderPkBytes,
 			TxnMeta:   &lib.BasicTransferMetadata{},
@@ -998,7 +998,7 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 			fes.blockchain.AddInputsAndChangeToTransaction(
 				txnn, requestData.MinFeeRateNanosPerKB, fes.mempool)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Error processing transaction: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error processing transaction: %v", err))
 			return
 		}
 	}
@@ -1006,7 +1006,7 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 	// Sanity check that the input is equal to:
 	//   (spend amount + change amount + fees)
 	if totalInputt != (spendAmountt + changeAmountt + feeNanoss) {
-		_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: totalInput=%d is not equal "+
+		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: totalInput=%d is not equal "+
 			"to the sum of the (spend amount=%d, change=%d, and fees=%d) which sums "+
 			"to %d. This means there was likely a problem with CreateMaxSpend",
 			totalInputt, spendAmountt, changeAmountt, feeNanoss, (spendAmountt+changeAmountt+feeNanoss)))
@@ -1020,7 +1020,7 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 
 	txnBytes, err := txnn.ToBytes(true)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Problem serializing transaction: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem serializing transaction: %v", err))
 		return
 	}
 
@@ -1028,7 +1028,7 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 	// get to this point and if the user requested that the transaction be
 	// validated or broadcast, the user can assume that those operations
 	// occurred successfully.
-	res := SendBitCloutResponse{
+	res := SendDeSoResponse{
 		TotalInputNanos:          totalInputt,
 		SpendAmountNanos:         spendAmountt,
 		ChangeAmountNanos:        changeAmountt,
@@ -1039,7 +1039,7 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 		TxnHashHex:               txnn.Hash().String(),
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
@@ -1057,7 +1057,7 @@ type CreateLikeStatelessResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 }
 
@@ -1133,10 +1133,10 @@ type SubmitPostRequest struct {
 	// The parent post or profile. This is used for comments.
 	ParentStakeID string `safeForLogging:"true"`
 	// The body of this post.
-	BodyObj *lib.BitCloutBodySchema
+	BodyObj *lib.DeSoBodySchema
 
-	// The PostHashHex of the post being reclouted
-	RecloutedPostHashHex string `safeForLogging:"true"`
+	// The PostHashHex of the post being reposted
+	RepostedPostHashHex string `safeForLogging:"true"`
 
 	// ExtraData object to hold arbitrary attributes of a post.
 	PostExtraData map[string]string `safeForLogging:"true"`
@@ -1157,7 +1157,7 @@ type SubmitPostResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 }
 
@@ -1238,9 +1238,9 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 
 	// If we're not modifying a post then do a bunch of checks.
 	var bodyBytes []byte
-	var recloutPostHashBytes []byte
-	isQuotedReclout := false
-	isReclout := false
+	var repostPostHashBytes []byte
+	isQuotedRepost := false
+	isRepost := false
 	if len(postHashToModify) == 0 {
 		// Verify that the body length is greater than the minimum.
 		if requestData.BodyObj == nil {
@@ -1248,34 +1248,34 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		// If a post is reclouting another post, we set a boolean value to indicates that this posts is a reclout and
+		// If a post is reposting another post, we set a boolean value to indicates that this posts is a repost and
 		// convert the PostHashHex to bytes.
-		if requestData.RecloutedPostHashHex != "" {
-			isReclout = true
-			// Convert the post hash hex of the reclouted post to bytes
-			recloutPostHashBytes, err = hex.DecodeString(requestData.RecloutedPostHashHex)
+		if requestData.RepostedPostHashHex != "" {
+			isRepost = true
+			// Convert the post hash hex of the reposted post to bytes
+			repostPostHashBytes, err = hex.DecodeString(requestData.RepostedPostHashHex)
 			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Could not decode Reclout Post Hash Hex"))
+				_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Could not decode Repost Post Hash Hex"))
 			}
-			// Check that the post being reclouted isn't a reclout without a comment.  A user should only be able to reclout
-			// a reclout post if it is a quote reclout.
+			// Check that the post being reposted isn't a repost without a comment.  A user should only be able to repost
+			// a repost post if it is a quote repost.
 			if requestData.BodyObj.Body == "" && len(requestData.BodyObj.ImageURLs) == 0 {
-				// Convert reclout post hash from bytes to block hash and look up postEntry by postHash.
-				recloutPostHash := &lib.BlockHash{}
-				copy(recloutPostHash[:], recloutPostHashBytes)
-				recloutPostEntry := utxoView.GetPostEntryForPostHash(recloutPostHash)
+				// Convert repost post hash from bytes to block hash and look up postEntry by postHash.
+				repostPostHash := &lib.BlockHash{}
+				copy(repostPostHash[:], repostPostHashBytes)
+				repostPostEntry := utxoView.GetPostEntryForPostHash(repostPostHash)
 
-				// If the body of the post that we are trying to reclout is empty, this is an error as
-				// we do not want to allow a user to reclout
-				if lib.IsVanillaReclout(recloutPostEntry) {
-					_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Cannot reclout a post that is a reclout without a quote"))
+				// If the body of the post that we are trying to repost is empty, this is an error as
+				// we do not want to allow a user to repost
+				if lib.IsVanillaRepost(repostPostEntry) {
+					_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Cannot repost a post that is a repost without a quote"))
 					return
 				}
 			} else {
-				isQuotedReclout = true
+				isQuotedRepost = true
 			}
 		}
-		bodyBytes, err = fes.cleanBody(requestData.BodyObj, isReclout)
+		bodyBytes, err = fes.cleanBody(requestData.BodyObj, isRepost)
 
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf(
@@ -1285,18 +1285,18 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 	} else {
 		// In this case we're updating an existing post so just parse the body.
 		// TODO: It's probably fine for the other fields to be updated.
-		if requestData.RecloutedPostHashHex != "" {
-			recloutPostHashBytes, err = hex.DecodeString(requestData.RecloutedPostHashHex)
+		if requestData.RepostedPostHashHex != "" {
+			repostPostHashBytes, err = hex.DecodeString(requestData.RepostedPostHashHex)
 			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Could not decode Reclout Post Hash Hex"))
+				_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Could not decode Repost Post Hash Hex"))
 			}
-			isReclout = true
+			isRepost = true
 			if requestData.BodyObj.Body != "" || len(requestData.BodyObj.ImageURLs) > 0 {
-				isQuotedReclout = true
+				isQuotedRepost = true
 			}
 		}
 		if requestData.BodyObj != nil {
-			bodyBytes, err = fes.cleanBody(requestData.BodyObj, isReclout /*isReclout*/)
+			bodyBytes, err = fes.cleanBody(requestData.BodyObj, isRepost /*isRepost*/)
 			if err != nil {
 				_AddBadRequestError(ww, err.Error())
 				return
@@ -1313,8 +1313,8 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		postHashToModify,
 		parentStakeID,
 		bodyBytes,
-		recloutPostHashBytes,
-		isQuotedReclout,
+		repostPostHashBytes,
+		isQuotedRepost,
 		tstamp,
 		postExtraData,
 		requestData.IsHidden,
@@ -1370,18 +1370,18 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (fes *APIServer) cleanBody(bodyObj *lib.BitCloutBodySchema, isReclout bool) ([]byte, error) {
+func (fes *APIServer) cleanBody(bodyObj *lib.DeSoBodySchema, isRepost bool) ([]byte, error) {
 	// Sanitize the Body field on the body object, which should exist.
-	if bodyObj.Body == "" && len(bodyObj.ImageURLs) == 0 && !isReclout {
-		return nil, fmt.Errorf("SubmitPost: Body or Image is required if not reclouting.")
+	if bodyObj.Body == "" && len(bodyObj.ImageURLs) == 0 && !isRepost {
+		return nil, fmt.Errorf("SubmitPost: Body or Image is required if not reposting.")
 	}
 
-	bitcloutBodySchema := &lib.BitCloutBodySchema{
+	desoBodySchema := &lib.DeSoBodySchema{
 		Body:      bodyObj.Body,
 		ImageURLs: bodyObj.ImageURLs,
 	}
 	// Serialize the body object to JSON.
-	bodyBytes, err := json.Marshal(bitcloutBodySchema)
+	bodyBytes, err := json.Marshal(desoBodySchema)
 	if err != nil {
 		return nil, fmt.Errorf("SubmitPost: Error serializing body to JSON %v", err)
 	}
@@ -1409,7 +1409,7 @@ type CreateFollowTxnStatelessResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 }
 
@@ -1496,21 +1496,21 @@ type BuyOrSellCreatorCoinRequest struct {
 	OperationType string `safeForLogging:"true"`
 
 	// Generally, only one of these will be used depending on the OperationType
-	// set. In a Buy transaction, BitCloutToSellNanos will be converted into
+	// set. In a Buy transaction, DeSoToSellNanos will be converted into
 	// creator coin on behalf of the user. In a Sell transaction,
-	// CreatorCoinToSellNanos will be converted into BitClout. In an AddBitClout
-	// operation, BitCloutToAddNanos will be aded for the user. This allows us to
+	// CreatorCoinToSellNanos will be converted into DeSo. In an AddDeSo
+	// operation, DeSoToAddNanos will be aded for the user. This allows us to
 	// support multiple transaction types with same meta field.
-	BitCloutToSellNanos    uint64 `safeForLogging:"true"`
+	DeSoToSellNanos    uint64 `safeForLogging:"true"`
 	CreatorCoinToSellNanos uint64 `safeForLogging:"true"`
-	BitCloutToAddNanos     uint64 `safeForLogging:"true"`
+	DeSoToAddNanos     uint64 `safeForLogging:"true"`
 
-	// When a user converts BitClout into CreatorCoin, MinCreatorCoinExpectedNanos
+	// When a user converts DeSo into CreatorCoin, MinCreatorCoinExpectedNanos
 	// specifies the minimum amount of creator coin that the user expects from their
-	// transaction. And vice versa when a user is converting CreatorCoin for BitClout.
+	// transaction. And vice versa when a user is converting CreatorCoin for DeSo.
 	// Specifying these fields prevents the front-running of users' buy/sell. Setting
 	// them to zero turns off the check. Give it your best shot, Ivan.
-	MinBitCloutExpectedNanos    uint64 `safeForLogging:"true"`
+	MinDeSoExpectedNanos    uint64 `safeForLogging:"true"`
 	MinCreatorCoinExpectedNanos uint64 `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
@@ -1520,20 +1520,20 @@ type BuyOrSellCreatorCoinRequest struct {
 
 // BuyOrSellCreatorCoinResponse ...
 type BuyOrSellCreatorCoinResponse struct {
-	// The amount of BitClout
-	ExpectedBitCloutReturnedNanos    uint64
+	// The amount of DeSo
+	ExpectedDeSoReturnedNanos    uint64
 	ExpectedCreatorCoinReturnedNanos uint64
 	FounderRewardGeneratedNanos      uint64
 
-	// Spend is defined as BitClout that's specified as input that winds up as "output not
+	// Spend is defined as DeSo that's specified as input that winds up as "output not
 	// belonging to you." In the case of a creator coin sell, your input is creator coin (not
-	// BitClout), so this ends up being 0. In the case of a creator coin buy,
-	// it should equal the amount of BitClout you put in to buy the creator coin
+	// DeSo), so this ends up being 0. In the case of a creator coin buy,
+	// it should equal the amount of DeSo you put in to buy the creator coin
 	SpendAmountNanos  uint64
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 	TxnHashHex        string
 }
@@ -1565,14 +1565,14 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
-	if requestData.BitCloutToSellNanos == 0 && requestData.CreatorCoinToSellNanos == 0 {
+	if requestData.DeSoToSellNanos == 0 && requestData.CreatorCoinToSellNanos == 0 {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"BuyOrSellCreatorCoin: One of the following is required: "+
-				"{BitCloutToSellNanos, CreatorCoinToSellNanos}"))
+				"{DeSoToSellNanos, CreatorCoinToSellNanos}"))
 		return
 	}
-	if requestData.BitCloutToAddNanos != 0 {
-		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: BitCloutToAddNanos not yet supported"))
+	if requestData.DeSoToAddNanos != 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: DeSoToAddNanos not yet supported"))
 		return
 	}
 
@@ -1593,10 +1593,10 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		updaterPublicKeyBytes,
 		creatorPublicKeyBytes,
 		operationType,
-		requestData.BitCloutToSellNanos,
+		requestData.DeSoToSellNanos,
 		requestData.CreatorCoinToSellNanos,
-		requestData.BitCloutToAddNanos,
-		requestData.MinBitCloutExpectedNanos,
+		requestData.DeSoToAddNanos,
+		requestData.MinDeSoExpectedNanos,
 		requestData.MinCreatorCoinExpectedNanos,
 		// Standard transaction fields
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
@@ -1611,10 +1611,10 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
-	// Compute how much CreatorCoin or BitClout we expect to be returned
+	// Compute how much CreatorCoin or DeSo we expect to be returned
 	// from applying this transaction. This helps the UI display an estimated
 	// price.
-	ExpectedBitCloutReturnedNanos := uint64(0)
+	ExpectedDeSoReturnedNanos := uint64(0)
 	ExpectedCreatorCoinReturnedNanos := uint64(0)
 	FounderRewardGeneratedNanos := uint64(0)
 	{
@@ -1630,13 +1630,13 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 			ExpectedCreatorCoinReturnedNanos = creatorCoinReturnedNanos
 			FounderRewardGeneratedNanos = founderRewardNanos
 		} else if operationType == lib.CreatorCoinOperationTypeSell {
-			_, _, bitCloutreturnedNanos, _, err :=
+			_, _, desoreturnedNanos, _, err :=
 				utxoView.HelpConnectCreatorCoinSell(txn, txHash, blockHeight, false /*verifySignatures*/)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem connecting sell transaction: %v", err))
 				return
 			}
-			ExpectedBitCloutReturnedNanos = bitCloutreturnedNanos
+			ExpectedDeSoReturnedNanos = desoreturnedNanos
 
 		} else {
 			_AddBadRequestError(ww, fmt.Sprintf(
@@ -1725,7 +1725,7 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 
 	// Return all the data associated with the transaction in the response
 	res := BuyOrSellCreatorCoinResponse{
-		ExpectedBitCloutReturnedNanos:    ExpectedBitCloutReturnedNanos,
+		ExpectedDeSoReturnedNanos:    ExpectedDeSoReturnedNanos,
 		ExpectedCreatorCoinReturnedNanos: ExpectedCreatorCoinReturnedNanos,
 		FounderRewardGeneratedNanos:      FounderRewardGeneratedNanos,
 
@@ -1766,7 +1766,7 @@ type TransferCreatorCoinResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 	TxnHashHex        string
 }
@@ -1903,7 +1903,7 @@ type SendDiamondsResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 	TxnHashHex        string
 }
@@ -1967,13 +1967,13 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Try and create the transfer with diamonds for the user.
-	// We give diamonds in CLOUT if we're past the corresponding block height.
+	// We give diamonds in DESO if we're past the corresponding block height.
 	blockHeight := fes.blockchain.BlockTip().Height + 1
-	var txn *lib.MsgBitCloutTxn
+	var txn *lib.MsgDeSoTxn
 	var totalInput uint64
 	var changeAmount uint64
 	var fees uint64
-	if blockHeight > lib.BitCloutDiamondsBlockHeight {
+	if blockHeight > lib.DeSoDiamondsBlockHeight {
 		txn, totalInput, _, changeAmount, fees, err = fes.blockchain.CreateBasicTransferTxnWithDiamonds(
 			senderPublicKeyBytes,
 			diamondPostHash,

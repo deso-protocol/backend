@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
 	"github.com/tyler-smith/go-bip39"
@@ -49,7 +49,7 @@ type TransactionInfo struct {
 
 	// TODO: Not including the transaction because it causes encoding to
 	// fail due to the presence of an interface for TxnMeta.
-	//Transaction    *lib.MsgBitCloutTxn
+	//Transaction    *lib.MsgDeSoTxn
 
 	// Unix timestamp (seconds since epoch).
 	TimeAdded int64
@@ -84,7 +84,7 @@ type MessageContactResponse struct {
 type User struct {
 	// The public key for the user is computed from the seed using the exact
 	// parameters used to generate the BTC deposit address below. Because
-	// of this, the BitClout private and public key pair is also the key
+	// of this, the DeSo private and public key pair is also the key
 	// pair corresponding to the BTC address above. We store this same
 	// key in base58 format above for convenience in communicating with
 	// the FE.
@@ -278,31 +278,31 @@ func (fes *APIServer) putUserMetadataInGlobalState(
 	return nil
 }
 
-func (fes *APIServer) SendSeedBitClout(recipientPkBytes []byte, amountNanos uint64, useBuyBitCloutSeed bool) (txnHash *lib.BlockHash, _err error) {
-	fes.mtxSeedBitClout.Lock()
-	defer fes.mtxSeedBitClout.Unlock()
+func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, useBuyDeSoSeed bool) (txnHash *lib.BlockHash, _err error) {
+	fes.mtxSeedDeSo.Lock()
+	defer fes.mtxSeedDeSo.Unlock()
 
-	senderSeed := fes.Config.StarterBitcloutSeed
-	if useBuyBitCloutSeed {
-		senderSeed = fes.Config.BuyBitCloutSeed
+	senderSeed := fes.Config.StarterDeSoSeed
+	if useBuyDeSoSeed {
+		senderSeed = fes.Config.BuyDeSoSeed
 	}
 	starterSeedBytes, err := bip39.NewSeedWithErrorChecking(senderSeed, "")
 	if err != nil {
-		glog.Errorf("SendSeedBitClout: error converting mnemonic: %v", err)
-		return nil, fmt.Errorf("SendSeedBitClout: Error converting mnemonic: %+v", err)
+		glog.Errorf("SendSeedDeSo: error converting mnemonic: %v", err)
+		return nil, fmt.Errorf("SendSeedDeSo: Error converting mnemonic: %+v", err)
 	}
 
 	starterPubKey, starterPrivKey, _, err := lib.ComputeKeysFromSeed(starterSeedBytes, 0, fes.Params)
 	if err != nil {
-		glog.Errorf("SendSeedBitClout: Error computing keys from seed: %v", err)
-		return nil, fmt.Errorf("SendSeedBitClout: Error computing keys from seed: %+v", err)
+		glog.Errorf("SendSeedDeSo: Error computing keys from seed: %v", err)
+		return nil, fmt.Errorf("SendSeedDeSo: Error computing keys from seed: %+v", err)
 	}
 
-	sendBitClout := func() (txnHash *lib.BlockHash, _err error) {
+	sendDeSo := func() (txnHash *lib.BlockHash, _err error) {
 		// Create the transaction outputs and add the recipient's public key and the
 		// amount we want to pay them
-		txnOutputs := []*lib.BitCloutOutput{}
-		txnOutputs = append(txnOutputs, &lib.BitCloutOutput{
+		txnOutputs := []*lib.DeSoOutput{}
+		txnOutputs = append(txnOutputs, &lib.DeSoOutput{
 			PublicKey: recipientPkBytes,
 			// If we get here we know the amount is non-negative.
 			AmountNanos: amountNanos,
@@ -310,9 +310,9 @@ func (fes *APIServer) SendSeedBitClout(recipientPkBytes []byte, amountNanos uint
 
 		// Assemble the transaction so that inputs can be found and fees can
 		// be computed.
-		txn := &lib.MsgBitCloutTxn{
+		txn := &lib.MsgDeSoTxn{
 			// The inputs will be set below.
-			TxInputs:  []*lib.BitCloutInput{},
+			TxInputs:  []*lib.DeSoInput{},
 			TxOutputs: txnOutputs,
 			PublicKey: starterPubKey.SerializeCompressed(),
 			TxnMeta:   &lib.BasicTransferMetadata{},
@@ -332,34 +332,34 @@ func (fes *APIServer) SendSeedBitClout(recipientPkBytes []byte, amountNanos uint
 		}
 		_, _, _, _, err = fes.blockchain.AddInputsAndChangeToTransaction(txn, minFee, fes.mempool)
 		if err != nil {
-			return nil, fmt.Errorf("SendSeedBitClout: Error adding inputs for seed BitClout: %v", err)
+			return nil, fmt.Errorf("SendSeedDeSo: Error adding inputs for seed DeSo: %v", err)
 		}
 
 		txnSignature, err := txn.Sign(starterPrivKey)
 		if err != nil {
-			return nil, fmt.Errorf("SendSeedBitClout: Error adding inputs for seed BitClout: %v", err)
+			return nil, fmt.Errorf("SendSeedDeSo: Error adding inputs for seed DeSo: %v", err)
 		}
 		txn.Signature = txnSignature
 
 		err = fes.backendServer.VerifyAndBroadcastTransaction(txn)
 		if err != nil {
-			return nil, fmt.Errorf("SendSeedBitClout: Problem processing starter seed transaction: %v", err)
+			return nil, fmt.Errorf("SendSeedDeSo: Problem processing starter seed transaction: %v", err)
 		}
 
 		return txn.Hash(), nil
 	}
 
-	// Here we retry sending BitClout once if there is an error.  This is concerning, but we believe it is safe at this
-	// time as no Clout will be sent if there is an error.  We wait for 5 seconds
+	// Here we retry sending DeSo once if there is an error.  This is concerning, but we believe it is safe at this
+	// time as no DESO will be sent if there is an error.  We wait for 5 seconds
 	var hash *lib.BlockHash
-	hash, err = sendBitClout()
+	hash, err = sendDeSo()
 	if err != nil {
 		publicKeyBase58Check := lib.PkToString(recipientPkBytes, fes.Params)
-		glog.Errorf("SendSeedBitClout: 1st attempt - error sending %d nanos of Clout to public key %v: error - %v", amountNanos, publicKeyBase58Check, err)
+		glog.Errorf("SendSeedDeSo: 1st attempt - error sending %d nanos of DESO to public key %v: error - %v", amountNanos, publicKeyBase58Check, err)
 		time.Sleep(5 * time.Second)
-		hash, err = sendBitClout()
+		hash, err = sendDeSo()
 		if err != nil {
-			glog.Errorf("SendSeedBitClout: 2nd attempt - error sending %d nanos of Clout to public key %v: error - %v", amountNanos, publicKeyBase58Check, err)
+			glog.Errorf("SendSeedDeSo: 2nd attempt - error sending %d nanos of DESO to public key %v: error - %v", amountNanos, publicKeyBase58Check, err)
 		}
 	}
 	return hash, err

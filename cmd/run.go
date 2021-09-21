@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"github.com/bitclout/backend/config"
-	coreCmd "github.com/bitclout/core/cmd"
+	"github.com/deso-protocol/backend/config"
+	coreCmd "github.com/deso-protocol/core/cmd"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -49,18 +49,18 @@ func init() {
 	// Add all the backend flags
 	runCmd.PersistentFlags().Uint64("api-port", 0,
 		"When set, determines the port on which this node will listen for json "+
-			"requests. If unset, the port will default to what is present in the BitCloutParams set.")
+			"requests. If unset, the port will default to what is present in the DeSoParams set.")
 
 	// Onboarding
-	runCmd.PersistentFlags().String("starter-bitclout-seed", "",
-		"Send a small amount of BitClout from this seed to new users.")
-	runCmd.PersistentFlags().Uint64("starter-bitclout-nanos", 1000000,
-		"The amount of BitClout given to new accounts to get them started. Only "+
-			"active if --starter-bitclout-seed is set and funded.")
+	runCmd.PersistentFlags().String("starter-deso-seed", "",
+		"Send a small amount of DeSo from this seed to new users.")
+	runCmd.PersistentFlags().Uint64("starter-deso-nanos", 1000000,
+		"The amount of DeSo given to new accounts to get them started. Only "+
+			"active if --starter-deso-seed is set and funded.")
 	runCmd.PersistentFlags().String("starter-prefix-nanos-map", "",
 		"A comma-separated list of 'prefix=nanos' mappings, where prefix is a phone "+
 			"number prefix such as \"+1\". These mappings allow the "+
-			"node operator to specify custom amounts of BitClout to users verifying their phone "+
+			"node operator to specify custom amounts of DeSo to users verifying their phone "+
 			"numbers based on the country they're in. This is useful as it is more expensive "+
 			"for attackers to get phone numbers from certain countries. An example string would "+
 			"be '+1=2000000,+2=2000000', which would double the default nanos for users with "+
@@ -105,7 +105,7 @@ func init() {
 	// User Interface
 	runCmd.PersistentFlags().String("support-email", "", "Show a support email to users of this node")
 	runCmd.PersistentFlags().Bool("show-processing-spinners", false,
-		"Show processing spinners for unmined posts / BitClout / creator coins")
+		"Show processing spinners for unmined posts / DeSo / creator coins")
 
 	// Images
 	runCmd.PersistentFlags().String("gcp-credentials-path", "", "Google credentials to images bucket")
@@ -126,9 +126,9 @@ func init() {
 	runCmd.PersistentFlags().String("wyre-url", "", "Wyre API URL")
 	runCmd.PersistentFlags().String("wyre-api-key", "", "Wyre API Key")
 	runCmd.PersistentFlags().String("wyre-secret-key", "", "Wyre Secret Key")
-	runCmd.PersistentFlags().String("buy-bitclout-btc-address", "", "BTC Address for all Wyre Wallet Orders and 'Buy With BTC' purchases")
-	runCmd.PersistentFlags().String("buy-bitclout-eth-address", "", "ETH Address for all 'Buy With ETH' purchases")
-	runCmd.PersistentFlags().String("buy-bitclout-seed", "", "Seed phrase from which BitClout will be sent for orders placed through Wyre and 'Buy With BTC' purchases")
+	runCmd.PersistentFlags().String("buy-deso-btc-address", "", "BTC Address for all Wyre Wallet Orders and 'Buy With BTC' purchases")
+	runCmd.PersistentFlags().String("buy-deso-seed", "", "Seed phrase from which DeSo will be sent for orders placed through Wyre and 'Buy With BTC' purchases")
+	runCmd.PersistentFlags().String("buy-deso-eth-address", "", "ETH Address for all 'Buy With ETH' purchases")
 
 	// Email
 	runCmd.PersistentFlags().String("sendgrid-api-key", "", "Sendgrid API key")

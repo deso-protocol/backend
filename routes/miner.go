@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"io"
 	"net/http"
@@ -72,7 +72,7 @@ func (fes *APIServer) GetBlockTemplate(ww http.ResponseWriter, req *http.Request
 	if requestData.HeaderVersion == lib.HeaderVersion0 {
 		_AddBadRequestError(ww, fmt.Sprintf("GetBlockTemplate: Error: Header version v0 not supported. "+
 			"Please upgrade your miner to request v1 headers, and to hash "+
-			"with CloutHashV1"))
+			"with DeSoHashV1"))
 		return
 	}
 
@@ -155,7 +155,7 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 	blockFound.Txns[0].TxOutputs[0].PublicKey = pkBytes
 	blockFound.Txns[0].TxnMeta.(*lib.BlockRewardMetadataa).ExtraData = lib.UintToBuf(requestData.ExtraData)
 
-	header := &lib.MsgBitCloutHeader{}
+	header := &lib.MsgDeSoHeader{}
 	if err := header.FromBytes(requestData.Header); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitBlock: Problem parsing header: %v", err))
 		return

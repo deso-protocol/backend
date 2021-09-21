@@ -4,21 +4,21 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/backend/apis"
+	"github.com/deso-protocol/backend/apis"
 	"io"
 	"io/ioutil"
 	"math/big"
 	"net/http"
 	"time"
 
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/montanaflynn/stats"
 )
 
 // Index ...
 func (fes *APIServer) Index(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, "Your BitClout node is running!\n")
+	fmt.Fprint(w, "Your DeSo node is running!\n")
 }
 
 // NOTE: This is a readiness check not a health check
@@ -42,18 +42,18 @@ func (fes *APIServer) HealthCheck(ww http.ResponseWriter, rr *http.Request) {
 
 type GetExchangeRateResponse struct {
 	// BTC
-	SatoshisPerBitCloutExchangeRate uint64
+	SatoshisPerDeSoExchangeRate     uint64
 	USDCentsPerBitcoinExchangeRate  uint64
 
 	// ETH
 	NanosPerETHExchangeRate    uint64
 	USDCentsPerETHExchangeRate uint64
 
-	// CLOUT
-	NanosSold                              uint64
-	USDCentsPerBitCloutExchangeRate        uint64
-	USDCentsPerBitCloutReserveExchangeRate uint64
-	BuyBitCloutFeeBasisPoints              uint64
+	// DESO
+	NanosSold                          uint64
+	USDCentsPerDeSoExchangeRate        uint64
+	USDCentsPerDeSoReserveExchangeRate uint64
+	BuyDeSoFeeBasisPoints              uint64
 }
 
 func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) {
@@ -66,43 +66,44 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 		usdCentsPerBitcoin = float64(readUtxoView.GetCurrentUSDCentsPerBitcoin())
 	}
 
-	usdCentsPerBitCloutExchangeRate := fes.GetExchangeBitCloutPrice()
-	nanosPerSat := fes.GetNanosFromSats(1, 0)
-	satoshisPerUnit := lib.NanosPerUnit / nanosPerSat
-
 	// ETH
 	usdCentsPerETH := fes.UsdCentsPerETHExchangeRate
 	nanosPerETH := fes.GetNanosFromETH(big.NewFloat(1), 0)
 
-	// CLOUT
-	usdCentsPerBitCloutReserveExchangeRate, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
+	usdCentsPerDeSoExchangeRate := fes.GetExchangeDeSoPrice()
+	satoshisPerUnit := lib.NanosPerUnit / fes.GetNanosFromSats(1, 0)
+
+	// DESO
+	usdCentsPerDeSoReserveExchangeRate, err := fes.GetUSDCentsToDeSoReserveExchangeRateFromGlobalState()
+
 	if err != nil {
 		glog.Errorf("GetExchangeRate: error getting reserve exchange rate from global state: %v", err)
-		usdCentsPerBitCloutReserveExchangeRate = 0
+		usdCentsPerDeSoReserveExchangeRate = 0
 	}
 
-	startNanos := readUtxoView.NanosPurchased
 
-	feeBasisPoints, err := fes.GetBuyBitCloutFeeBasisPointsResponseFromGlobalState()
+	startNanos := readUtxoView.NanosPurchased
+	feeBasisPoints, err := fes.GetBuyDeSoFeeBasisPointsResponseFromGlobalState()
+
 	if err != nil {
-		glog.Errorf("GetExchangeRate: error getting buy bitclout fee basis points from global state: %v", err)
+		glog.Errorf("GetExchangeRate: error getting buy deso fee basis points from global state: %v", err)
 		feeBasisPoints = 0
 	}
 
 	res := &GetExchangeRateResponse{
 		// BTC
 		USDCentsPerBitcoinExchangeRate:  uint64(usdCentsPerBitcoin),
-		SatoshisPerBitCloutExchangeRate: satoshisPerUnit,
+		SatoshisPerDeSoExchangeRate: satoshisPerUnit,
 
 		// ETH
 		USDCentsPerETHExchangeRate: usdCentsPerETH,
 		NanosPerETHExchangeRate:    nanosPerETH,
 
-		// CLOUT
-		NanosSold:                              startNanos,
-		USDCentsPerBitCloutExchangeRate:        usdCentsPerBitCloutExchangeRate,
-		USDCentsPerBitCloutReserveExchangeRate: usdCentsPerBitCloutReserveExchangeRate,
-		BuyBitCloutFeeBasisPoints:              feeBasisPoints,
+		// DESO
+		NanosSold:                          startNanos,
+		USDCentsPerDeSoExchangeRate:        usdCentsPerDeSoExchangeRate,
+		USDCentsPerDeSoReserveExchangeRate: usdCentsPerDeSoReserveExchangeRate,
+		BuyDeSoFeeBasisPoints:              feeBasisPoints,
 	}
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
@@ -111,9 +112,9 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 	}
 }
 
-func (fes *APIServer) GetExchangeBitCloutPrice() uint64 {
-	blockchainPrice := fes.UsdCentsPerBitCloutExchangeRate
-	reservePrice, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
+func (fes *APIServer) GetExchangeDeSoPrice() uint64 {
+	blockchainPrice := fes.UsdCentsPerDeSoExchangeRate
+	reservePrice, err := fes.GetUSDCentsToDeSoReserveExchangeRateFromGlobalState()
 	if err != nil {
 		glog.Errorf("Getting reserve price from global state failed. Only using ticker price: %v", err)
 		reservePrice = 0
@@ -124,15 +125,15 @@ func (fes *APIServer) GetExchangeBitCloutPrice() uint64 {
 	return reservePrice
 }
 
-type BlockchainBitCloutTickerResponse struct {
+type BlockchainDeSoTickerResponse struct {
 	Symbol         string  `json:"symbol"`
 	Price24H       float64 `json:"price_24h"`
 	Volume24H      float64 `json:"volume_24h"`
 	LastTradePrice float64 `json:"last_trade_price"`
 }
 
-// UpdateUSDCentsToBitCloutExchangeRate updates app state's USD Cents per BitClout value
-func (fes *APIServer) UpdateUSDCentsToBitCloutExchangeRate() {
+// UpdateUSDCentsToDeSoExchangeRate updates app state's USD Cents per DeSo value
+func (fes *APIServer) UpdateUSDCentsToDeSoExchangeRate() {
 	glog.Infof("Refreshing exchange rate...")
 
 	// Get the ticker from Blockchain.com
@@ -156,7 +157,7 @@ func (fes *APIServer) UpdateUSDCentsToBitCloutExchangeRate() {
 
 		// Decode the response into the appropriate struct.
 		body, _ := ioutil.ReadAll(resp.Body)
-		responseData := &BlockchainBitCloutTickerResponse{}
+		responseData := &BlockchainDeSoTickerResponse{}
 		decoder := json.NewDecoder(bytes.NewReader(body))
 		if err = decoder.Decode(responseData); err != nil {
 			glog.Errorf("GetExchangePriceFromBlockchain: Problem decoding response JSON into "+
@@ -165,9 +166,9 @@ func (fes *APIServer) UpdateUSDCentsToBitCloutExchangeRate() {
 		}
 
 		// Return the last trade price.
-		usdCentsToBitCloutExchangePrice := uint64(responseData.LastTradePrice * 100)
+		usdCentsToDeSoExchangePrice := uint64(responseData.LastTradePrice * 100)
 
-		exchangeRatesFetched = append(exchangeRatesFetched, float64(usdCentsToBitCloutExchangePrice))
+		exchangeRatesFetched = append(exchangeRatesFetched, float64(usdCentsToDeSoExchangePrice))
 	}
 	blockchainDotComExchangeRate, err := stats.Max(exchangeRatesFetched)
 	if err != nil {
@@ -180,9 +181,9 @@ func (fes *APIServer) UpdateUSDCentsToBitCloutExchangeRate() {
 		}
 	}
 
-	// Get the current timestamp and append the current last trade price to the LastTradeBitCloutPriceHistory slice
+	// Get the current timestamp and append the current last trade price to the LastTradeDeSoPriceHistory slice
 	timestamp := uint64(time.Now().UnixNano())
-	fes.LastTradeBitCloutPriceHistory = append(fes.LastTradeBitCloutPriceHistory, LastTradePriceHistoryItem{
+	fes.LastTradeDeSoPriceHistory = append(fes.LastTradeDeSoPriceHistory, LastTradePriceHistoryItem{
 		LastTradePrice: uint64(blockchainDotComExchangeRate),
 		Timestamp:      timestamp,
 	})
@@ -191,15 +192,15 @@ func (fes *APIServer) UpdateUSDCentsToBitCloutExchangeRate() {
 	maxPrice := fes.getMaxPriceFromHistoryAndCull(timestamp)
 
 	// Get the reserve price for this node.
-	reservePrice, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
+	reservePrice, err := fes.GetUSDCentsToDeSoReserveExchangeRateFromGlobalState()
 	// If the max of last trade price and 24H price is less than the reserve price, use the reserve price.
 	if reservePrice > maxPrice {
-		fes.UsdCentsPerBitCloutExchangeRate = reservePrice
+		fes.UsdCentsPerDeSoExchangeRate = reservePrice
 	} else {
-		fes.UsdCentsPerBitCloutExchangeRate = maxPrice
+		fes.UsdCentsPerDeSoExchangeRate = maxPrice
 	}
 
-	glog.Infof("Final exchange rate: %v", fes.UsdCentsPerBitCloutExchangeRate)
+	glog.Infof("Final exchange rate: %v", fes.UsdCentsPerDeSoExchangeRate)
 }
 
 func (fes *APIServer) UpdateUSDToBTCPrice() {
@@ -228,15 +229,15 @@ func (fes *APIServer) UpdateUSDToETHPrice() {
 // from valid elements.
 func (fes *APIServer) getMaxPriceFromHistoryAndCull(currentTimestamp uint64) uint64 {
 	maxPrice := uint64(0)
-	// This function culls invalid values (outside of the lookback window) from the LastTradeBitCloutPriceHistory slice
+	// This function culls invalid values (outside of the lookback window) from the LastTradeDeSoPriceHistory slice
 	// in place, so we need to keep track of the index at which we will place the next valid item.
 	validIndex := 0
-	for _, priceHistoryItem := range fes.LastTradeBitCloutPriceHistory {
+	for _, priceHistoryItem := range fes.LastTradeDeSoPriceHistory {
 		tstampDiff := currentTimestamp - priceHistoryItem.Timestamp
 		if tstampDiff <= fes.LastTradePriceLookback {
 			// copy and increment index.  This overwrites invalid values with valid ones in the order valid items
 			// are seen.
-			fes.LastTradeBitCloutPriceHistory[validIndex] = priceHistoryItem
+			fes.LastTradeDeSoPriceHistory[validIndex] = priceHistoryItem
 			validIndex++
 			if priceHistoryItem.LastTradePrice > maxPrice {
 				maxPrice = priceHistoryItem.LastTradePrice
@@ -244,7 +245,7 @@ func (fes *APIServer) getMaxPriceFromHistoryAndCull(currentTimestamp uint64) uin
 		}
 	}
 	// Reduce the slice to only valid elements - all elements up to validIndex are within the lookback window.
-	fes.LastTradeBitCloutPriceHistory = fes.LastTradeBitCloutPriceHistory[:validIndex]
+	fes.LastTradeDeSoPriceHistory = fes.LastTradeDeSoPriceHistory[:validIndex]
 	return maxPrice
 }
 
@@ -260,7 +261,7 @@ type GetAppStateResponse struct {
 	SupportEmail                        string
 	ShowProcessingSpinners              bool
 
-	HasStarterBitCloutSeed bool
+	HasStarterDeSoSeed bool
 	HasTwilioAPIKey        bool
 	CreateProfileFeeNanos  uint64
 	CompProfileCreation    bool
@@ -269,8 +270,8 @@ type GetAppStateResponse struct {
 	HasJumioIntegration    bool
 	BuyWithETH             bool
 
-	USDCentsPerBitCloutExchangeRate uint64
-	JumioBitCloutNanos              uint64
+	USDCentsPerDeSoExchangeRate uint64
+	JumioDeSoNanos              uint64
 
 	// Send back the password stored in our HTTPOnly cookie
 	// so amplitude can track which passwords people are using
@@ -301,15 +302,16 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		IsTestnet:                           fes.Params.NetworkType == lib.NetworkType_TESTNET,
 		SupportEmail:                        fes.Config.SupportEmail,
 		HasTwilioAPIKey:                     fes.Twilio != nil,
-		HasStarterBitCloutSeed:              fes.Config.StarterBitcloutSeed != "",
+		HasStarterDeSoSeed:              fes.Config.StarterDeSoSeed != "",
 		CreateProfileFeeNanos:               utxoView.GlobalParamsEntry.CreateProfileFeeNanos,
 		CompProfileCreation:                 fes.Config.CompProfileCreation,
-		DiamondLevelMap:                     lib.GetBitCloutNanosDiamondLevelMapAtBlockHeight(int64(fes.blockchain.BlockTip().Height)),
+		DiamondLevelMap:                     lib.GetDeSoNanosDiamondLevelMapAtBlockHeight(int64(fes.blockchain.BlockTip().Height)),
 		HasWyreIntegration:                  fes.IsConfiguredForWyre(),
 		HasJumioIntegration:                 fes.IsConfiguredForJumio(),
 		BuyWithETH:                          fes.IsConfiguredForETH(),
-		USDCentsPerBitCloutExchangeRate:     fes.GetExchangeBitCloutPrice(),
-		JumioBitCloutNanos:                  fes.GetJumioBitCloutNanos(),
+		USDCentsPerDeSoExchangeRate:         fes.GetExchangeDeSoPrice(),
+		JumioDeSoNanos:                      fes.GetJumioDeSoNanos(),
+
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {

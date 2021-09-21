@@ -3,8 +3,8 @@ package toolslib
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/bitclout/backend/routes"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/pkg/errors"
 	"io/ioutil"
@@ -12,7 +12,7 @@ import (
 )
 
 func _generateUnsignedMessage(senderPubKey *btcec.PublicKey, recipientPubKey *btcec.PublicKey, message string,
-	params *lib.BitCloutParams, node string) (*routes.SendMessageStatelessResponse, error){
+	params *lib.DeSoParams, node string) (*routes.SendMessageStatelessResponse, error){
 	endpoint := node + routes.RoutePathSendMessageStateless
 
 	// Setup request
@@ -54,12 +54,12 @@ func _generateUnsignedMessage(senderPubKey *btcec.PublicKey, recipientPubKey *bt
 }
 
 func SendMessage(senderPubKey *btcec.PublicKey, senderPrivKey *btcec.PrivateKey,
-	recipientPubKey *btcec.PublicKey, message string, params *lib.BitCloutParams, node string) error {
+	recipientPubKey *btcec.PublicKey, message string, params *lib.DeSoParams, node string) error {
 
 	// Request an unsigned transaction from the node
 	unsignedMessage, err := _generateUnsignedMessage(senderPubKey, recipientPubKey, message, params, node)
 	if err != nil {
-		return errors.Wrap(err, "SendMessage() failed to call _generateSendBitclout()")
+		return errors.Wrap(err, "SendMessage() failed to call _generateSendDeSo()")
 	}
 	txn := unsignedMessage.Transaction
 

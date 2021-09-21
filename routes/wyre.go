@@ -8,7 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/fatih/structs"
 	"github.com/golang/glog"
@@ -109,7 +109,7 @@ type WyreTransferDetails struct {
 }
 
 // Make sure you only allow access to Wyre IPs for this endpoint, otherwise anybody can take all the funds from
-// the public key that sends BitClout. WHITELIST WYRE IPs.
+// the public key that sends DeSo. WHITELIST WYRE IPs.
 func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *http.Request) {
 	// If this node has not integrated with Wyre, bail immediately.
 	if !fes.IsConfiguredForWyre() {
@@ -159,15 +159,15 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 
 	if currentWyreWalletOrderMetadata != nil {
 		newMetadataObj.LatestWyreTrackWalletOrderResponse = currentWyreWalletOrderMetadata.LatestWyreTrackWalletOrderResponse
-		newMetadataObj.BitCloutPurchasedNanos = currentWyreWalletOrderMetadata.BitCloutPurchasedNanos
+		newMetadataObj.DeSoPurchasedNanos = currentWyreWalletOrderMetadata.DeSoPurchasedNanos
 		newMetadataObj.BasicTransferTxnBlockHash = currentWyreWalletOrderMetadata.BasicTransferTxnBlockHash
 	}
 	// Update global state before all transfer logic is completed so we have a record of the last webhook payload
-	// received in the event of an error when paying out BitClout.
+	// received in the event of an error when paying out DeSo.
 	fes.UpdateWyreGlobalState(ww, publicKeyBytes, timestamp, newMetadataObj)
 
 	// If there is a transferId, we need to get the transfer details, update the new metadata object and pay out
-	// bitclout if it has not been paid out yet.
+	// deso if it has not been paid out yet.
 	if transferId != "" {
 		// Get the transfer details from Wyre
 		client := &http.Client{}
@@ -178,56 +178,56 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 		}
 		newMetadataObj.LatestWyreTrackWalletOrderResponse = wyreTrackOrderResponse
 
-		// If the amount of BTC purchased is greater than 0, compute how much BitClout to pay out if it has not been
+		// If the amount of BTC purchased is greater than 0, compute how much DeSo to pay out if it has not been
 		// paid out yet.
 		btcPurchased := wyreTrackOrderResponse.DestAmount
 		if btcPurchased > 0 {
 			// BTC Purchased is in whole bitcoins, so multiply it by 10^8 to convert to Satoshis
 			satsPurchased := uint64(btcPurchased * lib.SatoshisPerBitcoin)
 			var feeBasisPoints uint64
-			feeBasisPoints, err = fes.GetBuyBitCloutFeeBasisPointsResponseFromGlobalState()
+			feeBasisPoints, err = fes.GetBuyDeSoFeeBasisPointsResponseFromGlobalState()
 			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error getting buy bitclout premium basis points from global state: %v", err))
+				_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error getting buy deso premium basis points from global state: %v", err))
 				return
 			}
 			nanosPurchased := fes.GetNanosFromSats(satsPurchased, feeBasisPoints)
 			var balanceInsufficient bool
-			balanceInsufficient, err = fes.ExceedsBitCloutBalance(nanosPurchased, fes.Config.BuyBitCloutSeed)
+			balanceInsufficient, err = fes.ExceedsDeSoBalance(nanosPurchased, fes.Config.BuyDeSoSeed)
 			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrdersubscription: Error checking if send bitclout balance is sufficient: %v", err))
+				_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrdersubscription: Error checking if send deso balance is sufficient: %v", err))
 				return
 			}
 			if balanceInsufficient {
 				// TODO: THIS SHOULD TRIGGER ALERT
-				_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrdersubscription: SendBitClout wallet balance is below nanos purchased"))
+				_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrdersubscription: SendDeSo wallet balance is below nanos purchased"))
 				return
 			}
 
 			// Make sure this order hasn't been paid out, then mark it as paid out.
 			wyreOrderIdKey := GlobalStateKeyForWyreOrderIDProcessed(orderIdBytes)
-			// We expect badger to return a key not found error if BitClout has been paid out for this order.
-			// If it does not return an error, BitClout has already been paid out, so we skip ahead.
+			// We expect badger to return a key not found error if DeSo has been paid out for this order.
+			// If it does not return an error, DeSo has already been paid out, so we skip ahead.
 			if val, _ := fes.GlobalStateGet(wyreOrderIdKey); val == nil {
 				// Mark this order as paid out
 				if err = fes.GlobalStatePut(wyreOrderIdKey, []byte{1}); err != nil {
 					_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error marking orderId %v as paid out: %v", orderId, err))
 					return
 				}
-				// Pay out bitclout to send to the public key
+				// Pay out deso to send to the public key
 				var txnHash *lib.BlockHash
-				txnHash, err = fes.SendSeedBitClout(publicKeyBytes, nanosPurchased, true)
+				txnHash, err = fes.SendSeedDeSo(publicKeyBytes, nanosPurchased, true)
 				if err != nil {
-					_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error paying out bitclout: %v", err))
-					// In the event that sending the bitclout to the public key fails for some reason, we will "unmark"
+					_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error paying out deso: %v", err))
+					// In the event that sending the deso to the public key fails for some reason, we will "unmark"
 					// this order as paid in global state
 					if err = fes.GlobalStateDelete(wyreOrderIdKey); err != nil {
-						_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error deleting order id key when failing to payout bitclout: %v", err))
+						_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error deleting order id key when failing to payout deso: %v", err))
 					}
 					return
 				}
-				// Set the basic transfer txn hash and bitclout purchased nanos of the metadata object
+				// Set the basic transfer txn hash and deso purchased nanos of the metadata object
 				newMetadataObj.BasicTransferTxnBlockHash = txnHash
-				newMetadataObj.BitCloutPurchasedNanos = nanosPurchased
+				newMetadataObj.DeSoPurchasedNanos = nanosPurchased
 			}
 		}
 	}
@@ -364,7 +364,7 @@ func (fes *APIServer) GetWyreWalletOrderQuotation(ww http.ResponseWriter, req *h
 	// Make and marshal the payload
 	body := WyreWalletOrderQuotationPayload{
 		AccountId:         fes.Config.WyreAccountId,
-		Dest:              fmt.Sprintf("bitcoin:%v", fes.Config.BuyBitCloutBTCAddress),
+		Dest:              fmt.Sprintf("bitcoin:%v", fes.Config.BuyDeSoBTCAddress),
 		AmountIncludeFees: true,
 		DestCurrency:      "BTC",
 		SourceCurrency:    wyreWalletOrderQuotationRequest.SourceCurrency,
@@ -428,7 +428,7 @@ func (fes *APIServer) GetWyreWalletOrderReservation(ww http.ResponseWriter, req 
 		Country:           wyreWalletOrderReservationRequest.Country,
 		Amount:            fmt.Sprintf("%f", wyreWalletOrderReservationRequest.SourceAmount),
 		LockFields:        []string{"dest", "destCurrency"},
-		RedirectUrl:       fmt.Sprintf("https://%v/buy-bitclout", req.Host),
+		RedirectUrl:       fmt.Sprintf("https://%v/buy-deso", req.Host),
 		ReferenceId:       fmt.Sprintf("%v:%v", wyreWalletOrderReservationRequest.ReferenceId, currentTime),
 	}
 
@@ -547,7 +547,7 @@ func (fes *APIServer) SetWyreRequestHeaders(req *http.Request, dataBytes []byte)
 }
 
 func (fes *APIServer) GetBTCAddress() string {
-	return fmt.Sprintf("bitcoin:%v", fes.Config.BuyBitCloutBTCAddress)
+	return fmt.Sprintf("bitcoin:%v", fes.Config.BuyDeSoBTCAddress)
 }
 
 type GetWyreWalletOrderForPublicKeyRequest struct {
@@ -634,10 +634,10 @@ type WyreWalletOrderMetadataResponse struct {
 	// Track Wallet Order response received based on the last payload received from Wyre Webhook
 	LatestWyreTrackWalletOrderResponse *WyreTrackOrderResponse
 
-	// Amount of BitClout that was sent for this WyreWalletOrder
-	BitCloutPurchasedNanos uint64
+	// Amount of DeSo that was sent for this WyreWalletOrder
+	DeSoPurchasedNanos uint64
 
-	// BlockHash of the transaction for sending the BitClout
+	// BlockHash of the transaction for sending the DeSo
 	BasicTransferTxnHash string
 
 	Timestamp *time.Time
@@ -647,7 +647,7 @@ func (fes *APIServer) WyreWalletOrderMetadataToResponse(metadata *WyreWalletOrde
 	orderMetadataResponse := WyreWalletOrderMetadataResponse{
 		LatestWyreTrackWalletOrderResponse:  metadata.LatestWyreTrackWalletOrderResponse,
 		LatestWyreWalletOrderWebhookPayload: metadata.LatestWyreWalletOrderWebhookPayload,
-		BitCloutPurchasedNanos:              metadata.BitCloutPurchasedNanos,
+		DeSoPurchasedNanos:              metadata.DeSoPurchasedNanos,
 		Timestamp:                           getTimestampFromReferenceId(metadata.LatestWyreWalletOrderWebhookPayload.ReferenceId),
 	}
 	basicTransferTxnHash := metadata.BasicTransferTxnBlockHash
