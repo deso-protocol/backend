@@ -3,9 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/deso-protocol/backend/routes"
-	"github.com/deso-protocol/backend/scripts/tools/toolslib"
-	"github.com/deso-protocol/core/lib"
+	"github.com/bitclout/backend/routes"
+	"github.com/bitclout/backend/scripts/tools/toolslib"
+	"github.com/bitclout/core/lib"
 	"github.com/tyler-smith/go-bip39"
 )
 

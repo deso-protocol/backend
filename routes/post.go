@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/deso-protocol/core/lib"
+	"github.com/bitclout/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/pkg/errors"
 )

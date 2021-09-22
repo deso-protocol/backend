@@ -32,4 +32,4 @@ COPY core/migrate   ../core/migrate
 # build backend
 RUN GOOS=linux go build -mod=mod -a -installsuffix cgo -o bin/backend main.go
 
-ENTRYPOINT ["go", "test", "-v", "github.com/deso-protocol/backend/routes"]
+ENTRYPOINT ["go", "test", "-v", "github.com/bitclout/backend/routes"]

@@ -2,7 +2,7 @@ package config
 
 import (
 	"fmt"
-	coreCmd "github.com/deso-protocol/core/cmd"
+	coreCmd "github.com/bitclout/core/cmd"
 	"github.com/spf13/viper"
 	"strconv"
 	"strings"

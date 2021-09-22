@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/deso-protocol/core/lib"
+	"github.com/bitclout/core/lib"
 
 	"github.com/dgraph-io/badger/v3"
 	"github.com/nyaruka/phonenumbers"

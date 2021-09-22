@@ -1,8 +1,8 @@
-module github.com/deso-protocol/backend
+module github.com/bitclout/backend
 
 go 1.16
 
-replace github.com/deso-protocol/core => ../core/
+replace github.com/bitclout/core => ../core/
 
 replace github.com/golang/glog => ../core/third_party/github.com/golang/glog
 
@@ -12,9 +12,9 @@ replace github.com/sasha-s/go-deadlock => ../core/third_party/github.com/sasha-s
 
 require (
 	cloud.google.com/go/storage v1.15.0
+	github.com/bitclout/core v1.1.6
 	github.com/btcsuite/btcd v0.21.0-beta
 	github.com/btcsuite/btcutil v1.0.2
-	github.com/deso-protocol/core v1.1.6
 	github.com/dgraph-io/badger/v3 v3.2103.0
 	github.com/dgrijalva/jwt-go/v4 v4.0.0-preview1
 	github.com/fatih/structs v1.1.0
