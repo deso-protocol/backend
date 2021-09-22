@@ -25,7 +25,7 @@ COPY backend/routes  routes
 COPY backend/main.go .
 
 # include core src
-COPY core/desohash  ../core/desohash
+COPY core/clouthash ../core/clouthash
 COPY core/cmd       ../core/cmd
 COPY core/lib       ../core/lib
 COPY core/migrate   ../core/migrate
