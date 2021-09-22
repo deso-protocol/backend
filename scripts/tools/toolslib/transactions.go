@@ -4,15 +4,15 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/bitclout/backend/routes"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
 )
 
 // SubmitTransactionToNode...
-func SubmitTransactionToNode(txn *lib.MsgBitCloutTxn, node string) error {
+func SubmitTransactionToNode(txn *lib.MsgDeSoTxn, node string) error {
 	endpoint := node + routes.RoutePathSubmitTransaction
 
 	// Encode the signed transaction to hex

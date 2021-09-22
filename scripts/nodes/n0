@@ -11,11 +11,11 @@ rm /tmp/main.*.log
   --num-mining-threads=1  \
   --txindex=true \
   --miner-public-keys=BC1YLgKZyfgyNntCMXAZYExM8JooYqrYvVsrR8d8XVxorDruYFdq31p \
-  --starter-bitclout-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
+  --starter-deso-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
   --data-dir=$HOME/data_dirs/n0_1  \
   --block-cypher-api-key=092dae962ea44b02809a4c74408b42a1 \
   --min-satoshis-for-profile=0 \
-  --connect-ips=bitclout-seed-2.io:17000
+  --connect-ips=deso-seed-2.io:17000
 )
 
 # These are nodes that can be relied upon if the decentralized seed

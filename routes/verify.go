@@ -6,9 +6,8 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
-	"github.com/sendgrid/sendgrid-go"
-	"github.com/sendgrid/sendgrid-go/helpers/mail"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"sort"
@@ -16,7 +15,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bitclout/core/lib"
+	"github.com/sendgrid/sendgrid-go"
+	"github.com/sendgrid/sendgrid-go/helpers/mail"
+
+	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/nyaruka/phonenumbers"
 	"github.com/pkg/errors"
@@ -127,7 +129,7 @@ func (fes *APIServer) canUserCreateProfile(userMetadata *UserMetadata, utxoView 
 	if err != nil {
 		return false, err
 	}
-	// User can create a profile if they have a phone number or if they have enough BitClout to cover the create profile fee.
+	// User can create a profile if they have a phone number or if they have enough DeSo to cover the create profile fee.
 	// The PhoneNumber is only set if the user has passed phone number verification.
 	if userMetadata.PhoneNumber != "" || totalBalanceNanos >= utxoView.GlobalParamsEntry.CreateProfileFeeNanos {
 		return true, nil
@@ -204,7 +206,7 @@ func (fes *APIServer) validatePhoneNumberNotAlreadyInUse(phoneNumber string, use
 }
 
 type SubmitPhoneNumberVerificationCodeRequest struct {
-	JWT string
+	JWT                  string
 	PublicKeyBase58Check string
 	PhoneNumber          string
 	VerificationCode     string
@@ -231,7 +233,6 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Invalid token: %v", err))
 		return
 	}
-
 
 	/**************************************************************/
 	// Validations
@@ -310,10 +311,10 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 	}
 
 	/**************************************************************/
-	// Send the user starter BitClout, if we haven't already sent it
+	// Send the user starter DeSo, if we haven't already sent it
 	/**************************************************************/
-	if settingPhoneNumberForFirstTime && fes.Config.StarterBitcloutSeed != "" {
-		amountToSendNanos := fes.Config.StarterBitcloutNanos
+	if settingPhoneNumberForFirstTime && fes.Config.StarterDeSoSeed != "" {
+		amountToSendNanos := fes.Config.StarterDeSoNanos
 
 		if len(requestData.PhoneNumber) == 0 || requestData.PhoneNumber[0] != '+' {
 			_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Phone number must start with a plus sign"))
@@ -340,9 +341,9 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 		}
 
 		var txnHash *lib.BlockHash
-		txnHash, err = fes.SendSeedBitClout(userMetadata.PublicKey, amountToSendNanos, false)
+		txnHash, err = fes.SendSeedDeSo(userMetadata.PublicKey, amountToSendNanos, false)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Error sending seed BitClout: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Error sending seed DeSo: %v", err))
 			return
 		}
 		res := SubmitPhoneNumberVerificationCodeResponse{
@@ -491,7 +492,7 @@ func (fes *APIServer) IsConfiguredForSendgrid() bool {
 //
 
 func (fes *APIServer) IsConfiguredForJumio() bool {
-	return fes.Config.JumioToken != ""  && fes.Config.JumioSecret != ""
+	return fes.Config.JumioToken != "" && fes.Config.JumioSecret != ""
 }
 
 type JumioInitRequest struct {
@@ -507,10 +508,11 @@ type JumioInitResponse struct {
 }
 
 type JumioBeginRequest struct {
-	PublicKey string
-	SuccessURL string
-	ErrorURL string
-	JWT       string
+	PublicKey          string
+	ReferralHashBase58 string
+	SuccessURL         string
+	ErrorURL           string
+	JWT                string
 }
 
 type JumioBeginResponse struct {
@@ -550,6 +552,20 @@ func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
 	if userMetadata.JumioFinishedTime > 0 && !userMetadata.JumioReturned {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: please wait for Jumio to finish processing your existing verification attempt before retrying."))
 		return
+	}
+
+	if requestData.ReferralHashBase58 != "" {
+		var referralInfo *ReferralInfo
+		referralInfo, err = fes.getInfoForReferralHashBase58(requestData.ReferralHashBase58)
+		if err != nil {
+			glog.Errorf("JumioBegin: Error getting referral info: %v", err)
+		} else if referralInfo != nil {
+			userMetadata.ReferralHashBase58Check = requestData.ReferralHashBase58
+			referralInfo.NumJumioAttempts++
+			if err = fes.putReferralHashWithInfo(referralInfo.ReferralHashBase58, referralInfo); err != nil {
+				glog.Errorf("JumioBegin: Error updating referral info: %v", err)
+			}
+		}
 	}
 
 	tStampNanos := int(time.Now().UnixNano())
@@ -598,7 +614,11 @@ func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	if postRes.StatusCode != 200 {
-		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Request returned non-200 status code: %v", postRes.StatusCode))
+		defer postRes.Body.Close()
+
+		// Decode the response into the appropriate struct.
+		body, _ := ioutil.ReadAll(postRes.Body)
+		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Request returned non-200 status code: %v, %v", postRes.StatusCode, string(body)))
 		return
 	}
 
@@ -623,9 +643,9 @@ func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
 }
 
 type JumioFlowFinishedRequest struct {
-	PublicKey string
+	PublicKey              string
 	JumioInternalReference string
-	JWT string
+	JWT                    string
 }
 
 func (fes *APIServer) JumioFlowFinished(ww http.ResponseWriter, req *http.Request) {
@@ -667,14 +687,14 @@ func (fes *APIServer) JumioFlowFinished(ww http.ResponseWriter, req *http.Reques
 }
 
 type JumioIdentityVerification struct {
-	Similarity  string `json:"similarity"`
-	Validity    bool `json:"validity"`
-	Reason      string `json:"reason"`
+	Similarity string `json:"similarity"`
+	Validity   bool   `json:"validity"`
+	Reason     string `json:"reason"`
 }
 
-// Jumio webhook - If Jumio verified user is a human that we haven't paid already, pay them some starter CLOUT.
+// Jumio webhook - If Jumio verified user is a human that we haven't paid already, pay them some starter DESO.
 // Make sure you only allow access to jumio IPs for this endpoint, otherwise anybody can take all the funds from
-// the public key that sends BitClout. WHITELIST JUMIO IPs.
+// the public key that sends DeSo. WHITELIST JUMIO IPs.
 func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	if err := req.ParseForm(); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Problem parsing form: %v", err))
@@ -800,35 +820,9 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error logging successful verification in amplitude: %v", err))
 			return
 		}
-		// Update the user metadata to show that user has been jumio verified and store jumio transaction id.
-		userMetadata.JumioVerified = true
-		userMetadata.JumioTransactionID = jumioTransactionId
-		userMetadata.JumioShouldCompProfileCreation = true
-		userMetadata.MustCompleteTutorial = true
-		userMetadata.RedoJumio = false
-
-		if bitcloutNanos := fes.GetJumioBitCloutNanos(); bitcloutNanos > 0 {
-			// Check the balance of the starter bitclout seed.
-			var balanceInsufficient bool
-			balanceInsufficient, err = fes.ExceedsBitCloutBalance(bitcloutNanos, fes.Config.StarterBitcloutSeed)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error checking if send bitclout balance is sufficient: %v", err))
-				return
-			}
-			if balanceInsufficient {
-				_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: SendBitClout wallet balance is below nanos purchased"))
-				return
-			}
-			// Send JumioBitCloutNanos to public key
-			var txnHash *lib.BlockHash
-			txnHash, err = fes.SendSeedBitClout(publicKeyBytes, bitcloutNanos, false)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error sending starter BitClout: %v", err))
-				return
-			}
-
-			// Save transaction hash hex in user metadata.
-			userMetadata.JumioStarterBitCloutTxnHashHex = txnHash.String()
+		userMetadata, err = fes.JumioVerifiedHandler(userMetadata, jumioTransactionId, publicKeyBytes, utxoView)
+		if err != nil {
+			glog.Errorf("JumioCallback: Error in JumioVerifiedHandler: %v", err)
 		}
 		if err = fes.GlobalStatePut(uniqueJumioKey, []byte{1}); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting unique jumio key in global state: %v", err))
@@ -846,20 +840,124 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (fes *APIServer) GetJumioBitCloutNanos() uint64 {
-	val, err := fes.GlobalStateGet(GlobalStateKeyForJumioBitCloutNanos())
+func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTransactionId string, publicKeyBytes []byte, utxoView *lib.UtxoView) (_userMetadata *UserMetadata, err error) {
+	// Update the user metadata to show that user has been jumio verified and store jumio transaction id.
+	userMetadata.JumioVerified = true
+	userMetadata.JumioTransactionID = jumioTransactionId
+	userMetadata.JumioShouldCompProfileCreation = true
+	userMetadata.MustCompleteTutorial = true
+	userMetadata.RedoJumio = false
+
+	// Decide whether or not the user is going to get paid.
+	if desoNanos := fes.GetJumioDeSoNanos(); desoNanos > 0 || userMetadata.ReferralHashBase58Check != "" {
+		payReferrer := false
+
+		// Decide whether the user should be paid the standard amount or a special referral amount.
+		if userMetadata.ReferralHashBase58Check != "" {
+			var referralInfo *ReferralInfo
+			referralInfo, err = fes.getInfoForReferralHashBase58(userMetadata.ReferralHashBase58Check)
+			if err != nil {
+				glog.Errorf("JumioVerifiedHandler: Error getting referral info: %v", err)
+			} else if referralInfo != nil && (referralInfo.TotalReferrals < referralInfo.MaxReferrals || referralInfo.MaxReferrals == 0) && fes.getReferralHashStatus(referralInfo.ReferrerPKID, referralInfo.ReferralHashBase58) {
+				desoNanos = fes.GetNanosFromUSDCents(float64(referralInfo.RefereeAmountUSDCents), 0)
+				payReferrer = true
+			}
+		}
+
+		// Pay the referee.
+		if desoNanos > 0 {
+			// Check the balance of the starter deso seed.
+			var balanceInsufficient bool
+			balanceInsufficient, err = fes.ExceedsDeSoBalance(desoNanos, fes.Config.StarterDeSoSeed)
+			if err != nil {
+				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error checking if send deso balance is sufficient: %v", err)
+			}
+			if balanceInsufficient {
+				return userMetadata, fmt.Errorf("JumioVerifiedHandler: SendDeSo wallet balance is below nanos purchased")
+			}
+			// Send JumioDeSoNanos to public key
+			var txnHash *lib.BlockHash
+			txnHash, err = fes.SendSeedDeSo(publicKeyBytes, desoNanos, false)
+			if err != nil {
+				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error sending starter DeSo: %v", err)
+			}
+
+			// Save transaction hash hex in user metadata.
+			userMetadata.JumioStarterDeSoTxnHashHex = txnHash.String()
+		}
+
+		// Pay the referrer.
+		if userMetadata.ReferralHashBase58Check != "" && payReferrer {
+			// We get the referral info again from global state. It is possible that another referral has been given out
+			// and to make sure the stats are correct, we pull the latest referral info.
+			var referralInfo *ReferralInfo
+			referralInfo, err = fes.getInfoForReferralHashBase58(userMetadata.ReferralHashBase58Check)
+			if err != nil {
+				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error getting referral info: %v", err)
+			}
+			refereePKID := utxoView.GetPKIDForPublicKey(publicKeyBytes)
+			pkidReferralHashRefereePKIDKey := GlobalStateKeyForPKIDReferralHashRefereePKID(referralInfo.ReferrerPKID, []byte(referralInfo.ReferralHashBase58), refereePKID.PKID)
+			if err = fes.GlobalStatePut(pkidReferralHashRefereePKIDKey, []byte{1}); err != nil {
+				glog.Errorf("JumioVerifiedHandler: Error adding to the index of users who were referred by a given referral code")
+			}
+			// Calculate how much to pay the referrer
+			referrerDeSoNanos := fes.GetNanosFromUSDCents(float64(referralInfo.ReferrerAmountUSDCents), 0)
+			if referralInfo.TotalReferrals >= referralInfo.MaxReferrals && referralInfo.MaxReferrals > 0 {
+				return userMetadata, nil
+			}
+			// Check the balance of the starter deso seed compared to the referrer deso nanos.
+			var balanceInsufficientForReferrer bool
+			balanceInsufficientForReferrer, err = fes.ExceedsDeSoBalance(referrerDeSoNanos, fes.Config.StarterDeSoSeed)
+			if err != nil {
+				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error checking if send deso balance is sufficient: %v", err)
+			}
+			if balanceInsufficientForReferrer {
+				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Balance insufficient to pay referrer")
+			}
+
+			referrerPKID := referralInfo.ReferrerPKID
+			referrerPublicKeyBytes := utxoView.GetPublicKeyForPKID(referrerPKID)
+			// Increment JumioSuccesses, TotalReferrals and add to TotralRefereeDeSoNanos and TotalReferrerDeSoNanos
+			referralInfo.NumJumioSuccesses++
+			referralInfo.TotalReferrals++
+			referralInfo.TotalRefereeDeSoNanos += desoNanos
+			referralInfo.TotalReferrerDeSoNanos += referrerDeSoNanos
+
+			// Update the referral info in global state.
+			if err = fes.putReferralHashWithInfo(userMetadata.ReferralHashBase58Check, referralInfo); err != nil {
+				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error updating referral info. Skipping paying referrer: %v", err)
+			}
+			// Bail if there referrer gets nothing
+			if referrerDeSoNanos == 0 {
+				return userMetadata, nil
+			}
+			// Send the referrer money
+			var referrerTxnHash *lib.BlockHash
+			referrerTxnHash, err = fes.SendSeedDeSo(referrerPublicKeyBytes, referrerDeSoNanos, false)
+			if err != nil {
+				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error sending DESO to referrer: %v", err)
+			}
+			// Set the referrer deso txn hash.
+			userMetadata.ReferrerDeSoTxnHash = referrerTxnHash.String()
+		}
+	}
+	return userMetadata, nil
+}
+
+func (fes *APIServer) GetJumioDeSoNanos() uint64 {
+	val, err := fes.GlobalStateGet(GlobalStateKeyForJumioDeSoNanos())
 	if err != nil {
 		return 0
 	}
-	jumioBitCloutNanos, bytesRead := lib.Uvarint(val)
+	jumioDeSoNanos, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {
 		return 0
 	}
-	return jumioBitCloutNanos
+	return jumioDeSoNanos
 }
 
 type GetJumioStatusForPublicKeyRequest struct {
-	JWT string
+	JWT                  string
 	PublicKeyBase58Check string
 }
 
@@ -868,7 +966,7 @@ type GetJumioStatusForPublicKeyResponse struct {
 	JumioReturned     bool
 	JumioVerified     bool
 
-	BalanceNanos      *uint64
+	BalanceNanos *uint64
 }
 
 func (fes *APIServer) GetJumioStatusForPublicKey(ww http.ResponseWriter, rr *http.Request) {
@@ -905,7 +1003,7 @@ func (fes *APIServer) GetJumioStatusForPublicKey(ww http.ResponseWriter, rr *htt
 			return
 		}
 		var balanceNanos uint64
-		balanceNanos, err = utxoView.GetBitcloutBalanceNanosForPublicKey(userMetadata.PublicKey)
+		balanceNanos, err = utxoView.GetDeSoBalanceNanosForPublicKey(userMetadata.PublicKey)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetJumioStatusForPublicKey: Error getting balance: %v", err))
 			return

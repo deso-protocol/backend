@@ -3,8 +3,8 @@ package toolslib
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/bitclout/backend/routes"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/pkg/errors"
 	"io/ioutil"
@@ -13,7 +13,7 @@ import (
 
 // _generateUnsignedCreatorCoinBuy...
 func _generateUnsignedCreatorCoinBuy(buyerPubKey *btcec.PublicKey, creatorPubKey *btcec.PublicKey,
-	amountNanos uint64, params *lib.BitCloutParams, node string) (*routes.BuyOrSellCreatorCoinResponse, error){
+	amountNanos uint64, params *lib.DeSoParams, node string) (*routes.BuyOrSellCreatorCoinResponse, error){
 	endpoint := node + routes.RoutePathBuyOrSellCreatorCoin
 
 	// Setup request
@@ -21,10 +21,10 @@ func _generateUnsignedCreatorCoinBuy(buyerPubKey *btcec.PublicKey, creatorPubKey
 		UpdaterPublicKeyBase58Check: lib.PkToString(buyerPubKey.SerializeCompressed(), params),
 		CreatorPublicKeyBase58Check: lib.PkToString(creatorPubKey.SerializeCompressed(), params),
 		OperationType: "buy",
-		BitCloutToSellNanos: amountNanos,
+		DeSoToSellNanos: amountNanos,
 		CreatorCoinToSellNanos: 0,
-		BitCloutToAddNanos: 0,
-		MinBitCloutExpectedNanos: 0,
+		DeSoToAddNanos: 0,
+		MinDeSoExpectedNanos: 0,
 		MinCreatorCoinExpectedNanos: 0,
 		MinFeeRateNanosPerKB: 1000,
 	}
@@ -61,7 +61,7 @@ func _generateUnsignedCreatorCoinBuy(buyerPubKey *btcec.PublicKey, creatorPubKey
 
 // BuyCreator...
 func BuyCreator(buyerPubKey *btcec.PublicKey, buyerPrivKey *btcec.PrivateKey, creatorPubKey *btcec.PublicKey,
-	amountNanos uint64, params *lib.BitCloutParams, node string) error {
+	amountNanos uint64, params *lib.DeSoParams, node string) error {
 
 	// Request an unsigned transaction from the node
 	unsignedCCBuy, err := _generateUnsignedCreatorCoinBuy(buyerPubKey, creatorPubKey , amountNanos, params, node)
