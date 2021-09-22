@@ -3,8 +3,8 @@ package toolslib
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/bitclout/backend/routes"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/pkg/errors"
 	"io/ioutil"

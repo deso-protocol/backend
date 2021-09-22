@@ -18,7 +18,7 @@ import (
 	"github.com/sendgrid/sendgrid-go"
 	"github.com/sendgrid/sendgrid-go/helpers/mail"
 
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/nyaruka/phonenumbers"
 	"github.com/pkg/errors"

@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
 	"github.com/tyler-smith/go-bip39"

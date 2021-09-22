@@ -4,14 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/backend/apis"
+	"github.com/deso-protocol/backend/apis"
 	"io"
 	"io/ioutil"
 	"math/big"
 	"net/http"
 	"time"
 
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/montanaflynn/stats"
 )

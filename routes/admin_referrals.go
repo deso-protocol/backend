@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil/base58"
 	"github.com/pkg/errors"

@@ -16,7 +16,7 @@ import (
 	"github.com/dgraph-io/badger/v3"
 	"github.com/gorilla/mux"
 
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
 )
