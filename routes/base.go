@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/bitclout/backend/apis"
 	"io"
 	"io/ioutil"
+	"math/big"
 	"net/http"
 	"time"
 
@@ -39,9 +41,16 @@ func (fes *APIServer) HealthCheck(ww http.ResponseWriter, rr *http.Request) {
 }
 
 type GetExchangeRateResponse struct {
-	SatoshisPerBitCloutExchangeRate        uint64
+	// BTC
+	SatoshisPerBitCloutExchangeRate uint64
+	USDCentsPerBitcoinExchangeRate  uint64
+
+	// ETH
+	NanosPerETHExchangeRate    uint64
+	USDCentsPerETHExchangeRate uint64
+
+	// CLOUT
 	NanosSold                              uint64
-	USDCentsPerBitcoinExchangeRate         uint64
 	USDCentsPerBitCloutExchangeRate        uint64
 	USDCentsPerBitCloutReserveExchangeRate uint64
 	BuyBitCloutFeeBasisPoints              uint64
@@ -50,30 +59,29 @@ type GetExchangeRateResponse struct {
 func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) {
 	readUtxoView, _ := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 
+	// BTC
 	usdCentsPerBitcoin := fes.UsdCentsPerBitCoinExchangeRate
 	// If we don't have a valid value from monitoring at this time, use the price from the protocol
 	if usdCentsPerBitcoin == 0 {
 		usdCentsPerBitcoin = float64(readUtxoView.GetCurrentUSDCentsPerBitcoin())
 	}
 
-	startNanos := readUtxoView.NanosPurchased
-
-	var satoshisPerUnit uint64
-	nanosPerSat, err := fes.GetNanosFromSats(1, 0)
-	if err != nil {
-		glog.Errorf("GetExchangeRate: error getting BitCloutNanos per BitCoin: %v", err)
-		satoshisPerUnit = lib.GetSatoshisPerUnitExchangeRate(startNanos, uint64(usdCentsPerBitcoin))
-	} else {
-		satoshisPerUnit = lib.NanosPerUnit / nanosPerSat
-	}
-
 	usdCentsPerBitCloutExchangeRate := fes.GetExchangeBitCloutPrice()
+	nanosPerSat := fes.GetNanosFromSats(1, 0)
+	satoshisPerUnit := lib.NanosPerUnit / nanosPerSat
 
+	// ETH
+	usdCentsPerETH := fes.UsdCentsPerETHExchangeRate
+	nanosPerETH := fes.GetNanosFromETH(big.NewFloat(1), 0)
+
+	// CLOUT
 	usdCentsPerBitCloutReserveExchangeRate, err := fes.GetUSDCentsToBitCloutReserveExchangeRateFromGlobalState()
 	if err != nil {
 		glog.Errorf("GetExchangeRate: error getting reserve exchange rate from global state: %v", err)
 		usdCentsPerBitCloutReserveExchangeRate = 0
 	}
+
+	startNanos := readUtxoView.NanosPurchased
 
 	feeBasisPoints, err := fes.GetBuyBitCloutFeeBasisPointsResponseFromGlobalState()
 	if err != nil {
@@ -82,9 +90,16 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 	}
 
 	res := &GetExchangeRateResponse{
-		SatoshisPerBitCloutExchangeRate:        satoshisPerUnit,
+		// BTC
+		USDCentsPerBitcoinExchangeRate:  uint64(usdCentsPerBitcoin),
+		SatoshisPerBitCloutExchangeRate: satoshisPerUnit,
+
+		// ETH
+		USDCentsPerETHExchangeRate: usdCentsPerETH,
+		NanosPerETHExchangeRate:    nanosPerETH,
+
+		// CLOUT
 		NanosSold:                              startNanos,
-		USDCentsPerBitcoinExchangeRate:         uint64(usdCentsPerBitcoin),
 		USDCentsPerBitCloutExchangeRate:        usdCentsPerBitCloutExchangeRate,
 		USDCentsPerBitCloutReserveExchangeRate: usdCentsPerBitCloutReserveExchangeRate,
 		BuyBitCloutFeeBasisPoints:              feeBasisPoints,
@@ -195,7 +210,18 @@ func (fes *APIServer) UpdateUSDToBTCPrice() {
 		return
 	}
 	fes.UsdCentsPerBitCoinExchangeRate = btcExchangeRate * 100
-	glog.Infof("New USD to BTC exchange rate: %v", fes.UsdCentsPerBitCoinExchangeRate)
+	glog.Infof("New USD to BTC exchange rate: %f", fes.UsdCentsPerBitCoinExchangeRate/100)
+}
+
+func (fes *APIServer) UpdateUSDToETHPrice() {
+	glog.Info("Refreshing USD to ETH exchange rate")
+	ethExchangeRate, err := apis.GetUSDToETHPrice()
+	if err != nil {
+		glog.Errorf("Error getting ETH price: %v", err)
+		return
+	}
+	fes.UsdCentsPerETHExchangeRate = uint64(ethExchangeRate * 100)
+	glog.Infof("New USD to ETH exchange rate: %f", float64(fes.UsdCentsPerETHExchangeRate)/100)
 }
 
 // getMaxPriceFromHistoryAndCull removes elements that are outside of the lookback window and return the max price
@@ -241,6 +267,7 @@ type GetAppStateResponse struct {
 	DiamondLevelMap        map[int64]uint64
 	HasWyreIntegration     bool
 	HasJumioIntegration    bool
+	BuyWithETH             bool
 
 	USDCentsPerBitCloutExchangeRate uint64
 	JumioBitCloutNanos              uint64
@@ -280,9 +307,9 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		DiamondLevelMap:                     lib.GetBitCloutNanosDiamondLevelMapAtBlockHeight(int64(fes.blockchain.BlockTip().Height)),
 		HasWyreIntegration:                  fes.IsConfiguredForWyre(),
 		HasJumioIntegration:                 fes.IsConfiguredForJumio(),
-
-		USDCentsPerBitCloutExchangeRate: fes.GetExchangeBitCloutPrice(),
-		JumioBitCloutNanos:              fes.GetJumioBitCloutNanos(),
+		BuyWithETH:                          fes.IsConfiguredForETH(),
+		USDCentsPerBitCloutExchangeRate:     fes.GetExchangeBitCloutPrice(),
+		JumioBitCloutNanos:                  fes.GetJumioBitCloutNanos(),
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
