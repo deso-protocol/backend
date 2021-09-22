@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"github.com/bitclout/backend/miner"
+	"github.com/deso-protocol/backend/miner"
 	"log"
 
 	"github.com/golang/glog"

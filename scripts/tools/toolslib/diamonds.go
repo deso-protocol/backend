@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/bitclout/backend/routes"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/pkg/errors"
 	"io/ioutil"
@@ -14,7 +14,7 @@ import (
 
 // _generateUnsignedGiveDiamonds...
 func _generateUnsignedSendDiamonds(senderPubKey *btcec.PublicKey, postHashHex string, receiverPublicKeyBase58Check string,
-	diamondLevel int64, params *lib.BitCloutParams, node string) (*routes.SendDiamondsResponse, error) {
+	diamondLevel int64, params *lib.DeSoParams, node string) (*routes.SendDiamondsResponse, error) {
 	endpoint := node + routes.RoutePathSendDiamonds
 
 	// Setup request
@@ -72,7 +72,7 @@ func _generateUnsignedSendDiamonds(senderPubKey *btcec.PublicKey, postHashHex st
 
 // SendDiamonds
 func SendDiamonds(senderPubKey *btcec.PublicKey, senderPrivKey *btcec.PrivateKey, postHashHex string,
-	receiverPublicKeyBase58Check string, diamondLevel int64, params *lib.BitCloutParams, node string) error {
+	receiverPublicKeyBase58Check string, diamondLevel int64, params *lib.DeSoParams, node string) error {
 
 	// Request an unsigned transaction from the node
 	unsignedSendDiamonds, err := _generateUnsignedSendDiamonds(senderPubKey, postHashHex, receiverPublicKeyBase58Check,

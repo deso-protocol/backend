@@ -18,7 +18,7 @@ import (
 	_ "image/png"
 
 	"cloud.google.com/go/storage"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/h2non/bimg"
 	"google.golang.org/api/option"

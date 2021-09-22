@@ -16,7 +16,7 @@ import (
 	"github.com/dgraph-io/badger/v3"
 	"github.com/gorilla/mux"
 
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
 )
@@ -514,7 +514,7 @@ type ProfileEntryResponse struct {
 	// Creator coin fields
 	CoinEntry lib.CoinEntry
 	// Include current price for the frontend to display.
-	CoinPriceBitCloutNanos uint64
+	CoinPriceDeSoNanos uint64
 
 	// Profiles of users that hold the coin + their balances.
 	UsersThatHODL []*BalanceEntryResponse
@@ -574,7 +574,7 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 		// TODO(performance): This currently fetches all usernames that match this prefix, which
 		// could get slow. Bandaid fix would be to not search until we have a few characters.
 
-		profileEntries, err := fes.GetProfilesByUsernamePrefixAndBitCloutLocked(
+		profileEntries, err := fes.GetProfilesByUsernamePrefixAndDeSoLocked(
 			fes.blockchain.DB(), requestData.UsernamePrefix, readerPubKey, utxoView)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf(
@@ -753,7 +753,7 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 		})
 	} else if requestData.OrderBy == "influencer_coin_price" {
 		sort.Slice(profileEntryResponses, func(ii, jj int) bool {
-			return profileEntryResponses[ii].CoinEntry.BitCloutLockedNanos > profileEntryResponses[jj].CoinEntry.BitCloutLockedNanos
+			return profileEntryResponses[ii].CoinEntry.DeSoLockedNanos > profileEntryResponses[jj].CoinEntry.DeSoLockedNanos
 		})
 	}
 
@@ -793,11 +793,11 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (fes *APIServer) GetProfilesByUsernamePrefixAndBitCloutLocked(
+func (fes *APIServer) GetProfilesByUsernamePrefixAndDeSoLocked(
 	db *badger.DB, usernamePrefix string, readerPK []byte, utxoView *lib.UtxoView) (
 	_profileEntries []*lib.ProfileEntry, _err error) {
 
-	profileEntries, err := lib.DBGetProfilesByUsernamePrefixAndBitCloutLocked(db, usernamePrefix, utxoView)
+	profileEntries, err := lib.DBGetProfilesByUsernamePrefixAndDeSoLocked(db, usernamePrefix, utxoView)
 
 	pubKeyMap := make(map[lib.PkMapKey][]byte)
 	for _, profileEntry := range profileEntries {
@@ -806,7 +806,7 @@ func (fes *APIServer) GetProfilesByUsernamePrefixAndBitCloutLocked(
 
 	filteredPubKeyMap, err := fes.FilterOutRestrictedPubKeysFromMap(pubKeyMap, readerPK, "leaderboard")
 	if err != nil {
-		return nil, fmt.Errorf("DBGetProfilesByUsernamePrefixAndBitCloutLocked: %v", err)
+		return nil, fmt.Errorf("DBGetProfilesByUsernamePrefixAndDeSoLocked: %v", err)
 	}
 
 	var filteredProfileEntries []*lib.ProfileEntry
@@ -825,13 +825,13 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		return nil
 	}
 
-	coinPriceBitCloutNanos := uint64(0)
+	coinPriceDeSoNanos := uint64(0)
 	if profileEntry.CoinsInCirculationNanos != 0 {
 		// The price formula is:
-		// coinPriceBitCloutNanos = BitCloutLockedNanos / (CoinsInCirculationNanos * ReserveRatio) * NanosPerUnit
+		// coinPriceDeSoNanos = DeSoLockedNanos / (CoinsInCirculationNanos * ReserveRatio) * NanosPerUnit
 		bigNanosPerUnit := lib.NewFloat().SetUint64(lib.NanosPerUnit)
-		coinPriceBitCloutNanos, _ = lib.Mul(lib.Div(
-			lib.Div(lib.NewFloat().SetUint64(profileEntry.BitCloutLockedNanos), bigNanosPerUnit),
+		coinPriceDeSoNanos, _ = lib.Mul(lib.Div(
+			lib.Div(lib.NewFloat().SetUint64(profileEntry.DeSoLockedNanos), bigNanosPerUnit),
 			lib.Mul(lib.Div(lib.NewFloat().SetUint64(profileEntry.CoinsInCirculationNanos), bigNanosPerUnit),
 				fes.Params.CreatorCoinReserveRatio)), lib.NewFloat().SetUint64(lib.NanosPerUnit)).Uint64()
 	}
@@ -864,7 +864,7 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		Username:               string(profileEntry.Username),
 		Description:            string(profileEntry.Description),
 		CoinEntry:              profileEntry.CoinEntry,
-		CoinPriceBitCloutNanos: coinPriceBitCloutNanos,
+		CoinPriceDeSoNanos: coinPriceDeSoNanos,
 		IsHidden:               profileEntry.IsHidden,
 		IsReserved:             isReserved,
 		IsVerified:             isVerified,
@@ -1334,10 +1334,10 @@ func (fes *APIServer) GetDiamondsForPublicKey(ww http.ResponseWriter, req *http.
 			return false
 		}
 
-		iiBitCloutLocked := iiProfile.CoinEntry.BitCloutLockedNanos
-		jjBitCloutLocked := jjProfile.CoinEntry.BitCloutLockedNanos
+		iiDeSoLocked := iiProfile.CoinEntry.DeSoLockedNanos
+		jjDeSoLocked := jjProfile.CoinEntry.DeSoLockedNanos
 
-		return iiBitCloutLocked > jjBitCloutLocked
+		return iiDeSoLocked > jjDeSoLocked
 	})
 
 	res := &GetDiamondsForPublicKeyResponse{
@@ -1388,7 +1388,7 @@ func (fes *APIServer) sortFollowEntries(followEntryPKIDii *lib.PKID, followEntry
 		}
 		// If both FollowEntries have a profile, compare the two based on coin price.
 		if profileEntryii != nil && profileEntryjj != nil {
-			return profileEntryii.CoinEntry.BitCloutLockedNanos > profileEntryjj.CoinEntry.BitCloutLockedNanos
+			return profileEntryii.CoinEntry.DeSoLockedNanos > profileEntryjj.CoinEntry.DeSoLockedNanos
 		}
 	}
 	// If we're not fetching values (meaning no profiles for public keys) or neither FollowEntry has a profile,
@@ -2201,7 +2201,7 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 		// Someone transferred you creator coins
 		return true
 	} else if txnMeta.BitcoinExchangeTxindexMetadata != nil {
-		// You got some BitClout from a BitcoinExchange txn
+		// You got some DeSo from a BitcoinExchange txn
 		return true
 	} else if txnMeta.NFTBidTxindexMetadata != nil {
 		// Someone bid on your NFT

@@ -3,8 +3,8 @@ package toolslib
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/bitclout/backend/routes"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/pkg/errors"
 	"io/ioutil"
@@ -13,7 +13,7 @@ import (
 
 // _generateUnsignedBTCPriceUpdate...
 func _generateUnsignedBTCPriceUpdate(updaterPubKey *btcec.PublicKey, newUSDCentsPerBitcoin uint64,
-	params *lib.BitCloutParams, node string) (*routes.UpdateGlobalParamsResponse, error) {
+	params *lib.DeSoParams, node string) (*routes.UpdateGlobalParamsResponse, error) {
 	endpoint := node + routes.RoutePathUpdateGlobalParams
 
 	// Setup request
@@ -54,7 +54,7 @@ func _generateUnsignedBTCPriceUpdate(updaterPubKey *btcec.PublicKey, newUSDCents
 
 // UpdateBitcoinUSDExchangeRate...
 func UpdateBitcoinUSDExchangeRate(updaterPubKey *btcec.PublicKey, updaterPrivKey *btcec.PrivateKey, newUSDCentsPerBitcoin uint64,
-	params *lib.BitCloutParams, node string) error {
+	params *lib.DeSoParams, node string) error {
 
 	// Request an unsigned transaction from the node
 	unsignedUpdateBitcoinUSDExchangeRate, err := _generateUnsignedBTCPriceUpdate(updaterPubKey, newUSDCentsPerBitcoin, params, node)

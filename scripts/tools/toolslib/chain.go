@@ -1,7 +1,7 @@
 package toolslib
 
 import (
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/dgraph-io/badger/v3"
 	"github.com/pkg/errors"
 )
@@ -18,7 +18,7 @@ func OpenDataDir(dataDir string) (*badger.DB, error){
 
 // Returns the best chain associated with a badgerDB handle.
 func GetBestChainFromBadger(syncedDBHandle *badger.DB) ([]*lib.BlockNode, error) {
-	bestBlockHash := lib.DbGetBestHash(syncedDBHandle, lib.ChainTypeBitCloutBlock)
+	bestBlockHash := lib.DbGetBestHash(syncedDBHandle, lib.ChainTypeDeSoBlock)
 	if bestBlockHash == nil {
 		return nil, errors.Errorf("GetBestChainFromBadger() could not find a blockchain in the provided db")
 	}

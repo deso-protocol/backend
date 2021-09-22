@@ -3,7 +3,7 @@ package routes
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"io"
 	"net/http"
 )
@@ -87,7 +87,7 @@ func (fes *APIServer) AdminResetJumioForPublicKey(ww http.ResponseWriter, req *h
 	userMetadata.JumioTransactionID = ""
 	userMetadata.JumioDocumentKey = nil
 	userMetadata.RedoJumio = true
-	userMetadata.JumioStarterBitCloutTxnHashHex = ""
+	userMetadata.JumioStarterDeSoTxnHashHex = ""
 	userMetadata.JumioShouldCompProfileCreation = false
 	userMetadata.JumioFinishedTime = 0
 	userMetadata.JumioInternalReference = ""
@@ -98,35 +98,35 @@ func (fes *APIServer) AdminResetJumioForPublicKey(ww http.ResponseWriter, req *h
 	}
 }
 
-type AdminUpdateJumioBitCloutRequest struct {
+type AdminUpdateJumioDeSoRequest struct {
 	JWT string
-	BitCloutNanos uint64
+	DeSoNanos uint64
 }
 
-type AdminUpdateJumioBitCloutResponse struct {
-	BitCloutNanos uint64
+type AdminUpdateJumioDeSoResponse struct {
+	DeSoNanos uint64
 }
 
-func (fes *APIServer) AdminUpdateJumioBitClout(ww http.ResponseWriter, req *http.Request) {
+func (fes *APIServer) AdminUpdateJumioDeSo(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := AdminUpdateJumioBitCloutRequest{}
+	requestData := AdminUpdateJumioDeSoRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioBitClout: Problem parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioDeSo: Problem parsing request body: %v", err))
 		return
 	}
 
 	if err := fes.GlobalStatePut(
-		GlobalStateKeyForJumioBitCloutNanos(),
-		lib.UintToBuf(requestData.BitCloutNanos)); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioBitClout: Problem putting premium basis points in global state: %v", err))
+		GlobalStateKeyForJumioDeSoNanos(),
+		lib.UintToBuf(requestData.DeSoNanos)); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioDeSo: Problem putting premium basis points in global state: %v", err))
 		return
 	}
 
-	res := AdminUpdateJumioBitCloutResponse{
-		BitCloutNanos: requestData.BitCloutNanos,
+	res := AdminUpdateJumioDeSoResponse{
+		DeSoNanos: requestData.DeSoNanos,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioBitClout: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioDeSo: Problem encoding response as JSON: %v", err))
 		return
 	}
 }

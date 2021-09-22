@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/backend/routes"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core/lib"
 	"io/ioutil"
 	"net/http"
 	"runtime"
@@ -32,7 +32,7 @@ type RemoteMiner struct {
 	TemplateRefreshIntervalSeconds float64
 
 	mtxLatestBLockTemplates deadlock.RWMutex
-	latestBlockHeaders      []*lib.MsgBitCloutHeader
+	latestBlockHeaders      []*lib.MsgDeSoHeader
 	latestExtraDatas        []uint64
 	latestBlockID           string
 	currentDiffTarget       *lib.BlockHash
@@ -69,7 +69,7 @@ func NewRemoteMiner(
 }
 
 func (bb *RemoteMiner) GetBlockTemplate(threadIndex int64) (
-	_hdr *lib.MsgBitCloutHeader, _extraNonce uint64, _blockID string, _diffTarget *lib.BlockHash) {
+	_hdr *lib.MsgDeSoHeader, _extraNonce uint64, _blockID string, _diffTarget *lib.BlockHash) {
 
 	bb.mtxLatestBLockTemplates.RLock()
 	defer bb.mtxLatestBLockTemplates.RUnlock()
@@ -78,7 +78,7 @@ func (bb *RemoteMiner) GetBlockTemplate(threadIndex int64) (
 }
 
 func (bb *RemoteMiner) SubmitWinningHeader(
-	header *lib.MsgBitCloutHeader, extraData uint64, blockID string) error {
+	header *lib.MsgDeSoHeader, extraData uint64, blockID string) error {
 	headerBytes, err := header.ToBytes(false)
 	if err != nil {
 		return fmt.Errorf("Error converting header to bytes: %v", err)
@@ -159,9 +159,9 @@ func (bb *RemoteMiner) RefreshBlockTemplates() error {
 	bb.mtxLatestBLockTemplates.Lock()
 	defer bb.mtxLatestBLockTemplates.Unlock()
 
-	bb.latestBlockHeaders = []*lib.MsgBitCloutHeader{}
+	bb.latestBlockHeaders = []*lib.MsgDeSoHeader{}
 	for _, hdrBytes := range res.Headers {
-		header := &lib.MsgBitCloutHeader{}
+		header := &lib.MsgDeSoHeader{}
 		if err := header.FromBytes(hdrBytes); err != nil {
 			return fmt.Errorf("Error parsing headers in response: %v", err)
 		}

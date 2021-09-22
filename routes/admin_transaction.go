@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/pkg/errors"
 )
@@ -102,7 +102,7 @@ type UpdateGlobalParamsResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 }
 
@@ -209,12 +209,12 @@ type SwapIdentityResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 }
 
 func (fes *APIServer) getPublicKeyFromUsernameOrPublicKeyString(usernameOrPublicKey string) ([]byte, error) {
-	if (strings.HasPrefix(usernameOrPublicKey, "BC") || strings.HasPrefix(usernameOrPublicKey, "tBC")) &&
+	if (strings.HasPrefix(usernameOrPublicKey, fes.PublicKeyBase58Prefix)) &&
 		len(usernameOrPublicKey) >= btcec.PubKeyBytesLenCompressed {
 
 		// In this case parse the string as a public key.

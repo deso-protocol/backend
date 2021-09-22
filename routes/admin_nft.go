@@ -10,7 +10,7 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 )
 
 type AdminGetNFTDropRequest struct {
