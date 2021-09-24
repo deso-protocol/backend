@@ -2,6 +2,7 @@ package routes
 
 import (
 	"bytes"
+	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -9,11 +10,11 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"
 	"github.com/golang/glog"
+	"github.com/pkg/errors"
 	"io"
 	"io/ioutil"
 	"math/big"
 	"net/http"
-	"reflect"
 	"strings"
 	"time"
 )
@@ -126,6 +127,13 @@ type SubmitETHTxResponse struct {
 	BitCloutTxnHash string
 }
 
+// ETHTxLog is used by admins to reprocess stuck transactions
+type ETHTxLog struct {
+	PublicKey       []byte
+	Tx              BlockCypherTx
+	BitCloutTxnHash string
+}
+
 func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := SubmitETHTxRequest{}
@@ -200,17 +208,27 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Record pending transaction in global state
-	globalStateKey := GlobalStateKeyETHPurchases(requestData.Tx.Hash)
-	if err = fes.GlobalStatePut(globalStateKey, []byte{0}); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error processing GlobalStatePut: %v", err))
-		return
-	}
-
 	// Submit the transaction
 	submitTx, err := fes.BlockCypherSubmitETHTx(requestData.Tx, requestData.ToSign, []string{normalizedSig})
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to submit ETH transaction: %v", err))
+		return
+	}
+
+	// Record the validated transaction data in global state
+	ethTxLog := &ETHTxLog{
+		PublicKey: pkBytes,
+		Tx:        submitTx.Tx,
+	}
+	globalStateKey := GlobalStateKeyETHPurchases(submitTx.Tx.Hash)
+	globalStateVal := bytes.NewBuffer([]byte{})
+	err = gob.NewEncoder(globalStateVal).Encode(ethTxLog)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to encode ETH transaction: %v", err))
+		return
+	}
+	if err = fes.GlobalStatePut(globalStateKey, globalStateVal.Bytes()); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error processing GlobalStatePut: %v", err))
 		return
 	}
 
@@ -242,33 +260,9 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	// Ensure the transaction mined
-	if ethTx == nil || ethTx.BlockHeight < 0 {
-		_AddBadRequestError(ww, "SubmitETHTx: Transaction failed to mine")
-		return
-	}
-
-	// Fetch buy bitclout basis points fee
-	feeBasisPoints, err := fes.GetBuyBitCloutFeeBasisPointsResponseFromGlobalState()
+	bitcloutTxnHash, err := fes.finishETHTx(ethTxLog)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error getting buy fee basis points: %v", err))
-		return
-	}
-
-	// Calculate nanos purchased
-	totalWei := big.NewFloat(0).SetInt(ethTx.Total)
-	totalEth := big.NewFloat(0).Quo(totalWei, big.NewFloat(1e18))
-	nanosPurchased := fes.GetNanosFromETH(totalEth, feeBasisPoints)
-
-	bitcloutTxnHash, err := fes.SendSeedBitClout(pkBytes, nanosPurchased, true)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error sending BitClout: %v", err))
-		return
-	}
-
-	// Record transaction success in global state
-	if err = fes.GlobalStatePut(globalStateKey, []byte{1}); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error processing GlobalStatePut: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed: %v", err))
 		return
 	}
 
@@ -281,12 +275,55 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// 1. Validate the transaction mined
+// 2. Calculate the nanos to send
+// 3. Send the nanos
+// 4. Record the successful send
+func (fes *APIServer) finishETHTx(ethTxLog *ETHTxLog) (txnHash *lib.BlockHash, _err error) {
+	// Ensure the transaction mined
+	if ethTxLog.Tx.BlockHeight < 0 {
+		return nil, errors.New("Transaction failed to mine")
+	}
+
+	// Fetch buy bitclout basis points fee
+	feeBasisPoints, err := fes.GetBuyBitCloutFeeBasisPointsResponseFromGlobalState()
+	if err != nil {
+		return nil, errors.New(fmt.Sprintf("Error getting buy fee basis points: %v", err))
+	}
+
+	// Calculate nanos purchased
+	totalWei := big.NewFloat(0).SetInt(ethTxLog.Tx.Total)
+	totalEth := big.NewFloat(0).Quo(totalWei, big.NewFloat(1e18))
+	nanosPurchased := fes.GetNanosFromETH(totalEth, feeBasisPoints)
+
+	bitcloutTxnHash, err := fes.SendSeedBitClout(ethTxLog.PublicKey, nanosPurchased, true)
+	if err != nil {
+		return nil, errors.New(fmt.Sprintf("Error sending BitClout: %v", err))
+	}
+
+	// Record successful transaction in global state
+	ethTxLog.BitCloutTxnHash = bitcloutTxnHash.String()
+	globalStateKey := GlobalStateKeyETHPurchases(ethTxLog.Tx.Hash)
+	globalStateVal := bytes.NewBuffer([]byte{})
+	err = gob.NewEncoder(globalStateVal).Encode(ethTxLog)
+	if err != nil {
+		return nil, errors.New(fmt.Sprintf("Failed to encode ETH transaction: %v", err))
+	}
+
+	err = fes.GlobalStatePut(globalStateKey, globalStateVal.Bytes())
+	if err != nil {
+		return nil, errors.New(fmt.Sprintf("Error processing GlobalStatePut: %v", err))
+	}
+
+	return bitcloutTxnHash, nil
+}
+
 type AdminProcessETHTxRequest struct {
 	ETHTxHash string
 }
 
 type AdminProcessETHTxResponse struct {
-	ToPay uint64
+	BitCloutTxnHash string
 }
 
 func (fes *APIServer) AdminProcessETHTx(ww http.ResponseWriter, req *http.Request) {
@@ -302,17 +339,24 @@ func (fes *APIServer) AdminProcessETHTx(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	// Fetch the transaction from global state
+	// Fetch the log data from global state
 	globalStateKey := GlobalStateKeyETHPurchases(requestData.ETHTxHash)
-	txStatus, err := fes.GlobalStateGet(globalStateKey)
+	globalStateLog, err := fes.GlobalStateGet(globalStateKey)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Error processing GlobalStateGet: %v", err))
 		return
 	}
 
-	// Transaction must be pending
-	if !reflect.DeepEqual(txStatus, []byte{0}) {
-		_AddBadRequestError(ww, "AdminProcessETHTx: Transaction is not pending")
+	ethTxLog := &ETHTxLog{}
+	err = gob.NewDecoder(bytes.NewReader(globalStateLog)).Decode(ethTxLog)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Error decoding global state data: %v", err))
+		return
+	}
+
+	// Transaction must be unsuccessful
+	if len(ethTxLog.BitCloutTxnHash) > 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: CLOUT was sent: %s", ethTxLog.BitCloutTxnHash))
 		return
 	}
 
@@ -323,40 +367,14 @@ func (fes *APIServer) AdminProcessETHTx(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	// Ensure the transaction mined
-	if ethTx == nil || ethTx.BlockHeight < 0 {
-		_AddBadRequestError(ww, "AdminProcessETHTx: Transaction failed to mine")
-		return
-	}
-
-	// Verify the deposit address is correct
-	configDepositAddress := strings.ToLower(fes.Config.BuyBitCloutETHAddress[2:])
-	txDepositAddress := strings.ToLower(ethTx.Outputs[0].Addresses[0])
-	if configDepositAddress != txDepositAddress {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Invalid deposit address: %s", txDepositAddress))
-		return
-	}
-
-	// Fetch buy bitclout basis points fee
-	feeBasisPoints, err := fes.GetBuyBitCloutFeeBasisPointsResponseFromGlobalState()
+	bitcloutTxnHash, err := fes.finishETHTx(ethTxLog)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Error getting buy fee basis points: %v", err))
-		return
-	}
-
-	// Calculate nanos purchased
-	totalWei := big.NewFloat(0).SetInt(ethTx.Total)
-	totalEth := big.NewFloat(0).Quo(totalWei, big.NewFloat(1e18))
-	nanosPurchased := fes.GetNanosFromETH(totalEth, feeBasisPoints)
-
-	// Record transaction success in global state
-	if err = fes.GlobalStatePut(globalStateKey, []byte{1}); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Error processing GlobalStatePut: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Failed: %v", err))
 		return
 	}
 
 	res := AdminProcessETHTxResponse{
-		ToPay: nanosPurchased,
+		BitCloutTxnHash: bitcloutTxnHash.String(),
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Problem encoding response: %v", err))
