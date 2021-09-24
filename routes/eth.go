@@ -13,6 +13,7 @@ import (
 	"io/ioutil"
 	"math/big"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -276,6 +277,89 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Problem encoding response: %v", err))
+		return
+	}
+}
+
+type AdminProcessETHTxRequest struct {
+	ETHTxHash string
+}
+
+type AdminProcessETHTxResponse struct {
+	ToPay uint64
+}
+
+func (fes *APIServer) AdminProcessETHTx(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminProcessETHTxRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Problem parsing request body: %v", err))
+		return
+	}
+
+	if !fes.IsConfiguredForETH() {
+		_AddBadRequestError(ww, "AdminProcessETHTx: Not configured for ETH")
+		return
+	}
+
+	// Fetch the transaction from global state
+	globalStateKey := GlobalStateKeyETHPurchases(requestData.ETHTxHash)
+	txStatus, err := fes.GlobalStateGet(globalStateKey)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Error processing GlobalStateGet: %v", err))
+		return
+	}
+
+	// Transaction must be pending
+	if !reflect.DeepEqual(txStatus, []byte{0}) {
+		_AddBadRequestError(ww, "AdminProcessETHTx: Transaction is not pending")
+		return
+	}
+
+	// Fetch the transaction
+	ethTx, err := fes.BlockCypherGetETHTx(requestData.ETHTxHash)
+	if ethTx == nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Failed to get transaction: %v", err))
+		return
+	}
+
+	// Ensure the transaction mined
+	if ethTx == nil || ethTx.BlockHeight < 0 {
+		_AddBadRequestError(ww, "AdminProcessETHTx: Transaction failed to mine")
+		return
+	}
+
+	// Verify the deposit address is correct
+	configDepositAddress := strings.ToLower(fes.Config.BuyBitCloutETHAddress[2:])
+	txDepositAddress := strings.ToLower(ethTx.Outputs[0].Addresses[0])
+	if configDepositAddress != txDepositAddress {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Invalid deposit address: %s", txDepositAddress))
+		return
+	}
+
+	// Fetch buy bitclout basis points fee
+	feeBasisPoints, err := fes.GetBuyBitCloutFeeBasisPointsResponseFromGlobalState()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Error getting buy fee basis points: %v", err))
+		return
+	}
+
+	// Calculate nanos purchased
+	totalWei := big.NewFloat(0).SetInt(ethTx.Total)
+	totalEth := big.NewFloat(0).Quo(totalWei, big.NewFloat(1e18))
+	nanosPurchased := fes.GetNanosFromETH(totalEth, feeBasisPoints)
+
+	// Record transaction success in global state
+	if err = fes.GlobalStatePut(globalStateKey, []byte{1}); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Error processing GlobalStatePut: %v", err))
+		return
+	}
+
+	res := AdminProcessETHTxResponse{
+		ToPay: nanosPurchased,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Problem encoding response: %v", err))
 		return
 	}
 }
