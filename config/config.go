@@ -2,7 +2,7 @@ package config
 
 import (
 	"fmt"
-	coreCmd "github.com/bitclout/core/cmd"
+	coreCmd "github.com/deso-protocol/core/cmd"
 	"github.com/spf13/viper"
 	"strconv"
 	"strings"
@@ -13,8 +13,8 @@ type Config struct {
 	APIPort uint16
 
 	// Onboarding
-	StarterBitcloutSeed   string
-	StarterBitcloutNanos  uint64
+	StarterDeSoSeed   string
+	StarterDeSoNanos  uint64
 	StarterPrefixNanosMap map[string]uint64
 	TwilioAccountSID      string
 	TwilioAuthToken       string
@@ -51,8 +51,10 @@ type Config struct {
 	WyreAccountId         string
 	WyreApiKey            string
 	WyreSecretKey         string
-	BuyBitCloutBTCAddress string
-	BuyBitCloutSeed       string
+	BuyDeSoBTCAddress string
+	BuyDeSoETHAddress string
+	BuyDeSoSeed       string
+
 
 	// Emails
 	SendgridApiKey         string
@@ -61,6 +63,10 @@ type Config struct {
 	SendgridFromName       string
 	SendgridFromEmail      string
 	SendgridConfirmEmailId string
+
+	// Jumio
+	JumioToken  string
+	JumioSecret string
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -73,8 +79,8 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	}
 
 	// Onboarding
-	config.StarterBitcloutSeed = viper.GetString("starter-bitclout-seed")
-	config.StarterBitcloutNanos = viper.GetUint64("starter-bitclout-nanos")
+	config.StarterDeSoSeed = viper.GetString("starter-deso-seed")
+	config.StarterDeSoNanos = viper.GetUint64("starter-deso-nanos")
 	starterPrefixNanosMap := viper.GetString("starter-prefix-nanos-map")
 	if len(starterPrefixNanosMap) > 0 {
 		config.StarterPrefixNanosMap = make(map[string]uint64)
@@ -123,9 +129,14 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.WyreSecretKey = viper.GetString("wyre-secret-key")
 
 	// BTC address to send all Bitcoin received from Wyre purchases and "Buy With BTC" purchases.
-	config.BuyBitCloutBTCAddress = viper.GetString("buy-bitclout-btc-address")
-	// Seed from which BitClout will be sent for orders placed through Wyre and "Buy With BTC" purchases"
-	config.BuyBitCloutSeed = viper.GetString("buy-bitclout-seed")
+	config.BuyDeSoBTCAddress = viper.GetString("buy-deso-btc-address")
+
+	// ETH address to send all ETH received from "Buy With ETH" purchases.
+	config.BuyDeSoETHAddress = viper.GetString("buy-deso-eth-address")
+
+	// Seed from which DeSo will be sent for orders placed through Wyre and "Buy With BTC" purchases"
+	config.BuyDeSoSeed = viper.GetString("buy-deso-seed")
+
 
 	// Email
 	config.SendgridApiKey = viper.GetString("sendgrid-api-key")
@@ -134,6 +145,10 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.SendgridFromName = viper.GetString("sendgrid-from-name")
 	config.SendgridFromEmail = viper.GetString("sendgrid-from-email")
 	config.SendgridConfirmEmailId = viper.GetString("sendgrid-confirm-email-id")
+
+	// Jumio
+	config.JumioToken = viper.GetString("jumio-token")
+	config.JumioSecret = viper.GetString("jumio-secret")
 
 	return &config
 }

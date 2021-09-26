@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 )
 
 type NFTEntryResponse struct {
@@ -18,11 +18,12 @@ type NFTEntryResponse struct {
 	PostEntryResponse          *PostEntryResponse    `json:",omitempty"`
 	SerialNumber               uint64                `safeForLogging:"true"`
 	IsForSale                  bool                  `safeForLogging:"true"`
+	IsPending                  bool                  `safeForLogging:"true"`
 	MinBidAmountNanos          uint64                `safeForLogging:"true"`
 	LastAcceptedBidAmountNanos uint64                `safeForLogging:"true"`
 
 	HighestBidAmountNanos uint64 `safeForLogging:"true"`
-	LowestBidAmountNanos uint64 `safeForLogging:"true"`
+	LowestBidAmountNanos  uint64 `safeForLogging:"true"`
 	// These fields are only populated when the reader is the owner.
 	LastOwnerPublicKeyBase58Check *string `json:",omitempty"`
 	EncryptedUnlockableText       *string `json:",omitempty"`
@@ -48,7 +49,7 @@ type NFTBidEntryResponse struct {
 
 	// What is the highest bid and the lowest bid on this serial number
 	HighestBidAmountNanos *uint64 `json:",omitempty"`
-	LowestBidAmountNanos *uint64 `json:",omitempty"`
+	LowestBidAmountNanos  *uint64 `json:",omitempty"`
 
 	// Current balance of this bidder.
 	BidderBalanceNanos uint64
@@ -73,7 +74,7 @@ type CreateNFTResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 }
 
@@ -205,7 +206,7 @@ type UpdateNFTResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 }
 
@@ -333,7 +334,7 @@ type CreateNFTBidResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 }
 
@@ -481,7 +482,7 @@ type AcceptNFTBidResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 }
 
@@ -697,7 +698,7 @@ func (fes *APIServer) GetNFTShowcase(ww http.ResponseWriter, req *http.Request) 
 			_AddInternalServerError(ww, fmt.Sprint("GetNFTShowcase: Found invalid post entry for NFT hash."))
 			return
 		}
-
+		postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPublicKeyBytes, postEntry)
 		nftCollectionResponse := fes._nftEntryToNFTCollectionResponse(nftEntry, postEntry.PosterPublicKey, postEntryResponse, utxoView, verifiedMap, readerPKID)
 		nftCollectionResponses = append(nftCollectionResponses, nftCollectionResponse)
 	}
@@ -847,6 +848,7 @@ func (fes *APIServer) GetNFTsForUser(ww http.ResponseWriter, req *http.Request) 
 				profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
 				profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedUsernameMap, utxoView)
 				postEntryResponse.ProfileEntryResponse = profileEntryResponse
+				postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPublicKeyBytes, postEntry)
 				publicKeyToProfileEntryResponse[postEntryResponse.PosterPublicKeyBase58Check] = profileEntryResponse
 			} else {
 				postEntryResponse.ProfileEntryResponse = peResponse
@@ -945,6 +947,7 @@ func (fes *APIServer) GetNFTBidsForUser(ww http.ResponseWriter, req *http.Reques
 				_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForUser: Error getting PostEntryResponse: %v", err))
 				return
 			}
+			newPostEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPublicKeyBytes, postEntry)
 			if _, peExists := publicKeytoProfileEntryResponse[newPostEntryResponse.PosterPublicKeyBase58Check]; !peExists {
 				profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
 				peResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
@@ -1025,6 +1028,7 @@ func (fes *APIServer) GetNFTBidsForNFTPost(ww http.ResponseWriter, req *http.Req
 		_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForNFTPost: Error converting post entry to response: %v", err))
 		return
 	}
+	postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPublicKeyBytes, postEntry)
 	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForNFTPost: Error getting verified user map: %v", err))
@@ -1095,20 +1099,6 @@ func (fes *APIServer) GetNFTCollectionSummary(ww http.ResponseWriter, req *http.
 		_AddBadRequestError(ww, fmt.Sprintf("GetNFTCollectionSummary: cannot get nft collection summary for post that is not an NFT"))
 		return
 	}
-	postEntryResponse, err := fes._postEntryToResponse(postEntry, true, fes.Params, utxoView, nil, 2)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetNFTCollectionSummary: Error converting post entry to response: %v", err))
-		return
-	}
-
-	nftKey := lib.MakeNFTKey(postEntry.PostHash, 1)
-	nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
-
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetNFTCollectionSummary: Error getting verified user map: %v", err))
-		return
-	}
 	var readerPublicKeyBytes []byte
 	var readerPKID *lib.PKID
 	if requestData.ReaderPublicKeyBase58Check != "" {
@@ -1119,6 +1109,23 @@ func (fes *APIServer) GetNFTCollectionSummary(ww http.ResponseWriter, req *http.
 		}
 		readerPKID = utxoView.GetPKIDForPublicKey(readerPublicKeyBytes).PKID
 	}
+	postEntryResponse, err := fes._postEntryToResponse(postEntry, true, fes.Params, utxoView, readerPublicKeyBytes, 2)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTCollectionSummary: Error converting post entry to response: %v", err))
+		return
+	}
+
+	postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPublicKeyBytes, postEntry)
+
+	nftKey := lib.MakeNFTKey(postEntry.PostHash, 1)
+	nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
+
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTCollectionSummary: Error getting verified user map: %v", err))
+		return
+	}
+
 	res := &GetNFTCollectionSummaryResponse{
 		NFTCollectionResponse:          fes._nftEntryToNFTCollectionResponse(nftEntry, postEntry.PosterPublicKey, postEntryResponse, utxoView, verifiedMap, readerPKID),
 		SerialNumberToNFTEntryResponse: make(map[uint64]*NFTEntryResponse),
@@ -1239,10 +1246,11 @@ func (fes *APIServer) _nftEntryToResponse(nftEntry *lib.NFTEntry, postEntryRespo
 		PostEntryResponse:         postEntryResponse,
 		SerialNumber:              nftEntry.SerialNumber,
 		IsForSale:                 nftEntry.IsForSale,
+		IsPending:                 nftEntry.IsPending,
 		MinBidAmountNanos:         nftEntry.MinBidAmountNanos,
 
 		HighestBidAmountNanos: highBid,
-		LowestBidAmountNanos: lowBid,
+		LowestBidAmountNanos:  lowBid,
 
 		EncryptedUnlockableText:       encryptedUnlockableText,
 		LastOwnerPublicKeyBase58Check: lastOwnerPublicKeyBase58Check,
@@ -1321,7 +1329,7 @@ func (fes *APIServer) _bidEntryToResponse(bidEntry *lib.NFTBidEntry, postEntryRe
 	}
 
 	// We ignore the error in this case and assume the bidder's balance is 0.
-	bidderBalanceNanos, _ := utxoView.GetBitcloutBalanceNanosForPublicKey(publicKey)
+	bidderBalanceNanos, _ := utxoView.GetDeSoBalanceNanosForPublicKey(publicKey)
 
 	return &NFTBidEntryResponse{
 		PostHashHex:          postHashHex,
@@ -1332,7 +1340,410 @@ func (fes *APIServer) _bidEntryToResponse(bidEntry *lib.NFTBidEntry, postEntryRe
 		BidAmountNanos:       bidEntry.BidAmountNanos,
 
 		HighestBidAmountNanos: highBid,
-		LowestBidAmountNanos: lowBid,
-		BidderBalanceNanos: bidderBalanceNanos,
+		LowestBidAmountNanos:  lowBid,
+		BidderBalanceNanos:    bidderBalanceNanos,
+	}
+}
+
+type TransferNFTRequest struct {
+	SenderPublicKeyBase58Check   string `safeForLogging:"true"`
+	ReceiverPublicKeyBase58Check string `safeForLogging:"true"`
+	NFTPostHashHex               string `safeForLogging:"true"`
+	SerialNumber                 int    `safeForLogging:"true"`
+	EncryptedUnlockableText      string `safeForLogging:"true"`
+
+	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+}
+
+type TransferNFTResponse struct {
+	SenderPublicKeyBase58Check   string `safeForLogging:"true"`
+	ReceiverPublicKeyBase58Check string `safeForLogging:"true"`
+	NFTPostHashHex               string `safeForLogging:"true"`
+	SerialNumber                 int    `safeForLogging:"true"`
+
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgDeSoTxn
+	TransactionHex    string
+}
+
+func (fes *APIServer) TransferNFT(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := TransferNFTRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Error parsing request body: %v", err))
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Error getting utxoView: %v", err))
+		return
+	}
+
+	// Do a simple validation of the requestData.
+	if requestData.NFTPostHashHex == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Must include NFTPostHashHex"))
+		return
+
+	} else if requestData.SenderPublicKeyBase58Check == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Must include UpdaterPublicKeyBase58Check"))
+		return
+
+	} else if requestData.ReceiverPublicKeyBase58Check == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Must include UpdaterPublicKeyBase58Check"))
+		return
+
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"TransferNFT: SerialNumbers must be between %d and %d, received: %d",
+			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.SerialNumber))
+		return
+
+	}
+
+	// Get the PostHash for the NFT.
+	nftPostHashBytes, err := hex.DecodeString(requestData.NFTPostHashHex)
+	if err != nil || len(nftPostHashBytes) != lib.HashSizeBytes {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"TransferNFT: Error parsing post hash %v: %v",
+			requestData.NFTPostHashHex, err))
+		return
+	}
+	nftPostHash := &lib.BlockHash{}
+	copy(nftPostHash[:], nftPostHashBytes)
+
+	// Get the sender's public key.
+	senderPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.SenderPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Problem decoding sender public key: %v", err))
+		return
+	}
+
+	// Get the receiver's public key.
+	receiverPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.ReceiverPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Problem decoding receiver public key: %v", err))
+		return
+	}
+
+	// Get the NFT in question so we can do a more hardcore validation of the request data.
+	nftKey := lib.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
+	nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
+	if nftEntry == nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"TransferNFT: Error could not find the NFT an NFT with postHash %v and serialNumber %d",
+			requestData.NFTPostHashHex, requestData.SerialNumber))
+		return
+
+	} else if nftEntry.IsForSale {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Cannot transfer NFT that is for sale."))
+		return
+	}
+
+	// Check the NFT owner is correct.
+	senderPKID := utxoView.GetPKIDForPublicKey(senderPublicKeyBytes)
+	if !reflect.DeepEqual(nftEntry.OwnerPKID, senderPKID.PKID) {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Sender must own the NFT being transferred."))
+		return
+	}
+
+	// Get the post so we can check if it needs an unlockable.
+	nftPostEntry := utxoView.GetPostEntryForPostHash(nftPostHash)
+	if nftPostEntry.HasUnlockable && requestData.EncryptedUnlockableText == "" {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"TransferNFT: post entry has an unlockable. Must include encrypted unlockable text."))
+		return
+	}
+
+	// Try and create the NFT transfer txn for the user.
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNFTTransferTxn(
+		senderPublicKeyBytes,
+		receiverPublicKeyBytes,
+		nftPostHash,
+		uint64(requestData.SerialNumber),
+		[]byte(requestData.EncryptedUnlockableText),
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Problem creating transaction: %v", err))
+		return
+	}
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := TransferNFTResponse{
+		SenderPublicKeyBase58Check:   requestData.SenderPublicKeyBase58Check,
+		ReceiverPublicKeyBase58Check: requestData.ReceiverPublicKeyBase58Check,
+		NFTPostHashHex:               requestData.NFTPostHashHex,
+		SerialNumber:                 requestData.SerialNumber,
+
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("TransferNFT: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
+
+type AcceptNFTTransferRequest struct {
+	UpdaterPublicKeyBase58Check string `safeForLogging:"true"`
+	NFTPostHashHex              string `safeForLogging:"true"`
+	SerialNumber                int    `safeForLogging:"true"`
+
+	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+}
+
+type AcceptNFTTransferResponse struct {
+	UpdaterPublicKeyBase58Check string `safeForLogging:"true"`
+	NFTPostHashHex              string `safeForLogging:"true"`
+	SerialNumber                int    `safeForLogging:"true"`
+
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgDeSoTxn
+	TransactionHex    string
+}
+
+func (fes *APIServer) AcceptNFTTransfer(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AcceptNFTTransferRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: Error parsing request body: %v", err))
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: Error getting utxoView: %v", err))
+		return
+	}
+
+	// Do a simple validation of the requestData.
+	if requestData.NFTPostHashHex == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: Must include NFTPostHashHex"))
+		return
+
+	} else if requestData.UpdaterPublicKeyBase58Check == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: Must include UpdaterPublicKeyBase58Check"))
+		return
+
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AcceptNFTTransfer: SerialNumbers must be between %d and %d, received: %d",
+			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.SerialNumber))
+		return
+
+	}
+
+	// Get the PostHash for the NFT.
+	nftPostHashBytes, err := hex.DecodeString(requestData.NFTPostHashHex)
+	if err != nil || len(nftPostHashBytes) != lib.HashSizeBytes {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AcceptNFTTransfer: Error parsing post hash %v: %v",
+			requestData.NFTPostHashHex, err))
+		return
+	}
+	nftPostHash := &lib.BlockHash{}
+	copy(nftPostHash[:], nftPostHashBytes)
+
+	// Get the updater's public key.
+	updaterPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.UpdaterPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: Problem decoding updater public key: %v", err))
+		return
+	}
+
+	// Get the NFT in question so we can do a more hardcore validation of the request data.
+	nftKey := lib.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
+	nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
+	if nftEntry == nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AcceptNFTTransfer: Error could not find the NFT an NFT with postHash %v and serialNumber %d",
+			requestData.NFTPostHashHex, requestData.SerialNumber))
+		return
+
+	} else if !nftEntry.IsPending {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: This NFT is not a pending transfer."))
+		return
+	}
+
+	// Check the NFT accepter is the owner of the NFT.
+	accepterPKID := utxoView.GetPKIDForPublicKey(updaterPublicKeyBytes)
+	if !reflect.DeepEqual(nftEntry.OwnerPKID, accepterPKID.PKID) {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: Accepter must own the NFT being accepted."))
+		return
+	}
+
+	// Try and create the accept NFT transfer txn for the user.
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateAcceptNFTTransferTxn(
+		updaterPublicKeyBytes,
+		nftPostHash,
+		uint64(requestData.SerialNumber),
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: Problem creating transaction: %v", err))
+		return
+	}
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := AcceptNFTTransferResponse{
+		UpdaterPublicKeyBase58Check: requestData.UpdaterPublicKeyBase58Check,
+		NFTPostHashHex:              requestData.NFTPostHashHex,
+		SerialNumber:                requestData.SerialNumber,
+
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("AcceptNFTTransfer: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
+
+type BurnNFTRequest struct {
+	UpdaterPublicKeyBase58Check string `safeForLogging:"true"`
+	NFTPostHashHex              string `safeForLogging:"true"`
+	SerialNumber                int    `safeForLogging:"true"`
+
+	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+}
+
+type BurnNFTResponse struct {
+	UpdaterPublicKeyBase58Check string `safeForLogging:"true"`
+	NFTPostHashHex              string `safeForLogging:"true"`
+	SerialNumber                int    `safeForLogging:"true"`
+
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgDeSoTxn
+	TransactionHex    string
+}
+
+func (fes *APIServer) BurnNFT(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := BurnNFTRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Error parsing request body: %v", err))
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Error getting utxoView: %v", err))
+		return
+	}
+
+	// Do a simple validation of the requestData.
+	if requestData.NFTPostHashHex == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Must include NFTPostHashHex"))
+		return
+
+	} else if requestData.UpdaterPublicKeyBase58Check == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Must include UpdaterPublicKeyBase58Check"))
+		return
+
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"BurnNFT: SerialNumbers must be between %d and %d, received: %d",
+			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.SerialNumber))
+		return
+
+	}
+
+	// Get the PostHash for the NFT.
+	nftPostHashBytes, err := hex.DecodeString(requestData.NFTPostHashHex)
+	if err != nil || len(nftPostHashBytes) != lib.HashSizeBytes {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"BurnNFT: Error parsing post hash %v: %v",
+			requestData.NFTPostHashHex, err))
+		return
+	}
+	nftPostHash := &lib.BlockHash{}
+	copy(nftPostHash[:], nftPostHashBytes)
+
+	// Get the updater's public key.
+	updaterPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.UpdaterPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Problem decoding updater public key: %v", err))
+		return
+	}
+
+	// Get the NFT in question so we can do a more hardcore validation of the request data.
+	nftKey := lib.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
+	nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
+	if nftEntry == nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"BurnNFT: Error could not find the NFT an NFT with postHash %v and serialNumber %d",
+			requestData.NFTPostHashHex, requestData.SerialNumber))
+		return
+
+	} else if nftEntry.IsForSale {
+		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Cannot burn an NFT that is for sale."))
+		return
+	}
+
+	// Check the NFT burner is the owner of the NFT.
+	burnerPKID := utxoView.GetPKIDForPublicKey(updaterPublicKeyBytes)
+	if !reflect.DeepEqual(nftEntry.OwnerPKID, burnerPKID.PKID) {
+		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Burner must own the NFT being burned."))
+		return
+	}
+
+	// Try and create the burn NFT txn for the user.
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateBurnNFTTxn(
+		updaterPublicKeyBytes,
+		nftPostHash,
+		uint64(requestData.SerialNumber),
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Problem creating transaction: %v", err))
+		return
+	}
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := BurnNFTResponse{
+		UpdaterPublicKeyBase58Check: requestData.UpdaterPublicKeyBase58Check,
+		NFTPostHashHex:              requestData.NFTPostHashHex,
+		SerialNumber:                requestData.SerialNumber,
+
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("BurnNFT: Problem serializing object to JSON: %v", err))
+		return
 	}
 }

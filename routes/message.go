@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io"
 	"net/http"
@@ -44,7 +44,7 @@ type GetMessagesStatelessRequest struct {
 	FollowingOnly bool `safeForLogging:"true"`
 
 	// SortAlgorithm determines how the messages should be returned. Currently
-	// it support time, clout, and followers based sorting.
+	// it support time, deso, and followers based sorting.
 	SortAlgorithm string `safeForLogging:"true"`
 }
 
@@ -90,19 +90,19 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 
 	// We sort the messages to be sure they're in the correct order for filtering out selected threads.
 	// There could be a faster way to do this, but it preserves pagination properly.
-	publicKeyToClout := make(map[string]uint64)
+	publicKeyToDESO := make(map[string]uint64)
 	publicKeyToNumberOfFollowers := make(map[string]uint64)
 	publicKeyToNanosUserHeld := make(map[string]uint64)
-	if sortAlgorithm == "clout" {
+	if sortAlgorithm == "deso" {
 		for _, messageEntry := range messageEntries {
 			otherPartyPublicKeyBytes, otherPartyPublicKeyBase58Check := fes.getOtherPartyInThread(messageEntry, publicKeyBytes)
 
-			if _, alreadySeen := publicKeyToClout[otherPartyPublicKeyBase58Check]; !alreadySeen {
+			if _, alreadySeen := publicKeyToDESO[otherPartyPublicKeyBase58Check]; !alreadySeen {
 				otherPartyProfileEntry := utxoView.GetProfileEntryForPublicKey(otherPartyPublicKeyBytes)
 				if otherPartyProfileEntry != nil {
-					publicKeyToClout[otherPartyPublicKeyBase58Check] = otherPartyProfileEntry.BitCloutLockedNanos
+					publicKeyToDESO[otherPartyPublicKeyBase58Check] = otherPartyProfileEntry.DeSoLockedNanos
 				} else {
-					publicKeyToClout[otherPartyPublicKeyBase58Check] = 0
+					publicKeyToDESO[otherPartyPublicKeyBase58Check] = 0
 				}
 			}
 		}
@@ -110,7 +110,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 		sort.Slice(messageEntries, func(ii, jj int) bool {
 			_, otherPartyPublicKeyiiBase58Check := fes.getOtherPartyInThread(messageEntries[ii], publicKeyBytes)
 			_, otherPartyPublicKeyjjBase58Check := fes.getOtherPartyInThread(messageEntries[jj], publicKeyBytes)
-			return publicKeyToClout[otherPartyPublicKeyiiBase58Check] > publicKeyToClout[otherPartyPublicKeyjjBase58Check]
+			return publicKeyToDESO[otherPartyPublicKeyiiBase58Check] > publicKeyToDESO[otherPartyPublicKeyjjBase58Check]
 		})
 	} else if sortAlgorithm == "followers" {
 		for _, messageEntry := range messageEntries {
@@ -341,10 +341,10 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	}
 
 	// Order the messages in the inbox based on the selected sort algorithm.
-	if sortAlgorithm == "clout" {
+	if sortAlgorithm == "deso" {
 		sort.Slice(newContactEntries, func(ii, jj int) bool {
-			return publicKeyToClout[newContactEntries[ii].PublicKeyBase58Check] >
-				publicKeyToClout[newContactEntries[jj].PublicKeyBase58Check]
+			return publicKeyToDESO[newContactEntries[ii].PublicKeyBase58Check] >
+				publicKeyToDESO[newContactEntries[jj].PublicKeyBase58Check]
 		})
 	} else if sortAlgorithm == "followers" {
 		sort.Slice(newContactEntries, func(ii, jj int) bool {
@@ -475,7 +475,7 @@ type SendMessageStatelessResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 }
 
@@ -519,7 +519,7 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Problem serializing transaction: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem serializing transaction: %v", err))
 		return
 	}
 

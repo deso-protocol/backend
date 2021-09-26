@@ -1,4 +1,4 @@
-package routes
+package apis
 
 import (
 	"bytes"
@@ -20,13 +20,11 @@ type CoinbaseResponse struct {
 type CoingeckoResponse struct {
 	Bitcoin struct {
 		USD float64 `json:"usd"`
-	} `json:"bitcoin"`
+	} `json:"ethereum"`
 }
 
 type BlockchainDotcomResponse struct {
-	USD struct {
-		FifteenMinutePrice float64 `json:"15m"`
-	} `json:"USD"`
+	LastTradePrice float64 `json:"last_trade_price"`
 }
 
 type GeminiResponse struct {
@@ -37,12 +35,12 @@ type KrakenResponse struct {
 	Result struct {
 		Ticker struct {
 			LastPriceList []string `json:"c"`
-		} `json:"XXBTZUSD"`
+		} `json:"XETHZUSD"`
 	} `json:"result"`
 }
 
 func getCoinbasePrice() (float64, error) {
-	URL := "https://api.coinbase.com/v2/prices/BTC-USD/buy"
+	URL := "https://api.coinbase.com/v2/prices/ETH-USD/buy"
 	req, _ := http.NewRequest("GET", URL, nil)
 
 	client := &http.Client{}
@@ -54,16 +52,14 @@ func getCoinbasePrice() (float64, error) {
 
 	body, _ := ioutil.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return 0, fmt.Errorf("Error getting price: "+
-			"Status code: %v: %v", resp.StatusCode, string(body))
+		return 0, fmt.Errorf("Error getting price: Status code: %v: %v", resp.StatusCode, string(body))
 	}
 
 	// Decode the response into the appropriate struct.
 	responseData := &CoinbaseResponse{}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	if err := decoder.Decode(responseData); err != nil {
-		return 0, fmt.Errorf("Error decoding response JSON into "+
-			"interface %v, response: %v, error: %v", responseData, resp, err)
+		return 0, fmt.Errorf("Error decoding response: %v, response: %v, error: %v", responseData, resp, err)
 	}
 
 	amount, err := strconv.ParseFloat(responseData.Data.Amount, 64)
@@ -75,7 +71,7 @@ func getCoinbasePrice() (float64, error) {
 }
 
 func getCoingeckoPrice() (float64, error) {
-	URL := "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
+	URL := "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
 	req, _ := http.NewRequest("GET", URL, nil)
 
 	client := &http.Client{}
@@ -87,23 +83,21 @@ func getCoingeckoPrice() (float64, error) {
 
 	body, _ := ioutil.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return 0, fmt.Errorf("Error getting price: "+
-			"Status code: %v: %v", resp.StatusCode, string(body))
+		return 0, fmt.Errorf("Error getting price: Status code: %v: %v", resp.StatusCode, string(body))
 	}
 
 	// Decode the response into the appropriate struct.
 	responseData := &CoingeckoResponse{}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	if err := decoder.Decode(responseData); err != nil {
-		return 0, fmt.Errorf("Error decoding response JSON into "+
-			"interface %v, response: %v, error: %v", responseData, resp, err)
+		return 0, fmt.Errorf("Error decoding response %v, response: %v, error: %v", responseData, resp, err)
 	}
 
 	return responseData.Bitcoin.USD, nil
 }
 
 func getBlockchainDotcomPrice() (float64, error) {
-	URL := "https://api.blockchain.com/ticker"
+	URL := "https://api.blockchain.com/v3/exchange/tickers/ETH-USD"
 	req, _ := http.NewRequest("GET", URL, nil)
 
 	client := &http.Client{}
@@ -115,23 +109,21 @@ func getBlockchainDotcomPrice() (float64, error) {
 
 	body, _ := ioutil.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return 0, fmt.Errorf("Error getting price: "+
-			"Status code: %v: %v", resp.StatusCode, string(body))
+		return 0, fmt.Errorf("Error getting price: Status code: %v: %v", resp.StatusCode, string(body))
 	}
 
 	// Decode the response into the appropriate struct.
 	responseData := &BlockchainDotcomResponse{}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	if err := decoder.Decode(responseData); err != nil {
-		return 0, fmt.Errorf("Error decoding response JSON into "+
-			"interface %v, response: %v, error: %v", responseData, resp, err)
+		return 0, fmt.Errorf("Error decoding response %v, response: %v, error: %v", responseData, resp, err)
 	}
 
-	return responseData.USD.FifteenMinutePrice, nil
+	return responseData.LastTradePrice, nil
 }
 
 func getGeminiPrice() (float64, error) {
-	URL := "https://api.gemini.com/v1/pubticker/btcusd"
+	URL := "https://api.gemini.com/v1/pubticker/ethusd"
 	req, _ := http.NewRequest("GET", URL, nil)
 
 	client := &http.Client{}
@@ -143,16 +135,14 @@ func getGeminiPrice() (float64, error) {
 
 	body, _ := ioutil.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return 0, fmt.Errorf("Error getting price: "+
-			"Status code: %v: %v", resp.StatusCode, string(body))
+		return 0, fmt.Errorf("Error getting price: Status code: %v: %v", resp.StatusCode, string(body))
 	}
 
 	// Decode the response into the appropriate struct.
 	responseData := &GeminiResponse{}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	if err := decoder.Decode(responseData); err != nil {
-		return 0, fmt.Errorf("Error decoding response JSON into "+
-			"interface %v, response: %v, error: %v", responseData, resp, err)
+		return 0, fmt.Errorf("Error decoding response %v, response: %v, error: %v", responseData, resp, err)
 	}
 
 	amount, err := strconv.ParseFloat(responseData.Last, 64)
@@ -164,7 +154,7 @@ func getGeminiPrice() (float64, error) {
 }
 
 func getKrakenPrice() (float64, error) {
-	URL := "https://api.kraken.com/0/public/Ticker?pair=XBTUSD"
+	URL := "https://api.kraken.com/0/public/Ticker?pair=XETHZUSD"
 	req, _ := http.NewRequest("GET", URL, nil)
 
 	client := &http.Client{}
@@ -176,16 +166,14 @@ func getKrakenPrice() (float64, error) {
 
 	body, _ := ioutil.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return 0, fmt.Errorf("Error getting price: "+
-			"Status code: %v: %v", resp.StatusCode, string(body))
+		return 0, fmt.Errorf("Error getting price: Status code: %v: %v", resp.StatusCode, string(body))
 	}
 
 	// Decode the response into the appropriate struct.
 	responseData := &KrakenResponse{}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	if err := decoder.Decode(responseData); err != nil {
-		return 0, fmt.Errorf("Error decoding response JSON into "+
-			"interface %v, response: %v, error: %v", responseData, resp, err)
+		return 0, fmt.Errorf("Error decoding response %v, response: %v, error: %v", responseData, resp, err)
 	}
 
 	if len(responseData.Result.Ticker.LastPriceList) == 0 {
@@ -200,7 +188,7 @@ func getKrakenPrice() (float64, error) {
 	return amount, nil
 }
 
-func GetUSDToBTCPrice() (float64, error) {
+func GetUSDToETHPrice() (float64, error) {
 	amounts := []float64{}
 	{
 		amount, err := getCoinbasePrice()
@@ -262,9 +250,9 @@ func GetUSDToBTCPrice() (float64, error) {
 		return 0, fmt.Errorf("Didn't find any prices from API's")
 	}
 
-	finalBitcoinUSDPrice, err := stats.Median(amounts)
+	finalETHUSDPrice, err := stats.Median(amounts)
 	if err != nil {
 		return 0, fmt.Errorf("Error computing the median")
 	}
-	return finalBitcoinUSDPrice, nil
+	return finalETHUSDPrice, nil
 }

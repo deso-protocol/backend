@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 
 	"github.com/dgraph-io/badger/v3"
 	"github.com/nyaruka/phonenumbers"
@@ -115,7 +115,7 @@ var (
 	// The prefix for checking the state of a user's wyre order.
 	_GlobalStatePrefixUserPublicKeyWyreOrderIdToWyreOrderMetadata = []byte{9}
 
-	// The prefix for checking whether or not bitclout has been sent for a given a wyre order
+	// The prefix for checking whether or not deso has been sent for a given a wyre order
 	_GlobalStatePrefixWyreOrderIdProcessed = []byte{10}
 
 	// Keeps a record of all wyre orders so we can see what has been processed or not.
@@ -133,21 +133,73 @@ var (
 	// <prefix, username string> -> <BlacklistAudiLog>
 	_GlobalStatePrefixBlacklistAuditLog = []byte{14}
 
-	// Stores the current USD Cents per BitClout reserve exchange rate.
+	// Stores the current USD Cents per DeSo reserve exchange rate.
 	// If rate received from exchanges goes below this value, use this value instead.
-	_GlobalStatePrefixUSDCentsToBitCloutReserveExchangeRate = []byte{15}
+	_GlobalStatePrefixUSDCentsToDeSoReserveExchangeRate = []byte{15}
 
-	_GlobalStatePrefixBuyBitCloutFeeBasisPoints = []byte{16}
+	_GlobalStatePrefixBuyDeSoFeeBasisPoints = []byte{16}
 
 	// NFT drop info.
 	_GlobalStatePrefixNFTDropNumberToNFTDropEntry = []byte{17}
+
+	// Jumio global state indexes
+	_GlobalStatePrefixPKIDTstampNanosToJumioTransaction = []byte{20}
+
+	_GlobalStatePrefixCountryIDDocumentTypeSubTypeDocumentNumber = []byte{19}
+
+	// Jumio DeSoNanos
+	_GlobalStatePrefixJumioDeSoNanos = []byte{21}
+
+	// Tutorial featured well-known creators
+	_GlobalStateKeyWellKnownTutorialCreators = []byte{22}
+
+	// Tutorial featured up and coming creators
+	_GlobalStateKeyUpAndComingTutorialCreators = []byte{23}
+
+	// Referral program indexes.
+	// 	- <prefix, referral hash (8 bytes)> -> <ReferralInfo>
+	_GlobalStatePrefixReferralHashToReferralInfo = []byte{24}
+	// 	- <prefix, PKID, referral hash (8 bytes)> -> <IsActive bool>
+	_GlobalStatePrefixPKIDReferralHashToIsActive = []byte{25}
+
+	// - <prefx, PKID, referral hash (6-8 bytes), Referred PKID
+	_GlobalStatePrefixPKIDReferralHashRefereePKID = []byte{26}
+
+  // ETH purchases <prefix, ETH Txn Hash> -> <Complete bool>
+	_GlobalStateKeyETHPurchases = []byte{27}
 
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
-	// NEXT_TAG: 18
+
+	// NEXT_TAG: 28
 )
+
+// A ReferralInfo struct holds all of the params and stats for a referral link/hash.
+type ReferralInfo struct {
+	ReferralHashBase58     string
+	ReferrerPKID           *lib.PKID
+	ReferrerAmountUSDCents uint64
+	RefereeAmountUSDCents  uint64
+	MaxReferrals           uint64 // If set to zero, there is no cap on referrals.
+	RequiresJumio          bool
+
+	// Stats
+	NumJumioAttempts           uint64
+	NumJumioSuccesses          uint64
+	TotalReferrals             uint64
+	TotalReferrerDeSoNanos uint64
+	TotalRefereeDeSoNanos  uint64
+	DateCreatedTStampNanos     uint64
+}
+
+type SimpleReferralInfo struct {
+	ReferralHashBase58     string
+	RefereeAmountUSDCents  uint64
+	MaxReferrals           uint64 // If set to zero, there is no cap on referrals.
+	TotalReferrals         uint64
+}
 
 type NFTDropEntry struct {
 	IsActive        bool
@@ -187,7 +239,7 @@ type UserMetadata struct {
 	// Store the index of the last notification that the user saw
 	NotificationLastSeenIndex int64
 
-	// Amount of Bitcoin that users have burned so far via the Buy BitClout UI
+	// Amount of Bitcoin that users have burned so far via the Buy DeSo UI
 	//
 	// We track this so that, if the user does multiple burns,
 	// we can set HasBurnedEnoughSatoshisToCreateProfile based on the total
@@ -212,7 +264,63 @@ type UserMetadata struct {
 
 	// If true, this user's posts will automatically be added to the global whitelist (max 5 per day).
 	WhitelistPosts bool
+
+	// JumioInternalReference = internal tracking reference for user's experience in Jumio
+	JumioInternalReference string
+	// JumioFinishedTime = has user completed flow in Jumio
+	JumioFinishedTime uint64
+	// JumioVerified = user was verified from Jumio flow
+	JumioVerified bool
+	// JumioReturned = jumio webhook called
+	JumioReturned bool
+	// JumioTransactionID = jumio's tracking number for the transaction in which this user was verified.
+	JumioTransactionID string
+	// JumioDocumentKey = Country - Document Type - Document SubType - Document Number. Helps uniquely identify users
+	// and allows us to reset Jumio for a given user.
+	// DEPRECATED
+	JumioDocumentKey []byte
+	// RedoJumio = boolean which allows user to skip the duplicate ID check in JumioCallback
+	RedoJumio bool
+	// JumioStarterDeSoTxnHashHex = Txn hash hex of the transaction in which the user was paid for
+	// going through the Jumio flow
+	JumioStarterDeSoTxnHashHex string
+	// JumioShouldCompProfileCreation = True if we should comp the create profile fee because the user went through the
+	// Jumio flow.
+	JumioShouldCompProfileCreation bool
+
+	// User must complete tutorial if they have been jumio verified.
+	MustCompleteTutorial bool
+
+	// If user is featured as a well known creator in the tutorial.
+	IsFeaturedTutorialWellKnownCreator bool
+	// If user is featured as an up and coming creator in the tutorial.
+	// Note: a user should not be both featured as well known and up and coming
+	IsFeaturedTutorialUpAndComingCreator bool
+
+	TutorialStatus                  TutorialStatus
+	CreatorPurchasedInTutorialPKID  *lib.PKID
+	CreatorCoinsPurchasedInTutorial uint64
+
+	// ReferralHashBase58Check with which user signed up
+	ReferralHashBase58Check string
+
+	// Txn hash in which the referrer was paid
+	ReferrerDeSoTxnHash string
 }
+
+type TutorialStatus string
+
+const (
+	EMPTY              TutorialStatus = ""
+	STARTED            TutorialStatus = "TutorialStarted"
+	SKIPPED            TutorialStatus = "TutorialSkipped"
+	INVEST_OTHERS_BUY  TutorialStatus = "InvestInOthersBuyComplete"
+	INVEST_OTHERS_SELL TutorialStatus = "InvestInOthersSellComplete"
+	CREATE_PROFILE     TutorialStatus = "TutorialCreateProfileComplete"
+	INVEST_SELF        TutorialStatus = "InvestInYourselfComplete"
+	DIAMOND            TutorialStatus = "GiveADiamondComplete"
+	COMPLETE           TutorialStatus = "TutorialComplete"
+)
 
 // This struct contains all the metadata associated with a user's phone number.
 type PhoneNumberMetadata struct {
@@ -236,10 +344,10 @@ type WyreWalletOrderMetadata struct {
 	// Track Wallet Order response received based on the last payload received from Wyre Webhook
 	LatestWyreTrackWalletOrderResponse *WyreTrackOrderResponse
 
-	// Amount of BitClout that was sent for this WyreWalletOrder
-	BitCloutPurchasedNanos uint64
+	// Amount of DeSo that was sent for this WyreWalletOrder
+	DeSoPurchasedNanos uint64
 
-	// BlockHash of the transaction for sending the BitClout
+	// BlockHash of the transaction for sending the DeSo
 	BasicTransferTxnBlockHash *lib.BlockHash
 }
 
@@ -276,6 +384,36 @@ func globalStateKeyForPhoneNumberBytesToPhoneNumberMetadata(phoneNumberBytes []b
 func GlobalStateKeyForPublicKeyToUserMetadata(profilePubKey []byte) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixPublicKeyToUserMetadata...)
 	key := append(prefixCopy, profilePubKey[:]...)
+	return key
+}
+
+// Key for accessing the referral info for a specific referral hash.
+func GlobalStateKeyForReferralHashToReferralInfo(referralHashBytes []byte) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixReferralHashToReferralInfo...)
+	key := append(prefixCopy, referralHashBytes[:]...)
+	return key
+}
+
+// Key for getting a pub key's referral hashes and "IsActive" status.
+func GlobalStateKeyForPKIDReferralHashToIsActive(pkid *lib.PKID, referralHashBytes []byte) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDReferralHashToIsActive...)
+	key := append(prefixCopy, pkid[:]...)
+	key = append(key, referralHashBytes[:]...)
+	return key
+}
+
+// Key for seeking the DB for all referral hashes with a specific PKID.
+func GlobalStateSeekKeyForPKIDReferralHashes(pkid *lib.PKID) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDReferralHashToIsActive...)
+	key := append(prefixCopy, pkid[:]...)
+	return key
+}
+
+func GlobalStateKeyForPKIDReferralHashRefereePKID(pkid *lib.PKID, referralHash []byte, refereePKID *lib.PKID) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDReferralHashRefereePKID...)
+	key := append(prefixCopy, pkid[:]...)
+	key = append(key, referralHash[:]...)
+	key = append(key, refereePKID[:]...)
 	return key
 }
 
@@ -367,14 +505,59 @@ func GlobalStateKeyForWyreOrderID(orderIdBytes []byte) []byte {
 	return key
 }
 
-func GlobalStateKeyForUSDCentsToBitCloutReserveExchangeRate() []byte {
-	prefixCopy := append([]byte{}, _GlobalStatePrefixUSDCentsToBitCloutReserveExchangeRate...)
+func GlobalStateKeyForUSDCentsToDeSoReserveExchangeRate() []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixUSDCentsToDeSoReserveExchangeRate...)
 	return prefixCopy
 }
 
-func GlobalStateKeyForBuyBitCloutFeeBasisPoints() []byte {
-	prefixCopy := append([]byte{}, _GlobalStatePrefixBuyBitCloutFeeBasisPoints...)
+func GlobalStateKeyForBuyDeSoFeeBasisPoints() []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixBuyDeSoFeeBasisPoints...)
 	return prefixCopy
+}
+
+func GlobalStateKeyForPKIDTstampnanosToJumioTransaction(pkid *lib.PKID, timestampNanos uint64) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDTstampNanosToJumioTransaction...)
+	key := append(prefixCopy, pkid[:]...)
+	key = append(key, lib.EncodeUint64(timestampNanos)...)
+	return key
+}
+
+func GlobalStatePrefixforPKIDTstampnanosToJumioTransaction(pkid *lib.PKID) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDTstampNanosToJumioTransaction...)
+	key := append(prefixCopy, pkid[:]...)
+	return key
+}
+
+func GlobalStateKeyForCountryIDDocumentTypeSubTypeDocumentNumber(countryID string, documentType string, subType string, documentNumber string) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixCountryIDDocumentTypeSubTypeDocumentNumber...)
+	key := append(prefixCopy, []byte(countryID)...)
+	key = append(key, []byte(documentType)...)
+	key = append(key, []byte(subType)...)
+	key = append(key, []byte(documentNumber)...)
+	return key
+}
+
+func GlobalStateKeyForJumioDeSoNanos() []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixJumioDeSoNanos...)
+	return prefixCopy
+}
+
+func GlobalStateKeyWellKnownTutorialCreators(pkid *lib.PKID) []byte {
+	prefixCopy := append([]byte{}, _GlobalStateKeyWellKnownTutorialCreators...)
+	key := append(prefixCopy, pkid[:]...)
+	return key
+}
+
+func GlobalStateKeyUpAndComingTutorialCreators(pkid *lib.PKID) []byte {
+	prefixCopy := append([]byte{}, _GlobalStateKeyUpAndComingTutorialCreators...)
+	key := append(prefixCopy, pkid[:]...)
+	return key
+}
+
+func GlobalStateKeyETHPurchases(txnHash string) []byte {
+	prefixCopy := append([]byte{}, _GlobalStateKeyETHPurchases...)
+	key := append(prefixCopy, txnHash[:]...)
+	return key
 }
 
 type GlobalStatePutRemoteRequest struct {

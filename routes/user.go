@@ -16,7 +16,7 @@ import (
 	"github.com/dgraph-io/badger/v3"
 	"github.com/gorilla/mux"
 
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
 )
@@ -118,9 +118,10 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 
 	// Get the ProfileEntry corresponding to this user's public key from the view.
 	profileEntryy := utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
+	var profileEntryResponse *ProfileEntryResponse
 	if profileEntryy != nil {
 		// Convert it to a response since that sanitizes the inputs.
-		profileEntryResponse := _profileEntryToResponse(profileEntryy, fes.Params, verifiedMap, utxoView)
+		profileEntryResponse = _profileEntryToResponse(profileEntryy, fes.Params, verifiedMap, utxoView)
 		user.ProfileEntryResponse = profileEntryResponse
 	}
 
@@ -197,7 +198,8 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	// We don't need user metadata from global state for the leaderboard.
 	if !skipForLeaderboard {
 		// Populate fields from userMetadata global state
-		userMetadata, err := fes.getUserMetadataFromGlobalState(user.PublicKeyBase58Check)
+		var userMetadata *UserMetadata
+		userMetadata, err = fes.getUserMetadataFromGlobalState(user.PublicKeyBase58Check)
 		if err != nil {
 			return errors.Wrap(fmt.Errorf(
 				"updateUserFieldsStateless: Problem with getUserMetadataFromGlobalState: %v", err), "")
@@ -208,17 +210,32 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		user.HasPhoneNumber = userMetadata.PhoneNumber != ""
 		user.HasEmail = userMetadata.Email != ""
 		user.EmailVerified = userMetadata.EmailVerified
-
-		user.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView)
-		if err != nil {
+		user.JumioVerified = userMetadata.JumioVerified
+		user.JumioReturned = userMetadata.JumioReturned
+		user.JumioFinishedTime = userMetadata.JumioFinishedTime
+		user.TutorialStatus = userMetadata.TutorialStatus
+		user.MustCompleteTutorial = userMetadata.MustCompleteTutorial
+		// We only need to fetch the creator purchased in the tutorial if the user is still in the tutorial
+		if user.TutorialStatus != COMPLETE && user.TutorialStatus != SKIPPED && userMetadata.CreatorPurchasedInTutorialPKID != nil {
+			tutorialCreatorProfileEntry := utxoView.GetProfileEntryForPKID(userMetadata.CreatorPurchasedInTutorialPKID)
+			if tutorialCreatorProfileEntry == nil {
+				return fmt.Errorf("updateUserFieldsStateless: Did not find profile entry for PKID for creator purchased in tutorial")
+			}
+			username := string(tutorialCreatorProfileEntry.Username)
+			user.CreatorPurchasedInTutorialUsername = &username
+			user.CreatorCoinsPurchasedInTutorial = userMetadata.CreatorCoinsPurchasedInTutorial
+		}
+		if profileEntryy != nil {
+			user.ProfileEntryResponse.IsFeaturedTutorialUpAndComingCreator = userMetadata.IsFeaturedTutorialUpAndComingCreator
+			user.ProfileEntryResponse.IsFeaturedTutorialWellKnownCreator = userMetadata.IsFeaturedTutorialWellKnownCreator
+		}
+		if user.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView); err != nil {
 			return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err), "")
 		}
 		// Get map of public keys user has blocked
-		blockedPubKeys, err := fes.GetBlockedPubKeysForUser(publicKeyBytes)
-		if err != nil {
+		if user.BlockedPubKeys, err = fes.GetBlockedPubKeysForUser(publicKeyBytes); err != nil {
 			return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem with GetBlockedPubKeysForUser: %v", err), "")
 		}
-		user.BlockedPubKeys = blockedPubKeys
 	}
 
 	// Check if the user is blacklisted/graylisted
@@ -241,29 +258,30 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 
 	// Only set User.IsAdmin in GetUsersStateless
 	// We don't want or need to set this on every endpoint that generates a ProfileEntryResponse
+	isAdmin, isSuperAdmin := fes.UserAdminStatus(user.PublicKeyBase58Check)
+	user.IsAdmin = isAdmin
+	user.IsSuperAdmin = isSuperAdmin
+
+
+	return nil
+}
+
+func (fes *APIServer) UserAdminStatus(publicKeyBase58Check string) (_isAdmin bool, _isSuperAdmin bool) {
 	if len(fes.Config.AdminPublicKeys) == 0 && len(fes.Config.SuperAdminPublicKeys) == 0 {
-		user.IsAdmin = true
-		user.IsSuperAdmin = true
+		return true, true
 	} else {
-		for _, k := range fes.Config.AdminPublicKeys {
-			if k == user.PublicKeyBase58Check {
-				user.IsAdmin = true
-				break
+		for _, k := range fes.Config.SuperAdminPublicKeys {
+			if k == publicKeyBase58Check {
+				return true, true
 			}
 		}
-		for _, k := range fes.Config.SuperAdminPublicKeys {
-			if k == user.PublicKeyBase58Check {
-				user.IsSuperAdmin = true
-				user.IsAdmin = true
-				break
+		for _, k := range fes.Config.AdminPublicKeys {
+			if k == publicKeyBase58Check {
+				return true, false
 			}
 		}
 	}
-
-	// We expect SeedInfo and LocalState are set and don't mess with them in this
-	// function.
-
-	return nil
+	return false, false
 }
 
 // Get map of creators you hodl.
@@ -277,8 +295,7 @@ func (fes *APIServer) GetYouHodlMap(pkid *lib.PKIDEntry, fetchProfiles bool, utx
 	}
 
 	// Get all the hodlings for this user from the db
-	entriesYouHodl, profilesYouHodl, err :=
-		lib.DbGetBalanceEntriesYouHodl(pkid, fetchProfiles, true /*filterOutZeroBalances*/, utxoView)
+	entriesYouHodl, profilesYouHodl, err := utxoView.GetHoldings(pkid.PKID, fetchProfiles)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"GetHodlingsForPublicKey: Error looking up balance entries in db: %v", err)
@@ -335,7 +352,7 @@ func (fes *APIServer) getMapFromEntries(entries []*lib.BalanceEntry, profiles []
 
 func _balanceEntryToResponse(
 	balanceEntry *lib.BalanceEntry, dbBalanceNanos uint64, profileEntry *lib.ProfileEntry,
-	params *lib.BitCloutParams, utxoView *lib.UtxoView, verifiedMap map[string]*lib.PKID) *BalanceEntryResponse {
+	params *lib.DeSoParams, utxoView *lib.UtxoView, verifiedMap map[string]*lib.PKID) *BalanceEntryResponse {
 
 	if balanceEntry == nil {
 		return nil
@@ -400,8 +417,7 @@ func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, utx
 	}
 
 	// Get all the hodlings for this user from the db
-	entriesHodlingYou, profileHodlingYou, err :=
-		lib.DbGetBalanceEntriesHodlingYou(pkid, fetchProfiles, true /*filterOutZeroBalances*/, utxoView)
+	entriesHodlingYou, profileHodlingYou, err := utxoView.GetHolders(pkid.PKID, fetchProfiles)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"GetHodlingsForPublicKey: Error looking up balance entries in db: %v", err)
@@ -516,15 +532,16 @@ type ProfileEntryResponse struct {
 	// Creator coin fields
 	CoinEntry lib.CoinEntry
 	// Include current price for the frontend to display.
-	CoinPriceBitCloutNanos uint64
-
-	// TODO(DELETEME): Delete this field
-	StakeMultipleBasisPoints uint64
-	// TODO(DELETEME): Delete this field
-	StakeEntryStats *lib.StakeEntryStats
+	CoinPriceDeSoNanos uint64
 
 	// Profiles of users that hold the coin + their balances.
 	UsersThatHODL []*BalanceEntryResponse
+
+	// If user is featured as a well known creator in the tutorial.
+	IsFeaturedTutorialWellKnownCreator bool
+	// If user is featured as an up and coming creator in the tutorial.
+	// Note: a user should not be both featured as well known and up and coming
+	IsFeaturedTutorialUpAndComingCreator bool
 }
 
 // GetProfiles ...
@@ -542,6 +559,12 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 	numToFetch := 20
 	if requestData.NumToFetch != 0 {
 		numToFetch = int(requestData.NumToFetch)
+	}
+
+	// Cap numToFetch at 100
+	if requestData.NumToFetch > 100 {
+		_AddBadRequestError(ww, fmt.Sprintf("GetProfiles: Max value for NumToFetch exceeded"))
+		return
 	}
 
 	// Decode the reader public key into bytes. Default to nil if no pub key is passed in.
@@ -576,7 +599,7 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		profileEntries, err := fes.GetProfilesByUsernamePrefixAndBitCloutLocked(
+		profileEntries, err := fes.GetProfilesByUsernamePrefixAndDeSoLocked(
 			fes.blockchain.DB(), requestData.UsernamePrefix, readerPubKey, utxoView)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf(
@@ -727,15 +750,7 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	if requestData.OrderBy == "influencer_stake" {
-		sort.Slice(profileEntryResponses, func(ii, jj int) bool {
-			return profileEntryResponses[ii].StakeEntryStats.TotalStakeNanos > profileEntryResponses[jj].StakeEntryStats.TotalStakeNanos
-		})
-	} else if requestData.OrderBy == "influencer_post_stake" {
-		sort.Slice(profileEntryResponses, func(ii, jj int) bool {
-			return profileEntryResponses[ii].StakeEntryStats.TotalPostStakeNanos > profileEntryResponses[jj].StakeEntryStats.TotalPostStakeNanos
-		})
-	} else if requestData.OrderBy == "newest_last_post" {
+	if requestData.OrderBy == "newest_last_post" {
 		// Sort each profile's posts so that the newest post is first.
 		for _, profileRes := range profileEntryResponses {
 			if len(profileRes.Posts) == 0 {
@@ -772,7 +787,7 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 		})
 	} else if requestData.OrderBy == "influencer_coin_price" {
 		sort.Slice(profileEntryResponses, func(ii, jj int) bool {
-			return profileEntryResponses[ii].CoinEntry.BitCloutLockedNanos > profileEntryResponses[jj].CoinEntry.BitCloutLockedNanos
+			return profileEntryResponses[ii].CoinEntry.DeSoLockedNanos > profileEntryResponses[jj].CoinEntry.DeSoLockedNanos
 		})
 	}
 
@@ -812,11 +827,11 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (fes *APIServer) GetProfilesByUsernamePrefixAndBitCloutLocked(
+func (fes *APIServer) GetProfilesByUsernamePrefixAndDeSoLocked(
 	db *badger.DB, usernamePrefix string, readerPK []byte, utxoView *lib.UtxoView) (
 	_profileEntries []*lib.ProfileEntry, _err error) {
 
-	profileEntries, err := lib.DBGetProfilesByUsernamePrefixAndBitCloutLocked(db, usernamePrefix, utxoView)
+	profileEntries, err := lib.DBGetProfilesByUsernamePrefixAndDeSoLocked(db, usernamePrefix, utxoView)
 
 	pubKeyMap := make(map[lib.PkMapKey][]byte)
 	for _, profileEntry := range profileEntries {
@@ -825,7 +840,7 @@ func (fes *APIServer) GetProfilesByUsernamePrefixAndBitCloutLocked(
 
 	filteredPubKeyMap, err := fes.FilterOutRestrictedPubKeysFromMap(pubKeyMap, readerPK, "leaderboard")
 	if err != nil {
-		return nil, fmt.Errorf("DBGetProfilesByUsernamePrefixAndBitCloutLocked: %v", err)
+		return nil, fmt.Errorf("DBGetProfilesByUsernamePrefixAndDeSoLocked: %v", err)
 	}
 
 	var filteredProfileEntries []*lib.ProfileEntry
@@ -839,18 +854,18 @@ func (fes *APIServer) GetProfilesByUsernamePrefixAndBitCloutLocked(
 	return filteredProfileEntries, nil
 }
 
-func _profileEntryToResponse(profileEntry *lib.ProfileEntry, params *lib.BitCloutParams, verifiedUsernameMap map[string]*lib.PKID, utxoView *lib.UtxoView) *ProfileEntryResponse {
+func _profileEntryToResponse(profileEntry *lib.ProfileEntry, params *lib.DeSoParams, verifiedUsernameMap map[string]*lib.PKID, utxoView *lib.UtxoView) *ProfileEntryResponse {
 	if profileEntry == nil {
 		return nil
 	}
 
-	coinPriceBitCloutNanos := uint64(0)
+	coinPriceDeSoNanos := uint64(0)
 	if profileEntry.CoinsInCirculationNanos != 0 {
 		// The price formula is:
-		// coinPriceBitCloutNanos = BitCloutLockedNanos / (CoinsInCirculationNanos * ReserveRatio) * NanosPerUnit
+		// coinPriceDeSoNanos = DeSoLockedNanos / (CoinsInCirculationNanos * ReserveRatio) * NanosPerUnit
 		bigNanosPerUnit := lib.NewFloat().SetUint64(lib.NanosPerUnit)
-		coinPriceBitCloutNanos, _ = lib.Mul(lib.Div(
-			lib.Div(lib.NewFloat().SetUint64(profileEntry.BitCloutLockedNanos), bigNanosPerUnit),
+		coinPriceDeSoNanos, _ = lib.Mul(lib.Div(
+			lib.Div(lib.NewFloat().SetUint64(profileEntry.DeSoLockedNanos), bigNanosPerUnit),
 			lib.Mul(lib.Div(lib.NewFloat().SetUint64(profileEntry.CoinsInCirculationNanos), bigNanosPerUnit),
 				params.CreatorCoinReserveRatio)), lib.NewFloat().SetUint64(lib.NanosPerUnit)).Uint64()
 	}
@@ -878,16 +893,14 @@ func _profileEntryToResponse(profileEntry *lib.ProfileEntry, params *lib.BitClou
 
 	// Generate profile entry response
 	profResponse := &ProfileEntryResponse{
-		PublicKeyBase58Check:     lib.PkToString(profileEntry.PublicKey, params),
-		Username:                 string(profileEntry.Username),
-		Description:              string(profileEntry.Description),
-		CoinEntry:                profileEntry.CoinEntry,
-		CoinPriceBitCloutNanos:   coinPriceBitCloutNanos,
-		IsHidden:                 profileEntry.IsHidden,
-		IsReserved:               isReserved,
-		IsVerified:               isVerified,
-		StakeMultipleBasisPoints: profileEntry.StakeMultipleBasisPoints,
-		StakeEntryStats:          lib.GetStakeEntryStats(profileEntry.StakeEntry, params),
+		PublicKeyBase58Check:   lib.PkToString(profileEntry.PublicKey, params),
+		Username:               string(profileEntry.Username),
+		Description:            string(profileEntry.Description),
+		CoinEntry:              profileEntry.CoinEntry,
+		CoinPriceDeSoNanos: coinPriceDeSoNanos,
+		IsHidden:               profileEntry.IsHidden,
+		IsReserved:             isReserved,
+		IsVerified:             isVerified,
 	}
 
 	return profResponse
@@ -1023,7 +1036,9 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 	// Get profile entry by public key.  If public key not provided, get profileEntry by username.
 	var profileEntry *lib.ProfileEntry
 	var publicKeyBytes []byte
+	var publicKeyBase58Check string
 	if requestData.PublicKeyBase58Check != "" {
+		publicKeyBase58Check = requestData.PublicKeyBase58Check
 		publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Problem decoding user public key: %v", err))
@@ -1034,6 +1049,7 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 		profileEntry = utxoView.GetProfileEntryForUsername([]byte(requestData.Username))
 		if profileEntry != nil {
 			publicKeyBytes = profileEntry.PublicKey
+			publicKeyBase58Check = lib.Base58CheckEncode(publicKeyBytes, false, fes.Params)
 		}
 	}
 
@@ -1077,6 +1093,16 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 	if reflect.DeepEqual(userGraylistState, lib.IsGraylisted) {
 		res.IsGraylisted = true
 	}
+
+	var userMetadata *UserMetadata
+	userMetadata, err = fes.getUserMetadataFromGlobalState(publicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: error getting usermetadata for public key: %v", err))
+		return
+	}
+
+	res.Profile.IsFeaturedTutorialUpAndComingCreator = userMetadata.IsFeaturedTutorialUpAndComingCreator
+	res.Profile.IsFeaturedTutorialWellKnownCreator = userMetadata.IsFeaturedTutorialWellKnownCreator
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetSingleProfile: Problem serializing object to JSON: %v", err))
@@ -1350,6 +1376,10 @@ func (fes *APIServer) GetDiamondsForPublicKey(ww http.ResponseWriter, req *http.
 		iiProfile := diamondSenderSummaryResponses[ii].ProfileEntryResponse
 		jjProfile := diamondSenderSummaryResponses[jj].ProfileEntryResponse
 
+		if iiProfile == nil && jjProfile == nil {
+			return false
+		}
+
 		// If ii has a profile but jj doesn't, prioritize it.
 		if iiProfile != nil && jjProfile == nil {
 			return true
@@ -1358,10 +1388,10 @@ func (fes *APIServer) GetDiamondsForPublicKey(ww http.ResponseWriter, req *http.
 			return false
 		}
 
-		iiBitCloutLocked := iiProfile.CoinEntry.BitCloutLockedNanos
-		jjBitCloutLocked := jjProfile.CoinEntry.BitCloutLockedNanos
+		iiDeSoLocked := iiProfile.CoinEntry.DeSoLockedNanos
+		jjDeSoLocked := jjProfile.CoinEntry.DeSoLockedNanos
 
-		return iiBitCloutLocked > jjBitCloutLocked
+		return iiDeSoLocked > jjDeSoLocked
 	})
 
 	res := &GetDiamondsForPublicKeyResponse{
@@ -1412,7 +1442,7 @@ func (fes *APIServer) sortFollowEntries(followEntryPKIDii *lib.PKID, followEntry
 		}
 		// If both FollowEntries have a profile, compare the two based on coin price.
 		if profileEntryii != nil && profileEntryjj != nil {
-			return profileEntryii.CoinEntry.BitCloutLockedNanos > profileEntryjj.CoinEntry.BitCloutLockedNanos
+			return profileEntryii.CoinEntry.DeSoLockedNanos > profileEntryjj.CoinEntry.DeSoLockedNanos
 		}
 	}
 	// If we're not fetching values (meaning no profiles for public keys) or neither FollowEntry has a profile,
@@ -1787,24 +1817,11 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		return
 	}
 
-	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(userPublicKeyBytes)
+	// Grab verified username map pointer
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
 	if err != nil {
-		_AddBadRequestError(ww, err.Error())
+		APIAddError(ww, err.Error())
 		return
-	}
-
-	// Filter out blocked public keys from transactions metadata response
-	filteredTxnMetadataList := []*TransactionMetadataResponse{}
-	for _, txn := range finalTxnMetadataList {
-		var pkBytes []byte
-		pkBytes, _, err = lib.Base58CheckDecode(txn.Metadata.TransactorPublicKeyBase58Check)
-		if err != nil {
-			APIAddError(ww, err.Error())
-			return
-		}
-		if _, ok := blockedPubKeys[lib.PkToString(pkBytes, fes.Params)]; !ok {
-			filteredTxnMetadataList = append(filteredTxnMetadataList, txn)
-		}
 	}
 
 	// At this point, finalTxnMetadata contains the proper list of transactions that we
@@ -1821,12 +1838,6 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 				publicKeyBase58Check)
 		}
 
-		// Grab verified username map pointer
-		verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-		if err != nil {
-			return errors.Errorf("GetNotifications: Error fetching verifiedMap: %v", err)
-		}
-
 		// Note we are recycling the UtxoView from previously.
 		// Note also that if we didn't need to use the mempool to fetch notifications
 		// then we won't have loaded any of the mempool transactions into the view, and
@@ -1838,7 +1849,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		}
 		return nil
 	}
-	for _, txnMeta := range filteredTxnMetadataList {
+	for _, txnMeta := range finalTxnMetadataList {
 		if err := addProfileForPubKey(txnMeta.Metadata.TransactorPublicKeyBase58Check); err != nil {
 			APIAddError(ww, err.Error())
 			return
@@ -1888,7 +1899,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		postEntryResponses[postHashHex] = postEntryResponse
 	}
 
-	for _, txnMeta := range filteredTxnMetadataList {
+	for _, txnMeta := range finalTxnMetadataList {
 		postMetadata := txnMeta.Metadata.SubmitPostTxindexMetadata
 		likeMetadata := txnMeta.Metadata.LikeTxindexMetadata
 		transferCreatorCoinMetadata := txnMeta.Metadata.CreatorCoinTransferTxindexMetadata
@@ -1919,6 +1930,9 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 						AmountNanos:          output.AmountNanos,
 					})
 			}
+			if basicTransferMetadata.PostHashHex != "" {
+				addPostForHash(basicTransferMetadata.PostHashHex, userPublicKeyBytes)
+			}
 		}
 	}
 
@@ -1927,7 +1941,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	//
 	// only try to update the index if we're requesting the first page of results
 	// and we have at least one notification
-	if requestData.FetchStartIndex < 0 && len(filteredTxnMetadataList) > 0 {
+	if requestData.FetchStartIndex < 0 && len(finalTxnMetadataList) > 0 {
 		// global state does not have good support for concurrency. if someone
 		// else fetches this user's data and writes at the same time we could
 		// overwrite each other. there's a task in jira to investigate concurrency
@@ -1940,7 +1954,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		}
 
 		// only update the index if it's greater than the current index we have stored
-		lastSeenIndex := filteredTxnMetadataList[0].Index
+		lastSeenIndex := finalTxnMetadataList[0].Index
 		if lastSeenIndex > userMetadata.NotificationLastSeenIndex {
 			userMetadata.NotificationLastSeenIndex = lastSeenIndex
 
@@ -1957,7 +1971,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	// At this point, we should have all the profiles and all the notifications
 	// that the user requested so return them in the response.
 	res := &GetNotificationsResponse{
-		Notifications:       filteredTxnMetadataList,
+		Notifications:       finalTxnMetadataList,
 		ProfilesByPublicKey: profileEntryResponses,
 		PostsByHash:         postEntryResponses,
 	}
@@ -1982,6 +1996,12 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 	if err != nil {
 		return nil, nil, errors.Errorf("GetNotifications: Problem parsing public key: %v", err)
 	}
+
+	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(pkBytes)
+	if err != nil {
+		return nil, nil, errors.Errorf("GetNotifications: Error getting blocked public keys for user: %v", err)
+	}
+
 
 	// A valid mempool object is used to compute the TransactionMetadata for the mempool
 	// and to allow for things like: filtering notifications for a hidden post.
@@ -2030,11 +2050,20 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 			if txnMeta == nil {
 				// We should never be missing a transaction for a given txid, but
 				// just continue in this case.
-				errors.Errorf("GetNotifications: Missing TransactionMetadata for txid %v", txID)
+				glog.Errorf("GetNotifications: Missing TransactionMetadata for txid %v", txID)
 				continue
 			}
 			// Skip transactions that aren't notifications
 			if !TxnMetaIsNotification(txnMeta, request.PublicKeyBase58Check, utxoView) {
+				continue
+			}
+			transactorPkBytes, _, err := lib.Base58CheckDecode(txnMeta.TransactorPublicKeyBase58Check)
+			if err != nil {
+				glog.Errorf("GetNotifications: unable to decode public key %v", txnMeta.TransactorPublicKeyBase58Check)
+				continue
+			}
+			// Skip transactions from blocked users.
+			if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
 				continue
 			}
 			currentIndexBytes := keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]
@@ -2119,8 +2148,18 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 			}
 
 			// If the transaction is a notification then add it to our list with the proper
-			// index value set.
+			// index value if the transactor is not a blocked public key
 			if TxnMetaIsNotification(txnMeta, request.PublicKeyBase58Check, utxoView) {
+				transactorPkBytes, _, err := lib.Base58CheckDecode(txnMeta.TransactorPublicKeyBase58Check)
+				if err != nil {
+					glog.Errorf("GetNotifications: unable to decode public key %v", txnMeta.TransactorPublicKeyBase58Check)
+					continue
+				}
+
+				// Skip transactions from blocked users.
+				if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
+					continue
+				}
 				mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
 					Metadata: txnMeta,
 					Index:    currentIndex,
@@ -2230,7 +2269,7 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 		// Someone transferred you creator coins
 		return true
 	} else if txnMeta.BitcoinExchangeTxindexMetadata != nil {
-		// You got some BitClout from a BitcoinExchange txn
+		// You got some DeSo from a BitcoinExchange txn
 		return true
 	} else if txnMeta.NFTBidTxindexMetadata != nil {
 		// Someone bid on your NFT
