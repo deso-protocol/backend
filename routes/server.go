@@ -120,9 +120,10 @@ const (
 	RoutePathStartOrSkipTutorial = "/api/v0/start-or-skip-tutorial"
 
 	// eth.go
-	RoutePathGetETHBalance = "/api/v0/get-eth-balance"
-	RoutePathCreateETHTx   = "/api/v0/create-eth-tx"
-	RoutePathSubmitETHTx   = "/api/v0/submit-eth-tx"
+	RoutePathGetETHBalance     = "/api/v0/get-eth-balance"
+	RoutePathCreateETHTx       = "/api/v0/create-eth-tx"
+	RoutePathSubmitETHTx       = "/api/v0/submit-eth-tx"
+	RoutePathAdminProcessETHTx = "/api/v0/admin/process-eth-tx"
 
 	// wyre.go
 	RoutePathGetWyreWalletOrderQuotation     = "/api/v0/get-wyre-wallet-order-quotation"
@@ -185,7 +186,7 @@ const (
 	RoutePathAdminDownloadReferralCSV       = "/api/v0/admin/download-referral-csv"
 
 	// referrals.go
-	RoutePathGetReferralInfoForUser = "/api/v0/get-referral-info-for-user"
+	RoutePathGetReferralInfoForUser         = "/api/v0/get-referral-info-for-user"
 	RoutePathGetReferralInfoForReferralHash = "/api/v0/get-referral-info-for-referral-hash"
 
 	// admin_tutorial.go
@@ -797,6 +798,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			RoutePathSubmitETHTx,
 			fes.SubmitETHTx,
 			PublicAccess,
+		},
+		{
+			"AdminProcessETHTx",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminProcessETHTx,
+			fes.AdminProcessETHTx,
+			SuperAdminAccess,
 		},
 
 		// Begin all /admin routes
