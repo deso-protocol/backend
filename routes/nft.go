@@ -757,6 +757,8 @@ type GetNFTsForUserRequest struct {
 	UserPublicKeyBase58Check   string `safeForLogging:"true"`
 	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
 	IsForSale                  *bool  `safeForLogging:"true"`
+	// Ignored if IsForSale is provided
+	IsPending                  *bool  `safeForLogging:"true"`
 }
 
 type NFTEntryAndPostEntryResponse struct {
@@ -826,6 +828,13 @@ func (fes *APIServer) GetNFTsForUser(ww http.ResponseWriter, req *http.Request) 
 		checkForSale := *requestData.IsForSale
 		for _, nftEntry := range nftEntries {
 			if checkForSale == nftEntry.IsForSale {
+				filteredNFTEntries = append(filteredNFTEntries, nftEntry)
+			}
+		}
+	} else if requestData.IsPending != nil {
+		checkIsPending := *&requestData.IsPending
+		for _, nftEntry := range nftEntries {
+			if checkIsPending == nftEntry.IsPending {
 				filteredNFTEntries = append(filteredNFTEntries, nftEntry)
 			}
 		}
