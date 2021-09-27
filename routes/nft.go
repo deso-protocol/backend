@@ -1226,10 +1226,13 @@ func (fes *APIServer) _nftEntryToResponse(nftEntry *lib.NFTEntry, postEntryRespo
 	// We only care about these values in the case where the reader is the current owner.
 	var lastOwnerPublicKeyBase58Check *string
 	var encryptedUnlockableText *string
-	if len(nftEntry.UnlockableText) > 0 && reflect.DeepEqual(nftEntry.OwnerPKID, readerPKID) {
-		encryptedUnlockableTextValue := string(nftEntry.UnlockableText)
-		encryptedUnlockableText = &encryptedUnlockableTextValue
-		if nftEntry.LastOwnerPKID != nil {
+	if reflect.DeepEqual(nftEntry.OwnerPKID, readerPKID) {
+		hasUnlockableText := len(nftEntry.UnlockableText) > 0
+		if hasUnlockableText {
+			encryptedUnlockableTextValue := string(nftEntry.UnlockableText)
+			encryptedUnlockableText = &encryptedUnlockableTextValue
+		}
+		if nftEntry.LastOwnerPKID != nil && (hasUnlockableText || nftEntry.IsPending) {
 			publicKey := utxoView.GetPublicKeyForPKID(nftEntry.LastOwnerPKID)
 			lastOwnerPublicKeyBase58CheckVal := lib.PkToString(publicKey, fes.Params)
 			lastOwnerPublicKeyBase58Check = &lastOwnerPublicKeyBase58CheckVal
