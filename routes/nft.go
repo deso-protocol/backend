@@ -832,7 +832,7 @@ func (fes *APIServer) GetNFTsForUser(ww http.ResponseWriter, req *http.Request) 
 			}
 		}
 	} else if requestData.IsPending != nil {
-		checkIsPending := *&requestData.IsPending
+		checkIsPending := *requestData.IsPending
 		for _, nftEntry := range nftEntries {
 			if checkIsPending == nftEntry.IsPending {
 				filteredNFTEntries = append(filteredNFTEntries, nftEntry)
