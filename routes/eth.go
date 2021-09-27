@@ -129,9 +129,8 @@ type SubmitETHTxResponse struct {
 
 // ETHTxLog is used by admins to reprocess stuck transactions
 type ETHTxLog struct {
-	PublicKey       []byte
-	Tx              BlockCypherTx
-	BitCloutTxnHash string
+	PublicKey      []byte
+	BitCloutTxHash string
 }
 
 func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
@@ -215,10 +214,9 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Record the validated transaction data in global state
+	// Record the valid transaction in global state
 	ethTxLog := &ETHTxLog{
 		PublicKey: pkBytes,
-		Tx:        submitTx.Tx,
 	}
 	globalStateKey := GlobalStateKeyETHPurchases(submitTx.Tx.Hash)
 	globalStateVal := bytes.NewBuffer([]byte{})
@@ -260,7 +258,7 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	bitcloutTxnHash, err := fes.finishETHTx(ethTxLog)
+	bitcloutTxnHash, err := fes.finishETHTx(ethTx, ethTxLog)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed: %v", err))
 		return
@@ -279,9 +277,15 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 // 2. Calculate the nanos to send
 // 3. Send the nanos
 // 4. Record the successful send
-func (fes *APIServer) finishETHTx(ethTxLog *ETHTxLog) (txnHash *lib.BlockHash, _err error) {
+func (fes *APIServer) finishETHTx(ethTx *BlockCypherTx, ethTxLog *ETHTxLog) (txnHash *lib.BlockHash, _err error) {
+	ethTx, err := fes.BlockCypherGetETHTx(ethTx.Hash)
+	if err != nil {
+		// Sometimes these requests can fail. Ignore the failure and keep polling
+		return nil, errors.New(fmt.Sprintf("Failed to get eth transaction: %v", err))
+	}
+
 	// Ensure the transaction mined
-	if ethTxLog.Tx.BlockHeight < 0 {
+	if ethTx.BlockHeight < 0 {
 		return nil, errors.New("Transaction failed to mine")
 	}
 
@@ -292,7 +296,7 @@ func (fes *APIServer) finishETHTx(ethTxLog *ETHTxLog) (txnHash *lib.BlockHash, _
 	}
 
 	// Calculate nanos purchased
-	totalWei := big.NewFloat(0).SetInt(ethTxLog.Tx.Total)
+	totalWei := big.NewFloat(0).SetInt(ethTx.Total)
 	totalEth := big.NewFloat(0).Quo(totalWei, big.NewFloat(1e18))
 	nanosPurchased := fes.GetNanosFromETH(totalEth, feeBasisPoints)
 
@@ -302,8 +306,8 @@ func (fes *APIServer) finishETHTx(ethTxLog *ETHTxLog) (txnHash *lib.BlockHash, _
 	}
 
 	// Record successful transaction in global state
-	ethTxLog.BitCloutTxnHash = bitcloutTxnHash.String()
-	globalStateKey := GlobalStateKeyETHPurchases(ethTxLog.Tx.Hash)
+	ethTxLog.BitCloutTxHash = bitcloutTxnHash.String()
+	globalStateKey := GlobalStateKeyETHPurchases(ethTx.Hash)
 	globalStateVal := bytes.NewBuffer([]byte{})
 	err = gob.NewEncoder(globalStateVal).Encode(ethTxLog)
 	if err != nil {
@@ -323,7 +327,7 @@ type AdminProcessETHTxRequest struct {
 }
 
 type AdminProcessETHTxResponse struct {
-	BitCloutTxnHash string
+	BitCloutTxHash string
 }
 
 func (fes *APIServer) AdminProcessETHTx(ww http.ResponseWriter, req *http.Request) {
@@ -355,26 +359,26 @@ func (fes *APIServer) AdminProcessETHTx(ww http.ResponseWriter, req *http.Reques
 	}
 
 	// Transaction must be unsuccessful
-	if len(ethTxLog.BitCloutTxnHash) > 0 {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: CLOUT was sent: %s", ethTxLog.BitCloutTxnHash))
+	if len(ethTxLog.BitCloutTxHash) > 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: CLOUT was sent: %s", ethTxLog.BitCloutTxHash))
 		return
 	}
 
 	// Fetch the transaction
 	ethTx, err := fes.BlockCypherGetETHTx(requestData.ETHTxHash)
-	if ethTx == nil {
+	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Failed to get transaction: %v", err))
 		return
 	}
 
-	bitcloutTxnHash, err := fes.finishETHTx(ethTxLog)
+	bitcloutTxHash, err := fes.finishETHTx(ethTx, ethTxLog)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Failed: %v", err))
 		return
 	}
 
 	res := AdminProcessETHTxResponse{
-		BitCloutTxnHash: bitcloutTxnHash.String(),
+		BitCloutTxHash: bitcloutTxHash.String(),
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Problem encoding response: %v", err))
