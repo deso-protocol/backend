@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/mux"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	// We import this so that we can decode gifs.
@@ -305,6 +306,20 @@ func (fes *APIServer) GetFullTikTokURL(ww http.ResponseWriter, req *http.Request
 func (fes *APIServer) UploadVideo(ww http.ResponseWriter, req *http.Request) {
 	if fes.Config.CloudflareStreamToken == "" || fes.Config.CloudflareAccountId == "" {
 		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: This node is not configured to support video uploads"))
+		return
+	}
+	uploadLengthStr := req.Header.Get("Upload-Length")
+	if uploadLengthStr == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: Must provide Upload-Length header"))
+		return
+	}
+	uploadLength, err := strconv.Atoi(uploadLengthStr)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: Unable to convert Upload-Length header to int for validation: %v", err))
+		return
+	}
+	if uploadLength > 4 * 1024 * 1024 * 1024 {
+		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: Files must be less than 4GB"))
 		return
 	}
 	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%v/stream?direct_user=true", fes.Config.CloudflareAccountId)
