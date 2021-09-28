@@ -2,7 +2,7 @@ FROM alpine:latest AS backend
 
 RUN apk update
 RUN apk upgrade
-RUN apk add --update go=1.16.8-r0 gcc g++ vips-dev
+RUN apk add --update go gcc g++ vips-dev
 
 WORKDIR /bitclout/src
 
