@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
 )
@@ -1372,13 +1372,14 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 
 func (fes *APIServer) cleanBody(bodyObj *lib.DeSoBodySchema, isRepost bool) ([]byte, error) {
 	// Sanitize the Body field on the body object, which should exist.
-	if bodyObj.Body == "" && len(bodyObj.ImageURLs) == 0 && !isRepost {
-		return nil, fmt.Errorf("SubmitPost: Body or Image is required if not reposting.")
+	if bodyObj.Body == "" && len(bodyObj.ImageURLs) == 0 && len(bodyObj.VideoURLs) == 0 && !isRepost {
+		return nil, fmt.Errorf("SubmitPost: Body or Image or Video is required if not reposting.")
 	}
 
 	desoBodySchema := &lib.DeSoBodySchema{
 		Body:      bodyObj.Body,
 		ImageURLs: bodyObj.ImageURLs,
+		VideoURLs: bodyObj.VideoURLs,
 	}
 	// Serialize the body object to JSON.
 	bodyBytes, err := json.Marshal(desoBodySchema)

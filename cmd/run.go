@@ -142,6 +142,10 @@ func init() {
 	runCmd.PersistentFlags().String("jumio-token", "", "Jumio Token")
 	runCmd.PersistentFlags().String("jumio-secret", "", "Jumio Secret Key")
 
+	// Video Upload
+	runCmd.PersistentFlags().String("cloudflare-stream-token", "", "API Token with Edit access to Cloudflare's stream service")
+	runCmd.PersistentFlags().String("cloudflare-account-id", "", "Cloudflare Account ID")
+
 	runCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
 		viper.BindPFlag(flag.Name, flag)
 	})

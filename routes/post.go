@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 )
 
@@ -58,7 +58,8 @@ type PostEntryResponse struct {
 	ParentStakeID              string
 	Body                       string
 	ImageURLs                  []string
-	RepostedPostEntryResponse *PostEntryResponse
+	VideoURLs                  []string
+	RepostedPostEntryResponse  *PostEntryResponse
 	CreatorBasisPoints         uint64
 	StakeMultipleBasisPoints   uint64
 	TimestampNanos             uint64
@@ -195,7 +196,8 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 		ParentStakeID:                  stakeIDStr,
 		Body:                           bodyJSONObj.Body,
 		ImageURLs:                      bodyJSONObj.ImageURLs,
-		RepostedPostEntryResponse:     repostPostEntryResponse,
+		VideoURLs:                      bodyJSONObj.VideoURLs,
+		RepostedPostEntryResponse:      repostPostEntryResponse,
 		CreatorBasisPoints:             postEntry.CreatorBasisPoints,
 		StakeMultipleBasisPoints:       postEntry.StakeMultipleBasisPoints,
 		TimestampNanos:                 postEntry.TimestampNanos,

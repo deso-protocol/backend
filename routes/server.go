@@ -98,6 +98,8 @@ const (
 	// media.go
 	RoutePathUploadImage      = "/api/v0/upload-image"
 	RoutePathGetFullTikTokURL = "/api/v0/get-full-tiktok-url"
+	RoutePathUploadVideo      = "/api/v0/upload-video"
+	RoutePathGetVideoStatus   = "/api/v0/get-video-status"
 
 	// message.go
 	RoutePathSendMessageStateless    = "/api/v0/send-message-stateless"
@@ -1138,7 +1140,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetFullTikTokURL,
 			PublicAccess,
 		},
-
+		{
+			"UploadVideo",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUploadVideo,
+			fes.UploadVideo,
+			PublicAccess,
+		},
+		{
+			"GetVideoStatus",
+			[]string{"GET"},
+			RoutePathGetVideoStatus + "/{videoId:[0-9a-z]{25,35}}",
+			fes.GetVideoStatus,
+			PublicAccess,
+		},
 		// Paths for wyre
 		{
 			"GetWyreWalletOrderQuotation",
@@ -1269,7 +1284,7 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 			// access this endpoint
 			match = true
 			actualOrigin = "*"
-		} else if r.Method == "POST" && contentType != "application/json" && r.RequestURI != RoutePathJumioCallback {
+		} else if r.Method == "POST" && contentType != "application/json" && r.RequestURI != RoutePathJumioCallback && r.RequestURI != RoutePathUploadVideo {
 			invalidPostRequest = true
 		}
 
@@ -1277,10 +1292,16 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 			// Needed in order for the user's browser to set a cookie
 			w.Header().Add("Access-Control-Allow-Credentials", "true")
 
-			w.Header().Set("Access-Control-Allow-Origin", actualOrigin)
-			w.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept")
+			if r.RequestURI != RoutePathUploadVideo {
+				w.Header().Set("Access-Control-Allow-Origin", actualOrigin)
+				w.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept")
+			} else {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+				w.Header().Set("Access-Control-Allow-Headers", "*")
+			}
 			w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE, OPTIONS")
 		}
+
 		// Otherwise, don't add any headers. This should make a CORS request fail.
 
 		// If it's an options request stop at the CORS headers.
