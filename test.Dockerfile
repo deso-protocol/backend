@@ -1,8 +1,8 @@
-FROM alpine:latest AS backend
+FROM alpine:edge AS backend
 
 RUN apk update
 RUN apk upgrade
-RUN apk add --update go gcc g++ vips-dev
+RUN apk add --update go=1.16.6-r0 gcc g++ vips-dev
 
 WORKDIR /deso/src
 

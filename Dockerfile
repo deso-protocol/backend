@@ -1,8 +1,8 @@
-FROM alpine:latest AS backend
+FROM alpine:edge AS backend
 
 RUN apk update
 RUN apk upgrade
-RUN apk add --update go gcc g++ vips-dev
+RUN apk add --update go=1.16.6-r0 gcc g++ vips-dev
 
 WORKDIR /deso/src
 
@@ -34,7 +34,7 @@ COPY core/migrate   ../core/migrate
 RUN GOOS=linux go build -mod=mod -a -installsuffix cgo -o bin/backend main.go
 
 # create tiny image
-FROM alpine:latest
+FROM alpine:edge
 
 RUN apk add --update vips-dev
 
