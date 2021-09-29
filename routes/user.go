@@ -852,10 +852,8 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 	if verifiedUsernameMap != nil && utxoView != nil {
 		pkidEntry := utxoView.GetPKIDForPublicKey(profileEntry.PublicKey)
 		verifiedUsernamePKID := verifiedUsernameMap[strings.ToLower(string(profileEntry.Username))]
-		if verifiedUsernamePKID != nil && reflect.DeepEqual(verifiedUsernamePKID, verifiedUsernamePKID) {
-			// TODO: Delete the "isVerified" or statement once we kell reserved_usernames.go.
-			isVerified = (*verifiedUsernamePKID == *pkidEntry.PKID) || isVerified
-		}
+		// TODO: Delete the "isVerified" or statement once we kill reserved_usernames.go.
+		isVerified = isVerified || (verifiedUsernamePKID != nil && reflect.DeepEqual(verifiedUsernamePKID, pkidEntry.PKID))
 	}
 
 	// Generate profile entry response
