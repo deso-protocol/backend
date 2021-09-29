@@ -864,7 +864,7 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		Username:               string(profileEntry.Username),
 		Description:            string(profileEntry.Description),
 		CoinEntry:              profileEntry.CoinEntry,
-		CoinPriceDeSoNanos: coinPriceDeSoNanos,
+		CoinPriceDeSoNanos:     coinPriceDeSoNanos,
 		IsHidden:               profileEntry.IsHidden,
 		IsReserved:             isReserved,
 		IsVerified:             isVerified,
