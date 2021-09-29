@@ -693,7 +693,6 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 	}
 
 	// Force a refresh before we grant a new badge to ensure we have the latest verified username map
-	// Force a refresh before we grant a new badge to ensure we have the latest verified username map
 	if err = fes.RefreshVerifiedUsernameToPKIDMap(); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Unable to refresh the verified username map before removing verification badge: %v", err))
 		return
