@@ -400,7 +400,7 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		requestData.NewStakeMultipleBasisPoints,
 		requestData.IsHidden,
 		additionalFees,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), getTransactionFee(lib.TxnTypeUpdateProfile))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem creating transaction: %v", err))
 		return
@@ -961,7 +961,7 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 		// Create a MAX transaction
 		txnn, totalInputt, spendAmountt, feeNanoss, err = fes.blockchain.CreateMaxSpend(
 			senderPkBytes, recipientPkBytes, requestData.MinFeeRateNanosPerKB,
-			fes.backendServer.GetMempool())
+			fes.backendServer.GetMempool(), getTransactionFee(lib.TxnTypeBasicTransfer))
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error processing MAX transaction: %v", err))
 			return
@@ -969,11 +969,11 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 
 	} else {
 		// In this case, we are spending what the user asked us to spend as opposed to
-		// spending the maximum amount posssible.
+		// spending the maximum amount possible.
 
 		// Create the transaction outputs and add the recipient's public key and the
 		// amount we want to pay them
-		txnOutputs := []*lib.DeSoOutput{}
+		txnOutputs := getTransactionFee(lib.TxnTypeBasicTransfer)
 		txnOutputs = append(txnOutputs, &lib.DeSoOutput{
 			PublicKey: recipientPkBytes,
 			// If we get here we know the amount is non-negative.
@@ -1095,7 +1095,7 @@ func (fes *APIServer) CreateLikeStateless(ww http.ResponseWriter, req *http.Requ
 	// Try and create the message for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateLikeTxn(
 		readerPkBytes, postHash, requestData.IsUnlike,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), getTransactionFee(lib.TxnTypeLike))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateLikeStateless: Problem creating transaction: %v", err))
 		return
@@ -1318,7 +1318,7 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		tstamp,
 		postExtraData,
 		requestData.IsHidden,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), getTransactionFee(lib.TxnTypeSubmitPost))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Problem creating transaction: %v", err))
 		return
@@ -1458,7 +1458,7 @@ func (fes *APIServer) CreateFollowTxnStateless(ww http.ResponseWriter, req *http
 	// Try and create the follow for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateFollowTxn(
 		followerPkBytes, followedPkBytes, requestData.IsUnfollow,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), getTransactionFee(lib.TxnTypeFollow))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateFollowTxnStateless: Problem creating transaction: %v", err))
 		return
@@ -1600,7 +1600,7 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		requestData.MinDeSoExpectedNanos,
 		requestData.MinCreatorCoinExpectedNanos,
 		// Standard transaction fields
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), getTransactionFee(lib.TxnTypeCreatorCoin))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem adding inputs and change transaction: %v", err))
 		return
@@ -1851,7 +1851,7 @@ func (fes *APIServer) TransferCreatorCoin(ww http.ResponseWriter, req *http.Requ
 		requestData.CreatorCoinToTransferNanos,
 		receiverPublicKeyBytes,
 		// Standard transaction fields
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), getTransactionFee(lib.TxnTypeCreatorCoinTransfer))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferCreatorCoin: Problem creating transaction: %v", err))
 		return
@@ -1980,7 +1980,7 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 			diamondPostHash,
 			requestData.DiamondLevel,
 			// Standard transaction fields
-			requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+			requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), getTransactionFee(lib.TxnTypeBasicTransfer))
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem creating transaction: %v", err))
 			return
@@ -1993,7 +1993,7 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 			diamondPostHash,
 			requestData.DiamondLevel,
 			// Standard transaction fields
-			requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+			requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), getTransactionFee(lib.TxnTypeCreatorCoinTransfer))
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem creating transaction: %v", err))
 			return
@@ -2038,4 +2038,8 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+func getTransactionFee(txnType lib.TxnType) []*lib.DeSoOutput {
+	return []*lib.DeSoOutput{}
 }
