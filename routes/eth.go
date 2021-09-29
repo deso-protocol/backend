@@ -260,7 +260,7 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 
 	bitcloutTxnHash, err := fes.finishETHTx(ethTx, ethTxLog)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Transaction %s failed: %v ", err, ethTx.Hash))
 		return
 	}
 
