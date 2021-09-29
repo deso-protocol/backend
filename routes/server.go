@@ -98,6 +98,8 @@ const (
 	// media.go
 	RoutePathUploadImage      = "/api/v0/upload-image"
 	RoutePathGetFullTikTokURL = "/api/v0/get-full-tiktok-url"
+	RoutePathUploadVideo      = "/api/v0/upload-video"
+	RoutePathGetVideoStatus   = "/api/v0/get-video-status"
 
 	// message.go
 	RoutePathSendMessageStateless    = "/api/v0/send-message-stateless"
@@ -120,9 +122,10 @@ const (
 	RoutePathStartOrSkipTutorial = "/api/v0/start-or-skip-tutorial"
 
 	// eth.go
-	RoutePathGetETHBalance = "/api/v0/get-eth-balance"
-	RoutePathCreateETHTx   = "/api/v0/create-eth-tx"
-	RoutePathSubmitETHTx   = "/api/v0/submit-eth-tx"
+	RoutePathGetETHBalance     = "/api/v0/get-eth-balance"
+	RoutePathCreateETHTx       = "/api/v0/create-eth-tx"
+	RoutePathSubmitETHTx       = "/api/v0/submit-eth-tx"
+	RoutePathAdminProcessETHTx = "/api/v0/admin/process-eth-tx"
 
 	// wyre.go
 	RoutePathGetWyreWalletOrderQuotation     = "/api/v0/get-wyre-wallet-order-quotation"
@@ -185,7 +188,7 @@ const (
 	RoutePathAdminDownloadReferralCSV       = "/api/v0/admin/download-referral-csv"
 
 	// referrals.go
-	RoutePathGetReferralInfoForUser = "/api/v0/get-referral-info-for-user"
+	RoutePathGetReferralInfoForUser         = "/api/v0/get-referral-info-for-user"
 	RoutePathGetReferralInfoForReferralHash = "/api/v0/get-referral-info-for-referral-hash"
 
 	// admin_tutorial.go
@@ -807,6 +810,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.SubmitETHTx,
 			PublicAccess,
 		},
+		{
+			"AdminProcessETHTx",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminProcessETHTx,
+			fes.AdminProcessETHTx,
+			SuperAdminAccess,
+		},
 
 		// Begin all /admin routes
 		{
@@ -1139,7 +1149,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetFullTikTokURL,
 			PublicAccess,
 		},
-
+		{
+			"UploadVideo",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUploadVideo,
+			fes.UploadVideo,
+			PublicAccess,
+		},
+		{
+			"GetVideoStatus",
+			[]string{"GET"},
+			RoutePathGetVideoStatus + "/{videoId:[0-9a-z]{25,35}}",
+			fes.GetVideoStatus,
+			PublicAccess,
+		},
 		// Paths for wyre
 		{
 			"GetWyreWalletOrderQuotation",
@@ -1270,7 +1293,7 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 			// access this endpoint
 			match = true
 			actualOrigin = "*"
-		} else if r.Method == "POST" && contentType != "application/json" && r.RequestURI != RoutePathJumioCallback {
+		} else if r.Method == "POST" && contentType != "application/json" && r.RequestURI != RoutePathJumioCallback && r.RequestURI != RoutePathUploadVideo {
 			invalidPostRequest = true
 		}
 
@@ -1278,10 +1301,16 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 			// Needed in order for the user's browser to set a cookie
 			w.Header().Add("Access-Control-Allow-Credentials", "true")
 
-			w.Header().Set("Access-Control-Allow-Origin", actualOrigin)
-			w.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept")
+			if r.RequestURI != RoutePathUploadVideo {
+				w.Header().Set("Access-Control-Allow-Origin", actualOrigin)
+				w.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept")
+			} else {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+				w.Header().Set("Access-Control-Allow-Headers", "*")
+			}
 			w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE, OPTIONS")
 		}
+
 		// Otherwise, don't add any headers. This should make a CORS request fail.
 
 		// If it's an options request stop at the CORS headers.

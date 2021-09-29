@@ -2,6 +2,7 @@ package routes
 
 import (
 	"bytes"
+	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
+	"github.com/pkg/errors"
 	"io"
 	"io/ioutil"
 	"math/big"
@@ -122,7 +124,13 @@ type SubmitETHTxRequest struct {
 }
 
 type SubmitETHTxResponse struct {
-	DeSoTxnHash string
+	DESOTxHash string
+}
+
+// ETHTxLog is used by admins to reprocess stuck transactions
+type ETHTxLog struct {
+	PublicKey  []byte
+	DESOTxHash string
 }
 
 func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
@@ -199,17 +207,26 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Record pending transaction in global state
-	globalStateKey := GlobalStateKeyETHPurchases(requestData.Tx.Hash)
-	if err = fes.GlobalStatePut(globalStateKey, []byte{0}); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error processing GlobalStatePut: %v", err))
-		return
-	}
-
 	// Submit the transaction
 	submitTx, err := fes.BlockCypherSubmitETHTx(requestData.Tx, requestData.ToSign, []string{normalizedSig})
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to submit ETH transaction: %v", err))
+		return
+	}
+
+	// Record the valid transaction in global state
+	ethTxLog := &ETHTxLog{
+		PublicKey: pkBytes,
+	}
+	globalStateKey := GlobalStateKeyETHPurchases(submitTx.Tx.Hash)
+	globalStateVal := bytes.NewBuffer([]byte{})
+	err = gob.NewEncoder(globalStateVal).Encode(ethTxLog)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to encode ETH transaction: %v", err))
+		return
+	}
+	if err = fes.GlobalStatePut(globalStateKey, globalStateVal.Bytes()); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error processing GlobalStatePut: %v", err))
 		return
 	}
 
@@ -241,17 +258,41 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	// Ensure the transaction mined
-	if ethTx == nil || ethTx.BlockHeight < 0 {
-		_AddBadRequestError(ww, "SubmitETHTx: Transaction failed to mine")
+	desoTxHash, err := fes.finishETHTx(ethTx, ethTxLog)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed: %v", err))
 		return
+	}
+
+	res := SubmitETHTxResponse{
+		DESOTxHash: desoTxHash.String(),
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Problem encoding response: %v", err))
+		return
+	}
+}
+
+// 1. Validate the transaction mined
+// 2. Calculate the nanos to send
+// 3. Send the nanos
+// 4. Record the successful send
+func (fes *APIServer) finishETHTx(ethTx *BlockCypherTx, ethTxLog *ETHTxLog) (desoTxHash *lib.BlockHash, _err error) {
+	ethTx, err := fes.BlockCypherGetETHTx(ethTx.Hash)
+	if err != nil {
+		// Sometimes these requests can fail. Ignore the failure and keep polling
+		return nil, errors.New(fmt.Sprintf("Failed to get eth transaction: %v", err))
+	}
+
+	// Ensure the transaction mined
+	if ethTx.BlockHeight < 0 {
+		return nil, errors.New("Transaction failed to mine")
 	}
 
 	// Fetch buy DESO basis points fee
 	feeBasisPoints, err := fes.GetBuyDeSoFeeBasisPointsResponseFromGlobalState()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error getting buy fee basis points: %v", err))
-		return
+		return nil, errors.New(fmt.Sprintf("Error getting buy fee basis points: %v", err))
 	}
 
 	// Calculate nanos purchased
@@ -259,23 +300,89 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 	totalEth := big.NewFloat(0).Quo(totalWei, big.NewFloat(1e18))
 	nanosPurchased := fes.GetNanosFromETH(totalEth, feeBasisPoints)
 
-	desoTxnHash, err := fes.SendSeedDeSo(pkBytes, nanosPurchased, true)
+	desoTxHash, err = fes.SendSeedDeSo(ethTxLog.PublicKey, nanosPurchased, true)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error sending DESO: %v", err))
+		return nil, errors.New(fmt.Sprintf("Error sending DESO: %v", err))
+	}
+
+	// Record successful transaction in global state
+	ethTxLog.DESOTxHash = desoTxHash.String()
+	globalStateKey := GlobalStateKeyETHPurchases(ethTx.Hash)
+	globalStateVal := bytes.NewBuffer([]byte{})
+	err = gob.NewEncoder(globalStateVal).Encode(ethTxLog)
+	if err != nil {
+		return nil, errors.New(fmt.Sprintf("Failed to encode ETH transaction: %v", err))
+	}
+
+	err = fes.GlobalStatePut(globalStateKey, globalStateVal.Bytes())
+	if err != nil {
+		return nil, errors.New(fmt.Sprintf("Error processing GlobalStatePut: %v", err))
+	}
+
+	return desoTxHash, nil
+}
+
+type AdminProcessETHTxRequest struct {
+	ETHTxHash string
+}
+
+type AdminProcessETHTxResponse struct {
+	DESOTxHash string
+}
+
+func (fes *APIServer) AdminProcessETHTx(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminProcessETHTxRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Problem parsing request body: %v", err))
 		return
 	}
 
-	// Record transaction success in global state
-	if err = fes.GlobalStatePut(globalStateKey, []byte{1}); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error processing GlobalStatePut: %v", err))
+	if !fes.IsConfiguredForETH() {
+		_AddBadRequestError(ww, "AdminProcessETHTx: Not configured for ETH")
 		return
 	}
 
-	res := SubmitETHTxResponse{
-		DeSoTxnHash: desoTxnHash.String(),
+	// Fetch the log data from global state
+	globalStateKey := GlobalStateKeyETHPurchases(requestData.ETHTxHash)
+	globalStateLog, err := fes.GlobalStateGet(globalStateKey)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Error processing GlobalStateGet: %v", err))
+		return
 	}
+
+	ethTxLog := &ETHTxLog{}
+	err = gob.NewDecoder(bytes.NewReader(globalStateLog)).Decode(ethTxLog)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Error decoding global state data: %v", err))
+		return
+	}
+
+	// Transaction must be unsuccessful
+	if len(ethTxLog.DESOTxHash) > 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: DESO was sent: %s", ethTxLog.DESOTxHash))
+		return
+	}
+
+	// Fetch the transaction
+	ethTx, err := fes.BlockCypherGetETHTx(requestData.ETHTxHash)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Failed to get transaction: %v", err))
+		return
+	}
+
+	desoTxHash, err := fes.finishETHTx(ethTx, ethTxLog)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Failed: %v", err))
+		return
+	}
+
+	res := AdminProcessETHTxResponse{
+		DESOTxHash: desoTxHash.String(),
+	}
+
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Problem encoding response: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Problem encoding response: %v", err))
 		return
 	}
 }
