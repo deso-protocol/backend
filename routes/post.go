@@ -41,7 +41,8 @@ type GetPostsStatelessRequest struct {
 	GetPostsForGlobalWhitelist bool `safeForLogging:"true"`
 
 	// This gets posts sorted by deso
-	GetPostsByDESO bool `safeForLogging:"true"`
+	GetPostsByDESO  bool `safeForLogging:"true"`
+	GetPostsByClout bool // Deprecated
 
 	// This only gets posts that include media, like photos and videos
 	MediaRequired bool `safeForLogging:"true"`
@@ -79,8 +80,8 @@ type PostEntryResponse struct {
 	// True if this post hash hex is pinned to the global feed.
 	IsPinned *bool `json:",omitempty"`
 	// PostExtraData stores an arbitrary map of attributes of a PostEntry
-	PostExtraData     map[string]string
-	CommentCount      uint64
+	PostExtraData    map[string]string
+	CommentCount     uint64
 	RepostCount      uint64
 	QuoteRepostCount uint64
 	// A list of parent posts for this post (ordered: root -> closest parent post).
@@ -207,8 +208,8 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 		LikeCount:                      postEntry.LikeCount,
 		DiamondCount:                   postEntry.DiamondCount,
 		CommentCount:                   postEntry.CommentCount,
-		RepostCount:                   postEntry.RepostCount,
-		QuoteRepostCount:              postEntry.QuoteRepostCount,
+		RepostCount:                    postEntry.RepostCount,
+		QuoteRepostCount:               postEntry.QuoteRepostCount,
 		IsPinned:                       &postEntry.IsPinned,
 		IsNFT:                          postEntry.IsNFT,
 		NumNFTCopies:                   postEntry.NumNFTCopies,
@@ -757,7 +758,7 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 			err = fes.GetPostEntriesForGlobalWhitelist(startPostHash, readerPublicKeyBytes, numToFetch, utxoView, requestData.MediaRequired)
 		// if we're getting posts for the global whitelist, no comments are returned (they aren't necessary)
 		commentsByPostHash = make(map[lib.BlockHash][]*lib.PostEntry)
-	} else if requestData.GetPostsByDESO {
+	} else if requestData.GetPostsByDESO || requestData.GetPostsByClout {
 		postEntries,
 			profileEntryMap,
 			err = fes.GetPostEntriesByDESOAfterTimePaginated(readerPublicKeyBytes, requestData.PostsByDESOMinutesLookback, numToFetch)
