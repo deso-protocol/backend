@@ -2065,7 +2065,7 @@ type AuthorizeDerivedKeyResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 	TxnHashHex        string
 }
