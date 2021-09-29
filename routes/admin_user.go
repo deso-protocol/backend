@@ -5,8 +5,8 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
-	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io"
 	"net/http"
@@ -903,8 +903,8 @@ func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Re
 	lastVerifyRemoverPublicKey := ""
 	if profileEntry != nil {
 		username := strings.ToLower(string(profileEntry.Username))
-		if _, hasEntry := fes.VerifiedUsernameMap[username]; hasEntry {
-			isVerified = reflect.DeepEqual(fes.VerifiedUsernameMap[username], userPKID)
+		if entry, hasEntry := fes.VerifiedUsernameMap[username]; hasEntry {
+			isVerified = reflect.DeepEqual(entry, userPKID)
 		}
 
 		// Get the verification audit logs from global state.
