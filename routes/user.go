@@ -262,7 +262,6 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	user.IsAdmin = isAdmin
 	user.IsSuperAdmin = isSuperAdmin
 
-
 	return nil
 }
 
@@ -532,7 +531,8 @@ type ProfileEntryResponse struct {
 	// Creator coin fields
 	CoinEntry lib.CoinEntry
 	// Include current price for the frontend to display.
-	CoinPriceDeSoNanos uint64
+	CoinPriceDeSoNanos     uint64
+	CoinPriceBitCloutNanos uint64 // Deprecated
 
 	// Profiles of users that hold the coin + their balances.
 	UsersThatHODL []*BalanceEntryResponse
@@ -897,7 +897,8 @@ func _profileEntryToResponse(profileEntry *lib.ProfileEntry, params *lib.DeSoPar
 		Username:               string(profileEntry.Username),
 		Description:            string(profileEntry.Description),
 		CoinEntry:              profileEntry.CoinEntry,
-		CoinPriceDeSoNanos: coinPriceDeSoNanos,
+		CoinPriceDeSoNanos:     coinPriceDeSoNanos,
+		CoinPriceBitCloutNanos: coinPriceDeSoNanos,
 		IsHidden:               profileEntry.IsHidden,
 		IsReserved:             isReserved,
 		IsVerified:             isVerified,
@@ -2001,7 +2002,6 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 	if err != nil {
 		return nil, nil, errors.Errorf("GetNotifications: Error getting blocked public keys for user: %v", err)
 	}
-
 
 	// A valid mempool object is used to compute the TransactionMetadata for the mempool
 	// and to allow for things like: filtering notifications for a hidden post.

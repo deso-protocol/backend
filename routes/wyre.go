@@ -8,8 +8,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/deso-protocol/core/lib"
 	"github.com/fatih/structs"
 	"github.com/golang/glog"
 	"io"
@@ -635,7 +635,8 @@ type WyreWalletOrderMetadataResponse struct {
 	LatestWyreTrackWalletOrderResponse *WyreTrackOrderResponse
 
 	// Amount of DeSo that was sent for this WyreWalletOrder
-	DeSoPurchasedNanos uint64
+	DeSoPurchasedNanos     uint64
+	BitCloutPurchasedNanos uint64 // Deprecated
 
 	// BlockHash of the transaction for sending the DeSo
 	BasicTransferTxnHash string
@@ -647,7 +648,8 @@ func (fes *APIServer) WyreWalletOrderMetadataToResponse(metadata *WyreWalletOrde
 	orderMetadataResponse := WyreWalletOrderMetadataResponse{
 		LatestWyreTrackWalletOrderResponse:  metadata.LatestWyreTrackWalletOrderResponse,
 		LatestWyreWalletOrderWebhookPayload: metadata.LatestWyreWalletOrderWebhookPayload,
-		DeSoPurchasedNanos:              metadata.DeSoPurchasedNanos,
+		DeSoPurchasedNanos:                  metadata.DeSoPurchasedNanos,
+		BitCloutPurchasedNanos:              metadata.DeSoPurchasedNanos,
 		Timestamp:                           getTimestampFromReferenceId(metadata.LatestWyreWalletOrderWebhookPayload.ReferenceId),
 	}
 	basicTransferTxnHash := metadata.BasicTransferTxnBlockHash
