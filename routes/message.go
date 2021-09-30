@@ -511,7 +511,7 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 		senderPkBytes, recipientPkBytes,
 		requestData.MessageText, requestData.EncryptedMessageText,
 		tstamp,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), fes.getTransactionFee(lib.TxnTypePrivateMessage))
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), fes.getTransactionFee(lib.TxnTypePrivateMessage, senderPkBytes))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem creating transaction: %v", err))
 		return

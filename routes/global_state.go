@@ -171,12 +171,16 @@ var (
 	// - <prefix, lib.TxnType> -> []*lib.DeSoOutput
 	_GlobalStatePrefixTxnTypeToDeSoOutputs = []byte{28}
 
+	// Public keys exempt from node fees
+	// - <prefix, public key> -> void
+	_GlobalStatePrefixExemptPublicKeys = []byte{29}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
 
-	// NEXT_TAG: 28
+	// NEXT_TAG: 30
 )
 
 // A ReferralInfo struct holds all of the params and stats for a referral link/hash.
@@ -566,6 +570,12 @@ func GlobalStateKeyETHPurchases(txnHash string) []byte {
 func GlobalStateKeyTransactionFeeOutputsFromTxnType(txnType lib.TxnType) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixTxnTypeToDeSoOutputs...)
 	key := append(prefixCopy, lib.UintToBuf(uint64(txnType))...)
+	return key
+}
+
+func GlobalStateKeyExemptPublicKey(publicKey []byte) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixExemptPublicKeys...)
+	key := append(prefixCopy, publicKey[:]...)
 	return key
 }
 

@@ -619,11 +619,12 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 	var changeAmountt uint64
 	var feeNanoss uint64
 	if transferDeSoRequest.AmountNanos < 0 {
+		senderPublicKeyBytes := senderPub.SerializeCompressed()
 		// Create a MAX transaction
 		txnn, totalInputt, spendAmountt, feeNanoss, err = fes.blockchain.CreateMaxSpend(
-			senderPub.SerializeCompressed(), recipientPub.SerializeCompressed(),
+			senderPublicKeyBytes, recipientPub.SerializeCompressed(),
 			uint64(minFeeRateNanosPerKB),
-			fes.backendServer.GetMempool(), fes.getTransactionFee(lib.TxnTypeBasicTransfer))
+			fes.backendServer.GetMempool(), fes.getTransactionFee(lib.TxnTypeBasicTransfer, senderPublicKeyBytes))
 		if err != nil {
 			APIAddError(ww, fmt.Sprintf("APITransferDeSo: Error processing MAX transaction: %v", err))
 			return
