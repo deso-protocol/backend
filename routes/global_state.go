@@ -563,20 +563,9 @@ func GlobalStateKeyETHPurchases(txnHash string) []byte {
 	return key
 }
 
-func GlobalStatePrefixTransactionFeeMap() []byte {
-	prefixCopy := append([]byte{}, _GlobalStatePrefixTxnTypeToDeSoOutputs...)
-	return prefixCopy
-}
-
 func GlobalStateKeyTransactionFeeOutputsFromTxnType(txnType lib.TxnType) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixTxnTypeToDeSoOutputs...)
 	key := append(prefixCopy, lib.UintToBuf(uint64(txnType))...)
-	return key
-}
-
-func GlobalStateKeyTransactionFeeOutputsFromTxnString(txnString lib.TxnString) []byte {
-	prefixCopy := append([]byte{}, _GlobalStatePrefixTxnTypeToDeSoOutputs...)
-	key := append(prefixCopy, lib.UintToBuf(uint64(lib.GetTxnTypeFromString(txnString)))...)
 	return key
 }
 
