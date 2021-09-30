@@ -171,6 +171,11 @@ const (
 	RoutePathAdminPinPost          = "/api/v0/admin/pin-post"
 	RoutePathAdminRemoveNilPosts   = "/api/v0/admin/remove-nil-posts"
 
+	// admin_fees.go
+	RoutePathAdminSetTransactionFeeForTransactionType = "/api/v0/admin/set-txn-fee-for-txn-type"
+	RoutePathAdminSetAllTransactionFees               = "/api/v0/admin/set-all-txn-fees"
+	RoutePathAdminGetTransactionFeeMap                = "/api/v0/admin/get-transaction-fee-map"
+
 	// admin_nft.go
 	RoutePathAdminGetNFTDrop    = "/api/v0/admin/get-nft-drop"
 	RoutePathAdminUpdateNFTDrop = "/api/v0/admin/update-nft-drop"
@@ -245,6 +250,9 @@ type APIServer struct {
 	// Base-58 prefix to check for to determine if a string could be a public key.
 	PublicKeyBase58Prefix string
 
+	// Map of transaction type to []*lib.DeSoOutput that represent fees assessed on each transaction of that type.
+	TransactionFeeMap map[lib.TxnType][]*lib.DeSoOutput
+
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
 }
@@ -291,7 +299,7 @@ func NewAPIServer(
 		GlobalStateDB:                 globalStateDB,
 		Twilio:                        twilio,
 		BlockCypherAPIKey:             blockCypherAPIKey,
-		LastTradeDeSoPriceHistory: []LastTradePriceHistoryItem{},
+		LastTradeDeSoPriceHistory:     []LastTradePriceHistoryItem{},
 		PublicKeyBase58Prefix:         publicKeyBase58Prefix,
 		// We consider last trade prices from the last hour when determining the current price of DeSo.
 		// This helps prevents attacks that attempt to purchase $DESO at below market value.
@@ -305,6 +313,9 @@ func NewAPIServer(
 	fes.UpdateUSDCentsToDeSoExchangeRate()
 	fes.UpdateUSDToBTCPrice()
 	fes.UpdateUSDToETHPrice()
+
+	// Get the transaction fee map from global state if it exists
+	fes.TransactionFeeMap = fes.GetTransactionFeeMapFromGlobalState()
 
 	// Then monitor them
 	fes.StartExchangePriceMonitoring()
@@ -1034,6 +1045,27 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateTutorialCreators,
 			fes.AdminUpdateTutorialCreator,
+			SuperAdminAccess,
+		},
+		{
+			"AdminSetTransactionFeeForTransactionType",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminSetTransactionFeeForTransactionType,
+			fes.AdminSetTransactionFeeForTransactionType,
+			SuperAdminAccess,
+		},
+		{
+			"AdminSetAllTransactionFees",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminSetAllTransactionFees,
+			fes.AdminSetAllTransactionFees,
+			SuperAdminAccess,
+		},
+		{
+			"AdminGetTransactionFeeMap",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetTransactionFeeMap,
+			fes.AdminGetTransactionFeeMap,
 			SuperAdminAccess,
 		},
 		// End all /admin routes

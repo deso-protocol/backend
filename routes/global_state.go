@@ -162,11 +162,14 @@ var (
 	// 	- <prefix, PKID, referral hash (8 bytes)> -> <IsActive bool>
 	_GlobalStatePrefixPKIDReferralHashToIsActive = []byte{25}
 
-	// - <prefx, PKID, referral hash (6-8 bytes), Referred PKID
+	// - <prefix, PKID, referral hash (6-8 bytes), Referred PKID
 	_GlobalStatePrefixPKIDReferralHashRefereePKID = []byte{26}
 
-  // ETH purchases <prefix, ETH Txn Hash> -> <Complete bool>
+    // ETH purchases <prefix, ETH Txn Hash> -> <Complete bool>
 	_GlobalStateKeyETHPurchases = []byte{27}
+
+	// - <prefix, lib.TxnType> -> []*lib.DeSoOutput
+	_GlobalStatePrefixTxnTypeToDeSoOutputs = []byte{28}
 
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
@@ -557,6 +560,23 @@ func GlobalStateKeyUpAndComingTutorialCreators(pkid *lib.PKID) []byte {
 func GlobalStateKeyETHPurchases(txnHash string) []byte {
 	prefixCopy := append([]byte{}, _GlobalStateKeyETHPurchases...)
 	key := append(prefixCopy, txnHash[:]...)
+	return key
+}
+
+func GlobalStatePrefixTransactionFeeMap() []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixTxnTypeToDeSoOutputs...)
+	return prefixCopy
+}
+
+func GlobalStateKeyTransactionFeeOutputsFromTxnType(txnType lib.TxnType) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixTxnTypeToDeSoOutputs...)
+	key := append(prefixCopy, lib.UintToBuf(uint64(txnType))...)
+	return key
+}
+
+func GlobalStateKeyTransactionFeeOutputsFromTxnString(txnString lib.TxnString) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixTxnTypeToDeSoOutputs...)
+	key := append(prefixCopy, lib.UintToBuf(uint64(lib.GetTxnTypeFromString(txnString)))...)
 	return key
 }
 

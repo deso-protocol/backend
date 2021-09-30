@@ -261,7 +261,7 @@ type GetAppStateResponse struct {
 	SupportEmail                        string
 	ShowProcessingSpinners              bool
 
-	HasStarterDeSoSeed bool
+	HasStarterDeSoSeed     bool
 	HasTwilioAPIKey        bool
 	CreateProfileFeeNanos  uint64
 	CompProfileCreation    bool
@@ -272,6 +272,8 @@ type GetAppStateResponse struct {
 
 	USDCentsPerDeSoExchangeRate uint64
 	JumioDeSoNanos              uint64
+
+	TransactionFeeMap     map[string][]TransactionFee
 
 	// Send back the password stored in our HTTPOnly cookie
 	// so amplitude can track which passwords people are using
@@ -302,7 +304,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		IsTestnet:                           fes.Params.NetworkType == lib.NetworkType_TESTNET,
 		SupportEmail:                        fes.Config.SupportEmail,
 		HasTwilioAPIKey:                     fes.Twilio != nil,
-		HasStarterDeSoSeed:              fes.Config.StarterDeSoSeed != "",
+		HasStarterDeSoSeed:                  fes.Config.StarterDeSoSeed != "",
 		CreateProfileFeeNanos:               utxoView.GlobalParamsEntry.CreateProfileFeeNanos,
 		CompProfileCreation:                 fes.Config.CompProfileCreation,
 		DiamondLevelMap:                     lib.GetDeSoNanosDiamondLevelMapAtBlockHeight(int64(fes.blockchain.BlockTip().Height)),
@@ -311,10 +313,10 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		BuyWithETH:                          fes.IsConfiguredForETH(),
 		USDCentsPerDeSoExchangeRate:         fes.GetExchangeDeSoPrice(),
 		JumioDeSoNanos:                      fes.GetJumioDeSoNanos(),
-
+		TransactionFeeMap:                   fes.TxnFeeMapToResponse(true),
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetNotifications: Problem encoding response as JSON: %v", err))
 		return
 	}

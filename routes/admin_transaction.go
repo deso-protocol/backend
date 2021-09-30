@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 )
 
@@ -162,7 +162,7 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 		minimumNetworkFeeNanosPerKb,
 		[]byte{},
 		requestData.MinFeeRateNanosPerKB,
-		fes.backendServer.GetMempool())
+		fes.backendServer.GetMempool(), fes.getTransactionFee(lib.TxnTypeUpdateGlobalParams))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateGlobalParams: Problem creating transaction: %v", err))
 		return
@@ -280,7 +280,7 @@ func (fes *APIServer) SwapIdentity(ww http.ResponseWriter, req *http.Request) {
 		toPublicKey,
 
 		requestData.MinFeeRateNanosPerKB,
-		fes.backendServer.GetMempool())
+		fes.backendServer.GetMempool(), fes.getTransactionFee(lib.TxnTypeSwapIdentity))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SwapIdentity: Problem creating transaction: %v", err))
 		return
@@ -300,7 +300,7 @@ func (fes *APIServer) SwapIdentity(ww http.ResponseWriter, req *http.Request) {
 		Transaction:       txn,
 		TransactionHex:    hex.EncodeToString(txnBytes),
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SwapIdentity: Problem encoding response as JSON: %v", err))
 		return
 	}
