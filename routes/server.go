@@ -149,12 +149,12 @@ const (
 	RoutePathGetBuyBitCloutFeeBasisPoints             = "/api/v0/admin/get-buy-bitclout-fee-basis-points"
 
 	// admin_transaction.go
-	RoutePathGetGlobalParams                = "/api/v0/get-global-params"
-	RoutePathSignTransactionWithDerivedKey  = "/api/v0/admin/sign-transaction-with-derived-key"
+	RoutePathGetGlobalParams                    = "/api/v0/get-global-params"
+	RoutePathTestSignTransactionWithDerivedKey  = "/api/v0/admin/test-sign-transaction-with-derived-key"
 	// Eventually we will deprecate the admin endpoint since it does not need to be protected.
-	RoutePathAdminGetGlobalParams           = "/api/v0/admin/get-global-params"
-	RoutePathUpdateGlobalParams             = "/api/v0/admin/update-global-params"
-	RoutePathSwapIdentity                   = "/api/v0/admin/swap-identity"
+	RoutePathAdminGetGlobalParams               = "/api/v0/admin/get-global-params"
+	RoutePathUpdateGlobalParams                 = "/api/v0/admin/update-global-params"
+	RoutePathSwapIdentity                       = "/api/v0/admin/swap-identity"
 
 	// admin_user.go
 	RoutePathAdminUpdateUserGlobalMetadata         = "/api/v0/admin/update-user-global-metadata"
@@ -995,10 +995,10 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			SuperAdminAccess,
 		},
 		{
-			"AdminSignTransactionWithDerivedKey",
+			"AdminTestSignTransactionWithDerivedKey",
 			[]string{"POST", "OPTIONS"},
-			RoutePathSignTransactionWithDerivedKey,
-			fes.SignTransactionWithDerivedKey,
+			RoutePathTestSignTransactionWithDerivedKey,
+			fes.TestSignTransactionWithDerivedKey,
 			SuperAdminAccess,
 		},
 		{
