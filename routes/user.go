@@ -266,18 +266,14 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 }
 
 func (fes *APIServer) UserAdminStatus(publicKeyBase58Check string) (_isAdmin bool, _isSuperAdmin bool) {
-	if fes.Config.ForceIgnoreAdminPublicKeys {
-		return true, true
-	} else {
-		for _, k := range fes.Config.SuperAdminPublicKeys {
-			if k == publicKeyBase58Check {
-				return true, true
-			}
+	for _, k := range fes.Config.SuperAdminPublicKeys {
+		if k == publicKeyBase58Check || k == "*" {
+			return true, true
 		}
-		for _, k := range fes.Config.AdminPublicKeys {
-			if k == publicKeyBase58Check {
-				return true, false
-			}
+	}
+	for _, k := range fes.Config.AdminPublicKeys {
+		if k == publicKeyBase58Check || k == "*" {
+			return true, false
 		}
 	}
 	return false, false

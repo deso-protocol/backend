@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	coreCmd "github.com/deso-protocol/core/cmd"
-	"github.com/golang/glog"
 	"github.com/spf13/viper"
 )
 
@@ -29,12 +28,11 @@ type Config struct {
 	GlobalStateRemoteSecret string
 
 	// Web Security
-	AccessControlAllowOrigins  []string
-	SecureHeaderDevelopment    bool
-	SecureHeaderAllowHosts     []string
-	AdminPublicKeys            []string
-	SuperAdminPublicKeys       []string
-	ForceIgnoreAdminPublicKeys bool
+	AccessControlAllowOrigins []string
+	SecureHeaderDevelopment   bool
+	SecureHeaderAllowHosts    []string
+	AdminPublicKeys           []string
+	SuperAdminPublicKeys      []string
 
 	// Analytics + Profiling
 	AmplitudeKey    string
@@ -115,12 +113,6 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.SecureHeaderAllowHosts = viper.GetStringSlice("secure-header-allow-hosts")
 	config.AdminPublicKeys = viper.GetStringSlice("admin-public-keys")
 	config.SuperAdminPublicKeys = viper.GetStringSlice("super-admin-public-keys")
-	config.ForceIgnoreAdminPublicKeys = viper.GetBool("force-ignore-admin-public-keys")
-	// Gut check the admin panel security settings.
-	if config.ForceIgnoreAdminPublicKeys &&
-		(len(config.AdminPublicKeys) > 0 || len(config.SuperAdminPublicKeys) > 0) {
-		glog.Fatal("Error loading config. Cannot force ignore non-nil admin public keys.")
-	}
 
 	// Analytics + Profiling
 	config.AmplitudeKey = viper.GetString("amplitude-key")
