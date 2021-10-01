@@ -2,10 +2,12 @@ package config
 
 import (
 	"fmt"
-	coreCmd "github.com/deso-protocol/core/cmd"
-	"github.com/spf13/viper"
 	"strconv"
 	"strings"
+
+	coreCmd "github.com/deso-protocol/core/cmd"
+	"github.com/golang/glog"
+	"github.com/spf13/viper"
 )
 
 type Config struct {
@@ -13,8 +15,8 @@ type Config struct {
 	APIPort uint16
 
 	// Onboarding
-	StarterDeSoSeed   string
-	StarterDeSoNanos  uint64
+	StarterDeSoSeed       string
+	StarterDeSoNanos      uint64
 	StarterPrefixNanosMap map[string]uint64
 	TwilioAccountSID      string
 	TwilioAuthToken       string
@@ -27,11 +29,12 @@ type Config struct {
 	GlobalStateRemoteSecret string
 
 	// Web Security
-	AccessControlAllowOrigins []string
-	SecureHeaderDevelopment   bool
-	SecureHeaderAllowHosts    []string
-	AdminPublicKeys           []string
-	SuperAdminPublicKeys      []string
+	AccessControlAllowOrigins  []string
+	SecureHeaderDevelopment    bool
+	SecureHeaderAllowHosts     []string
+	AdminPublicKeys            []string
+	SuperAdminPublicKeys       []string
+	ForceIgnoreAdminPublicKeys bool
 
 	// Analytics + Profiling
 	AmplitudeKey    string
@@ -47,14 +50,13 @@ type Config struct {
 	GCPBucketName      string
 
 	// Wyre
-	WyreUrl               string
-	WyreAccountId         string
-	WyreApiKey            string
-	WyreSecretKey         string
+	WyreUrl           string
+	WyreAccountId     string
+	WyreApiKey        string
+	WyreSecretKey     string
 	BuyDeSoBTCAddress string
 	BuyDeSoETHAddress string
 	BuyDeSoSeed       string
-
 
 	// Emails
 	SendgridApiKey         string
@@ -113,6 +115,12 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.SecureHeaderAllowHosts = viper.GetStringSlice("secure-header-allow-hosts")
 	config.AdminPublicKeys = viper.GetStringSlice("admin-public-keys")
 	config.SuperAdminPublicKeys = viper.GetStringSlice("super-admin-public-keys")
+	config.ForceIgnoreAdminPublicKeys = viper.GetBool("force-ignore-admin-public-keys")
+	// Gut check the admin panel security settings.
+	if config.ForceIgnoreAdminPublicKeys &&
+		(len(config.AdminPublicKeys) > 0 || len(config.SuperAdminPublicKeys) > 0) {
+		glog.Fatal("Error loading config. Cannot force ignore non-nil admin public keys.")
+	}
 
 	// Analytics + Profiling
 	config.AmplitudeKey = viper.GetString("amplitude-key")
@@ -140,7 +148,6 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 
 	// Seed from which DeSo will be sent for orders placed through Wyre and "Buy With BTC" purchases"
 	config.BuyDeSoSeed = viper.GetString("buy-deso-seed")
-
 
 	// Email
 	config.SendgridApiKey = viper.GetString("sendgrid-api-key")

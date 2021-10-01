@@ -262,12 +262,11 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	user.IsAdmin = isAdmin
 	user.IsSuperAdmin = isSuperAdmin
 
-
 	return nil
 }
 
 func (fes *APIServer) UserAdminStatus(publicKeyBase58Check string) (_isAdmin bool, _isSuperAdmin bool) {
-	if len(fes.Config.AdminPublicKeys) == 0 && len(fes.Config.SuperAdminPublicKeys) == 0 {
+	if fes.Config.ForceIgnoreAdminPublicKeys {
 		return true, true
 	} else {
 		for _, k := range fes.Config.SuperAdminPublicKeys {
@@ -893,14 +892,14 @@ func _profileEntryToResponse(profileEntry *lib.ProfileEntry, params *lib.DeSoPar
 
 	// Generate profile entry response
 	profResponse := &ProfileEntryResponse{
-		PublicKeyBase58Check:   lib.PkToString(profileEntry.PublicKey, params),
-		Username:               string(profileEntry.Username),
-		Description:            string(profileEntry.Description),
-		CoinEntry:              profileEntry.CoinEntry,
-		CoinPriceDeSoNanos: coinPriceDeSoNanos,
-		IsHidden:               profileEntry.IsHidden,
-		IsReserved:             isReserved,
-		IsVerified:             isVerified,
+		PublicKeyBase58Check: lib.PkToString(profileEntry.PublicKey, params),
+		Username:             string(profileEntry.Username),
+		Description:          string(profileEntry.Description),
+		CoinEntry:            profileEntry.CoinEntry,
+		CoinPriceDeSoNanos:   coinPriceDeSoNanos,
+		IsHidden:             profileEntry.IsHidden,
+		IsReserved:           isReserved,
+		IsVerified:           isVerified,
 	}
 
 	return profResponse
@@ -2001,7 +2000,6 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 	if err != nil {
 		return nil, nil, errors.Errorf("GetNotifications: Error getting blocked public keys for user: %v", err)
 	}
-
 
 	// A valid mempool object is used to compute the TransactionMetadata for the mempool
 	// and to allow for things like: filtering notifications for a hidden post.

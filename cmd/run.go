@@ -1,14 +1,15 @@
 package cmd
 
 import (
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/deso-protocol/backend/config"
 	coreCmd "github.com/deso-protocol/core/cmd"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/golang/glog"
 )
@@ -120,6 +121,9 @@ func init() {
 		"A list of public keys which gives users access to the super admin panel. "+
 			"If no keys are specified anyone can access the super admin panel. You can add a space "+
 			"and a comment after every public key and leave a note about who the public key belongs to.")
+	runCmd.PersistentFlags().Bool("force-ignore-admin-public-keys", false,
+		"WARNING: setting this to true will allow anyone to access the node's admin panel. "+
+			"This is useful for testing but should not be set in production.")
 
 	// Wyre
 	runCmd.PersistentFlags().String("wyre-account-id", "", "Wyre Account ID")
