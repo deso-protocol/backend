@@ -13,7 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/config"
-	"github.com/dgrijalva/jwt-go/v4"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/tyler-smith/go-bip39"
 
 	"github.com/deso-protocol/core/lib"
@@ -35,6 +35,10 @@ const (
 )
 
 const (
+	RoutePathSendBitClout            = "/api/v0/send-bitclout"               // Deprecated
+	RoutePathGetRecloutsForPost      = "/api/v0/get-reclouts-for-post"       // Deprecated
+	RoutePathGetQuoteRecloutsForPost = "/api/v0/get-quote-reclouts-for-post" // Deprecated
+
 	// base.go
 	RoutePathHealthCheck     = "/api/v0/health-check"
 	RoutePathGetExchangeRate = "/api/v0/get-exchange-rate"
@@ -335,6 +339,29 @@ type Route struct {
 // frontend code. If not, then requests will fail.
 func (fes *APIServer) NewRouter() *muxtrace.Router {
 	var FrontendRoutes = []Route{
+		// Deprecated
+		{
+			"SendBitClout",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSendBitClout,
+			fes.SendDeSo,
+			PublicAccess,
+		},
+		{
+			"GetRecloutsForPost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetRecloutsForPost,
+			fes.GetRepostsForPost,
+			PublicAccess,
+		},
+		{
+			"GetQuoteRecloutsForPost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetQuoteRecloutsForPost,
+			fes.GetQuoteRepostsForPost,
+			PublicAccess,
+		},
+
 		{
 			"Index",
 			[]string{"GET"},

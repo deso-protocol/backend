@@ -569,9 +569,9 @@ type ExchangeBitcoinResponse struct {
 	FeeSatoshis          uint64
 	BitcoinTransaction   *wire.MsgTx
 
-	SerializedTxnHex   string
-	TxnHashHex         string
-	DeSoTxnHashHex string
+	SerializedTxnHex string
+	TxnHashHex       string
+	DeSoTxnHashHex   string
 
 	UnsignedHashes []string
 }
@@ -814,9 +814,9 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		ChangeAmountSatoshis: totalInputSatoshis - uint64(burnAmountSatoshis) - fee,
 		BitcoinTransaction:   bitcoinTxn,
 
-		SerializedTxnHex:   hex.EncodeToString(bitcoinTxnBytes),
-		TxnHashHex:         bitcoinTxn.TxHash().String(),
-		DeSoTxnHashHex: desoTxnHashString,
+		SerializedTxnHex: hex.EncodeToString(bitcoinTxnBytes),
+		TxnHashHex:       bitcoinTxn.TxHash().String(),
+		DeSoTxnHashHex:   desoTxnHashString,
 
 		UnsignedHashes: unsignedHashes,
 	}
@@ -1502,27 +1502,31 @@ type BuyOrSellCreatorCoinRequest struct {
 	// CreatorCoinToSellNanos will be converted into DeSo. In an AddDeSo
 	// operation, DeSoToAddNanos will be aded for the user. This allows us to
 	// support multiple transaction types with same meta field.
-	DeSoToSellNanos    uint64 `safeForLogging:"true"`
+	DeSoToSellNanos        uint64 `safeForLogging:"true"`
 	CreatorCoinToSellNanos uint64 `safeForLogging:"true"`
-	DeSoToAddNanos     uint64 `safeForLogging:"true"`
+	DeSoToAddNanos         uint64 `safeForLogging:"true"`
 
 	// When a user converts DeSo into CreatorCoin, MinCreatorCoinExpectedNanos
 	// specifies the minimum amount of creator coin that the user expects from their
 	// transaction. And vice versa when a user is converting CreatorCoin for DeSo.
 	// Specifying these fields prevents the front-running of users' buy/sell. Setting
 	// them to zero turns off the check. Give it your best shot, Ivan.
-	MinDeSoExpectedNanos    uint64 `safeForLogging:"true"`
+	MinDeSoExpectedNanos        uint64 `safeForLogging:"true"`
 	MinCreatorCoinExpectedNanos uint64 `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
 	InTutorial bool `safeForLogging:"true"`
+
+	BitCloutToSellNanos      uint64 `safeForLogging:"true"` // Deprecated
+	BitCloutToAddNanos       uint64 `safeForLogging:"true"` // Deprecated
+	MinBitCloutExpectedNanos uint64 `safeForLogging:"true"` // Deprecated
 }
 
 // BuyOrSellCreatorCoinResponse ...
 type BuyOrSellCreatorCoinResponse struct {
 	// The amount of DeSo
-	ExpectedDeSoReturnedNanos    uint64
+	ExpectedDeSoReturnedNanos        uint64
 	ExpectedCreatorCoinReturnedNanos uint64
 	FounderRewardGeneratedNanos      uint64
 
@@ -1564,6 +1568,21 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 			"BuyOrSellCreatorCoin: Problem decoding creator public key %s: %v",
 			requestData.CreatorPublicKeyBase58Check, err))
 		return
+	}
+
+	// Deprecated: backwards compatability
+	if requestData.BitCloutToSellNanos > 0 {
+		requestData.DeSoToSellNanos = requestData.BitCloutToSellNanos
+	}
+
+	// Deprecated: backwards compatability
+	if requestData.BitCloutToAddNanos > 0 {
+		requestData.DeSoToAddNanos = requestData.BitCloutToAddNanos
+	}
+
+	// Deprecated: backwards compatability
+	if requestData.MinBitCloutExpectedNanos > 0 {
+		requestData.MinDeSoExpectedNanos = requestData.MinBitCloutExpectedNanos
 	}
 
 	if requestData.DeSoToSellNanos == 0 && requestData.CreatorCoinToSellNanos == 0 {
@@ -1726,7 +1745,7 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 
 	// Return all the data associated with the transaction in the response
 	res := BuyOrSellCreatorCoinResponse{
-		ExpectedDeSoReturnedNanos:    ExpectedDeSoReturnedNanos,
+		ExpectedDeSoReturnedNanos:        ExpectedDeSoReturnedNanos,
 		ExpectedCreatorCoinReturnedNanos: ExpectedCreatorCoinReturnedNanos,
 		FounderRewardGeneratedNanos:      FounderRewardGeneratedNanos,
 

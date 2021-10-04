@@ -525,9 +525,10 @@ type ProfileEntryResponse struct {
 	Comments             []*PostEntryResponse
 	Posts                []*PostEntryResponse
 	// Creator coin fields
-	CoinEntry lib.CoinEntry
+	CoinEntry *CoinEntryResponse
 	// Include current price for the frontend to display.
-	CoinPriceDeSoNanos uint64
+	CoinPriceDeSoNanos     uint64
+	CoinPriceBitCloutNanos uint64 // Deprecated
 
 	// Profiles of users that hold the coin + their balances.
 	UsersThatHODL []*BalanceEntryResponse
@@ -537,6 +538,17 @@ type ProfileEntryResponse struct {
 	// If user is featured as an up and coming creator in the tutorial.
 	// Note: a user should not be both featured as well known and up and coming
 	IsFeaturedTutorialUpAndComingCreator bool
+}
+
+// Deprecated: Temporary to add support for BitCloutLockedNanos
+type CoinEntryResponse struct {
+	CreatorBasisPoints      uint64
+	DeSoLockedNanos         uint64
+	NumberOfHolders         uint64
+	CoinsInCirculationNanos uint64
+	CoinWatermarkNanos      uint64
+
+	BitCloutLockedNanos uint64 // Deprecated
 }
 
 // GetProfiles ...
@@ -891,11 +903,19 @@ func _profileEntryToResponse(profileEntry *lib.ProfileEntry, params *lib.DeSoPar
 		PublicKeyBase58Check: lib.PkToString(profileEntry.PublicKey, params),
 		Username:             string(profileEntry.Username),
 		Description:          string(profileEntry.Description),
-		CoinEntry:            profileEntry.CoinEntry,
-		CoinPriceDeSoNanos:   coinPriceDeSoNanos,
-		IsHidden:             profileEntry.IsHidden,
-		IsReserved:           isReserved,
-		IsVerified:           isVerified,
+		CoinEntry: &CoinEntryResponse{
+			CreatorBasisPoints:      profileEntry.CoinEntry.CreatorBasisPoints,
+			DeSoLockedNanos:         profileEntry.CoinEntry.DeSoLockedNanos,
+			NumberOfHolders:         profileEntry.CoinEntry.NumberOfHolders,
+			CoinsInCirculationNanos: profileEntry.CoinEntry.CoinsInCirculationNanos,
+			CoinWatermarkNanos:      profileEntry.CoinEntry.CoinWatermarkNanos,
+			BitCloutLockedNanos:     profileEntry.CoinEntry.DeSoLockedNanos,
+		},
+		CoinPriceDeSoNanos:     coinPriceDeSoNanos,
+		CoinPriceBitCloutNanos: coinPriceDeSoNanos,
+		IsHidden:               profileEntry.IsHidden,
+		IsReserved:             isReserved,
+		IsVerified:             isVerified,
 	}
 
 	return profResponse
