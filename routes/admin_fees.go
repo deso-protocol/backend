@@ -54,7 +54,13 @@ func (fes *APIServer) AdminSetTransactionFeeForTransactionType(ww http.ResponseW
 	// Transform and encode transaction fees
 	outputs, transactionFeeBuf, err := TransformAndEncodeTransactionFees(requestData.NewTransactionFees)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminSetAllTransactionFees: Error Transforming and encoding transaction fees: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("AdminSetTransactionFeeForTransactionType: Error Transforming and encoding transaction fees: %v", err))
+		return
+	}
+
+	// Log the fee updates in datadog
+	if err = fes.LogFeeSet(txnType, requestData.NewTransactionFees); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminSetTransactionFeeForTransactionType: Error logging fees in datadog for %v transactions: %v", txnType, err))
 		return
 	}
 
@@ -105,8 +111,13 @@ func (fes *APIServer) AdminSetAllTransactionFees(ww http.ResponseWriter, req *ht
 		return
 	}
 
-	// For each txnType, put the new transaction fees in global state.
+	// For each txnType, log the fee update and put the new transaction fees in global state.
 	for _, txnType := range lib.AllTxnTypes {
+		// Log the fee update in datadog
+		if err = fes.LogFeeSet(txnType, requestData.NewTransactionFees); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminSetAllTransactionFees: Error logging fees in datadog for %v transactions: %v", txnType, err))
+			return
+		}
 		// Put new value in global state
 		if err = fes.GlobalStatePut(GlobalStateKeyTransactionFeeOutputsFromTxnType(txnType), transactionFeeBuf.Bytes()); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminSetAllTransactionFees: Problem putting fee outputs in global state: %v", err))
@@ -373,4 +384,19 @@ func (fes *APIServer) GetExemptPublicKeyMapFromGlobalState() map[string]interfac
 	}
 
 	return exemptPublicKeyMap
+}
+
+func (fes *APIServer) LogFeeSet(txnType lib.TxnType, transactionFees []TransactionFee) (_err error) {
+	if fes.backendServer == nil || fes.backendServer.GetStatsdClient() == nil {
+		return nil
+	}
+	var totalFees uint64
+	for _, transactionFee := range transactionFees {
+		totalFees += transactionFee.AmountNanos
+	}
+	tags := []string{}
+	if err := fes.backendServer.GetStatsdClient().Gauge(fmt.Sprintf("%v_NODE_FEE_TOTAL", txnType.GetTxnString()), float64(totalFees), tags, 1); err != nil {
+		return err
+	}
+	return nil
 }
