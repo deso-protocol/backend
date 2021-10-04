@@ -35,6 +35,10 @@ const (
 )
 
 const (
+	RoutePathSendBitClout            = "/api/v0/send-bitclout"               // Deprecated
+	RoutePathGetRecloutsForPost      = "/api/v0/get-reclouts-for-post"       // Deprecated
+	RoutePathGetQuoteRecloutsForPost = "/api/v0/get-quote-reclouts-for-post" // Deprecated
+
 	// base.go
 	RoutePathHealthCheck     = "/api/v0/health-check"
 	RoutePathGetExchangeRate = "/api/v0/get-exchange-rate"
@@ -45,7 +49,7 @@ const (
 	RoutePathSubmitTransaction        = "/api/v0/submit-transaction"
 	RoutePathUpdateProfile            = "/api/v0/update-profile"
 	RoutePathExchangeBitcoin          = "/api/v0/exchange-bitcoin"
-	RoutePathSendDeSo             = "/api/v0/send-deso"
+	RoutePathSendDeSo                 = "/api/v0/send-deso"
 	RoutePathSubmitPost               = "/api/v0/submit-post"
 	RoutePathCreateFollowTxnStateless = "/api/v0/create-follow-txn-stateless"
 	RoutePathCreateLikeStateless      = "/api/v0/create-like-stateless"
@@ -70,14 +74,14 @@ const (
 	RoutePathIsHodlingPublicKey       = "/api/v0/is-hodling-public-key"
 
 	// post.go
-	RoutePathGetPostsStateless       = "/api/v0/get-posts-stateless"
-	RoutePathGetSinglePost           = "/api/v0/get-single-post"
-	RoutePathGetLikesForPost         = "/api/v0/get-likes-for-post"
-	RoutePathGetDiamondsForPost      = "/api/v0/get-diamonds-for-post"
+	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
+	RoutePathGetSinglePost          = "/api/v0/get-single-post"
+	RoutePathGetLikesForPost        = "/api/v0/get-likes-for-post"
+	RoutePathGetDiamondsForPost     = "/api/v0/get-diamonds-for-post"
 	RoutePathGetRepostsForPost      = "/api/v0/get-reposts-for-post"
 	RoutePathGetQuoteRepostsForPost = "/api/v0/get-quote-reposts-for-post"
-	RoutePathGetPostsForPublicKey    = "/api/v0/get-posts-for-public-key"
-	RoutePathGetDiamondedPosts       = "/api/v0/get-diamonded-posts"
+	RoutePathGetPostsForPublicKey   = "/api/v0/get-posts-for-public-key"
+	RoutePathGetDiamondedPosts      = "/api/v0/get-diamonded-posts"
 
 	// nft.go
 	RoutePathCreateNFT                = "/api/v0/create-nft"
@@ -177,7 +181,7 @@ const (
 
 	// admin_jumio.go
 	RoutePathAdminResetJumioForPublicKey = "/api/v0/admin/reset-jumio-for-public-key"
-	RoutePathAdminUpdateJumioDeSo    = "/api/v0/admin/update-jumio-deso"
+	RoutePathAdminUpdateJumioDeSo        = "/api/v0/admin/update-jumio-deso"
 	RoutePathAdminJumioCallback          = "/api/v0/admin/jumio-callback"
 
 	// admin_referrals.go
@@ -281,18 +285,18 @@ func NewAPIServer(
 		// the backendServer. Right now it's here because it was the easiest
 		// way to give the APIServer the ability to add transactions
 		// to the mempool and relay them to peers.
-		backendServer:                 _backendServer,
-		mempool:                       _mempool,
-		blockchain:                    _blockchain,
-		blockProducer:                 _blockProducer,
-		TXIndex:                       txIndex,
-		Params:                        params,
-		Config:                        config,
-		GlobalStateDB:                 globalStateDB,
-		Twilio:                        twilio,
-		BlockCypherAPIKey:             blockCypherAPIKey,
+		backendServer:             _backendServer,
+		mempool:                   _mempool,
+		blockchain:                _blockchain,
+		blockProducer:             _blockProducer,
+		TXIndex:                   txIndex,
+		Params:                    params,
+		Config:                    config,
+		GlobalStateDB:             globalStateDB,
+		Twilio:                    twilio,
+		BlockCypherAPIKey:         blockCypherAPIKey,
 		LastTradeDeSoPriceHistory: []LastTradePriceHistoryItem{},
-		PublicKeyBase58Prefix:         publicKeyBase58Prefix,
+		PublicKeyBase58Prefix:     publicKeyBase58Prefix,
 		// We consider last trade prices from the last hour when determining the current price of DeSo.
 		// This helps prevents attacks that attempt to purchase $DESO at below market value.
 		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
@@ -335,6 +339,29 @@ type Route struct {
 // frontend code. If not, then requests will fail.
 func (fes *APIServer) NewRouter() *muxtrace.Router {
 	var FrontendRoutes = []Route{
+		// Deprecated
+		{
+			"SendBitClout",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSendBitClout,
+			fes.SendDeSo,
+			PublicAccess,
+		},
+		{
+			"GetRecloutsForPost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetRecloutsForPost,
+			fes.GetRepostsForPost,
+			PublicAccess,
+		},
+		{
+			"GetQuoteRecloutsForPost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetQuoteRecloutsForPost,
+			fes.GetQuoteRepostsForPost,
+			PublicAccess,
+		},
+
 		{
 			"Index",
 			[]string{"GET"},
