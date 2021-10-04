@@ -4,9 +4,9 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-	"github.com/bitclout/core/lib"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
+	"github.com/deso-protocol/core/lib"
 	"golang.org/x/crypto/sha3"
 	"os"
 )
