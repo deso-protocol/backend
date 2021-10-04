@@ -13,7 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/config"
-	"github.com/dgrijalva/jwt-go/v4"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/tyler-smith/go-bip39"
 
 	"github.com/deso-protocol/core/lib"
