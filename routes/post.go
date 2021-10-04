@@ -1847,7 +1847,8 @@ type GetRepostsForPostRequest struct {
 }
 
 type GetRepostsForPostResponse struct {
-	Reposters []*ProfileEntryResponse
+	Reposters  []*ProfileEntryResponse
+	Reclouters []*ProfileEntryResponse // Deprecated
 }
 
 func (fes *APIServer) GetRepostsForPost(ww http.ResponseWriter, req *http.Request) {
@@ -1952,7 +1953,8 @@ func (fes *APIServer) GetRepostsForPost(ww http.ResponseWriter, req *http.Reques
 
 	// Return the posts found.
 	res := &GetRepostsForPostResponse{
-		Reposters: repostersPage,
+		Reposters:  repostersPage,
+		Reclouters: repostersPage,
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
@@ -1970,7 +1972,8 @@ type GetQuoteRepostsForPostRequest struct {
 }
 
 type GetQuoteRepostsForPostResponse struct {
-	QuoteReposts []*PostEntryResponse
+	QuoteReposts  []*PostEntryResponse
+	QuoteReclouts []*PostEntryResponse // Deprecated
 }
 
 func (fes *APIServer) GetQuoteRepostsForPost(ww http.ResponseWriter, req *http.Request) {
@@ -2089,7 +2092,8 @@ func (fes *APIServer) GetQuoteRepostsForPost(ww http.ResponseWriter, req *http.R
 
 	// Return the posts found.
 	res := &GetQuoteRepostsForPostResponse{
-		QuoteReposts: quoteRepostsPage,
+		QuoteReposts:  quoteRepostsPage,
+		QuoteReclouts: quoteRepostsPage,
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
