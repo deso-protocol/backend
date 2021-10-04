@@ -98,6 +98,10 @@ type PostEntryResponse struct {
 
 	// Number of diamonds the sender gave this post. Only set when getting diamond posts.
 	DiamondsFromSender uint64
+
+	RecloutCount               uint64             // Deprecated
+	QuoteRecloutCount          uint64             // Deprecated
+	RecloutedPostEntryResponse *PostEntryResponse // Deprecated
 }
 
 // GetPostsStatelessResponse ...
@@ -219,6 +223,11 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 		NFTRoyaltyToCreatorBasisPoints: postEntry.NFTRoyaltyToCreatorBasisPoints,
 		NFTRoyaltyToCoinBasisPoints:    postEntry.NFTRoyaltyToCoinBasisPoints,
 		PostExtraData:                  postEntryResponseExtraData,
+
+		// Deprecated
+		RecloutedPostEntryResponse: repostPostEntryResponse,
+		RecloutCount:               postEntry.RepostCount,
+		QuoteRecloutCount:          postEntry.QuoteRepostCount,
 	}
 
 	if addGlobalFeedBool {
