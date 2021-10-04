@@ -16,9 +16,9 @@ require (
 	github.com/btcsuite/btcutil v1.0.2
 	github.com/deso-protocol/core v0.0.0-00010101000000-000000000000
 	github.com/dgraph-io/badger/v3 v3.2103.0
-	github.com/dgrijalva/jwt-go/v4 v4.0.0-preview1
 	github.com/fatih/structs v1.1.0
 	github.com/gofrs/uuid v4.0.0+incompatible // indirect
+	github.com/golang-jwt/jwt/v4 v4.1.0
 	github.com/golang/glog v0.0.0-20210429001901-424d2337a529
 	github.com/gorilla/mux v1.8.0
 	github.com/h2non/bimg v1.1.5

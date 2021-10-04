@@ -2,14 +2,14 @@ package toolslib
 
 import (
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/dgrijalva/jwt-go/v4"
 	"github.com/fatih/structs"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/pkg/errors"
 )
 
 // Generate a JWT Token for the provided private key.
 // This can be added to the payload for requests that require JWT token authentication.
-func GenerateJWTToken(privKey *btcec.PrivateKey) (_JWT string, _err error){
+func GenerateJWTToken(privKey *btcec.PrivateKey) (_JWT string, _err error) {
 	// Create the ecdsa keys
 	ecdsaPrivKey := privKey.ToECDSA()
 
