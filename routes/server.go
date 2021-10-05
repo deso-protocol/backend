@@ -1234,8 +1234,9 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		// then A will be called first B will be called second, and C will be called
 		// last.
 
-		// Anyone can access the admin panel if no public keys exist
-		if route.AccessLevel != PublicAccess && (len(fes.Config.AdminPublicKeys) > 0 || len(fes.Config.SuperAdminPublicKeys) > 0) {
+		// If the route is not "PublicAccess" we wrap it in a function to check that the caller
+		// has the correct permissions before calling its handler.
+		if route.AccessLevel != PublicAccess {
 			handler = fes.CheckAdminPublicKey(handler, route.AccessLevel)
 		}
 		handler = Logger(handler, route.Name)
@@ -1400,7 +1401,7 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel Access
 		// If this a regular admin endpoint, we iterate through all the admin public keys.
 		if AccessLevel == AdminAccess {
 			for _, adminPubKey := range fes.Config.AdminPublicKeys {
-				if adminPubKey == requestData.AdminPublicKey {
+				if adminPubKey == requestData.AdminPublicKey || adminPubKey == "*" {
 					// We found a match, serve the request
 					inner.ServeHTTP(ww, req)
 					return
@@ -1410,7 +1411,7 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel Access
 
 		// We also check super admins, as they have a superset of capabilities.
 		for _, superAdminPubKey := range fes.Config.SuperAdminPublicKeys {
-			if superAdminPubKey == requestData.AdminPublicKey {
+			if superAdminPubKey == requestData.AdminPublicKey || superAdminPubKey == "*" {
 				// We found a match, serve the request
 				inner.ServeHTTP(ww, req)
 				return
