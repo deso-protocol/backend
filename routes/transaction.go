@@ -458,7 +458,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 
 	// Only comp create profile fee if frontend server has both twilio and starter deso seed configured and the user
 	// has verified their profile.
-	if !fes.Config.CompProfileCreation || fes.Config.StarterDeSoSeed == "" || fes.Twilio == nil || (userMetadata.PhoneNumber == "" && !userMetadata.JumioVerified) {
+	if !fes.Config.CompProfileCreation || fes.Config.StarterDESOSeed == "" || fes.Twilio == nil || (userMetadata.PhoneNumber == "" && !userMetadata.JumioVerified) {
 		return additionalFees, nil
 	}
 	var currentBalanceNanos uint64
@@ -491,17 +491,17 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	}
 
 	// Find the minimum starter bit deso amount
-	minStarterDeSoNanos := fes.Config.StarterDeSoNanos
+	minStarterDESONanos := fes.Config.StarterDESONanos
 	if len(fes.Config.StarterPrefixNanosMap) > 0 {
 		for _, starterDeSo := range fes.Config.StarterPrefixNanosMap {
-			if starterDeSo < minStarterDeSoNanos {
-				minStarterDeSoNanos = starterDeSo
+			if starterDeSo < minStarterDESONanos {
+				minStarterDESONanos = starterDeSo
 			}
 		}
 	}
 	// We comp the create profile fee minus the minimum starter deso amount divided by 2.
 	// This discourages botting while covering users who verify a phone number.
-	compAmount := createProfileFeeNanos - (minStarterDeSoNanos / 2)
+	compAmount := createProfileFeeNanos - (minStarterDESONanos / 2)
 	// If the user won't have enough deso to cover the fee, this is an error.
 	if currentBalanceNanos+compAmount < createProfileFeeNanos {
 		return 0, errors.Wrap(fmt.Errorf("Creating a profile requires DeSo.  Please purchase some to create a profile."), "")
@@ -588,7 +588,7 @@ type ExchangeBitcoinResponse struct {
 
 // ExchangeBitcoinStateless ...
 func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http.Request) {
-	if fes.Config.BuyDeSoSeed == "" {
+	if fes.Config.BuyDESOSeed == "" {
 		_AddBadRequestError(ww, "ExchangeBitcoinStateless: This node is not configured to sell DeSo for Bitcoin")
 		return
 	}
@@ -673,7 +673,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		uint64(burnAmountSatoshis),
 		uint64(requestData.FeeRateSatoshisPerKB),
 		pubKey,
-		fes.Config.BuyDeSoBTCAddress,
+		fes.Config.BuyDESOBTCAddress,
 		fes.Params,
 		utxoSource)
 
@@ -737,7 +737,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 	fes.UpdateUSDCentsToDeSoExchangeRate()
 
 	nanosPurchased := fes.GetNanosFromSats(uint64(burnAmountSatoshis), feeBasisPoints)
-	balanceInsufficient, err := fes.ExceedsDeSoBalance(nanosPurchased, fes.Config.BuyDeSoSeed)
+	balanceInsufficient, err := fes.ExceedsDeSoBalance(nanosPurchased, fes.Config.BuyDESOSeed)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error checking if send deso balance is sufficient: %v", err))
 		return
@@ -866,7 +866,7 @@ func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint
 	return nanosPurchased
 }
 
-// ExceedsSendDeSoBalance - Check if nanosPurchased is greater than the balance of the BuyDeSo wallet.
+// ExceedsSendDeSoBalance - Check if nanosPurchased is greater than the balance of the BuyDESO wallet.
 func (fes *APIServer) ExceedsDeSoBalance(nanosPurchased uint64, seed string) (bool, error) {
 	buyDeSoSeedBalance, err := fes.getBalanceForSeed(seed)
 	if err != nil {
@@ -2146,22 +2146,22 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 
 // getTransactionFee transforms transactionFees specified in an API request body to DeSoOutput and combines that with node-level transaction fees for this transaction type.
 func (fes *APIServer) getTransactionFee(txnType lib.TxnType, transactorPublicKey []byte, transactionFees []TransactionFee) (_outputs []*lib.DeSoOutput, _err error) {
-  // Transform transaction fees specified by the API request body.
+	// Transform transaction fees specified by the API request body.
 	extraOutputs, err := TransformTransactionFeesToOutputs(transactionFees)
 	if err != nil {
 		return nil, err
 	}
-  // Look up node-level fees for this transaction type.
+	// Look up node-level fees for this transaction type.
 	fees := fes.TransactionFeeMap[txnType]
 	// If there are no node fees for this transaction type, don't even bother checking exempt public keys, just return the DeSoOutputs specified by the API request body.
 	if len(fees) == 0 {
 		return extraOutputs, nil
 	}
-  // If this node has designated this public key as one exempt from node-level fees, only return the DeSoOutputs requested by the API request body.
+	// If this node has designated this public key as one exempt from node-level fees, only return the DeSoOutputs requested by the API request body.
 	if _, exists := fes.ExemptPublicKeyMap[lib.PkToString(transactorPublicKey, fes.Params)]; exists {
 		return extraOutputs, nil
 	}
-  // Append the fees to the extraOutputs and return.
+	// Append the fees to the extraOutputs and return.
 	newOutputs := append(extraOutputs, fees...)
 	return newOutputs, nil
 }
@@ -2201,7 +2201,7 @@ type AuthorizeDerivedKeyResponse struct {
 }
 
 // AuthorizeDerivedKey ...
-func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Request){
+func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := AuthorizeDerivedKeyRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
@@ -2331,7 +2331,8 @@ func (fes *APIServer) AppendExtraData(ww http.ResponseWriter, req *http.Request)
 	if txn.ExtraData == nil {
 		txn.ExtraData = make(map[string][]byte)
 	}
-	for k,v := range requestData.ExtraData {
+
+	for k, v := range requestData.ExtraData {
 		vBytes, err := hex.DecodeString(v)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem decoding ExtraData: %v", err))

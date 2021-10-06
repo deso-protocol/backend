@@ -313,8 +313,8 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 	/**************************************************************/
 	// Send the user starter DeSo, if we haven't already sent it
 	/**************************************************************/
-	if settingPhoneNumberForFirstTime && fes.Config.StarterDeSoSeed != "" {
-		amountToSendNanos := fes.Config.StarterDeSoNanos
+	if settingPhoneNumberForFirstTime && fes.Config.StarterDESOSeed != "" {
+		amountToSendNanos := fes.Config.StarterDESONanos
 
 		if len(requestData.PhoneNumber) == 0 || requestData.PhoneNumber[0] != '+' {
 			_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Phone number must start with a plus sign"))
@@ -879,7 +879,7 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 		if desoNanos > 0 {
 			// Check the balance of the starter deso seed.
 			var balanceInsufficient bool
-			balanceInsufficient, err = fes.ExceedsDeSoBalance(desoNanos, fes.Config.StarterDeSoSeed)
+			balanceInsufficient, err = fes.ExceedsDeSoBalance(desoNanos, fes.Config.StarterDESOSeed)
 			if err != nil {
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error checking if send deso balance is sufficient: %v", err)
 			}
@@ -918,7 +918,7 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			}
 			// Check the balance of the starter deso seed compared to the referrer deso nanos.
 			var balanceInsufficientForReferrer bool
-			balanceInsufficientForReferrer, err = fes.ExceedsDeSoBalance(referrerDeSoNanos, fes.Config.StarterDeSoSeed)
+			balanceInsufficientForReferrer, err = fes.ExceedsDeSoBalance(referrerDeSoNanos, fes.Config.StarterDESOSeed)
 			if err != nil {
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error checking if send deso balance is sufficient: %v", err)
 			}

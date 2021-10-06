@@ -192,7 +192,7 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 			}
 			nanosPurchased := fes.GetNanosFromSats(satsPurchased, feeBasisPoints)
 			var balanceInsufficient bool
-			balanceInsufficient, err = fes.ExceedsDeSoBalance(nanosPurchased, fes.Config.BuyDeSoSeed)
+			balanceInsufficient, err = fes.ExceedsDeSoBalance(nanosPurchased, fes.Config.BuyDESOSeed)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrdersubscription: Error checking if send deso balance is sufficient: %v", err))
 				return
@@ -364,7 +364,7 @@ func (fes *APIServer) GetWyreWalletOrderQuotation(ww http.ResponseWriter, req *h
 	// Make and marshal the payload
 	body := WyreWalletOrderQuotationPayload{
 		AccountId:         fes.Config.WyreAccountId,
-		Dest:              fmt.Sprintf("bitcoin:%v", fes.Config.BuyDeSoBTCAddress),
+		Dest:              fmt.Sprintf("bitcoin:%v", fes.Config.BuyDESOBTCAddress),
 		AmountIncludeFees: true,
 		DestCurrency:      "BTC",
 		SourceCurrency:    wyreWalletOrderQuotationRequest.SourceCurrency,
@@ -547,7 +547,7 @@ func (fes *APIServer) SetWyreRequestHeaders(req *http.Request, dataBytes []byte)
 }
 
 func (fes *APIServer) GetBTCAddress() string {
-	return fmt.Sprintf("bitcoin:%v", fes.Config.BuyDeSoBTCAddress)
+	return fmt.Sprintf("bitcoin:%v", fes.Config.BuyDESOBTCAddress)
 }
 
 type GetWyreWalletOrderForPublicKeyRequest struct {

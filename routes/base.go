@@ -282,7 +282,10 @@ type GetAppStateResponse struct {
 	USDCentsPerDeSoExchangeRate uint64
 	JumioDeSoNanos              uint64
 
-	TransactionFeeMap     map[string][]TransactionFee
+	TransactionFeeMap map[string][]TransactionFee
+
+	// Address to which we want to send ETH when used to buy DESO
+	BuyETHAddress string
 
 	USDCentsPerBitCloutExchangeRate uint64 // Deprecated
 	JumioBitCloutNanos              uint64 // Deprecated
@@ -313,7 +316,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		IsTestnet:                           fes.Params.NetworkType == lib.NetworkType_TESTNET,
 		SupportEmail:                        fes.Config.SupportEmail,
 		HasTwilioAPIKey:                     fes.Twilio != nil,
-		HasStarterDeSoSeed:                  fes.Config.StarterDeSoSeed != "",
+		HasStarterDeSoSeed:                  fes.Config.StarterDESOSeed != "",
 		CreateProfileFeeNanos:               utxoView.GlobalParamsEntry.CreateProfileFeeNanos,
 		CompProfileCreation:                 fes.Config.CompProfileCreation,
 		DiamondLevelMap:                     lib.GetDeSoNanosDiamondLevelMapAtBlockHeight(int64(fes.blockchain.BlockTip().Height)),
@@ -323,6 +326,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		USDCentsPerDeSoExchangeRate:         fes.GetExchangeDeSoPrice(),
 		JumioDeSoNanos:                      fes.GetJumioDeSoNanos(),
 		TransactionFeeMap:                   fes.TxnFeeMapToResponse(true),
+		BuyETHAddress:                       fes.Config.BuyDESOETHAddress,
 
 		// Deprecated
 		USDCentsPerBitCloutExchangeRate: fes.GetExchangeDeSoPrice(),
