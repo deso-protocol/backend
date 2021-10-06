@@ -56,6 +56,7 @@ const (
 	RoutePathBuyOrSellCreatorCoin     = "/api/v0/buy-or-sell-creator-coin"
 	RoutePathTransferCreatorCoin      = "/api/v0/transfer-creator-coin"
 	RoutePathSendDiamonds             = "/api/v0/send-diamonds"
+	RoutePathAuthorizeDerivedKey      = "/api/v0/authorize-derived-key"
 
 	// user.go
 	RoutePathGetUsersStateless        = "/api/v0/get-users-stateless"
@@ -72,6 +73,7 @@ const (
 	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
 	RoutePathIsFollowingPublicKey     = "/api/v0/is-following-public-key"
 	RoutePathIsHodlingPublicKey       = "/api/v0/is-hodling-public-key"
+	RoutePathGetUserDerivedKeys       = "/api/v0/get-user-derived-keys"
 
 	// post.go
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
@@ -154,11 +156,12 @@ const (
 	RoutePathGetBuyDeSoFeeBasisPoints             = "/api/v0/admin/get-buy-deso-fee-basis-points"
 
 	// admin_transaction.go
-	RoutePathGetGlobalParams = "/api/v0/get-global-params"
+	RoutePathGetGlobalParams                    = "/api/v0/get-global-params"
+	RoutePathTestSignTransactionWithDerivedKey  = "/api/v0/admin/test-sign-transaction-with-derived-key"
 	// Eventually we will deprecate the admin endpoint since it does not need to be protected.
-	RoutePathAdminGetGlobalParams = "/api/v0/admin/get-global-params"
-	RoutePathUpdateGlobalParams   = "/api/v0/admin/update-global-params"
-	RoutePathSwapIdentity         = "/api/v0/admin/swap-identity"
+	RoutePathAdminGetGlobalParams               = "/api/v0/admin/get-global-params"
+	RoutePathUpdateGlobalParams                 = "/api/v0/admin/update-global-params"
+	RoutePathSwapIdentity                       = "/api/v0/admin/swap-identity"
 
 	// admin_user.go
 	RoutePathAdminUpdateUserGlobalMetadata         = "/api/v0/admin/update-user-global-metadata"
@@ -671,6 +674,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"AuthorizeDerivedKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAuthorizeDerivedKey,
+			fes.AuthorizeDerivedKey,
+			PublicAccess,
+		},
+		{
 			"GetNotifications",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetNotifications,
@@ -752,6 +762,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathVerifyEmail,
 			fes.VerifyEmail,
+			PublicAccess,
+		},
+		{
+			"GetUserDerivedKeys",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetUserDerivedKeys,
+			fes.GetUserDerivedKeys,
 			PublicAccess,
 		},
 		// Jumio Routes
@@ -1012,6 +1029,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateJumioDeSo,
 			fes.AdminUpdateJumioDeSo,
+			SuperAdminAccess,
+		},
+		{
+			"AdminTestSignTransactionWithDerivedKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathTestSignTransactionWithDerivedKey,
+			fes.TestSignTransactionWithDerivedKey,
 			SuperAdminAccess,
 		},
 		{

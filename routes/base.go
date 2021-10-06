@@ -265,6 +265,7 @@ type GetAppStateResponse struct {
 	AmplitudeKey                        string
 	AmplitudeDomain                     string
 	MinSatoshisBurnedForProfileCreation uint64
+	BlockHeight                         uint32
 	IsTestnet                           bool
 	SupportEmail                        string
 	ShowProcessingSpinners              bool
@@ -306,6 +307,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		AmplitudeDomain:                     fes.Config.AmplitudeDomain,
 		ShowProcessingSpinners:              fes.Config.ShowProcessingSpinners,
 		MinSatoshisBurnedForProfileCreation: fes.Config.MinSatoshisForProfile,
+		BlockHeight:                         fes.backendServer.GetBlockchain().BlockTip().Height,
 		IsTestnet:                           fes.Params.NetworkType == lib.NetworkType_TESTNET,
 		SupportEmail:                        fes.Config.SupportEmail,
 		HasTwilioAPIKey:                     fes.Twilio != nil,

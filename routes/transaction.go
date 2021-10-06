@@ -969,7 +969,7 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 
 	} else {
 		// In this case, we are spending what the user asked us to spend as opposed to
-		// spending the maximum amount posssible.
+		// spending the maximum amount possible.
 
 		// Create the transaction outputs and add the recipient's public key and the
 		// amount we want to pay them
@@ -2055,6 +2055,117 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+// AuthorizeDerivedKeyRequest ...
+type AuthorizeDerivedKeyRequest struct {
+	// The original public key of the derived key owner.
+	OwnerPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// The derived public key
+	DerivedPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// The expiration block of the derived key pair.
+	ExpirationBlock uint64 `safeForLogging:"true"`
+
+	// The signature of hash(derived key + expiration block) made by the owner.
+	AccessSignature string `safeForLogging:"true"`
+
+	// The intended operation on the derived key.
+	DeleteKey bool `safeForLogging:"true"`
+
+	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+}
+
+// AuthorizeDerivedKeyResponse ...
+type AuthorizeDerivedKeyResponse struct {
+	SpendAmountNanos  uint64
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgDeSoTxn
+	TransactionHex    string
+	TxnHashHex        string
+}
+
+// AuthorizeDerivedKey ...
+func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Request){
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AuthorizeDerivedKeyRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem parsing request body: %v", err))
+		return
+	}
+
+	if requestData.OwnerPublicKeyBase58Check == "" ||
+		requestData.DerivedPublicKeyBase58Check == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Must provide an owner and a derived key."))
+		return
+	}
+
+	// Decode the owner public key
+	ownerPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.OwnerPublicKeyBase58Check)
+	if err != nil || len(ownerPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AuthorizeDerivedKey: Problem decoding owner public key %s: %v",
+			requestData.OwnerPublicKeyBase58Check, err))
+		return
+	}
+
+	// Decode the derived public key
+	derivedPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.DerivedPublicKeyBase58Check)
+	if err != nil || len(derivedPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AuthorizeDerivedKey: Problem decoding derived public key %s: %v",
+			requestData.DerivedPublicKeyBase58Check, err))
+		return
+	}
+
+	// Make sure owner and derived keys are different
+	if reflect.DeepEqual(ownerPublicKeyBytes, derivedPublicKeyBytes) {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Owner and derived public keys cannot be the same."))
+		return
+	}
+
+	// Decode the access signature
+	accessSignature, err := hex.DecodeString(requestData.AccessSignature)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Couldn't decode access signature."))
+		return
+	}
+
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateAuthorizeDerivedKeyTxn(
+		ownerPublicKeyBytes,
+		derivedPublicKeyBytes,
+		requestData.ExpirationBlock,
+		accessSignature,
+		requestData.DeleteKey,
+		// Standard transaction fields
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem creating transaction: %v", err))
+		return
+	}
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := AuthorizeDerivedKeyResponse{
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+		TxnHashHex:        txn.Hash().String(),
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem encoding response as JSON: %v", err))
 		return
 	}
 }

@@ -2528,3 +2528,88 @@ func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Reque
 	}
 
 }
+
+// GetUserDerivedKeysRequest ...
+type GetUserDerivedKeysRequest struct {
+	// Public key which derived keys we want to query.
+	PublicKeyBase58Check string `safeForLogging:"true"`
+}
+
+// UserDerivedKey ...
+type UserDerivedKey struct {
+	// This is the public key of the owner.
+	OwnerPublicKeyBase58Check   string `safeForLogging:"true"`
+
+	// This is the derived public key.
+	DerivedPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// This is the expiration date of the derived key.
+	ExpirationBlock             uint64 `safeForLogging:"true"`
+
+	// This is the current state of the derived key.
+	IsValid                     bool `safeForLogging:"true"`
+}
+
+// GetUserDerivedKeysResponse ...
+type GetUserDerivedKeysResponse struct {
+	// DerivedKeys contains user's derived keys indexed by public keys in base58Check
+	DerivedKeys map[string]*UserDerivedKey `safeForLogging:"true"`
+}
+
+func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetUserDerivedKeysRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetUserDerivedKeys: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Check if a valid public key was passed.
+	var publicKeyBytes []byte
+	var err error
+	publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+	if err != nil || len(publicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetUserDerivedKeys: Problem decoding user public key %s: %v",
+			requestData.PublicKeyBase58Check, err))
+		return
+	}
+
+	// Get augmented utxoView.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUtxoViewForPublicKey(publicKeyBytes, nil)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetUserDerivedKeys: Problem getting augmented utxoView: %v", err))
+		return
+	}
+
+	// Get all derived key entries for the owner public key.
+	derivedKeyMappings, err := utxoView.GetAllDerivedKeyMappingsForOwner(publicKeyBytes)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetUserDerivedKeys: Problem getting derived key mappings for owner: %v", err))
+		return
+	}
+
+	// Create the derivedKeys map, indexed by derivedPublicKeys in base58Check.
+	// We use the UserDerivedKey struct instead of the lib.DerivedKeyEntry type
+	// so that we can return public keys in base58Check.
+	derivedKeys := make(map[string]*UserDerivedKey)
+	for _, entry := range derivedKeyMappings {
+		derivedPublicKey := lib.PkToString(entry.DerivedPublicKey[:], fes.Params)
+		derivedKeys[derivedPublicKey] = &UserDerivedKey{
+			OwnerPublicKeyBase58Check:   lib.PkToString(entry.OwnerPublicKey[:], fes.Params),
+			DerivedPublicKeyBase58Check: lib.PkToString(entry.DerivedPublicKey[:], fes.Params),
+			ExpirationBlock:             entry.ExpirationBlock,
+			IsValid:                     entry.OperationType == lib.AuthorizeDerivedKeyOperationValid,
+		}
+	}
+
+	res := GetUserDerivedKeysResponse{
+		DerivedKeys: derivedKeys,
+	}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetUserDerivedKeys: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
