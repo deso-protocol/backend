@@ -808,13 +808,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 
 		// ETH Routes
 		{
-			"GetETHBalance",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetETHBalance,
-			fes.GetETHBalance,
-			PublicAccess,
-		},
-		{
 			"CreateETHTx",
 			[]string{"POST", "OPTIONS"},
 			RoutePathCreateETHTx,
@@ -1560,8 +1553,8 @@ func (fes *APIServer) StartSeedBalancesMonitoring() {
 					return
 				}
 				tags := []string{}
-				fes.logBalanceForSeed(fes.Config.StarterDeSoSeed, "STARTER_DESO", tags)
-				fes.logBalanceForSeed(fes.Config.BuyDeSoSeed, "BUY_DESO", tags)
+				fes.logBalanceForSeed(fes.Config.StarterDESOSeed, "STARTER_DESO", tags)
+				fes.logBalanceForSeed(fes.Config.BuyDESOSeed, "BUY_DESO", tags)
 			case <-fes.quit:
 				break out
 			}

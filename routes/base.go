@@ -269,7 +269,7 @@ type GetAppStateResponse struct {
 	SupportEmail                        string
 	ShowProcessingSpinners              bool
 
-	HasStarterDeSoSeed    bool
+	HasStarterDESOSeed    bool
 	HasTwilioAPIKey       bool
 	CreateProfileFeeNanos uint64
 	CompProfileCreation   bool
@@ -280,6 +280,9 @@ type GetAppStateResponse struct {
 
 	USDCentsPerDeSoExchangeRate uint64
 	JumioDeSoNanos              uint64
+
+	// Address to which we want to send ETH when used to buy DESO
+	BuyETHAddress string
 
 	USDCentsPerBitCloutExchangeRate uint64 // Deprecated
 	JumioBitCloutNanos              uint64 // Deprecated
@@ -309,7 +312,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		IsTestnet:                           fes.Params.NetworkType == lib.NetworkType_TESTNET,
 		SupportEmail:                        fes.Config.SupportEmail,
 		HasTwilioAPIKey:                     fes.Twilio != nil,
-		HasStarterDeSoSeed:                  fes.Config.StarterDeSoSeed != "",
+		HasStarterDESOSeed:                  fes.Config.StarterDESOSeed != "",
 		CreateProfileFeeNanos:               utxoView.GlobalParamsEntry.CreateProfileFeeNanos,
 		CompProfileCreation:                 fes.Config.CompProfileCreation,
 		DiamondLevelMap:                     lib.GetDeSoNanosDiamondLevelMapAtBlockHeight(int64(fes.blockchain.BlockTip().Height)),
@@ -318,6 +321,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		BuyWithETH:                          fes.IsConfiguredForETH(),
 		USDCentsPerDeSoExchangeRate:         fes.GetExchangeDeSoPrice(),
 		JumioDeSoNanos:                      fes.GetJumioDeSoNanos(),
+		BuyETHAddress:                       fes.Config.BuyDESOETHAddress,
 
 		// Deprecated
 		USDCentsPerBitCloutExchangeRate: fes.GetExchangeDeSoPrice(),

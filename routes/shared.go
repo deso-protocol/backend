@@ -282,9 +282,9 @@ func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, 
 	fes.mtxSeedDeSo.Lock()
 	defer fes.mtxSeedDeSo.Unlock()
 
-	senderSeed := fes.Config.StarterDeSoSeed
+	senderSeed := fes.Config.StarterDESOSeed
 	if useBuyDeSoSeed {
-		senderSeed = fes.Config.BuyDeSoSeed
+		senderSeed = fes.Config.BuyDESOSeed
 	}
 	starterSeedBytes, err := bip39.NewSeedWithErrorChecking(senderSeed, "")
 	if err != nil {

@@ -20,52 +20,7 @@ import (
 )
 
 func (fes *APIServer) IsConfiguredForETH() bool {
-	return fes.Config.BuyDeSoETHAddress != "" && fes.BlockCypherAPIKey != ""
-}
-
-type GetETHBalanceRequest struct {
-	Address string
-}
-
-type GetETHBalanceResponse struct {
-	Balance *big.Int
-	Fees    *big.Int
-}
-
-func (fes *APIServer) GetETHBalance(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := GetETHBalanceRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetETHBalance: Problem parsing request body: %v", err))
-		return
-	}
-
-	if !fes.IsConfiguredForETH() {
-		_AddBadRequestError(ww, "GetETHBalance: Not configured for ETH")
-		return
-	}
-
-	balance, err := fes.BlockCypherBalance(requestData.Address)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetETHBalance: Failed to get ETH balance: %v", err))
-		return
-	}
-
-	chain, err := fes.BlockCypherBlockchain()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetETHBalance: Failed to get chain: %v", err))
-		return
-	}
-	fees := big.NewInt(0).Mul(big.NewInt(22000), chain.HighGasPrice)
-
-	res := GetETHBalanceResponse{
-		Balance: balance.FinalBalance,
-		Fees:    fees,
-	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetETHBalance: Problem encoding response: %v", err))
-		return
-	}
+	return fes.Config.BuyDESOETHAddress != "" && fes.BlockCypherAPIKey != ""
 }
 
 type CreateETHTxRequest struct {
@@ -77,7 +32,7 @@ type CreateETHTxResponse struct {
 	Tx     BlockCypherTx
 	ToSign []string
 }
-
+// TODO: CHANGE
 func (fes *APIServer) CreateETHTx(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := CreateETHTxRequest{}
@@ -132,7 +87,7 @@ type ETHTxLog struct {
 	PublicKey  []byte
 	DESOTxHash string
 }
-
+// TODO: switch API
 func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := SubmitETHTxRequest{}
@@ -200,7 +155,7 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Verify the deposit address is correct
-	configDepositAddress := strings.ToLower(fes.Config.BuyDeSoETHAddress[2:])
+	configDepositAddress := strings.ToLower(fes.Config.BuyDESOETHAddress[2:])
 	txDepositAddress := strings.ToLower(requestData.Tx.Outputs[0].Addresses[0])
 	if configDepositAddress != txDepositAddress {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Invalid deposit address: %s", txDepositAddress))
@@ -271,7 +226,7 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Problem encoding response: %v", err))
 		return
 	}
-}
+  }
 
 // 1. Validate the transaction mined
 // 2. Calculate the nanos to send
@@ -449,7 +404,7 @@ func (fes *APIServer) BlockCypherCreateETHTx(ethAddress string, amount *big.Int)
 		Outputs: []BlockCypherTxOutput{
 			{
 				Addresses: []string{
-					fes.Config.BuyDeSoETHAddress[2:], // Remove the 0x prefix
+					fes.Config.BuyDESOETHAddress[2:], // Remove the 0x prefix
 				},
 				Value: amount,
 			},
@@ -604,9 +559,9 @@ type BlockCypherBlockchainResponse struct {
 
 func (fes *APIServer) BlockCypherBlockchain() (*BlockCypherBlockchainResponse, error) {
 	URL := "https://api.blockcypher.com/v1/eth/main"
-	if fes.Params.NetworkType == lib.NetworkType_TESTNET {
-		URL = "https://api.blockcypher.com/v1/beth/test"
-	}
+	//if fes.Params.NetworkType == lib.NetworkType_TESTNET {
+	//	URL = "https://api.blockcypher.com/v1/beth/test"
+	//}
 
 	req, _ := http.NewRequest("GET", URL, nil)
 	q := req.URL.Query()

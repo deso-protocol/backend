@@ -448,7 +448,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 
 	// Only comp create profile fee if frontend server has both twilio and starter deso seed configured and the user
 	// has verified their profile.
-	if !fes.Config.CompProfileCreation || fes.Config.StarterDeSoSeed == "" || fes.Twilio == nil || (userMetadata.PhoneNumber == "" && !userMetadata.JumioVerified) {
+	if !fes.Config.CompProfileCreation || fes.Config.StarterDESOSeed == "" || fes.Twilio == nil || (userMetadata.PhoneNumber == "" && !userMetadata.JumioVerified) {
 		return additionalFees, nil
 	}
 	var currentBalanceNanos uint64
@@ -481,17 +481,17 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	}
 
 	// Find the minimum starter bit deso amount
-	minStarterDeSoNanos := fes.Config.StarterDeSoNanos
+	minStarterDESONanos := fes.Config.StarterDESONanos
 	if len(fes.Config.StarterPrefixNanosMap) > 0 {
 		for _, starterDeSo := range fes.Config.StarterPrefixNanosMap {
-			if starterDeSo < minStarterDeSoNanos {
-				minStarterDeSoNanos = starterDeSo
+			if starterDeSo < minStarterDESONanos {
+				minStarterDESONanos = starterDeSo
 			}
 		}
 	}
 	// We comp the create profile fee minus the minimum starter deso amount divided by 2.
 	// This discourages botting while covering users who verify a phone number.
-	compAmount := createProfileFeeNanos - (minStarterDeSoNanos / 2)
+	compAmount := createProfileFeeNanos - (minStarterDESONanos / 2)
 	// If the user won't have enough deso to cover the fee, this is an error.
 	if currentBalanceNanos+compAmount < createProfileFeeNanos {
 		return 0, errors.Wrap(fmt.Errorf("Creating a profile requires DeSo.  Please purchase some to create a profile."), "")
@@ -578,7 +578,7 @@ type ExchangeBitcoinResponse struct {
 
 // ExchangeBitcoinStateless ...
 func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http.Request) {
-	if fes.Config.BuyDeSoSeed == "" {
+	if fes.Config.BuyDESOSeed == "" {
 		_AddBadRequestError(ww, "ExchangeBitcoinStateless: This node is not configured to sell DeSo for Bitcoin")
 		return
 	}
@@ -663,7 +663,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		uint64(burnAmountSatoshis),
 		uint64(requestData.FeeRateSatoshisPerKB),
 		pubKey,
-		fes.Config.BuyDeSoBTCAddress,
+		fes.Config.BuyDESOBTCAddress,
 		fes.Params,
 		utxoSource)
 
@@ -727,7 +727,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 	fes.UpdateUSDCentsToDeSoExchangeRate()
 
 	nanosPurchased := fes.GetNanosFromSats(uint64(burnAmountSatoshis), feeBasisPoints)
-	balanceInsufficient, err := fes.ExceedsDeSoBalance(nanosPurchased, fes.Config.BuyDeSoSeed)
+	balanceInsufficient, err := fes.ExceedsDeSoBalance(nanosPurchased, fes.Config.BuyDESOSeed)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error checking if send deso balance is sufficient: %v", err))
 		return
@@ -856,7 +856,7 @@ func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint
 	return nanosPurchased
 }
 
-// ExceedsSendDeSoBalance - Check if nanosPurchased is greater than the balance of the BuyDeSo wallet.
+// ExceedsSendDeSoBalance - Check if nanosPurchased is greater than the balance of the BuyDESO wallet.
 func (fes *APIServer) ExceedsDeSoBalance(nanosPurchased uint64, seed string) (bool, error) {
 	buyDeSoSeedBalance, err := fes.getBalanceForSeed(seed)
 	if err != nil {
