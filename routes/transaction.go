@@ -2169,3 +2169,69 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		return
 	}
 }
+
+// AppendExtraDataRequest ...
+type AppendExtraDataRequest struct {
+	// Transaction hex.
+	TransactionHex string `safeForLogging:"true"`
+
+	// ExtraData object.
+	ExtraData map[string]string `safeForLogging:"true"`
+}
+
+// AppendExtraDataResponse ...
+type AppendExtraDataResponse struct {
+	// Final Transaction hex.
+	TransactionHex string `safeForLogging:"true"`
+}
+
+// AppendExtraData ...
+// This endpoint allows setting custom ExtraData for a given transaction hex.
+func (fes *APIServer) AppendExtraData(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AppendExtraDataRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Get the transaction bytes from the request data.
+	txnBytes, err := hex.DecodeString(requestData.TransactionHex)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem decoding transaction hex %v", err))
+		return
+	}
+
+	// Deserialize transaction from transaction bytes.
+	txn := &lib.MsgDeSoTxn{}
+	err = txn.FromBytes(txnBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem deserializing transaction from bytes: %v", err))
+		return
+	}
+
+	// Append ExtraData entries
+	if txn.ExtraData == nil {
+		txn.ExtraData = make(map[string][]byte)
+	}
+	extraData := preprocessExtraData(requestData.ExtraData)
+	for k,v := range extraData {
+		txn.ExtraData[k] = v
+	}
+
+	// Get the final transaction bytes.
+	txnBytesFinal, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Return the fianl transaction bytes.
+	res := AppendExtraDataResponse{
+		TransactionHex: hex.EncodeToString(txnBytesFinal),
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
