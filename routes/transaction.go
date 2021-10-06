@@ -2226,7 +2226,7 @@ func (fes *APIServer) AppendExtraData(ww http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	// Return all the transaction bytes.
+	// Return the fianl transaction bytes.
 	res := AppendExtraDataResponse{
 		TransactionHex: hex.EncodeToString(txnBytesFinal),
 	}
