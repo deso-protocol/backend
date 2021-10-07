@@ -15,7 +15,6 @@ import (
 	"io/ioutil"
 	"math/big"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -71,9 +70,16 @@ func (fes *APIServer) CreateETHTx(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
+type ETHTx struct {
+	Nonce   string `json:"nonce"`
+	Value   string `json:"value"`
+	ChainId string `json:"chainId"`
+	To      string `json:"to"`
+}
+
 type SubmitETHTxRequest struct {
 	PublicKeyBase58Check string
-	Tx                   BlockCypherTx
+	Tx                   map[string]interface{}//BlockCypherTx
 	ToSign               []string
 	SignedHashes         []string
 }
@@ -87,6 +93,11 @@ type ETHTxLog struct {
 	PublicKey  []byte
 	DESOTxHash string
 }
+
+type TempRes struct {
+	Result interface{}
+}
+
 // TODO: switch API
 func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
@@ -120,7 +131,7 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	normalizedSig := hex.EncodeToString(parsedSig.Serialize())
+	//normalizedSig := hex.EncodeToString(parsedSig.Serialize())
 
 	// Parse the public key
 	pkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
@@ -148,79 +159,91 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	params := []interface{}{fmt.Sprintf("0x%v", requestData.SignedHashes[0])}
+	resp, err := fes.ExecuteETHRPCRequest("eth_sendRawTransaction", params)
+
+	fmt.Println(resp)
+
 	// Verify only one deposit address
-	if len(requestData.Tx.Outputs) != 1 || len(requestData.Tx.Outputs[0].Addresses) != 1 {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Can only have one output"))
-		return
-	}
+	//if len(requestData.Tx.Outputs) != 1 || len(requestData.Tx.Outputs[0].Addresses) != 1 {
+	//	_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Can only have one output"))
+	//	return
+	//}
 
 	// Verify the deposit address is correct
-	configDepositAddress := strings.ToLower(fes.Config.BuyDESOETHAddress[2:])
-	txDepositAddress := strings.ToLower(requestData.Tx.Outputs[0].Addresses[0])
-	if configDepositAddress != txDepositAddress {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Invalid deposit address: %s", txDepositAddress))
-		return
-	}
-
-	// Submit the transaction
-	submitTx, err := fes.BlockCypherSubmitETHTx(requestData.Tx, requestData.ToSign, []string{normalizedSig})
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to submit ETH transaction: %v", err))
-		return
-	}
-
-	// Record the valid transaction in global state
-	ethTxLog := &ETHTxLog{
-		PublicKey: pkBytes,
-	}
-	globalStateKey := GlobalStateKeyETHPurchases(submitTx.Tx.Hash)
-	globalStateVal := bytes.NewBuffer([]byte{})
-	err = gob.NewEncoder(globalStateVal).Encode(ethTxLog)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to encode ETH transaction: %v", err))
-		return
-	}
-	if err = fes.GlobalStatePut(globalStateKey, globalStateVal.Bytes()); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error processing GlobalStatePut: %v", err))
-		return
-	}
-
-	// TEMP: Re-broadcast via etherscan to ensure the transaction propagates to the network
-	txHex, err := fes.BlockCypherGetETHTx(submitTx.Tx.Hash)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to fetch ETH transaction hex: %v", err))
-		return
-	}
-
-	fes.EtherscanSendRawTransaction(txHex.Hex)
-
-	// Wait up to 10 minutes
-	// TODO: Long running requests are bad. Replace this with polling (or websockets etc)
-	var ethTx *BlockCypherTx
-	for i := 0; i < 60; i++ {
-		// Check if the transaction was mined every 10 seconds
-		time.Sleep(10 * time.Second)
-
-		ethTx, err = fes.BlockCypherGetETHTx(submitTx.Tx.Hash)
-		if ethTx == nil {
-			// Sometimes these requests can fail. Ignore the failure and keep polling
-			continue
-		}
-
-		// A block height means the transaction mined
-		if ethTx.BlockHeight > 0 {
-			break
-		}
-	}
-
-	desoTxHash, err := fes.finishETHTx(ethTx, ethTxLog)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed: %v", err))
-		return
-	}
-
-	res := SubmitETHTxResponse{
-		DESOTxHash: desoTxHash.String(),
+	//configDepositAddress := strings.ToLower(fes.Config.BuyDESOETHAddress[2:])
+	//txDepositAddress := strings.ToLower(requestData.Tx.Outputs[0].Addresses[0])
+	//if configDepositAddress != txDepositAddress {
+	//	_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Invalid deposit address: %s", txDepositAddress))
+	//	return
+	//}
+	//
+	//// Submit the transaction
+	//submitTx, err := fes.BlockCypherSubmitETHTx(requestData.Tx, requestData.ToSign, []string{normalizedSig})
+	//if err != nil {
+	//	_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to submit ETH transaction: %v", err))
+	//	return
+	//}
+	//
+	//// Record the valid transaction in global state
+	//ethTxLog := &ETHTxLog{
+	//	PublicKey: pkBytes,
+	//}
+	//globalStateKey := GlobalStateKeyETHPurchases(submitTx.Tx.Hash)
+	//globalStateVal := bytes.NewBuffer([]byte{})
+	//err = gob.NewEncoder(globalStateVal).Encode(ethTxLog)
+	//if err != nil {
+	//	_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to encode ETH transaction: %v", err))
+	//	return
+	//}
+	//if err = fes.GlobalStatePut(globalStateKey, globalStateVal.Bytes()); err != nil {
+	//	_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error processing GlobalStatePut: %v", err))
+	//	return
+	//}
+	//
+	//// TEMP: Re-broadcast via etherscan to ensure the transaction propagates to the network
+	//txHex, err := fes.BlockCypherGetETHTx(submitTx.Tx.Hash)
+	//if err != nil {
+	//	_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to fetch ETH transaction hex: %v", err))
+	//	return
+	//}
+	//
+	//fes.EtherscanSendRawTransaction(txHex.Hex)
+	//
+	//// Wait up to 10 minutes
+	//// TODO: Long running requests are bad. Replace this with polling (or websockets etc)
+	//var ethTx *BlockCypherTx
+	//for i := 0; i < 60; i++ {
+	//	// Check if the transaction was mined every 10 seconds
+	//	time.Sleep(10 * time.Second)
+	//
+	//	ethTx, err = fes.BlockCypherGetETHTx(submitTx.Tx.Hash)
+	//	if ethTx == nil {
+	//		// Sometimes these requests can fail. Ignore the failure and keep polling
+	//		continue
+	//	}
+	//
+	//	// A block height means the transaction mined
+	//	if ethTx.BlockHeight > 0 {
+	//		break
+	//	}
+	//}
+	//
+	//desoTxHash, err := fes.finishETHTx(ethTx, ethTxLog)
+	//if err != nil {
+	//	_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed: %v", err))
+	//	return
+	//}
+	//
+	//res := SubmitETHTxResponse{
+	//	DESOTxHash: desoTxHash.String(),
+	//}
+	//if err := json.NewEncoder(ww).Encode(res); err != nil {
+	//	_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Problem encoding response: %v", err))
+	//	return
+	//}
+	res := TempRes{
+		Result: resp,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Problem encoding response: %v", err))
@@ -340,6 +363,53 @@ func (fes *APIServer) AdminProcessETHTx(ww http.ResponseWriter, req *http.Reques
 		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Problem encoding response: %v", err))
 		return
 	}
+}
+
+// JSON RPC with infura
+
+type InfuraRequest struct {
+	JSONRPC string `json:"jsonrpc"`
+	Method  string `json:"method"`
+	Params  []interface{} `json:"params"`
+	Id      uint64 `json:"id"`
+}
+
+func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) (x interface{}, _err error){
+	projectId := "30aa4e03c01d47bc81a24a7ef3ae0e94"
+	URL := fmt.Sprintf("https://mainnet.infura.io/v3/%v", projectId)
+	if fes.Params.NetworkType == lib.NetworkType_TESTNET {
+		URL = fmt.Sprintf("https://ropsten.infura.io/v3/%v", projectId)
+	}
+
+	jsonData, err := json.Marshal(InfuraRequest{
+		JSONRPC: "2.0",
+		Method: method,
+		Params: params,
+		Id: 1,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	req, _ := http.NewRequest("POST", URL, bytes.NewBuffer(jsonData))
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ExecuteETHRPCRequest: Problem with HTTP request %s: %v", URL, err)
+	}
+	defer resp.Body.Close()
+
+	// Decode the response into the appropriate struct.
+	body, _ := ioutil.ReadAll(resp.Body)
+	responseData := make(map[string]interface{})
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	if err := decoder.Decode(&responseData); err != nil {
+		return nil, fmt.Errorf("BlockCypherCreateETHTx: Problem decoding response JSON: %v, response: %v, error: %v", responseData, resp, err)
+	}
+	return responseData, nil
 }
 
 //

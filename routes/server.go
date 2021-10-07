@@ -56,6 +56,8 @@ const (
 	RoutePathBuyOrSellCreatorCoin     = "/api/v0/buy-or-sell-creator-coin"
 	RoutePathTransferCreatorCoin      = "/api/v0/transfer-creator-coin"
 	RoutePathSendDiamonds             = "/api/v0/send-diamonds"
+	RoutePathAuthorizeDerivedKey      = "/api/v0/authorize-derived-key"
+	RoutePathAppendExtraData          = "/api/v0/append-extra-data"
 
 	// user.go
 	RoutePathGetUsersStateless        = "/api/v0/get-users-stateless"
@@ -72,6 +74,7 @@ const (
 	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
 	RoutePathIsFollowingPublicKey     = "/api/v0/is-following-public-key"
 	RoutePathIsHodlingPublicKey       = "/api/v0/is-hodling-public-key"
+	RoutePathGetUserDerivedKeys       = "/api/v0/get-user-derived-keys"
 
 	// post.go
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
@@ -154,11 +157,12 @@ const (
 	RoutePathGetBuyDeSoFeeBasisPoints             = "/api/v0/admin/get-buy-deso-fee-basis-points"
 
 	// admin_transaction.go
-	RoutePathGetGlobalParams = "/api/v0/get-global-params"
+	RoutePathGetGlobalParams                    = "/api/v0/get-global-params"
+	RoutePathTestSignTransactionWithDerivedKey  = "/api/v0/admin/test-sign-transaction-with-derived-key"
 	// Eventually we will deprecate the admin endpoint since it does not need to be protected.
-	RoutePathAdminGetGlobalParams = "/api/v0/admin/get-global-params"
-	RoutePathUpdateGlobalParams   = "/api/v0/admin/update-global-params"
-	RoutePathSwapIdentity         = "/api/v0/admin/swap-identity"
+	RoutePathAdminGetGlobalParams               = "/api/v0/admin/get-global-params"
+	RoutePathUpdateGlobalParams                 = "/api/v0/admin/update-global-params"
+	RoutePathSwapIdentity                       = "/api/v0/admin/swap-identity"
 
 	// admin_user.go
 	RoutePathAdminUpdateUserGlobalMetadata         = "/api/v0/admin/update-user-global-metadata"
@@ -671,6 +675,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"AuthorizeDerivedKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAuthorizeDerivedKey,
+			fes.AuthorizeDerivedKey,
+			PublicAccess,
+		},
+		{
+			"AppendExtraData",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAppendExtraData,
+			fes.AppendExtraData,
+			PublicAccess,
+		},
+		{
 			"GetNotifications",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetNotifications,
@@ -752,6 +770,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathVerifyEmail,
 			fes.VerifyEmail,
+			PublicAccess,
+		},
+		{
+			"GetUserDerivedKeys",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetUserDerivedKeys,
+			fes.GetUserDerivedKeys,
 			PublicAccess,
 		},
 		// Jumio Routes
@@ -1008,6 +1033,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			SuperAdminAccess,
 		},
 		{
+			"AdminTestSignTransactionWithDerivedKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathTestSignTransactionWithDerivedKey,
+			fes.TestSignTransactionWithDerivedKey,
+			SuperAdminAccess,
+		},
+		{
 			"AdminJumioCallback",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminJumioCallback,
@@ -1227,8 +1259,9 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		// then A will be called first B will be called second, and C will be called
 		// last.
 
-		// Anyone can access the admin panel if no public keys exist
-		if route.AccessLevel != PublicAccess && (len(fes.Config.AdminPublicKeys) > 0 || len(fes.Config.SuperAdminPublicKeys) > 0) {
+		// If the route is not "PublicAccess" we wrap it in a function to check that the caller
+		// has the correct permissions before calling its handler.
+		if route.AccessLevel != PublicAccess {
 			handler = fes.CheckAdminPublicKey(handler, route.AccessLevel)
 		}
 		handler = Logger(handler, route.Name)
@@ -1393,7 +1426,7 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel Access
 		// If this a regular admin endpoint, we iterate through all the admin public keys.
 		if AccessLevel == AdminAccess {
 			for _, adminPubKey := range fes.Config.AdminPublicKeys {
-				if adminPubKey == requestData.AdminPublicKey {
+				if adminPubKey == requestData.AdminPublicKey || adminPubKey == "*" {
 					// We found a match, serve the request
 					inner.ServeHTTP(ww, req)
 					return
@@ -1403,7 +1436,7 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel Access
 
 		// We also check super admins, as they have a superset of capabilities.
 		for _, superAdminPubKey := range fes.Config.SuperAdminPublicKeys {
-			if superAdminPubKey == requestData.AdminPublicKey {
+			if superAdminPubKey == requestData.AdminPublicKey || superAdminPubKey == "*" {
 				// We found a match, serve the request
 				inner.ServeHTTP(ww, req)
 				return

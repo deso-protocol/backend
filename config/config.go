@@ -2,10 +2,11 @@ package config
 
 import (
 	"fmt"
-	coreCmd "github.com/deso-protocol/core/cmd"
-	"github.com/spf13/viper"
 	"strconv"
 	"strings"
+
+	coreCmd "github.com/deso-protocol/core/cmd"
+	"github.com/spf13/viper"
 )
 
 type Config struct {
@@ -15,6 +16,7 @@ type Config struct {
 	// Onboarding
 	StarterDESOSeed   string
 	StarterDESONanos  uint64
+
 	StarterPrefixNanosMap map[string]uint64
 	TwilioAccountSID      string
 	TwilioAuthToken       string
@@ -47,13 +49,13 @@ type Config struct {
 	GCPBucketName      string
 
 	// Wyre
-	WyreUrl                   string
-	WyreAccountId             string
-	WyreApiKey                string
-	WyreSecretKey             string
-	BuyDESOBTCAddress         string
-	BuyDESOETHAddress         string
-	BuyDESOSeed               string
+	WyreUrl           string
+	WyreAccountId     string
+	WyreApiKey        string
+	WyreSecretKey     string
+	BuyDESOBTCAddress string
+	BuyDESOETHAddress string
+	BuyDESOSeed       string
 
 	// Emails
 	SendgridApiKey         string
@@ -140,7 +142,6 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 
 	// Seed from which DeSo will be sent for orders placed through Wyre and "Buy With BTC" purchases
 	config.BuyDESOSeed = viper.GetString("buy-deso-seed")
-
 
 	// Email
 	config.SendgridApiKey = viper.GetString("sendgrid-api-key")

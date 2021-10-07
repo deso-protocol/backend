@@ -1,14 +1,15 @@
 package cmd
 
 import (
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/deso-protocol/backend/config"
 	coreCmd "github.com/deso-protocol/core/cmd"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/golang/glog"
 )
@@ -114,11 +115,11 @@ func init() {
 	// Admin
 	runCmd.PersistentFlags().StringSlice("admin-public-keys", []string{},
 		"A list of public keys which gives users access to the admin panel. "+
-			"If no keys are specified anyone can access the admin panel. You can add a space "+
+			"If '*' is specified as a key, anyone can access the admin panel. You can add a space "+
 			"and a comment after every public key and leave a note about who the public key belongs to.")
 	runCmd.PersistentFlags().StringSlice("super-admin-public-keys", []string{},
 		"A list of public keys which gives users access to the super admin panel. "+
-			"If no keys are specified anyone can access the super admin panel. You can add a space "+
+			"If '*' is specified as a key, anyone can access the super admin panel. You can add a space "+
 			"and a comment after every public key and leave a note about who the public key belongs to.")
 
 	// Wyre

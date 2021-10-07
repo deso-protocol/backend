@@ -305,3 +305,68 @@ func (fes *APIServer) SwapIdentity(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 }
+
+// TestSignTransactionWithDerivedKeyRequest ...
+type TestSignTransactionWithDerivedKeyRequest struct {
+	// Transaction hex.
+	TransactionHex string `safeForLogging:"true"`
+
+	// Derived private key in base58Check.
+	DerivedKeySeedHex string `safeForLogging:"false"`
+}
+
+// TestSignTransactionWithDerivedKeyResponse ...
+type TestSignTransactionWithDerivedKeyResponse struct {
+	// Signed Transaction hex.
+	TransactionHex string `safeForLogging:"true"`
+}
+
+// TestSignTransactionWithDerivedKey ...
+// This endpoint must not be used by a frontend in a production environment,
+// instead it is meant to serve as a debugging tool as well as an example of
+// how to properly sign transactions with a derived key.
+func (fes *APIServer) TestSignTransactionWithDerivedKey(ww http.ResponseWriter, req *http.Request) {
+
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := TestSignTransactionWithDerivedKeyRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TestSignTransactionWithDerivedKey: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Get the transaction bytes from the request data.
+	txnBytes, err := hex.DecodeString(requestData.TransactionHex)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TestSignTransactionWithDerivedKey: Problem decoding transaction hex %v", err))
+		return
+	}
+
+	// Get the derived private key from the request data.
+	privBytes, err := hex.DecodeString(requestData.DerivedKeySeedHex)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TestSignTransactionWithDerivedKey: Problem decoding seed hex %v", err))
+		return
+	}
+	privKeyBytes, _ := btcec.PrivKeyFromBytes(btcec.S256(), privBytes)
+
+	// Sign the transaction with a derived key. Since the txn extraData must be modified,
+	// we also get new transaction bytes, along with the signature.
+	newTxnBytes, txnSignatureBytes, err := lib.SignTransactionWithDerivedKey(txnBytes, privKeyBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TestSignTransactionWithDerivedKey: Problem signing transaction: %v", err))
+		return
+	}
+
+	// The response will contain the new transaction bytes and a signature.
+	var signedTransactionHex []byte
+	signedTransactionHex = newTxnBytes[0 : len(newTxnBytes)-1]
+	signedTransactionHex = append(signedTransactionHex, lib.UintToBuf(uint64(len(txnSignatureBytes)))...)
+	signedTransactionHex = append(signedTransactionHex, txnSignatureBytes...)
+	res := TestSignTransactionWithDerivedKeyResponse{
+		TransactionHex:  hex.EncodeToString(signedTransactionHex),
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TestSignTransactionWithDerivedKey: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
