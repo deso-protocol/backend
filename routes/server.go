@@ -1338,11 +1338,14 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 			}
 
 			// Match any domain excluding protocol and subdomain e.g. domain.com
-			actualDomain := strings.SplitAfterN(actualOrigin, ".", 2)
-			actualDomainStr := strings.Join(actualDomain, ".")
-			if actualDomainStr == allowedOrigin {
-				match = true
-				break
+			actualDomain := strings.Split(actualOrigin, ".")
+			actualDomainLen := len(actualDomain)
+			if actualDomainLen >= 2 {
+				actualDomainStr := fmt.Sprintf("%s.%s", actualDomain[actualDomainLen-2], actualDomain[actualDomainLen-1])
+				if actualDomainStr == allowedOrigin {
+					match = true
+					break
+				}
 			}
 		}
 
