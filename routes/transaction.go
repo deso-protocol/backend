@@ -2146,22 +2146,22 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 
 // getTransactionFee transforms transactionFees specified in an API request body to DeSoOutput and combines that with node-level transaction fees for this transaction type.
 func (fes *APIServer) getTransactionFee(txnType lib.TxnType, transactorPublicKey []byte, transactionFees []TransactionFee) (_outputs []*lib.DeSoOutput, _err error) {
-  // Transform transaction fees specified by the API request body.
+	// Transform transaction fees specified by the API request body.
 	extraOutputs, err := TransformTransactionFeesToOutputs(transactionFees)
 	if err != nil {
 		return nil, err
 	}
-  // Look up node-level fees for this transaction type.
+	// Look up node-level fees for this transaction type.
 	fees := fes.TransactionFeeMap[txnType]
 	// If there are no node fees for this transaction type, don't even bother checking exempt public keys, just return the DeSoOutputs specified by the API request body.
 	if len(fees) == 0 {
 		return extraOutputs, nil
 	}
-  // If this node has designated this public key as one exempt from node-level fees, only return the DeSoOutputs requested by the API request body.
+	// If this node has designated this public key as one exempt from node-level fees, only return the DeSoOutputs requested by the API request body.
 	if _, exists := fes.ExemptPublicKeyMap[lib.PkToString(transactorPublicKey, fes.Params)]; exists {
 		return extraOutputs, nil
 	}
-  // Append the fees to the extraOutputs and return.
+	// Append the fees to the extraOutputs and return.
 	newOutputs := append(extraOutputs, fees...)
 	return newOutputs, nil
 }
@@ -2201,7 +2201,7 @@ type AuthorizeDerivedKeyResponse struct {
 }
 
 // AuthorizeDerivedKey ...
-func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Request){
+func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := AuthorizeDerivedKeyRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
@@ -2331,7 +2331,8 @@ func (fes *APIServer) AppendExtraData(ww http.ResponseWriter, req *http.Request)
 	if txn.ExtraData == nil {
 		txn.ExtraData = make(map[string][]byte)
 	}
-	for k,v := range requestData.ExtraData {
+
+	for k, v := range requestData.ExtraData {
 		vBytes, err := hex.DecodeString(v)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem decoding ExtraData: %v", err))
