@@ -157,12 +157,13 @@ const (
 	RoutePathGetBuyDeSoFeeBasisPoints             = "/api/v0/admin/get-buy-deso-fee-basis-points"
 
 	// admin_transaction.go
-	RoutePathGetGlobalParams                    = "/api/v0/get-global-params"
-	RoutePathTestSignTransactionWithDerivedKey  = "/api/v0/admin/test-sign-transaction-with-derived-key"
+	RoutePathGetGlobalParams                   = "/api/v0/get-global-params"
+	RoutePathTestSignTransactionWithDerivedKey = "/api/v0/admin/test-sign-transaction-with-derived-key"
+
 	// Eventually we will deprecate the admin endpoint since it does not need to be protected.
-	RoutePathAdminGetGlobalParams               = "/api/v0/admin/get-global-params"
-	RoutePathUpdateGlobalParams                 = "/api/v0/admin/update-global-params"
-	RoutePathSwapIdentity                       = "/api/v0/admin/swap-identity"
+	RoutePathAdminGetGlobalParams = "/api/v0/admin/get-global-params"
+	RoutePathUpdateGlobalParams   = "/api/v0/admin/update-global-params"
+	RoutePathSwapIdentity         = "/api/v0/admin/swap-identity"
 
 	// admin_user.go
 	RoutePathAdminUpdateUserGlobalMetadata         = "/api/v0/admin/update-user-global-metadata"
@@ -1471,6 +1472,10 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 	}
 
 	token, err := jwt.Parse(jwtToken, func(token *jwt.Token) (interface{}, error) {
+		// Do not check token issued at time. We still check expiration time.
+		mapClaims := token.Claims.(jwt.MapClaims)
+		delete(mapClaims, "iat")
+
 		return pubKey.ToECDSA(), nil
 	})
 
