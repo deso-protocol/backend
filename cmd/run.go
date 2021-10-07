@@ -1,14 +1,15 @@
 package cmd
 
 import (
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/deso-protocol/backend/config"
 	coreCmd "github.com/deso-protocol/core/cmd"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/golang/glog"
 )
@@ -85,6 +86,11 @@ func init() {
 	runCmd.PersistentFlags().String("global-state-remote-secret", "",
 		"When a remote node is being used to set/fetch global state, a secret "+
 			"is also required to restrict access.")
+
+	// Hot Feed
+	runCmd.PersistentFlags().Bool("run-hot-feed-routine", true,
+		"If set, runs a go routine that accumulates 'hotness' scores for posts  in the "+
+			"last 24hrs.  This can be used to serve a 'hot' feed.")
 
 	// Web Security
 	runCmd.PersistentFlags().StringSlice("access-control-allow-origins", []string{"*"},

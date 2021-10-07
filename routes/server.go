@@ -171,9 +171,10 @@ const (
 	RoutePathAdminGetUserAdminData                 = "/api/v0/admin/get-user-admin-data"
 
 	// admin_feed.go
-	RoutePathAdminUpdateGlobalFeed = "/api/v0/admin/update-global-feed"
-	RoutePathAdminPinPost          = "/api/v0/admin/pin-post"
-	RoutePathAdminRemoveNilPosts   = "/api/v0/admin/remove-nil-posts"
+	RoutePathAdminUpdateGlobalFeed     = "/api/v0/admin/update-global-feed"
+	RoutePathAdminPinPost              = "/api/v0/admin/pin-post"
+	RoutePathAdminRemoveNilPosts       = "/api/v0/admin/remove-nil-posts"
+	RoutePathAdminGetUnfilteredHotFeed = "/api/v0/admin/get-unfiltered-hot-feed"
 
 	// admin_nft.go
 	RoutePathAdminGetNFTDrop    = "/api/v0/admin/get-nft-drop"
@@ -249,6 +250,14 @@ type APIServer struct {
 	// Base-58 prefix to check for to determine if a string could be a public key.
 	PublicKeyBase58Prefix string
 
+	// A list of posts from the last 24hrs ordered by hotness score.
+	HotFeedOrderedList []*HotFeedEntry
+	// The height of the last block evaluated by the hotness routine.
+	HotnessBlockHeight uint32
+	// Map of whitelisted post hashes used for serving the hot feed. The value is the timestamp
+	// of the post, which is used to prune the map since only recent posts are relevant.
+	WhitelistedPostHashes map[lib.BlockHash]uint64
+
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
 }
@@ -312,6 +321,10 @@ func NewAPIServer(
 
 	// Then monitor them
 	fes.StartExchangePriceMonitoring()
+
+	if fes.Config.RunHotFeedRoutine {
+		fes.StartHotFeedRoutine()
+	}
 
 	return fes, nil
 }
@@ -934,6 +947,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminGetTutorialCreators,
 			fes.AdminGetTutorialCreators,
+			AdminAccess,
+		},
+		{
+			"AdminGetUnfilteredHotFeed",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetUnfilteredHotFeed,
+			fes.AdminGetUnfilteredHotFeed,
 			AdminAccess,
 		},
 		// Super Admin routes

@@ -99,6 +99,9 @@ type PostEntryResponse struct {
 	// Number of diamonds the sender gave this post. Only set when getting diamond posts.
 	DiamondsFromSender uint64
 
+	// Score given to this post by the hot feed go routine. Not always populated.
+	HotnessScore uint64
+
 	RecloutCount               uint64             // Deprecated
 	QuoteRecloutCount          uint64             // Deprecated
 	RecloutedPostEntryResponse *PostEntryResponse // Deprecated

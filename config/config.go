@@ -2,10 +2,11 @@ package config
 
 import (
 	"fmt"
-	coreCmd "github.com/deso-protocol/core/cmd"
-	"github.com/spf13/viper"
 	"strconv"
 	"strings"
+
+	coreCmd "github.com/deso-protocol/core/cmd"
+	"github.com/spf13/viper"
 )
 
 type Config struct {
@@ -13,8 +14,8 @@ type Config struct {
 	APIPort uint16
 
 	// Onboarding
-	StarterDeSoSeed   string
-	StarterDeSoNanos  uint64
+	StarterDeSoSeed       string
+	StarterDeSoNanos      uint64
 	StarterPrefixNanosMap map[string]uint64
 	TwilioAccountSID      string
 	TwilioAuthToken       string
@@ -25,6 +26,9 @@ type Config struct {
 	// Global State
 	GlobalStateRemoteNode   string
 	GlobalStateRemoteSecret string
+
+	// Hot Feed
+	RunHotFeedRoutine bool
 
 	// Web Security
 	AccessControlAllowOrigins []string
@@ -47,14 +51,13 @@ type Config struct {
 	GCPBucketName      string
 
 	// Wyre
-	WyreUrl               string
-	WyreAccountId         string
-	WyreApiKey            string
-	WyreSecretKey         string
+	WyreUrl           string
+	WyreAccountId     string
+	WyreApiKey        string
+	WyreSecretKey     string
 	BuyDeSoBTCAddress string
 	BuyDeSoETHAddress string
 	BuyDeSoSeed       string
-
 
 	// Emails
 	SendgridApiKey         string
@@ -107,6 +110,9 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.GlobalStateRemoteNode = viper.GetString("global-state-remote-node")
 	config.GlobalStateRemoteSecret = viper.GetString("global-state-remote-secret")
 
+	// Hot Feed
+	config.RunHotFeedRoutine = viper.GetBool("run-hot-feed-routine")
+
 	// Web Security
 	config.AccessControlAllowOrigins = viper.GetStringSlice("access-control-allow-origins")
 	config.SecureHeaderDevelopment = viper.GetBool("secure-header-development")
@@ -140,7 +146,6 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 
 	// Seed from which DeSo will be sent for orders placed through Wyre and "Buy With BTC" purchases"
 	config.BuyDeSoSeed = viper.GetString("buy-deso-seed")
-
 
 	// Email
 	config.SendgridApiKey = viper.GetString("sendgrid-api-key")
