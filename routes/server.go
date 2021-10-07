@@ -1325,9 +1325,22 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 		actualOrigin := r.Header.Get("Origin")
 		match := false
 		for _, allowedOrigin := range allowedOrigins {
-			// Note: Prior versions of this code used a regex, but I changed it to a literal match,
-			// since I didn't want to risk a security vulnerability with a broken regex
-			if allowedOrigin == actualOrigin || allowedOrigin == "*" {
+			// Match wildcard
+			if allowedOrigin == "*" {
+				match = true
+				break
+			}
+
+			// Exact match including protocol and subdomain e.g. https://my.domain.com
+			if allowedOrigin == actualOrigin {
+				match = true
+				break
+			}
+
+			// Match any domain excluding protocol and subdomain e.g. domain.com
+			actualDomain := strings.SplitAfterN(actualOrigin, ".", 2)
+			actualDomainStr := strings.Join(actualDomain, ".")
+			if actualDomainStr == allowedOrigin {
 				match = true
 				break
 			}
