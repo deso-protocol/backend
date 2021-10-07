@@ -1348,8 +1348,7 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 			invalidPostRequest = true
 		}
 
-		if match || r.RequestURI == RoutePathGetJumioStatusForPublicKey || r.RequestURI == RoutePathUploadImage ||
-			r.RequestURI == RoutePathUploadVideo || r.RequestURI == RoutePathGetVideoStatus {
+		if match {
 			// Needed in order for the user's browser to set a cookie
 			w.Header().Add("Access-Control-Allow-Credentials", "true")
 
