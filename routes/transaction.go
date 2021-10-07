@@ -2176,7 +2176,7 @@ type AppendExtraDataRequest struct {
 	TransactionHex string `safeForLogging:"true"`
 
 	// ExtraData object.
-	ExtraData map[string]string `safeForLogging:"true"`
+	ExtraData map[string][]byte `safeForLogging:"true"`
 }
 
 // AppendExtraDataResponse ...
@@ -2214,8 +2214,7 @@ func (fes *APIServer) AppendExtraData(ww http.ResponseWriter, req *http.Request)
 	if txn.ExtraData == nil {
 		txn.ExtraData = make(map[string][]byte)
 	}
-	extraData := preprocessExtraData(requestData.ExtraData)
-	for k,v := range extraData {
+	for k,v := range requestData.ExtraData {
 		txn.ExtraData[k] = v
 	}
 
