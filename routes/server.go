@@ -157,12 +157,13 @@ const (
 	RoutePathGetBuyDeSoFeeBasisPoints             = "/api/v0/admin/get-buy-deso-fee-basis-points"
 
 	// admin_transaction.go
-	RoutePathGetGlobalParams                    = "/api/v0/get-global-params"
-	RoutePathTestSignTransactionWithDerivedKey  = "/api/v0/admin/test-sign-transaction-with-derived-key"
+	RoutePathGetGlobalParams                   = "/api/v0/get-global-params"
+	RoutePathTestSignTransactionWithDerivedKey = "/api/v0/admin/test-sign-transaction-with-derived-key"
+
 	// Eventually we will deprecate the admin endpoint since it does not need to be protected.
-	RoutePathAdminGetGlobalParams               = "/api/v0/admin/get-global-params"
-	RoutePathUpdateGlobalParams                 = "/api/v0/admin/update-global-params"
-	RoutePathSwapIdentity                       = "/api/v0/admin/swap-identity"
+	RoutePathAdminGetGlobalParams = "/api/v0/admin/get-global-params"
+	RoutePathUpdateGlobalParams   = "/api/v0/admin/update-global-params"
+	RoutePathSwapIdentity         = "/api/v0/admin/swap-identity"
 
 	// admin_user.go
 	RoutePathAdminUpdateUserGlobalMetadata         = "/api/v0/admin/update-user-global-metadata"
@@ -1324,9 +1325,22 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 		actualOrigin := r.Header.Get("Origin")
 		match := false
 		for _, allowedOrigin := range allowedOrigins {
-			// Note: Prior versions of this code used a regex, but I changed it to a literal match,
-			// since I didn't want to risk a security vulnerability with a broken regex
-			if allowedOrigin == actualOrigin || allowedOrigin == "*" {
+			// Match wildcard
+			if allowedOrigin == "*" {
+				match = true
+				break
+			}
+
+			// Exact match including protocol and subdomain e.g. https://my.domain.com
+			if allowedOrigin == actualOrigin {
+				match = true
+				break
+			}
+
+			// Match any domain excluding protocol and subdomain e.g. domain.com
+			actualDomain := strings.SplitAfterN(actualOrigin, ".", 2)
+			actualDomainStr := strings.Join(actualDomain, ".")
+			if actualDomainStr == allowedOrigin {
 				match = true
 				break
 			}
