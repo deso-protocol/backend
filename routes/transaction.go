@@ -2214,9 +2214,13 @@ func (fes *APIServer) AppendExtraData(ww http.ResponseWriter, req *http.Request)
 	if txn.ExtraData == nil {
 		txn.ExtraData = make(map[string][]byte)
 	}
-	extraData := preprocessExtraData(requestData.ExtraData)
-	for k,v := range extraData {
-		txn.ExtraData[k] = v
+	for k,v := range requestData.ExtraData {
+		vBytes, err := hex.DecodeString(v)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem decoding ExtraData: %v", err))
+			return
+		}
+		txn.ExtraData[k] = vBytes
 	}
 
 	// Get the final transaction bytes.
