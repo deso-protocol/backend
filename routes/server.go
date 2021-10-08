@@ -58,6 +58,7 @@ const (
 	RoutePathSendDiamonds             = "/api/v0/send-diamonds"
 	RoutePathAuthorizeDerivedKey      = "/api/v0/authorize-derived-key"
 	RoutePathAppendExtraData          = "/api/v0/append-extra-data"
+	RoutePathGetTransactionSpending   = "/api/v0/get-transaction-spending"
 
 	// user.go
 	RoutePathGetUsersStateless        = "/api/v0/get-users-stateless"
@@ -687,6 +688,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAppendExtraData,
 			fes.AppendExtraData,
+			PublicAccess,
+		},
+		{
+			"GetTransactionSpending",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetTransactionSpending,
+			fes.GetTransactionSpending,
 			PublicAccess,
 		},
 		{

@@ -16,8 +16,7 @@ type Node struct {
 	APIServer   *routes.APIServer
 	GlobalState *badger.DB
 	Config      *config.Config
-
-	CoreNode *coreCmd.Node
+	CoreNode    *coreCmd.Node
 }
 
 func NewNode(config *config.Config, coreNode *coreCmd.Node) *Node {
