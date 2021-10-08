@@ -2303,7 +2303,7 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 	for _, txInput := range txn.TxInputs {
 		utxoEntry := utxoView.GetUtxoEntryForUtxoKey((*lib.UtxoKey)(txInput))
 		if utxoEntry == nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Invalid txn input: %v", txInput))
+			_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Already spent utxo or invalid txn input: %v", txInput))
 			return
 		}
 		totalInputNanos += utxoEntry.AmountNanos
