@@ -41,6 +41,8 @@ deployment:
           value: "50000"
         - name: DATA_DIR
           value: "/db"
+        - name: SQS_URI
+          value: "${sqs_uri}"
       perEnv: [ ]
     ports:
     - name: http1

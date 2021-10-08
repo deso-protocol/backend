@@ -12,6 +12,7 @@ replace github.com/sasha-s/go-deadlock => ../core/third_party/github.com/sasha-s
 
 require (
 	cloud.google.com/go/storage v1.15.0
+	github.com/aws/aws-sdk-go-v2 v1.9.1 // indirect
 	github.com/btcsuite/btcd v0.21.0-beta
 	github.com/btcsuite/btcutil v1.0.2
 	github.com/deso-protocol/core v0.0.0-00010101000000-000000000000

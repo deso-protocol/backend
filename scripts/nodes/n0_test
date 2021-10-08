@@ -39,4 +39,5 @@ rm /tmp/main.*.log
   --secure-header-development=true \
   --block-cypher-api-key=092dae962ea44b02809a4c74408b42a1 \
   --min-satoshis-for-profile=0 \
-  --show-processing-spinners=true )
+  --show-processing-spinners=true \
+  --sqs-uri='https://sqs.us-east-1.amazonaws.com/067550988196/transactions-worker-input-queue')

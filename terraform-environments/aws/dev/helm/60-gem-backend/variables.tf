@@ -3,3 +3,9 @@ variable "pg_password" {
   type        = string
   sensitive   = true
 }
+
+variable "sqs_uri" {
+  description = "the url of the destination sqs"
+  type        = string
+  sensitive   = true
+}
