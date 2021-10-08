@@ -24,6 +24,7 @@ jobs:
       # path that has changed will be included in.
       TERRAFORM_CHECK_PATH: terraform-environments/aws/dev
       TF_VAR_pg_password: ${{ secrets.TF_VAR_pg_password }}
+      TF_VAR_sqs_uri: ${{ secrets.TF_VAR_sqs_uri }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -92,6 +93,7 @@ jobs:
           cli_config_credentials_token: ${{ secrets.TF_API_TOKEN_DEV }}
         env:
           TF_VAR_pg_password: ${{ secrets.TF_VAR_pg_password }}
+          TF_VAR_sqs_uri: ${{ secrets.TF_VAR_sqs_uri }}
       # - name: debug1
       #   id: debug1
       #   working-directory: ${{matrix.tf_config}}
@@ -121,6 +123,7 @@ jobs:
         env:
           PLAN: "terraform\n${{ steps.plan.outputs.stdout }}"
           TF_VAR_pg_password: ${{ secrets.TF_VAR_pg_password }}
+          TF_VAR_sqs_uri: ${{ secrets.TF_VAR_sqs_uri }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -147,5 +150,6 @@ jobs:
         working-directory: ${{matrix.tf_config}}
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         env:
-          TF_VAR_pg_password: ${{ secrets.TF_VAR_pg_password }}        
+          TF_VAR_pg_password: ${{ secrets.TF_VAR_pg_password }}
+          TF_VAR_sqs_uri: ${{ secrets.TF_VAR_sqs_uri }}
         run: terraform apply -auto-approve
