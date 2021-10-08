@@ -1356,16 +1356,16 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 		if r.RequestURI == RoutePathUploadImage && strings.HasPrefix(contentType, "multipart/form-data") {
 			match = true
 			actualOrigin = "*"
-		} else if r.RequestURI == RoutePathGetJumioStatusForPublicKey {
-			// we set the headers for all requests to GetJumioStatusForPublicKey. This allows third-party frontends to
-			// access this endpoint
+		} else if r.RequestURI == RoutePathGetJumioStatusForPublicKey || r.RequestURI == RoutePathUploadVideo || r.RequestURI == RoutePathGetVideoStatus {
+			// We set the headers for all requests to GetJumioStatusForPublicKey, UploadVideo, and GetVideoStatus.
+			// This allows third-party frontends to access this endpoint
 			match = true
 			actualOrigin = "*"
-		} else if r.Method == "POST" && contentType != "application/json" && r.RequestURI != RoutePathJumioCallback && r.RequestURI != RoutePathUploadVideo {
+		} else if r.Method == "POST" && contentType != "application/json" && r.RequestURI != RoutePathJumioCallback {
 			invalidPostRequest = true
 		}
 
-		if match || r.RequestURI == RoutePathUploadImage || r.RequestURI == RoutePathGetJumioStatusForPublicKey {
+		if match {
 			// Needed in order for the user's browser to set a cookie
 			w.Header().Add("Access-Control-Allow-Credentials", "true")
 
