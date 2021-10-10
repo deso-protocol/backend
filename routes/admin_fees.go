@@ -17,7 +17,8 @@ type TransactionFee struct {
 	// PublicKeyBase58Check is the public key of the user who receives the fee.
 	PublicKeyBase58Check string
 	// ProfileEntryResponse is only non-nil when TransactionFees are retrieved through admin endpoints.
-	// The ProfileEntryResponse is not used to display usernames and avatars in the admin dashboard.
+	// The ProfileEntryResponse is only used to display usernames and avatars in the admin dashboard and thus is
+	// excluded in other places to reduce payload sizes and improve performance.
 	ProfileEntryResponse *ProfileEntryResponse
 	// AmountNanos is the amount PublicKeyBase58Check receives when this fee is incurred.
 	AmountNanos          uint64
@@ -395,7 +396,7 @@ func (fes *APIServer) LogFeeSet(txnType lib.TxnType, transactionFees []Transacti
 		totalFees += transactionFee.AmountNanos
 	}
 	tags := []string{}
-	if err := fes.backendServer.GetStatsdClient().Gauge(fmt.Sprintf("%v_NODE_FEE_TOTAL", txnType.GetTxnString()), float64(totalFees), tags, 1); err != nil {
+	if err := fes.backendServer.GetStatsdClient().Gauge(fmt.Sprintf("NODE_FEE_TOTAL.%v", txnType.GetTxnString()), float64(totalFees), tags, 1); err != nil {
 		return err
 	}
 	return nil
