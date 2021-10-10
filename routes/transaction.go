@@ -2144,19 +2144,205 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// getTransactionFee transforms transactionFees specified in an API request body to DeSoOutput and combines that with node-level transaction fees for this transaction type.
 func (fes *APIServer) getTransactionFee(txnType lib.TxnType, transactorPublicKey []byte, transactionFees []TransactionFee) (_outputs []*lib.DeSoOutput, _err error) {
+  // Transform transaction fees specified by the API request body.
 	extraOutputs, err := TransformTransactionFeesToOutputs(transactionFees)
 	if err != nil {
 		return nil, err
 	}
+  // Look up node-level fees for this transaction type.
 	fees := fes.TransactionFeeMap[txnType]
-	// If there are no node fees for this transaction type, don't even bother checking exempt public keys
+	// If there are no node fees for this transaction type, don't even bother checking exempt public keys, just return the DeSoOutputs specified by the API request body.
 	if len(fees) == 0 {
 		return extraOutputs, nil
 	}
+  // If this node has designated this public key as one exempt from node-level fees, only return the DeSoOutputs requested by the API request body.
 	if _, exists := fes.ExemptPublicKeyMap[lib.PkToString(transactorPublicKey, fes.Params)]; exists {
-		return []*lib.DeSoOutput{}, nil
+		return extraOutputs, nil
 	}
+  // Append the fees to the extraOutputs and return.
 	newOutputs := append(extraOutputs, fees...)
 	return newOutputs, nil
+}
+
+// AuthorizeDerivedKeyRequest ...
+type AuthorizeDerivedKeyRequest struct {
+	// The original public key of the derived key owner.
+	OwnerPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// The derived public key
+	DerivedPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// The expiration block of the derived key pair.
+	ExpirationBlock uint64 `safeForLogging:"true"`
+
+	// The signature of hash(derived key + expiration block) made by the owner.
+	AccessSignature string `safeForLogging:"true"`
+
+	// The intended operation on the derived key.
+	DeleteKey bool `safeForLogging:"true"`
+
+	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+}
+
+// AuthorizeDerivedKeyResponse ...
+type AuthorizeDerivedKeyResponse struct {
+	SpendAmountNanos  uint64
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgDeSoTxn
+	TransactionHex    string
+	TxnHashHex        string
+}
+
+// AuthorizeDerivedKey ...
+func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Request){
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AuthorizeDerivedKeyRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem parsing request body: %v", err))
+		return
+	}
+
+	if requestData.OwnerPublicKeyBase58Check == "" ||
+		requestData.DerivedPublicKeyBase58Check == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Must provide an owner and a derived key."))
+		return
+	}
+
+	// Decode the owner public key
+	ownerPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.OwnerPublicKeyBase58Check)
+	if err != nil || len(ownerPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AuthorizeDerivedKey: Problem decoding owner public key %s: %v",
+			requestData.OwnerPublicKeyBase58Check, err))
+		return
+	}
+
+	// Decode the derived public key
+	derivedPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.DerivedPublicKeyBase58Check)
+	if err != nil || len(derivedPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AuthorizeDerivedKey: Problem decoding derived public key %s: %v",
+			requestData.DerivedPublicKeyBase58Check, err))
+		return
+	}
+
+	// Make sure owner and derived keys are different
+	if reflect.DeepEqual(ownerPublicKeyBytes, derivedPublicKeyBytes) {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Owner and derived public keys cannot be the same."))
+		return
+	}
+
+	// Decode the access signature
+	accessSignature, err := hex.DecodeString(requestData.AccessSignature)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Couldn't decode access signature."))
+		return
+	}
+
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateAuthorizeDerivedKeyTxn(
+		ownerPublicKeyBytes,
+		derivedPublicKeyBytes,
+		requestData.ExpirationBlock,
+		accessSignature,
+		requestData.DeleteKey,
+		// Standard transaction fields
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem creating transaction: %v", err))
+		return
+	}
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := AuthorizeDerivedKeyResponse{
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+		TxnHashHex:        txn.Hash().String(),
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+// AppendExtraDataRequest ...
+type AppendExtraDataRequest struct {
+	// Transaction hex.
+	TransactionHex string `safeForLogging:"true"`
+
+	// ExtraData object.
+	ExtraData map[string]string `safeForLogging:"true"`
+}
+
+// AppendExtraDataResponse ...
+type AppendExtraDataResponse struct {
+	// Final Transaction hex.
+	TransactionHex string `safeForLogging:"true"`
+}
+
+// AppendExtraData ...
+// This endpoint allows setting custom ExtraData for a given transaction hex.
+func (fes *APIServer) AppendExtraData(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AppendExtraDataRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Get the transaction bytes from the request data.
+	txnBytes, err := hex.DecodeString(requestData.TransactionHex)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem decoding transaction hex %v", err))
+		return
+	}
+
+	// Deserialize transaction from transaction bytes.
+	txn := &lib.MsgDeSoTxn{}
+	err = txn.FromBytes(txnBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem deserializing transaction from bytes: %v", err))
+		return
+	}
+
+	// Append ExtraData entries
+	if txn.ExtraData == nil {
+		txn.ExtraData = make(map[string][]byte)
+	}
+	for k,v := range requestData.ExtraData {
+		vBytes, err := hex.DecodeString(v)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem decoding ExtraData: %v", err))
+			return
+		}
+		txn.ExtraData[k] = vBytes
+	}
+
+	// Get the final transaction bytes.
+	txnBytesFinal, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Return the fianl transaction bytes.
+	res := AppendExtraDataResponse{
+		TransactionHex: hex.EncodeToString(txnBytesFinal),
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem encoding response as JSON: %v", err))
+		return
+	}
 }

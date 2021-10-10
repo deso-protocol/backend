@@ -9,6 +9,8 @@ COMMAND="./backend run
   --api-port=19001
   --protocol-port=19000
   --txindex=true
+  --admin-public-keys=*
+  --super-admin-public-keys=*
   --block-cypher-api-key=092dae962ea44b02809a4c74408b42a1
   --data-dir=/tmp/cound-txns-0"
 
