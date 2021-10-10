@@ -83,6 +83,9 @@ const (
 	RoutePathGetPostsForPublicKey   = "/api/v0/get-posts-for-public-key"
 	RoutePathGetDiamondedPosts      = "/api/v0/get-diamonded-posts"
 
+	// hot_feed.go
+	RoutePathGetHotFeed = "/api/v0/get-hot-feed"
+
 	// nft.go
 	RoutePathCreateNFT                = "/api/v0/create-nft"
 	RoutePathUpdateNFT                = "/api/v0/update-nft"
@@ -171,9 +174,11 @@ const (
 	RoutePathAdminGetUserAdminData                 = "/api/v0/admin/get-user-admin-data"
 
 	// admin_feed.go
-	RoutePathAdminUpdateGlobalFeed     = "/api/v0/admin/update-global-feed"
-	RoutePathAdminPinPost              = "/api/v0/admin/pin-post"
-	RoutePathAdminRemoveNilPosts       = "/api/v0/admin/remove-nil-posts"
+	RoutePathAdminUpdateGlobalFeed = "/api/v0/admin/update-global-feed"
+	RoutePathAdminPinPost          = "/api/v0/admin/pin-post"
+	RoutePathAdminRemoveNilPosts   = "/api/v0/admin/remove-nil-posts"
+
+	// hot_feed.go
 	RoutePathAdminGetUnfilteredHotFeed = "/api/v0/admin/get-unfiltered-hot-feed"
 
 	// admin_nft.go
@@ -535,6 +540,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetDiamondedPosts,
 			fes.GetDiamondedPosts,
+			PublicAccess,
+		},
+		{
+			"GetHotFeed",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetHotFeed,
+			fes.GetHotFeed,
 			PublicAccess,
 		},
 		{

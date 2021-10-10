@@ -2,6 +2,7 @@ package routes
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,6 +30,7 @@ const (
 // A single element in the server's HotFeedOrderedList.
 type HotFeedEntry struct {
 	PostHash     *lib.BlockHash
+	PostHashHex  string
 	HotnessScore uint64
 }
 
@@ -191,6 +193,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList() (_hotFeedPostsMap map[lib.Block
 		postHash := postHashKey
 		hotFeedEntry := &HotFeedEntry{
 			PostHash:     &postHash,
+			PostHashHex:  hex.EncodeToString(postHash[:]),
 			HotnessScore: hotnessScoreValue,
 		}
 		hotFeedOrderedList = append(hotFeedOrderedList, hotFeedEntry)
@@ -312,39 +315,66 @@ func (fes *APIServer) PruneHotFeedApprovedPostsMap(
 	}
 }
 
-type AdminGetUnfilteredHotFeedRequest struct {
+type HotFeedPageRequest struct {
+	// Since the hot feed is constantly changing, we pass a map of posts that have already
+	// been seen in order to send a more accurate next page. The bool value is unused and
+	// only included because golang does not have a native "Set" datastructure.
+	SeenPostsMap map[string]bool
+	// Number of post entry responses to return.
 	ResponseLimit int
 }
 
-type GetUnfilteredHotFeedResponse struct {
-	HotFeed []PostEntryResponse
+type HotFeedPageResponse struct {
+	HotFeedPage []PostEntryResponse
 }
 
 func (fes *APIServer) AdminGetUnfilteredHotFeed(ww http.ResponseWriter, req *http.Request) {
+	fes.HandleHotFeedPageRequest(ww, req, false /*approvedPostsOnly*/)
+}
+
+func (fes *APIServer) GetHotFeed(ww http.ResponseWriter, req *http.Request) {
+	fes.HandleHotFeedPageRequest(ww, req, true /*approvedPostsOnly*/)
+}
+
+func (fes *APIServer) HandleHotFeedPageRequest(
+	ww http.ResponseWriter,
+	req *http.Request,
+	approvedPostsOnly bool,
+) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := AdminGetUnfilteredHotFeedRequest{}
+	requestData := HotFeedPageRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUnfilteredHotFeed: Problem parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("HandleHotFeedPageRequest: Problem parsing request body: %v", err))
 		return
 	}
 
 	// Get a view.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUnfilteredHotFeed: Error getting utxoView: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("HandleHotFeedPageRequest: Error getting utxoView: %v", err))
 		return
 	}
 	// Grab verified username map pointer.
 	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUnfilteredHotFeed: Problem fetching verifiedMap: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("HandleHotFeedPageRequest: Problem fetching verifiedMap: %v", err))
 		return
 	}
 
 	hotFeed := []PostEntryResponse{}
-	for hotFeedIdx, hotFeedEntry := range fes.HotFeedOrderedList {
-		if requestData.ResponseLimit != 0 && hotFeedIdx > requestData.ResponseLimit {
+	for _, hotFeedEntry := range fes.HotFeedOrderedList {
+		if requestData.ResponseLimit != 0 && len(hotFeed) > requestData.ResponseLimit {
 			break
+		}
+
+		// Skip posts that have already been seen.
+		if _, alreadySeen := requestData.SeenPostsMap[hotFeedEntry.PostHashHex]; alreadySeen {
+			continue
+		}
+
+		// Skip posts that aren't approved yet, if requested.
+		if _, isApproved := fes.HotFeedApprovedPosts[*hotFeedEntry.PostHash]; approvedPostsOnly && !isApproved {
+			continue
 		}
 
 		postEntry := utxoView.GetPostEntryForPostHash(hotFeedEntry.PostHash)
@@ -359,11 +389,9 @@ func (fes *APIServer) AdminGetUnfilteredHotFeed(ww http.ResponseWriter, req *htt
 		hotFeed = append(hotFeed, *postEntryResponse)
 	}
 
-	_, _ = utxoView, verifiedMap
-
-	res := GetUnfilteredHotFeedResponse{HotFeed: hotFeed}
+	res := HotFeedPageResponse{HotFeedPage: hotFeed}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUnfilteredHotFeed: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("HandleHotFeedPageRequest: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
