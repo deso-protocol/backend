@@ -254,9 +254,10 @@ type APIServer struct {
 	HotFeedOrderedList []*HotFeedEntry
 	// The height of the last block evaluated by the hotness routine.
 	HotnessBlockHeight uint32
-	// Map of whitelisted post hashes used for serving the hot feed. The value is the timestamp
-	// of the post, which is used to prune the map since only recent posts are relevant.
-	WhitelistedPostHashes map[lib.BlockHash]uint64
+	// Map of whitelisted post hashes used for serving the hot feed. Since we only care about
+	// whether a post hash is in the map or not, we use a nil byte slice for the values.
+	HotFeedApprovedPosts              map[lib.BlockHash][]byte
+	LastHotFeedOpProcessedTstampNanos uint64
 
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}

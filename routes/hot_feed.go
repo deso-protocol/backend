@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +18,14 @@ import (
 // as API functionality for retrieving scored posts. The algorithm for assessing a post's
 // "hotness" is experimental and will likely be iterated upon depending on its results.
 
+// HotnessFeed scoring algorithm knobs.
+const (
+	// Number of blocks per halving for the scoring time decay.
+	HotnessScoreTimeDecayBlocks uint64 = 72
+	// Maximum score amount that any individual PKID can contribute before time decay.
+	HotnessScoreInteractionCap uint64 = 3e12
+)
+
 // A single element in the server's HotFeedOrderedList.
 type HotFeedEntry struct {
 	PostHash     *lib.BlockHash
@@ -29,15 +38,18 @@ type HotFeedInteractionKey struct {
 	InteractionPostHash lib.BlockHash
 }
 
-// A cached "HotFeedOrderedList" is stored on the server and updated every 10 seconds.
+// A cached "HotFeedOrderedList" is stored on the server object and updated whenever a new
+// block is found. In addition, a "HotFeedApprovedPostMap" is maintained using hot feed
+// approval/removal operations stored in global state. Once started, the routine runs every
+// second in order to make sure hot feed removals are processed quickly.
 func (fes *APIServer) StartHotFeedRoutine() {
 	glog.Info("Starting hot feed routine.")
 	go func() {
 	out:
 		for {
 			select {
-			case <-time.After(10 * time.Second):
-				fes.UpdateHotFeedOrderedList()
+			case <-time.After(1 * time.Second):
+				fes.UpdateHotFeed()
 			case <-fes.quit:
 				break out
 			}
@@ -46,40 +58,126 @@ func (fes *APIServer) StartHotFeedRoutine() {
 }
 
 // The business.
-func (fes *APIServer) UpdateHotFeedOrderedList() {
+func (fes *APIServer) UpdateHotFeed() {
+	// We copy the HotFeedApprovedPosts map so we can access it safely without locking it.
+	hotFeedApprovedPosts := fes.CopyHotFeedApprovedPostsMap()
+
+	// Update the approved posts map based on global state.
+	fes.UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts)
+
+	// Update the HotFeedOrderedList based on the last 288 blocks.
+	hotFeedPosts := fes.UpdateHotFeedOrderedList()
+
+	// The hotFeedPostsMap will be nil unless we found new blocks in the call above.
+	if hotFeedPosts != nil {
+		fes.PruneHotFeedApprovedPostsMap(hotFeedPosts, hotFeedApprovedPosts)
+	}
+
+	// Replace the HotFeedApprovedPostsMap with the fresh one.
+	fes.HotFeedApprovedPosts = hotFeedApprovedPosts
+}
+
+func (fes *APIServer) UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts map[lib.BlockHash][]byte) {
+	// Grab all of the relevant operations to update the map with.
+	startTimestampNanos := uint64(time.Now().UTC().AddDate(0, 0, -1).UnixNano()) // 1 day ago.
+	if fes.LastHotFeedOpProcessedTstampNanos != 0 {
+		startTimestampNanos = fes.LastHotFeedOpProcessedTstampNanos
+	}
+	startPrefix := GlobalStateSeekKeyForHotFeedOps(startTimestampNanos)
+	opKeys, _, err := fes.GlobalStateSeek(
+		startPrefix,
+		_GlobalStatePrefixForHotFeedOps, /*validForPrefix*/
+		0,                               /*maxKeyLen -- ignored since reverse is false*/
+		0,                               /*numToFetch -- 0 is ignored*/
+		false,                           /*reverse*/
+		false,                           /*fetchValues*/
+	)
+	if err != nil {
+		glog.Infof("UpdateHotFeedApprovedPostsMap: GlobalStateSeek failed: %v", err)
+	}
+
+	// Chop up the keys and process each operation.
+	for _, opKey := range opKeys {
+		// Each key consists of: prefix, timestamp, posthash, IsRemoval bool.
+		timestampStartIdx := 1
+		postHashStartIdx := timestampStartIdx + 8
+		isRemovalBoolStartIdx := postHashStartIdx + 8
+
+		postHashBytes := opKey[postHashStartIdx:isRemovalBoolStartIdx]
+		isRemovalBoolBytes := opKey[isRemovalBoolStartIdx:]
+
+		postHash := &lib.BlockHash{}
+		copy(postHash[:], postHashBytes)
+		isRemoval := lib.ReadBoolByte(bytes.NewReader(isRemovalBoolBytes))
+
+		if isRemoval {
+			delete(hotFeedApprovedPosts, *postHash)
+		} else {
+			hotFeedApprovedPosts[*postHash] = []byte{}
+		}
+	}
+}
+
+func (fes *APIServer) CopyHotFeedApprovedPostsMap() map[lib.BlockHash][]byte {
+	hotFeedApprovedPosts := make(map[lib.BlockHash][]byte, len(fes.HotFeedApprovedPosts))
+	for postKey := range fes.HotFeedApprovedPosts {
+		hotFeedApprovedPosts[postKey] = []byte{}
+	}
+	return hotFeedApprovedPosts
+}
+
+func (fes *APIServer) UpdateHotFeedOrderedList() (_hotFeedPostsMap map[lib.BlockHash]uint64) {
 	// If we have already seen the latest block or the chain is out of sync, bail.
 	blockTip := fes.blockchain.BlockTip()
 	chainState := fes.blockchain.ChainState()
 	if blockTip.Height <= fes.HotnessBlockHeight || chainState != lib.SyncStateFullyCurrent {
-		return
+		return nil
 	}
 
-	glog.Info("Attempting to update hot feed with new blocks.")
+	glog.Info("Attempting to update HotFeedOrderedList with new blocks.")
 	start := time.Now()
 
 	// Get a utxoView for lookups.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		glog.Infof("UpdateHotFeedOrderedList: Failed to get ordered list: %v", err)
-		return
+		glog.Infof("UpdateHotFeedOrderedList: Failed to get utxo view: %v", err)
+		return nil
 	}
 
 	// Grab the last 24 hours worth of blocks (288 blocks @ 5min/block).
 	blockTipIndex := len(fes.blockchain.BestChain()) - 1
-	relevantNodes := fes.blockchain.BestChain()[blockTipIndex-288 : blockTipIndex]
+	relevantNodes := fes.blockchain.BestChain()
+	if len(fes.blockchain.BestChain()) > 288 {
+		relevantNodes = fes.blockchain.BestChain()[blockTipIndex-288 : blockTipIndex]
+	}
 
 	// Iterate over the blocks and track hotness scores.
 	hotnessScoreMap := make(map[lib.BlockHash]uint64)
 	postInteractionMap := make(map[HotFeedInteractionKey][]byte)
-	for _, node := range relevantNodes {
+	for blockIdx, node := range relevantNodes {
 		block, _ := lib.GetBlock(node.Hash, utxoView.Handle)
 		for _, txn := range block.Txns {
+			// We only care about posts created in the last 24hrs. There should always be a
+			// transaction that creates a given post before someone interacts with it. By only
+			// scoring posts that meet this condition, we can restrict the HotFeedOrderedList
+			// to posts from the last 24hours without even looking up the post time stamp.
+			isCreatePost, postHashCreated := CheckTxnForCreatePost(txn)
+			if isCreatePost {
+				hotnessScoreMap[*postHashCreated] = 0
+				continue
+			}
+
 			// Evaluate the txn and attempt to update the hotnessScoreMap.
-			postHashScored, txnHotnessScore := GetHotnessScoreInfoForTxn(txn, postInteractionMap, utxoView)
+			postHashScored, txnHotnessScore := GetHotnessScoreInfoForTxn(
+				txn, blockIdx, postInteractionMap, utxoView)
 			if txnHotnessScore != 0 && postHashScored != nil {
-				prevHotnessScore := hotnessScoreMap[*postHashScored]
+				prevHotnessScore, inHotnessScoreMap := hotnessScoreMap[*postHashScored]
 				// Check for overflow just in case.
 				if prevHotnessScore > math.MaxInt64-txnHotnessScore {
+					continue
+				}
+				// If it isn't in the hotnessScoreMap yet, it wasn't created in the last 24hrs.
+				if !inHotnessScoreMap {
 					continue
 				}
 				hotnessScoreMap[*postHashScored] = prevHotnessScore + txnHotnessScore
@@ -106,14 +204,32 @@ func (fes *APIServer) UpdateHotFeedOrderedList() {
 	fes.HotnessBlockHeight = blockTip.Height
 
 	elapsed := time.Since(start)
-	glog.Infof("Successfully updated DIAMOND hot feed in %s", elapsed)
+	glog.Infof("Successfully updated HotFeedOrderedList in %s", elapsed)
+
+	return hotnessScoreMap
+}
+
+func CheckTxnForCreatePost(txn *lib.MsgDeSoTxn) (
+	_isCreatePostTxn bool, _postHashCreated *lib.BlockHash) {
+	if txn.TxnMeta.GetTxnType() == lib.TxnTypeSubmitPost {
+		txMeta := txn.TxnMeta.(*lib.SubmitPostMetadata)
+		// The post hash of a brand new post is the same as its txn hash.
+		if len(txMeta.PostHashToModify) == 0 {
+			return true, txn.Hash()
+		}
+	}
+
+	return false, nil
 }
 
 // Returns the post hash that a txn is relevant to and the amount that the txn should contribute
 // to that post's hotness score. The postInteractionMap is used to ensure that each PKID only
 // gets one interaction per post.
-func GetHotnessScoreInfoForTxn2(
-	txn *lib.MsgDeSoTxn, postInteractionMap map[HotFeedInteractionKey][]byte, utxoView *lib.UtxoView,
+func GetHotnessScoreInfoForTxn(
+	txn *lib.MsgDeSoTxn,
+	blockIndex int, // Position in the last 288 blocks.  Not block height.
+	postInteractionMap map[HotFeedInteractionKey][]byte,
+	utxoView *lib.UtxoView,
 ) (_postHashScored *lib.BlockHash, _hotnessScore uint64) {
 	// Figure out who is responsible for the transaction.
 	interactionPKIDEntry := utxoView.GetPKIDForPublicKey(txn.PublicKey)
@@ -160,24 +276,15 @@ func GetHotnessScoreInfoForTxn2(
 		return nil, 0
 	}
 
-	// Now that we have the post hash for the interaction, we must decide if it is relevant.
-	interactionPostEntry := utxoView.GetPostEntryForPostHash(interactionPostHash)
-	// If the post is >24hrs old, it's not relevant.
-	oneDayAgoTimestampNanos := uint64(time.Now().Add(-time.Hour * 24).UTC().UnixNano())
-	if interactionPostEntry.TimestampNanos < oneDayAgoTimestampNanos {
-		return nil, 0
-	}
-	if len(interactionPostEntry.ParentStakeID) > 0 {
-		return nil, 0
-	}
-
-	// Check to see if we've seen this interaction pair before.
+	// Check to see if we've seen this interaction pair before. Log an interaction if not.
 	interactionKey := HotFeedInteractionKey{
 		InteractionPKID:     *interactionPKIDEntry.PKID,
 		InteractionPostHash: *interactionPostHash,
 	}
 	if _, exists := postInteractionMap[interactionKey]; exists {
 		return nil, 0
+	} else {
+		postInteractionMap[interactionKey] = []byte{}
 	}
 
 	// Finally return the post hash and the txn's hotness score.
@@ -187,55 +294,21 @@ func GetHotnessScoreInfoForTxn2(
 		return nil, 0
 	}
 	hotnessScore := interactionProfile.DeSoLockedNanos
-	if hotnessScore > 3e12 {
-		hotnessScore = 3e12
+	if hotnessScore > HotnessScoreInteractionCap {
+		hotnessScore = HotnessScoreInteractionCap
 	}
-	return interactionPostHash, hotnessScore
+	hotnessScoreTimeDecayed := uint64(float64(hotnessScore) *
+		math.Pow(0.5, float64(blockIndex)/float64(HotnessScoreTimeDecayBlocks)))
+	return interactionPostHash, hotnessScoreTimeDecayed
 }
 
-// Returns the post hash that a txn is relevant to and the amount that the txn should contribute
-// to that post's hotness score. The postInteractionMap is used to ensure that each PKID only
-// gets one interaction per post.
-func GetHotnessScoreInfoForTxn(
-	txn *lib.MsgDeSoTxn, postInteractionMap map[HotFeedInteractionKey][]byte, utxoView *lib.UtxoView,
-) (_postHashScored *lib.BlockHash, _hotnessScore uint64) {
-
-	// Figure out which post this transaction should affect.
-	interactionPostHash := &lib.BlockHash{}
-	txnType := txn.TxnMeta.GetTxnType()
-	if txnType == lib.TxnTypeBasicTransfer {
-		// Check for a post being diamonded.
-		diamondPostHashBytes, hasDiamondPostHash := txn.ExtraData[lib.DiamondPostHashKey]
-		if hasDiamondPostHash {
-			copy(interactionPostHash[:], diamondPostHashBytes[:])
-			postEntry := utxoView.GetPostEntryForPostHash(interactionPostHash)
-			// If the post is >24hrs old, it's not relevant.
-			oneDayAgoTimestampNanos := uint64(time.Now().Add(-time.Hour * 24).UTC().UnixNano())
-			if postEntry.TimestampNanos < oneDayAgoTimestampNanos {
-				return nil, 0
-			}
-			if len(postEntry.ParentStakeID) > 0 {
-				return nil, 0
-			}
-			amountsByPublicKey := make(map[lib.PkMapKey]uint64)
-			for _, desoOutput := range txn.TxOutputs {
-				// Create a map of total output by public key. This is used to check diamond
-				// amounts below.
-				//
-				// Note that we don't need to check overflow here because overflow is checked
-				// directly above when adding to totalOutput.
-				currentAmount, _ := amountsByPublicKey[lib.MakePkMapKey(desoOutput.PublicKey)]
-				amountsByPublicKey[lib.MakePkMapKey(desoOutput.PublicKey)] = currentAmount + desoOutput.AmountNanos
-			}
-			return interactionPostHash, amountsByPublicKey[lib.MakePkMapKey(postEntry.PosterPublicKey)]
-		} else {
-			// If this basic transfer doesn't have a diamond, it is irrelevant.
-			return nil, 0
+func (fes *APIServer) PruneHotFeedApprovedPostsMap(
+	hotFeedPosts map[lib.BlockHash]uint64, hotFeedApprovedPosts map[lib.BlockHash][]byte,
+) {
+	for postHash := range fes.HotFeedApprovedPosts {
+		if _, inHotFeedMap := hotFeedPosts[postHash]; !inHotFeedMap {
+			delete(hotFeedApprovedPosts, postHash)
 		}
-
-	} else {
-		// This transaction is not relevant, bail.
-		return nil, 0
 	}
 }
 
