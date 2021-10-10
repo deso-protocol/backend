@@ -2183,6 +2183,9 @@ type AuthorizeDerivedKeyRequest struct {
 	// The intended operation on the derived key.
 	DeleteKey bool `safeForLogging:"true"`
 
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 }
 
@@ -2230,6 +2233,13 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		return
 	}
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeAuthorizeDerivedKey, ownerPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	// Make sure owner and derived keys are different
 	if reflect.DeepEqual(ownerPublicKeyBytes, derivedPublicKeyBytes) {
 		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Owner and derived public keys cannot be the same."))
@@ -2250,7 +2260,7 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		accessSignature,
 		requestData.DeleteKey,
 		// Standard transaction fields
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem creating transaction: %v", err))
 		return
