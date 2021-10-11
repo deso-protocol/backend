@@ -179,7 +179,9 @@ const (
 	RoutePathAdminRemoveNilPosts   = "/api/v0/admin/remove-nil-posts"
 
 	// hot_feed.go
-	RoutePathAdminGetUnfilteredHotFeed = "/api/v0/admin/get-unfiltered-hot-feed"
+	RoutePathAdminGetUnfilteredHotFeed   = "/api/v0/admin/get-unfiltered-hot-feed"
+	RoutePathAdminGetHotFeedAlgorithm    = "/api/v0/admin/get-hot-feed-algorithm"
+	RoutePathAdminUpdateHotFeedAlgorithm = "/api/v0/admin/update-hot-feed-algorithm"
 
 	// admin_nft.go
 	RoutePathAdminGetNFTDrop    = "/api/v0/admin/get-nft-drop"
@@ -263,6 +265,9 @@ type APIServer struct {
 	// whether a post hash is in the map or not, we use a nil byte slice for the values.
 	HotFeedApprovedPosts              map[lib.BlockHash][]byte
 	LastHotFeedOpProcessedTstampNanos uint64
+	// Constants for the hotness score algorithm.
+	HotFeedInteractionCap  uint64
+	HotFeedTimeDecayBlocks uint64
 
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
@@ -970,6 +975,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			AdminAccess,
 		},
 		// Super Admin routes
+		{
+			"AdminGetHotFeedAlgorithm",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetHotFeedAlgorithm,
+			fes.AdminGetHotFeedAlgorithm,
+			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateHotFeedAlgorithm",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateHotFeedAlgorithm,
+			fes.AdminUpdateHotFeedAlgorithm,
+			SuperAdminAccess,
+		},
 		{
 			"AdminGetUserAdminData",
 			[]string{"POST", "OPTIONS"},

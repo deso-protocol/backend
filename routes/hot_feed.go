@@ -22,9 +22,9 @@ import (
 // HotnessFeed scoring algorithm knobs.
 const (
 	// Number of blocks per halving for the scoring time decay.
-	HotnessScoreTimeDecayBlocks uint64 = 72
+	DefaultHotFeedTimeDecayBlocks uint64 = 72
 	// Maximum score amount that any individual PKID can contribute before time decay.
-	HotnessScoreInteractionCap uint64 = 3e12
+	DefaultHotFeedInteractionCap uint64 = 4e12
 )
 
 // A single element in the server's HotFeedOrderedList.
@@ -103,7 +103,7 @@ func (fes *APIServer) UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts map[lib
 		// Each key consists of: prefix, timestamp, posthash, IsRemoval bool.
 		timestampStartIdx := 1
 		postHashStartIdx := timestampStartIdx + 8
-		isRemovalBoolStartIdx := postHashStartIdx + 8
+		isRemovalBoolStartIdx := postHashStartIdx + lib.HashSizeBytes
 
 		postHashBytes := opKey[postHashStartIdx:isRemovalBoolStartIdx]
 		isRemovalBoolBytes := opKey[isRemovalBoolStartIdx:]
@@ -129,20 +129,62 @@ func (fes *APIServer) CopyHotFeedApprovedPostsMap() map[lib.BlockHash][]byte {
 }
 
 func (fes *APIServer) UpdateHotFeedOrderedList() (_hotFeedPostsMap map[lib.BlockHash]uint64) {
-	// If we have already seen the latest block or the chain is out of sync, bail.
+	// Check to see if any of the algorithm constants have changed.
+	foundNewConstants := false
+	globalStateInteractionCap, globalStateTimeDecayBlocks, err := fes.GetHotFeedConstantsFromGlobalState()
+	if err != nil {
+		glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to get constants: %v", err)
+		return nil
+	}
+	if globalStateInteractionCap == 0 || globalStateTimeDecayBlocks == 0 {
+		// The hot feed go routine has not been run yet since constants have not been set.
+		foundNewConstants = true
+		// Set the default constants in GlobalState and then on the server object.
+		err := fes.GlobalStatePut(
+			_GlobalStatePrefixForHotFeedInteractionCap,
+			lib.EncodeUint64(DefaultHotFeedInteractionCap),
+		)
+		if err != nil {
+			glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put InteractionCap: %v", err)
+			return nil
+		}
+		err = fes.GlobalStatePut(
+			_GlobalStatePrefixForHotFeedTimeDecayBlocks,
+			lib.EncodeUint64(DefaultHotFeedTimeDecayBlocks),
+		)
+		if err != nil {
+			glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put TimeDecayBlocks: %v", err)
+			return nil
+		}
+
+		// Now that we've successfully updated global state, set them on the server object.
+		fes.HotFeedInteractionCap = DefaultHotFeedInteractionCap
+		fes.HotFeedTimeDecayBlocks = DefaultHotFeedTimeDecayBlocks
+	} else if fes.HotFeedInteractionCap != globalStateInteractionCap ||
+		fes.HotFeedTimeDecayBlocks != globalStateTimeDecayBlocks {
+		// New constants were found in global state. Set them and proceed.
+		fes.HotFeedInteractionCap = globalStateInteractionCap
+		fes.HotFeedTimeDecayBlocks = globalStateTimeDecayBlocks
+		foundNewConstants = true
+	}
+
+	// If the constants for the algorithm haven't changed and we have already seen the latest
+	// block or the chain is out of sync, bail.
 	blockTip := fes.blockchain.BlockTip()
 	chainState := fes.blockchain.ChainState()
-	if blockTip.Height <= fes.HotnessBlockHeight || chainState != lib.SyncStateFullyCurrent {
+	if !foundNewConstants &&
+		(blockTip.Height <= fes.HotnessBlockHeight || chainState != lib.SyncStateFullyCurrent) {
 		return nil
 	}
 
-	glog.Info("Attempting to update HotFeedOrderedList with new blocks.")
+	// Log how long this routine takes, since it could be heavy.
+	glog.Info("UpdateHotFeedOrderedList: Starting new update cycle.")
 	start := time.Now()
 
 	// Get a utxoView for lookups.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		glog.Infof("UpdateHotFeedOrderedList: Failed to get utxo view: %v", err)
+		glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to get utxo view: %v", err)
 		return nil
 	}
 
@@ -170,7 +212,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList() (_hotFeedPostsMap map[lib.Block
 			}
 
 			// Evaluate the txn and attempt to update the hotnessScoreMap.
-			postHashScored, txnHotnessScore := GetHotnessScoreInfoForTxn(
+			postHashScored, txnHotnessScore := fes.GetHotnessScoreInfoForTxn(
 				txn, blockIdx, postInteractionMap, utxoView)
 			if txnHotnessScore != 0 && postHashScored != nil {
 				prevHotnessScore, inHotnessScoreMap := hotnessScoreMap[*postHashScored]
@@ -180,6 +222,11 @@ func (fes *APIServer) UpdateHotFeedOrderedList() (_hotFeedPostsMap map[lib.Block
 				}
 				// If it isn't in the hotnessScoreMap yet, it wasn't created in the last 24hrs.
 				if !inHotnessScoreMap {
+					continue
+				}
+				// Finally, make sure the post scored isn't a comment or repost.
+				postEntryScored := utxoView.GetPostEntryForPostHash(postHashScored)
+				if len(postEntryScored.ParentStakeID) > 0 || lib.IsVanillaRepost(postEntryScored) {
 					continue
 				}
 				hotnessScoreMap[*postHashScored] = prevHotnessScore + txnHotnessScore
@@ -212,6 +259,30 @@ func (fes *APIServer) UpdateHotFeedOrderedList() (_hotFeedPostsMap map[lib.Block
 	return hotnessScoreMap
 }
 
+func (fes *APIServer) GetHotFeedConstantsFromGlobalState() (
+	_interactionCap uint64, _timeDecayBlocks uint64, _err error,
+) {
+	interactionCapBytes, err := fes.GlobalStateGet(_GlobalStatePrefixForHotFeedInteractionCap)
+	if err != nil {
+		return 0, 0, nil
+	}
+	interactionCap := uint64(0)
+	if len(interactionCapBytes) > 0 {
+		interactionCap = lib.DecodeUint64(interactionCapBytes)
+	}
+
+	timeDecayBlocksBytes, err := fes.GlobalStateGet(_GlobalStatePrefixForHotFeedTimeDecayBlocks)
+	if err != nil {
+		return 0, 0, nil
+	}
+	timeDecayBlocks := uint64(0)
+	if len(timeDecayBlocksBytes) > 0 {
+		timeDecayBlocks = lib.DecodeUint64(timeDecayBlocksBytes)
+	}
+
+	return interactionCap, timeDecayBlocks, nil
+}
+
 func CheckTxnForCreatePost(txn *lib.MsgDeSoTxn) (
 	_isCreatePostTxn bool, _postHashCreated *lib.BlockHash) {
 	if txn.TxnMeta.GetTxnType() == lib.TxnTypeSubmitPost {
@@ -228,7 +299,7 @@ func CheckTxnForCreatePost(txn *lib.MsgDeSoTxn) (
 // Returns the post hash that a txn is relevant to and the amount that the txn should contribute
 // to that post's hotness score. The postInteractionMap is used to ensure that each PKID only
 // gets one interaction per post.
-func GetHotnessScoreInfoForTxn(
+func (fes *APIServer) GetHotnessScoreInfoForTxn(
 	txn *lib.MsgDeSoTxn,
 	blockIndex int, // Position in the last 288 blocks.  Not block height.
 	postInteractionMap map[HotFeedInteractionKey][]byte,
@@ -297,11 +368,11 @@ func GetHotnessScoreInfoForTxn(
 		return nil, 0
 	}
 	hotnessScore := interactionProfile.DeSoLockedNanos
-	if hotnessScore > HotnessScoreInteractionCap {
-		hotnessScore = HotnessScoreInteractionCap
+	if hotnessScore > fes.HotFeedInteractionCap {
+		hotnessScore = fes.HotFeedInteractionCap
 	}
 	hotnessScoreTimeDecayed := uint64(float64(hotnessScore) *
-		math.Pow(0.5, float64(blockIndex)/float64(HotnessScoreTimeDecayBlocks)))
+		math.Pow(0.5, float64(blockIndex)/float64(fes.HotFeedTimeDecayBlocks)))
 	return interactionPostHash, hotnessScoreTimeDecayed
 }
 
@@ -316,10 +387,9 @@ func (fes *APIServer) PruneHotFeedApprovedPostsMap(
 }
 
 type HotFeedPageRequest struct {
-	// Since the hot feed is constantly changing, we pass a map of posts that have already
-	// been seen in order to send a more accurate next page. The bool value is unused and
-	// only included because golang does not have a native "Set" datastructure.
-	SeenPostsMap map[string]bool
+	// Since the hot feed is constantly changing, we pass a list of posts that have already
+	// been seen in order to send a more accurate next page.
+	SeenPosts []string
 	// Number of post entry responses to return.
 	ResponseLimit int
 }
@@ -361,6 +431,12 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 		return
 	}
 
+	// Make the lists of posts a user has already seen into a map.
+	seenPostsMap := make(map[string][]byte)
+	for _, postHashHex := range requestData.SeenPosts {
+		seenPostsMap[postHashHex] = []byte{}
+	}
+
 	hotFeed := []PostEntryResponse{}
 	for _, hotFeedEntry := range fes.HotFeedOrderedList {
 		if requestData.ResponseLimit != 0 && len(hotFeed) > requestData.ResponseLimit {
@@ -368,7 +444,7 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 		}
 
 		// Skip posts that have already been seen.
-		if _, alreadySeen := requestData.SeenPostsMap[hotFeedEntry.PostHashHex]; alreadySeen {
+		if _, alreadySeen := seenPostsMap[hotFeedEntry.PostHashHex]; alreadySeen {
 			continue
 		}
 
@@ -378,7 +454,7 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 		}
 
 		postEntry := utxoView.GetPostEntryForPostHash(hotFeedEntry.PostHash)
-		postEntryResponse, err := fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, nil, 1)
+		postEntryResponse, err := fes._postEntryToResponse(postEntry, true, fes.Params, utxoView, nil, 1)
 		if err != nil {
 			continue
 		}
@@ -392,6 +468,91 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 	res := HotFeedPageResponse{HotFeedPage: hotFeed}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("HandleHotFeedPageRequest: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type AdminUpdateHotFeedAlgorithmRequest struct {
+	// Maximum score amount that any individual PKID can contribute to the hot feed score
+	// before time decay. Ignored if set to zero.
+	InteractionCap int
+	// Number of blocks per halving for the hot feed score time decay. Ignored if set to zero.
+	TimeDecayBlocks int
+}
+
+type AdminUpdateHotFeedAlgorithmResponse struct{}
+
+func (fes *APIServer) AdminUpdateHotFeedAlgorithm(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminUpdateHotFeedAlgorithmRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateHotFeedAlgorithm: Problem parsing request body: %v", err))
+		return
+	}
+
+	if requestData.InteractionCap < 0 || requestData.TimeDecayBlocks < 0 {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AdminUpdateHotFeedAlgorithm: InteractionCap (%d) and TimeDecayBlocks (%d) can't be negative.",
+			requestData.InteractionCap, requestData.TimeDecayBlocks))
+		return
+	}
+
+	if requestData.InteractionCap > 0 {
+		err := fes.GlobalStatePut(
+			_GlobalStatePrefixForHotFeedInteractionCap,
+			lib.EncodeUint64(uint64(requestData.InteractionCap)),
+		)
+		if err != nil {
+			_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateHotFeedAlgorithm: Error putting InteractionCap: %v", err))
+			return
+		}
+	}
+
+	if requestData.TimeDecayBlocks > 0 {
+		err := fes.GlobalStatePut(
+			_GlobalStatePrefixForHotFeedTimeDecayBlocks,
+			lib.EncodeUint64(uint64(requestData.TimeDecayBlocks)),
+		)
+		if err != nil {
+			_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateHotFeedAlgorithm: Error putting TimeDecayBlocks: %v", err))
+			return
+		}
+	}
+
+	res := AdminUpdateHotFeedAlgorithmResponse{}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateHotFeedAlgorithm: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type AdminGetHotFeedAlgorithmRequest struct{}
+
+type AdminGetHotFeedAlgorithmResponse struct {
+	InteractionCap  uint64
+	TimeDecayBlocks uint64
+}
+
+func (fes *APIServer) AdminGetHotFeedAlgorithm(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminGetHotFeedAlgorithmRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetHotFeedAlgorithm: Problem parsing request body: %v", err))
+		return
+	}
+
+	interactionCap, timeDecayBlocks, err := fes.GetHotFeedConstantsFromGlobalState()
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("AdminGetHotFeedAlgorithm: Error getting constants: %v", err))
+		return
+	}
+
+	res := AdminGetHotFeedAlgorithmResponse{
+		InteractionCap:  interactionCap,
+		TimeDecayBlocks: timeDecayBlocks,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetHotFeedAlgorithm: Problem encoding response as JSON: %v", err))
 		return
 	}
 }

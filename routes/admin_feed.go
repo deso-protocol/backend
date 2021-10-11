@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/deso-protocol/core/lib"
 )
@@ -96,6 +97,7 @@ type AdminUpdateGlobalFeedRequest struct {
 type AdminUpdateGlobalFeedResponse struct{}
 
 // AdminUpdateGlobalFeed ...
+// NOTE: This function adds posts to the global feed as well as to the hot feed approved posts.
 func (fes *APIServer) AdminUpdateGlobalFeed(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := AdminUpdateGlobalFeedRequest{}
@@ -148,6 +150,23 @@ func (fes *APIServer) AdminUpdateGlobalFeed(ww http.ResponseWriter, req *http.Re
 			return
 		}
 	}
+
+	// Create a key to add a hot feed op for this post.
+	opTimestamp := uint64(time.Now().UnixNano())
+	hotFeedOpKey := GlobalStateKeyForHotFeedOp(opTimestamp, postHash, requestData.RemoveFromGlobalFeed)
+	err = fes.GlobalStatePut(hotFeedOpKey, []byte{1})
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem putting hot feed op: %v", err))
+		return
+	}
+
+	val, err := fes.GlobalStateGet(hotFeedOpKey)
+	_ = val
+
+	startTimestampNanos := uint64(time.Now().UTC().AddDate(0, 0, -1).UnixNano()) // 1 day ago.
+	startPrefix := GlobalStateSeekKeyForHotFeedOps(startTimestampNanos)
+	keys, vals, err := fes.GlobalStateSeek(startPrefix, _GlobalStatePrefixForHotFeedOps, 0, 0, false, true)
+	_, _ = keys, vals
 
 	// If we made it this far we were successful, return without error.
 	res := AdminUpdateGlobalFeedResponse{}

@@ -176,12 +176,16 @@ var (
 	// <prefix, OperationTimestampNanos, PostHash, IsRemoval Bool> -> <[]byte{1}>
 	_GlobalStatePrefixForHotFeedOps = []byte{28}
 
+	// Prefix for accessing hot feed score constants.  <prefix> -> <uint64>
+	_GlobalStatePrefixForHotFeedInteractionCap  = []byte{29}
+	_GlobalStatePrefixForHotFeedTimeDecayBlocks = []byte{30}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
 
-	// NEXT_TAG: 29
+	// NEXT_TAG: 31
 )
 
 // A ReferralInfo struct holds all of the params and stats for a referral link/hash.
@@ -410,10 +414,23 @@ func GlobalStateKeyForPKIDReferralHashToIsActive(pkid *lib.PKID, referralHashByt
 	return key
 }
 
-// Key for seeking the DB for all hot feed operations.
+// Key for seeking the DB for hot feed operations based on timestamp.
 func GlobalStateSeekKeyForHotFeedOps(startTimestampNanos uint64) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixForHotFeedOps...)
 	key := append(prefixCopy, lib.EncodeUint64(startTimestampNanos)...)
+	return key
+}
+
+// Key for seeking the DB for all hot feed operations.
+func GlobalStateKeyForHotFeedOp(
+	opTimestampNanos uint64,
+	postHash *lib.BlockHash,
+	isRemoval bool,
+) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixForHotFeedOps...)
+	key := append(prefixCopy, lib.EncodeUint64(opTimestampNanos)...)
+	key = append(key, postHash[:]...)
+	key = append(key, lib.BoolToByte(isRemoval))
 	return key
 }
 
