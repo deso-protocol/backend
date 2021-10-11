@@ -2313,8 +2313,7 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 	outputNanosToSender := uint64(0)
 	for _, txOutput := range txn.TxOutputs {
 		if reflect.DeepEqual(txOutput.PublicKey, txn.PublicKey) {
-			outputNanosToSender = txOutput.AmountNanos
-			break
+			outputNanosToSender += txOutput.AmountNanos
 		}
 	}
 
