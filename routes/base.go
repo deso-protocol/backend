@@ -282,6 +282,8 @@ type GetAppStateResponse struct {
 	USDCentsPerDeSoExchangeRate uint64
 	JumioDeSoNanos              uint64
 
+	TransactionFeeMap     map[string][]TransactionFee
+
 	USDCentsPerBitCloutExchangeRate uint64 // Deprecated
 	JumioBitCloutNanos              uint64 // Deprecated
 }
@@ -320,13 +322,14 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		BuyWithETH:                          fes.IsConfiguredForETH(),
 		USDCentsPerDeSoExchangeRate:         fes.GetExchangeDeSoPrice(),
 		JumioDeSoNanos:                      fes.GetJumioDeSoNanos(),
+		TransactionFeeMap:                   fes.TxnFeeMapToResponse(true),
 
 		// Deprecated
 		USDCentsPerBitCloutExchangeRate: fes.GetExchangeDeSoPrice(),
 		JumioBitCloutNanos:              fes.GetJumioDeSoNanos(),
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetNotifications: Problem encoding response as JSON: %v", err))
 		return
 	}

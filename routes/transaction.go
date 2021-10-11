@@ -249,6 +249,9 @@ type UpdateProfileRequest struct {
 	IsHidden bool `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
 // UpdateProfileResponse ...
@@ -276,6 +279,13 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"UpdateProfile: Problem decoding public key %s: %v",
 			requestData.UpdaterPublicKeyBase58Check, err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeUpdateProfile, updaterPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: TransactionFees specified in Request body are invalid: %v", err))
 		return
 	}
 
@@ -400,7 +410,7 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		requestData.NewStakeMultipleBasisPoints,
 		requestData.IsHidden,
 		additionalFees,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem creating transaction: %v", err))
 		return
@@ -871,6 +881,9 @@ type SendDeSoRequest struct {
 	RecipientPublicKeyOrUsername string `safeForLogging:"true"`
 	AmountNanos                  int64  `safeForLogging:"true"`
 	MinFeeRateNanosPerKB         uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
 // SendDeSoResponse ...
@@ -950,6 +963,13 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeBasicTransfer, senderPkBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDESO: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	// If the AmountNanos is less than zero then we have a special case where we create
 	// a transaction with the maximum spend.
 	var txnn *lib.MsgDeSoTxn
@@ -961,7 +981,7 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 		// Create a MAX transaction
 		txnn, totalInputt, spendAmountt, feeNanoss, err = fes.blockchain.CreateMaxSpend(
 			senderPkBytes, recipientPkBytes, requestData.MinFeeRateNanosPerKB,
-			fes.backendServer.GetMempool())
+			fes.backendServer.GetMempool(), additionalOutputs)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error processing MAX transaction: %v", err))
 			return
@@ -973,8 +993,7 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 
 		// Create the transaction outputs and add the recipient's public key and the
 		// amount we want to pay them
-		txnOutputs := []*lib.DeSoOutput{}
-		txnOutputs = append(txnOutputs, &lib.DeSoOutput{
+		txnOutputs := append(additionalOutputs, &lib.DeSoOutput{
 			PublicKey: recipientPkBytes,
 			// If we get here we know the amount is non-negative.
 			AmountNanos: uint64(requestData.AmountNanos),
@@ -1050,6 +1069,9 @@ type CreateLikeStatelessRequest struct {
 	LikedPostHashHex           string `safeForLogging:"true"`
 	IsUnlike                   bool   `safeForLogging:"true"`
 	MinFeeRateNanosPerKB       uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
 // CreateLikeStatelessResponse ...
@@ -1088,6 +1110,13 @@ func (fes *APIServer) CreateLikeStateless(ww http.ResponseWriter, req *http.Requ
 		return
 	}
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeLike, readerPkBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateLikeStateless: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	// We need to make the postHashBytes into a block hash in order to create the txn.
 	postHash := lib.BlockHash{}
 	copy(postHash[:], postHashBytes)
@@ -1095,7 +1124,7 @@ func (fes *APIServer) CreateLikeStateless(ww http.ResponseWriter, req *http.Requ
 	// Try and create the message for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateLikeTxn(
 		readerPkBytes, postHash, requestData.IsUnlike,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateLikeStateless: Problem creating transaction: %v", err))
 		return
@@ -1146,6 +1175,9 @@ type SubmitPostRequest struct {
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+
 	InTutorial bool `safeForLogging:"true"`
 }
 
@@ -1176,6 +1208,13 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"SubmitPost: Problem decoding public key %s: %v",
 			requestData.UpdaterPublicKeyBase58Check, err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeSubmitPost, updaterPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: TransactionFees specified in Request body are invalid: %v", err))
 		return
 	}
 
@@ -1318,7 +1357,7 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		tstamp,
 		postExtraData,
 		requestData.IsHidden,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Problem creating transaction: %v", err))
 		return
@@ -1403,6 +1442,9 @@ type CreateFollowTxnStatelessRequest struct {
 	FollowedPublicKeyBase58Check string `safeForLogging:"true"`
 	IsUnfollow                   bool   `safeForLogging:"true"`
 	MinFeeRateNanosPerKB         uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
 // CreateFollowTxnStatelessResponse ...
@@ -1447,6 +1489,13 @@ func (fes *APIServer) CreateFollowTxnStateless(ww http.ResponseWriter, req *http
 		return
 	}
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeFollow, followerPkBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateFollowTxnStateless: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	// Decode the followed person's public key.
 	followedPkBytes, _, err := lib.Base58CheckDecode(requestData.FollowedPublicKeyBase58Check)
 	if err != nil {
@@ -1458,7 +1507,7 @@ func (fes *APIServer) CreateFollowTxnStateless(ww http.ResponseWriter, req *http
 	// Try and create the follow for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateFollowTxn(
 		followerPkBytes, followedPkBytes, requestData.IsUnfollow,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateFollowTxnStateless: Problem creating transaction: %v", err))
 		return
@@ -1516,6 +1565,9 @@ type BuyOrSellCreatorCoinRequest struct {
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+
 	InTutorial bool `safeForLogging:"true"`
 
 	BitCloutToSellNanos      uint64 `safeForLogging:"true"` // Deprecated
@@ -1558,6 +1610,13 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"BuyOrSellCreatorCoin: Problem decoding updater public key %s: %v",
 			requestData.UpdaterPublicKeyBase58Check, err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeCreatorCoin, updaterPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: TransactionFees specified in Request body are invalid: %v", err))
 		return
 	}
 
@@ -1619,7 +1678,7 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		requestData.MinDeSoExpectedNanos,
 		requestData.MinCreatorCoinExpectedNanos,
 		// Standard transaction fields
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem adding inputs and change transaction: %v", err))
 		return
@@ -1778,6 +1837,9 @@ type TransferCreatorCoinRequest struct {
 	CreatorCoinToTransferNanos uint64 `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
 // TransferCreatorCoinResponse ...
@@ -1812,6 +1874,13 @@ func (fes *APIServer) TransferCreatorCoin(ww http.ResponseWriter, req *http.Requ
 	if err != nil || len(senderPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferCreatorCoin: Problem decoding sender public key %s: %v",
 			requestData.SenderPublicKeyBase58Check, err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeCreatorCoinTransfer, senderPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferCreatorCoin: TransactionFees specified in Request body are invalid: %v", err))
 		return
 	}
 
@@ -1870,7 +1939,7 @@ func (fes *APIServer) TransferCreatorCoin(ww http.ResponseWriter, req *http.Requ
 		requestData.CreatorCoinToTransferNanos,
 		receiverPublicKeyBytes,
 		// Standard transaction fields
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferCreatorCoin: Problem creating transaction: %v", err))
 		return
@@ -1913,6 +1982,9 @@ type SendDiamondsRequest struct {
 	DiamondLevel int64 `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 
 	InTutorial bool `safeForLogging:"true"`
 }
@@ -1993,26 +2065,39 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 	var totalInput uint64
 	var changeAmount uint64
 	var fees uint64
+	var additionalOutputs []*lib.DeSoOutput
 	if blockHeight > lib.DeSoDiamondsBlockHeight {
+		// Compute the additional transaction fees as specified by the request body and the node-level fees.
+		additionalOutputs, err = fes.getTransactionFee(lib.TxnTypeBasicTransfer, senderPublicKeyBytes, requestData.TransactionFees)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: TransactionFees specified in Request body are invalid: %v", err))
+			return
+		}
 		txn, totalInput, _, changeAmount, fees, err = fes.blockchain.CreateBasicTransferTxnWithDiamonds(
 			senderPublicKeyBytes,
 			diamondPostHash,
 			requestData.DiamondLevel,
 			// Standard transaction fields
-			requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+			requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem creating transaction: %v", err))
 			return
 		}
 
 	} else {
+		// Compute the additional transaction fees as specified by the request body and the node-level fees.
+		additionalOutputs, err = fes.getTransactionFee(lib.TxnTypeCreatorCoinTransfer, senderPublicKeyBytes, requestData.TransactionFees)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: TransactionFees specified in Request body are invalid: %v", err))
+			return
+		}
 		txn, totalInput, changeAmount, fees, err = fes.blockchain.CreateCreatorCoinTransferTxnWithDiamonds(
 			senderPublicKeyBytes,
 			receiverPublicKeyBytes,
 			diamondPostHash,
 			requestData.DiamondLevel,
 			// Standard transaction fields
-			requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+			requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem creating transaction: %v", err))
 			return
@@ -2059,6 +2144,28 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// getTransactionFee transforms transactionFees specified in an API request body to DeSoOutput and combines that with node-level transaction fees for this transaction type.
+func (fes *APIServer) getTransactionFee(txnType lib.TxnType, transactorPublicKey []byte, transactionFees []TransactionFee) (_outputs []*lib.DeSoOutput, _err error) {
+  // Transform transaction fees specified by the API request body.
+	extraOutputs, err := TransformTransactionFeesToOutputs(transactionFees)
+	if err != nil {
+		return nil, err
+	}
+  // Look up node-level fees for this transaction type.
+	fees := fes.TransactionFeeMap[txnType]
+	// If there are no node fees for this transaction type, don't even bother checking exempt public keys, just return the DeSoOutputs specified by the API request body.
+	if len(fees) == 0 {
+		return extraOutputs, nil
+	}
+  // If this node has designated this public key as one exempt from node-level fees, only return the DeSoOutputs requested by the API request body.
+	if _, exists := fes.ExemptPublicKeyMap[lib.PkToString(transactorPublicKey, fes.Params)]; exists {
+		return extraOutputs, nil
+	}
+  // Append the fees to the extraOutputs and return.
+	newOutputs := append(extraOutputs, fees...)
+	return newOutputs, nil
+}
+
 // AuthorizeDerivedKeyRequest ...
 type AuthorizeDerivedKeyRequest struct {
 	// The original public key of the derived key owner.
@@ -2075,6 +2182,9 @@ type AuthorizeDerivedKeyRequest struct {
 
 	// The intended operation on the derived key.
 	DeleteKey bool `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 }
@@ -2123,6 +2233,13 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		return
 	}
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeAuthorizeDerivedKey, ownerPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	// Make sure owner and derived keys are different
 	if reflect.DeepEqual(ownerPublicKeyBytes, derivedPublicKeyBytes) {
 		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Owner and derived public keys cannot be the same."))
@@ -2143,7 +2260,7 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		accessSignature,
 		requestData.DeleteKey,
 		// Standard transaction fields
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem creating transaction: %v", err))
 		return

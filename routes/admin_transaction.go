@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 )
 
@@ -81,6 +81,10 @@ type UpdateGlobalParamsRequest struct {
 	MinimumNetworkFeeNanosPerKB int64 `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+
 	// Can be left unset when Signature is false or if the user legitimately
 	// doesn't have a password. Can also be left unset if the user has logged
 	// in recently as the password will be stored in memory.
@@ -119,6 +123,13 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateGlobalParams: Problem decoding updater "+
 			"base58 public key %s: %v", requestData.UpdaterPublicKeyBase58Check, err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeUpdateGlobalParams, updaterPkBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateGlobalParams: TransactionFees specified in Request body are invalid: %v", err))
 		return
 	}
 
@@ -162,7 +173,7 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 		minimumNetworkFeeNanosPerKb,
 		[]byte{},
 		requestData.MinFeeRateNanosPerKB,
-		fes.backendServer.GetMempool())
+		fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateGlobalParams: Problem creating transaction: %v", err))
 		return
@@ -202,6 +213,9 @@ type SwapIdentityRequest struct {
 	ToUsernameOrPublicKeyBase58Check string `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
 // SwapIdentityResponse ...
@@ -260,6 +274,13 @@ func (fes *APIServer) SwapIdentity(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeSwapIdentity, updaterPkBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SwapIdentity: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	fromPublicKey, err := fes.getPublicKeyFromUsernameOrPublicKeyString(
 		requestData.FromUsernameOrPublicKeyBase58Check)
 	if err != nil {
@@ -280,7 +301,7 @@ func (fes *APIServer) SwapIdentity(ww http.ResponseWriter, req *http.Request) {
 		toPublicKey,
 
 		requestData.MinFeeRateNanosPerKB,
-		fes.backendServer.GetMempool())
+		fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SwapIdentity: Problem creating transaction: %v", err))
 		return
@@ -300,7 +321,7 @@ func (fes *APIServer) SwapIdentity(ww http.ResponseWriter, req *http.Request) {
 		Transaction:       txn,
 		TransactionHex:    hex.EncodeToString(txnBytes),
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SwapIdentity: Problem encoding response as JSON: %v", err))
 		return
 	}

@@ -477,6 +477,10 @@ type APITransferDeSoRequest struct {
 	// The fee rate to use for this transaction. If left unset, a default fee rate
 	// will be used. This can be checked using the “DryRun” parameter below.
 	MinFeeRateNanosPerKB int64
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+
 	// When set to true, the transaction is returned in the response but not
 	// actually broadcast to the network. Useful for testing.
 	DryRun bool
@@ -607,6 +611,15 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 		minFeeRateNanosPerKB = int64(fes.MinFeeRateNanosPerKB)
 	}
 
+	senderPublicKeyBytes := senderPub.SerializeCompressed()
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeBasicTransfer, senderPublicKeyBytes, transferDeSoRequest.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("APITransferDeSo: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	// If DryRun is set to false, which is the default, then we broadcast
 	// the transaction.
 	shouldBroadcast := !transferDeSoRequest.DryRun
@@ -621,9 +634,9 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 	if transferDeSoRequest.AmountNanos < 0 {
 		// Create a MAX transaction
 		txnn, totalInputt, spendAmountt, feeNanoss, err = fes.blockchain.CreateMaxSpend(
-			senderPub.SerializeCompressed(), recipientPub.SerializeCompressed(),
+			senderPublicKeyBytes, recipientPub.SerializeCompressed(),
 			uint64(minFeeRateNanosPerKB),
-			fes.backendServer.GetMempool())
+			fes.backendServer.GetMempool(), additionalOutputs)
 		if err != nil {
 			APIAddError(ww, fmt.Sprintf("APITransferDeSo: Error processing MAX transaction: %v", err))
 			return
@@ -649,12 +662,11 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 
 	} else {
 		// In this case, we are spending what the user asked us to spend as opposed to
-		// spending the maximum amount posssible.
+		// spending the maximum amount possible.
 
 		// Create the transaction outputs and add the recipient's public key and the
 		// amount we want to pay them
-		txnOutputs := []*lib.DeSoOutput{}
-		txnOutputs = append(txnOutputs, &lib.DeSoOutput{
+		txnOutputs := append(additionalOutputs, &lib.DeSoOutput{
 			PublicKey: recipientPub.SerializeCompressed(),
 			// If we get here we know the amount is non-negative.
 			AmountNanos: uint64(transferDeSoRequest.AmountNanos),
@@ -666,7 +678,7 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 			// The inputs will be set below.
 			TxInputs:  []*lib.DeSoInput{},
 			TxOutputs: txnOutputs,
-			PublicKey: senderPub.SerializeCompressed(),
+			PublicKey: senderPublicKeyBytes,
 			TxnMeta:   &lib.BasicTransferMetadata{},
 			// We wait to compute the signature until we've added all the
 			// inputs and change.
