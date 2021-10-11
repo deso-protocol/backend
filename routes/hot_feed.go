@@ -483,6 +483,43 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 		hotFeed = append(hotFeed, *postEntryResponse)
 	}
 
+	{
+		// Only add pinned posts if we are starting from the top of the feed.
+		if len(requestData.SeenPosts) == 0 {
+			maxBigEndianUint64Bytes := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+			maxKeyLen := 1 + len(maxBigEndianUint64Bytes) + lib.HashSizeBytes
+			// Get all pinned posts and prepend them to the list of postEntries
+			pinnedStartKey := _GlobalStatePrefixTstampNanosPinnedPostHash
+			// todo: how many posts can we really pin?
+			keys, _, err := fes.GlobalStateSeek(pinnedStartKey, pinnedStartKey, maxKeyLen, 10, true, false)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("HandleHotFeedPageRequest: Getting pinned posts: %v", err))
+			}
+
+			var pinnedPostEntryRepsonses []PostEntryResponse
+			for _, dbKeyBytes := range keys {
+				postHash := &lib.BlockHash{}
+				copy(postHash[:], dbKeyBytes[1+len(maxBigEndianUint64Bytes):][:])
+				postEntry := utxoView.GetPostEntryForPostHash(postHash)
+				if postEntry != nil {
+					postEntry.IsPinned = true
+					profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
+					postEntryResponse, err := fes._postEntryToResponse(
+						postEntry, true, fes.Params, utxoView, readerPublicKeyBytes, 1)
+					postEntryResponse.ProfileEntryResponse = _profileEntryToResponse(
+						profileEntry, fes.Params, verifiedMap, utxoView)
+					postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(
+						readerPublicKeyBytes, postEntry)
+					if err != nil {
+						continue
+					}
+					pinnedPostEntryRepsonses = append(pinnedPostEntryRepsonses, *postEntryResponse)
+				}
+			}
+			hotFeed = append(pinnedPostEntryRepsonses, hotFeed...)
+		}
+	}
+
 	res := HotFeedPageResponse{HotFeedPage: hotFeed}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("HandleHotFeedPageRequest: Problem encoding response as JSON: %v", err))
