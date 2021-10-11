@@ -211,9 +211,12 @@ func (fes *APIServer) UpdateHotFeedOrderedList() (_hotFeedPostsMap map[lib.Block
 				continue
 			}
 
+			// For time decay, we care about how many blocks away from the tip this block is.
+			blockAge := len(relevantNodes) - blockIdx
+
 			// Evaluate the txn and attempt to update the hotnessScoreMap.
 			postHashScored, txnHotnessScore := fes.GetHotnessScoreInfoForTxn(
-				txn, blockIdx, postInteractionMap, utxoView)
+				txn, blockAge, postInteractionMap, utxoView)
 			if txnHotnessScore != 0 && postHashScored != nil {
 				prevHotnessScore, inHotnessScoreMap := hotnessScoreMap[*postHashScored]
 				// Check for overflow just in case.
@@ -301,7 +304,7 @@ func CheckTxnForCreatePost(txn *lib.MsgDeSoTxn) (
 // gets one interaction per post.
 func (fes *APIServer) GetHotnessScoreInfoForTxn(
 	txn *lib.MsgDeSoTxn,
-	blockIndex int, // Position in the last 288 blocks.  Not block height.
+	blockAge int, // Number of blocks this txn is from the blockTip.  Not block height.
 	postInteractionMap map[HotFeedInteractionKey][]byte,
 	utxoView *lib.UtxoView,
 ) (_postHashScored *lib.BlockHash, _hotnessScore uint64) {
@@ -372,7 +375,7 @@ func (fes *APIServer) GetHotnessScoreInfoForTxn(
 		hotnessScore = fes.HotFeedInteractionCap
 	}
 	hotnessScoreTimeDecayed := uint64(float64(hotnessScore) *
-		math.Pow(0.5, float64(blockIndex)/float64(fes.HotFeedTimeDecayBlocks)))
+		math.Pow(0.5, float64(blockAge)/float64(fes.HotFeedTimeDecayBlocks)))
 	return interactionPostHash, hotnessScoreTimeDecayed
 }
 
@@ -387,6 +390,7 @@ func (fes *APIServer) PruneHotFeedApprovedPostsMap(
 }
 
 type HotFeedPageRequest struct {
+	ReaderPublicKeyBase58Check string
 	// Since the hot feed is constantly changing, we pass a list of posts that have already
 	// been seen in order to send a more accurate next page.
 	SeenPosts []string
@@ -403,7 +407,8 @@ func (fes *APIServer) AdminGetUnfilteredHotFeed(ww http.ResponseWriter, req *htt
 }
 
 func (fes *APIServer) GetHotFeed(ww http.ResponseWriter, req *http.Request) {
-	fes.HandleHotFeedPageRequest(ww, req, true /*approvedPostsOnly*/)
+	// RPH-FIXME: set approvedPostsOnly to true before launch.
+	fes.HandleHotFeedPageRequest(ww, req, false /*approvedPostsOnly*/)
 }
 
 func (fes *APIServer) HandleHotFeedPageRequest(
@@ -416,6 +421,16 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("HandleHotFeedPageRequest: Problem parsing request body: %v", err))
 		return
+	}
+
+	var readerPublicKeyBytes []byte
+	var err error
+	if requestData.ReaderPublicKeyBase58Check != "" {
+		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("HandleHotFeedPageRequest: Problem decoding reader public key: %v", err))
+			return
+		}
 	}
 
 	// Get a view.
@@ -454,13 +469,16 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 		}
 
 		postEntry := utxoView.GetPostEntryForPostHash(hotFeedEntry.PostHash)
-		postEntryResponse, err := fes._postEntryToResponse(postEntry, true, fes.Params, utxoView, nil, 1)
+		postEntryResponse, err := fes._postEntryToResponse(
+			postEntry, true, fes.Params, utxoView, readerPublicKeyBytes, 1)
 		if err != nil {
 			continue
 		}
 		profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
 		postEntryResponse.ProfileEntryResponse = _profileEntryToResponse(
 			profileEntry, fes.Params, verifiedMap, utxoView)
+		postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(
+			readerPublicKeyBytes, postEntry)
 		postEntryResponse.HotnessScore = hotFeedEntry.HotnessScore
 		hotFeed = append(hotFeed, *postEntryResponse)
 	}
