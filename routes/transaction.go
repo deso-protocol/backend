@@ -2310,21 +2310,21 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 	}
 
 	// Get nanos sent back to the sender from outputs.
-	outputNanosToSender := uint64(0)
+	changeAmountNanos := uint64(0)
 	for _, txOutput := range txn.TxOutputs {
 		if reflect.DeepEqual(txOutput.PublicKey, txn.PublicKey) {
-			outputNanosToSender += txOutput.AmountNanos
+			changeAmountNanos += txOutput.AmountNanos
 		}
 	}
 
 	// Sanity check if output doesn't exceed inputs.
-	if outputNanosToSender > totalInputNanos {
-		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Output to sender exceeds inputs: (%v, %v)", outputNanosToSender, totalInputNanos))
+	if changeAmountNanos > totalInputNanos {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Output to sender exceeds inputs: (%v, %v)", changeAmountNanos, totalInputNanos))
 		return
 	}
 
 	// Return the final transaction spending.
-	totalSpendingNanos := totalInputNanos - outputNanosToSender
+	totalSpendingNanos := totalInputNanos - changeAmountNanos
 	res := GetTransactionSpendingResponse{
 		TotalSpendingNanos: totalSpendingNanos,
 	}
