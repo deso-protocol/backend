@@ -128,7 +128,12 @@ func (fes *APIServer) CopyHotFeedApprovedPostsMap() map[lib.BlockHash][]byte {
 	return hotFeedApprovedPosts
 }
 
-func (fes *APIServer) UpdateHotFeedOrderedList() (_hotFeedPostsMap map[lib.BlockHash]uint64) {
+type HotnessPostInfo struct {
+	// How long ago the post was created in number of blocks
+	PostBlockAge int
+	HotnessScore uint64
+}
+func (fes *APIServer) UpdateHotFeedOrderedList() (_hotFeedPostsMap map[lib.BlockHash]*HotnessPostInfo) {
 	// Check to see if any of the algorithm constants have changed.
 	foundNewConstants := false
 	globalStateInteractionCap, globalStateTimeDecayBlocks, err := fes.GetHotFeedConstantsFromGlobalState()
@@ -188,43 +193,65 @@ func (fes *APIServer) UpdateHotFeedOrderedList() (_hotFeedPostsMap map[lib.Block
 		return nil
 	}
 
+	// This offset allows us to see what the hot feed would look like in the past,
+	// which is useful for testing purposes.
+	blockOffsetForTesting := 0
+
 	// Grab the last 24 hours worth of blocks (288 blocks @ 5min/block).
-	blockTipIndex := len(fes.blockchain.BestChain()) - 1
+	blockTipIndex := len(fes.blockchain.BestChain()) - 1 - blockOffsetForTesting
 	relevantNodes := fes.blockchain.BestChain()
-	if len(fes.blockchain.BestChain()) > 288 {
-		relevantNodes = fes.blockchain.BestChain()[blockTipIndex-288 : blockTipIndex]
+	if len(fes.blockchain.BestChain()) > (288 + blockOffsetForTesting) {
+		relevantNodes = fes.blockchain.BestChain()[blockTipIndex-288-blockOffsetForTesting : blockTipIndex]
 	}
 
 	// Iterate over the blocks and track hotness scores.
-	hotnessScoreMap := make(map[lib.BlockHash]uint64)
+	hotnessInfoMap := make(map[lib.BlockHash]*HotnessPostInfo)
 	postInteractionMap := make(map[HotFeedInteractionKey][]byte)
 	for blockIdx, node := range relevantNodes {
 		block, _ := lib.GetBlock(node.Hash, utxoView.Handle)
 		for _, txn := range block.Txns {
+			// For time decay, we care about how many blocks away from the tip this block is.
+			blockAgee := len(relevantNodes) - blockIdx
+
 			// We only care about posts created in the last 24hrs. There should always be a
 			// transaction that creates a given post before someone interacts with it. By only
 			// scoring posts that meet this condition, we can restrict the HotFeedOrderedList
 			// to posts from the last 24hours without even looking up the post time stamp.
 			isCreatePost, postHashCreated := CheckTxnForCreatePost(txn)
 			if isCreatePost {
-				hotnessScoreMap[*postHashCreated] = 0
+				hotnessInfoMap[*postHashCreated] = &HotnessPostInfo{
+					PostBlockAge: blockAgee,
+					HotnessScore: 0,
+				}
 				continue
 			}
 
-			// For time decay, we care about how many blocks away from the tip this block is.
-			blockAge := len(relevantNodes) - blockIdx
+			// The age used in determining the score should be that of the post
+			// that we are evaluating. The interaction's score will be discounted
+			// by this age.
+			postHashToScore := GetPostHashToScoreForTxn(txn, utxoView)
+			if postHashToScore == nil {
+				// If we don't have a post hash to score then this txn is not relevant
+				// and we can continue.
+				continue
+			}
+			prevHotnessInfo, inHotnessInfoMap := hotnessInfoMap[*postHashToScore]
+			if !inHotnessInfoMap {
+				// If the post is not in the hotnessInfoMap yet, it wasn't created
+				// in the last 24hrs so we can continue.
+				continue
+			}
+			postBlockAge := prevHotnessInfo.PostBlockAge
 
-			// Evaluate the txn and attempt to update the hotnessScoreMap.
+			// If we get here, we know we are dealing with a txn that interacts with a
+			// post that was created within the last 24 hours.
+
+			// Evaluate the txn and attempt to update the hotnessInfoMap.
 			postHashScored, txnHotnessScore := fes.GetHotnessScoreInfoForTxn(
-				txn, blockAge, postInteractionMap, utxoView)
+				txn, postBlockAge, postInteractionMap, utxoView)
 			if txnHotnessScore != 0 && postHashScored != nil {
-				prevHotnessScore, inHotnessScoreMap := hotnessScoreMap[*postHashScored]
 				// Check for overflow just in case.
-				if prevHotnessScore > math.MaxInt64-txnHotnessScore {
-					continue
-				}
-				// If it isn't in the hotnessScoreMap yet, it wasn't created in the last 24hrs.
-				if !inHotnessScoreMap {
+				if prevHotnessInfo.HotnessScore > math.MaxInt64-txnHotnessScore {
 					continue
 				}
 				// Finally, make sure the post scored isn't a comment or repost.
@@ -232,19 +259,20 @@ func (fes *APIServer) UpdateHotFeedOrderedList() (_hotFeedPostsMap map[lib.Block
 				if len(postEntryScored.ParentStakeID) > 0 || lib.IsVanillaRepost(postEntryScored) {
 					continue
 				}
-				hotnessScoreMap[*postHashScored] = prevHotnessScore + txnHotnessScore
+				// Update the hotness score.
+				prevHotnessInfo.HotnessScore += txnHotnessScore
 			}
 		}
 	}
 
 	// Sort the map into an ordered list and set it as the server's new HotFeedOrderedList.
 	hotFeedOrderedList := []*HotFeedEntry{}
-	for postHashKey, hotnessScoreValue := range hotnessScoreMap {
+	for postHashKey, hotnessInfo := range hotnessInfoMap {
 		postHash := postHashKey
 		hotFeedEntry := &HotFeedEntry{
 			PostHash:     &postHash,
 			PostHashHex:  hex.EncodeToString(postHash[:]),
-			HotnessScore: hotnessScoreValue,
+			HotnessScore: hotnessInfo.HotnessScore,
 		}
 		hotFeedOrderedList = append(hotFeedOrderedList, hotFeedEntry)
 	}
@@ -259,7 +287,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList() (_hotFeedPostsMap map[lib.Block
 	elapsed := time.Since(start)
 	glog.Infof("Successfully updated HotFeedOrderedList in %s", elapsed)
 
-	return hotnessScoreMap
+	return hotnessInfoMap
 }
 
 func (fes *APIServer) GetHotFeedConstantsFromGlobalState() (
@@ -299,18 +327,8 @@ func CheckTxnForCreatePost(txn *lib.MsgDeSoTxn) (
 	return false, nil
 }
 
-// Returns the post hash that a txn is relevant to and the amount that the txn should contribute
-// to that post's hotness score. The postInteractionMap is used to ensure that each PKID only
-// gets one interaction per post.
-func (fes *APIServer) GetHotnessScoreInfoForTxn(
-	txn *lib.MsgDeSoTxn,
-	blockAge int, // Number of blocks this txn is from the blockTip.  Not block height.
-	postInteractionMap map[HotFeedInteractionKey][]byte,
-	utxoView *lib.UtxoView,
-) (_postHashScored *lib.BlockHash, _hotnessScore uint64) {
-	// Figure out who is responsible for the transaction.
-	interactionPKIDEntry := utxoView.GetPKIDForPublicKey(txn.PublicKey)
-
+func GetPostHashToScoreForTxn(txn *lib.MsgDeSoTxn,
+	utxoView *lib.UtxoView) (*lib.BlockHash) {
 	// Figure out which post this transaction should affect.
 	interactionPostHash := &lib.BlockHash{}
 	txnType := txn.TxnMeta.GetTxnType()
@@ -325,14 +343,14 @@ func (fes *APIServer) GetHotnessScoreInfoForTxn(
 			copy(interactionPostHash[:], diamondPostHashBytes[:])
 		} else {
 			// If this basic transfer doesn't have a diamond, it is irrelevant.
-			return nil, 0
+			return nil
 		}
 
 	} else if txnType == lib.TxnTypeSubmitPost {
 		txMeta := txn.TxnMeta.(*lib.SubmitPostMetadata)
 		// If this is a transaction creating a brand new post, we can ignore it.
 		if len(txMeta.PostHashToModify) == 0 {
-			return nil, 0
+			return nil
 		}
 		postHash := &lib.BlockHash{}
 		copy(postHash[:], txMeta.PostHashToModify[:])
@@ -345,13 +363,30 @@ func (fes *APIServer) GetHotnessScoreInfoForTxn(
 		} else if len(postEntry.ParentStakeID) > 0 {
 			copy(interactionPostHash[:], postEntry.ParentStakeID[:])
 		} else {
-			return nil, 0
+			return nil
 		}
 
 	} else {
 		// This transaction is not relevant, bail.
-		return nil, 0
+		return nil
 	}
+
+	return interactionPostHash
+}
+
+// Returns the post hash that a txn is relevant to and the amount that the txn should contribute
+// to that post's hotness score. The postInteractionMap is used to ensure that each PKID only
+// gets one interaction per post.
+func (fes *APIServer) GetHotnessScoreInfoForTxn(
+	txn *lib.MsgDeSoTxn,
+	blockAge int, // Number of blocks this txn is from the blockTip.  Not block height.
+	postInteractionMap map[HotFeedInteractionKey][]byte,
+	utxoView *lib.UtxoView,
+) (_postHashScored *lib.BlockHash, _hotnessScore uint64) {
+	// Figure out who is responsible for the transaction.
+	interactionPKIDEntry := utxoView.GetPKIDForPublicKey(txn.PublicKey)
+
+	interactionPostHash := GetPostHashToScoreForTxn(txn, utxoView)
 
 	// Check to see if we've seen this interaction pair before. Log an interaction if not.
 	interactionKey := HotFeedInteractionKey{
@@ -380,7 +415,7 @@ func (fes *APIServer) GetHotnessScoreInfoForTxn(
 }
 
 func (fes *APIServer) PruneHotFeedApprovedPostsMap(
-	hotFeedPosts map[lib.BlockHash]uint64, hotFeedApprovedPosts map[lib.BlockHash][]byte,
+	hotFeedPosts map[lib.BlockHash]*HotnessPostInfo, hotFeedApprovedPosts map[lib.BlockHash][]byte,
 ) {
 	for postHash := range fes.HotFeedApprovedPosts {
 		if _, inHotFeedMap := hotFeedPosts[postHash]; !inHotFeedMap {
