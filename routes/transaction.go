@@ -2230,7 +2230,7 @@ func (fes *APIServer) AppendExtraData(ww http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	// Return the fianl transaction bytes.
+	// Return the final transaction bytes.
 	res := AppendExtraDataResponse{
 		TransactionHex: hex.EncodeToString(txnBytesFinal),
 	}
@@ -2238,4 +2238,98 @@ func (fes *APIServer) AppendExtraData(ww http.ResponseWriter, req *http.Request)
 		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+// GetTransactionSpendingRequest ...
+type GetTransactionSpendingRequest struct {
+	// Transaction hex.
+	TransactionHex string `safeForLogging:"true"`
+}
+
+// GetTransactionSpendingResponse ...
+type GetTransactionSpendingResponse struct {
+	// Total transaction spending in nanos.
+	TotalSpendingNanos uint64 `safeForLogging:"true"`
+}
+
+// GetTransactionSpending ...
+// This endpoint allows you to calculate transaction total spending
+// by subtracting transaction output to sender from transaction inputs.
+// Note, this endpoint doesn't check if transaction is valid.
+func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetTransactionSpendingRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Get the transaction bytes from the request data.
+	txnBytes, err := hex.DecodeString(requestData.TransactionHex)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem decoding transaction hex %v", err))
+		return
+	}
+
+	// Deserialize transaction from transaction bytes.
+	txn := &lib.MsgDeSoTxn{}
+	err = txn.FromBytes(txnBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem deserializing transaction from bytes: %v", err))
+		return
+	}
+
+	// If transaction has no inputs we can return immediately.
+	if len(txn.TxInputs) == 0 {
+		// Return the final transaction spending.
+		res := GetTransactionSpendingResponse{
+			TotalSpendingNanos: 0,
+		}
+		if err := json.NewEncoder(ww).Encode(res); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem encoding response as JSON: %v", err))
+		}
+		return
+	}
+
+	// Get augmented universal view from mempool.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem getting AugmentedUniversalView: %v", err))
+		return
+	}
+
+	// Create an array of utxoEntries from transaction inputs' utxoKeys.
+	totalInputNanos := uint64(0)
+	for _, txInput := range txn.TxInputs {
+		utxoEntry := utxoView.GetUtxoEntryForUtxoKey((*lib.UtxoKey)(txInput))
+		if utxoEntry == nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Already spent utxo or invalid txn input: %v", txInput))
+			return
+		}
+		totalInputNanos += utxoEntry.AmountNanos
+	}
+
+	// Get nanos sent back to the sender from outputs.
+	changeAmountNanos := uint64(0)
+	for _, txOutput := range txn.TxOutputs {
+		if reflect.DeepEqual(txOutput.PublicKey, txn.PublicKey) {
+			changeAmountNanos += txOutput.AmountNanos
+		}
+	}
+
+	// Sanity check if output doesn't exceed inputs.
+	if changeAmountNanos > totalInputNanos {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Output to sender exceeds inputs: (%v, %v)", changeAmountNanos, totalInputNanos))
+		return
+	}
+
+	// Return the final transaction spending.
+	totalSpendingNanos := totalInputNanos - changeAmountNanos
+	res := GetTransactionSpendingResponse{
+		TotalSpendingNanos: totalSpendingNanos,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem encoding response as JSON: %v", err))
+	}
+	return
 }
