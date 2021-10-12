@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"bytes"
+	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -139,34 +141,32 @@ func (fes *APIServer) AdminUpdateGlobalFeed(ww http.ResponseWriter, req *http.Re
 	if requestData.RemoveFromGlobalFeed {
 		err = fes.GlobalStateDelete(dbKey)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem deleting post from global state: %v", err))
+			_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem deleting post from global state: %v", err))
 			return
 		}
 	} else {
 		// Encode the post entry and stick it in the database.
 		err = fes.GlobalStatePut(dbKey, []byte{1})
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem putting updated user metadata: %v", err))
+			_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem putting updated user metadata: %v", err))
 			return
 		}
 	}
 
-	// Create a key to add a hot feed op for this post.
+	// Add a hot feed op for this post.
+	hotFeedOp := HotFeedOp{
+		IsRemoval:  requestData.RemoveFromGlobalFeed,
+		Multiplier: 1,
+	}
+	hotFeedOpDataBuf := bytes.NewBuffer([]byte{})
+	gob.NewEncoder(hotFeedOpDataBuf).Encode(hotFeedOp)
 	opTimestamp := uint64(time.Now().UnixNano())
-	hotFeedOpKey := GlobalStateKeyForHotFeedOp(opTimestamp, postHash, requestData.RemoveFromGlobalFeed)
-	err = fes.GlobalStatePut(hotFeedOpKey, []byte{1})
+	hotFeedOpKey := GlobalStateKeyForHotFeedOp(opTimestamp, postHash)
+	err = fes.GlobalStatePut(hotFeedOpKey, hotFeedOpDataBuf.Bytes())
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem putting hot feed op: %v", err))
+		_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem putting hotFeedOp: %v", err))
 		return
 	}
-
-	val, err := fes.GlobalStateGet(hotFeedOpKey)
-	_ = val
-
-	startTimestampNanos := uint64(time.Now().UTC().AddDate(0, 0, -1).UnixNano()) // 1 day ago.
-	startPrefix := GlobalStateSeekKeyForHotFeedOps(startTimestampNanos)
-	keys, vals, err := fes.GlobalStateSeek(startPrefix, _GlobalStatePrefixForHotFeedOps, 0, 0, false, true)
-	_, _ = keys, vals
 
 	// If we made it this far we were successful, return without error.
 	res := AdminUpdateGlobalFeedResponse{}

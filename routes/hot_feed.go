@@ -2,6 +2,7 @@ package routes
 
 import (
 	"bytes"
+	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -68,7 +69,7 @@ func (fes *APIServer) UpdateHotFeed() {
 	fes.UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts)
 
 	// Update the HotFeedOrderedList based on the last 288 blocks.
-	hotFeedPosts := fes.UpdateHotFeedOrderedList()
+	hotFeedPosts := fes.UpdateHotFeedOrderedList(hotFeedApprovedPosts)
 
 	// The hotFeedPostsMap will be nil unless we found new blocks in the call above.
 	if hotFeedPosts != nil {
@@ -76,54 +77,73 @@ func (fes *APIServer) UpdateHotFeed() {
 	}
 
 	// Replace the HotFeedApprovedPostsMap with the fresh one.
-	fes.HotFeedApprovedPosts = hotFeedApprovedPosts
+	fes.HotFeedApprovedPostsToMultipliers = hotFeedApprovedPosts
 }
 
-func (fes *APIServer) UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts map[lib.BlockHash][]byte) {
+func (fes *APIServer) UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts map[lib.BlockHash]float64) {
 	// Grab all of the relevant operations to update the map with.
 	startTimestampNanos := uint64(time.Now().UTC().AddDate(0, 0, -1).UnixNano()) // 1 day ago.
 	if fes.LastHotFeedOpProcessedTstampNanos != 0 {
 		startTimestampNanos = fes.LastHotFeedOpProcessedTstampNanos
 	}
 	startPrefix := GlobalStateSeekKeyForHotFeedOps(startTimestampNanos)
-	opKeys, _, err := fes.GlobalStateSeek(
+	opKeys, opVals, err := fes.GlobalStateSeek(
 		startPrefix,
 		_GlobalStatePrefixForHotFeedOps, /*validForPrefix*/
 		0,                               /*maxKeyLen -- ignored since reverse is false*/
 		0,                               /*numToFetch -- 0 is ignored*/
 		false,                           /*reverse*/
-		false,                           /*fetchValues*/
+		true,                            /*fetchValues*/
 	)
 	if err != nil {
 		glog.Infof("UpdateHotFeedApprovedPostsMap: GlobalStateSeek failed: %v", err)
 	}
 
 	// Chop up the keys and process each operation.
-	for _, opKey := range opKeys {
-		// Each key consists of: prefix, timestamp, posthash, IsRemoval bool.
+	for opIdx, opKey := range opKeys {
+		// Each key consists of: prefix, timestamp, posthash.
 		timestampStartIdx := 1
 		postHashStartIdx := timestampStartIdx + 8
-		isRemovalBoolStartIdx := postHashStartIdx + lib.HashSizeBytes
 
-		postHashBytes := opKey[postHashStartIdx:isRemovalBoolStartIdx]
-		isRemovalBoolBytes := opKey[isRemovalBoolStartIdx:]
-
+		postHashBytes := opKey[postHashStartIdx:]
 		postHash := &lib.BlockHash{}
 		copy(postHash[:], postHashBytes)
-		isRemoval := lib.ReadBoolByte(bytes.NewReader(isRemovalBoolBytes))
 
-		if isRemoval {
+		// Deserialize the HotFeedOp.
+		hotFeedOp := HotFeedOp{}
+		hotFeedOpBytes := opVals[opIdx]
+		if len(hotFeedOpBytes) > 0 {
+			err = gob.NewDecoder(bytes.NewReader(hotFeedOpBytes)).Decode(&hotFeedOp)
+			if err != nil {
+				glog.Infof("UpdateHotFeedApprovedPostsMap: ERROR decoding HotFeedOp: %v", err)
+				continue
+			}
+		} else {
+			// If this row doesn't actually have a HotFeedOp, bail.
+			continue
+		}
+
+		if hotFeedOp.IsRemoval {
 			delete(hotFeedApprovedPosts, *postHash)
 		} else {
-			hotFeedApprovedPosts[*postHash] = []byte{}
+			hotFeedApprovedPosts[*postHash] = hotFeedOp.Multiplier
+
+			// Now we need to figure out if this was a multiplier update.
+			prevMultiplier, hasPrevMultiplier := fes.HotFeedApprovedPostsToMultipliers[*postHash]
+			if hasPrevMultiplier && prevMultiplier != hotFeedOp.Multiplier {
+				fes.HotFeedPostMultiplierUpdated = true
+			} else if hotFeedOp.Multiplier != 1 {
+				fes.HotFeedPostMultiplierUpdated = true
+			}
 		}
 	}
 }
 
-func (fes *APIServer) CopyHotFeedApprovedPostsMap() map[lib.BlockHash][]byte {
-	hotFeedApprovedPosts := make(map[lib.BlockHash][]byte, len(fes.HotFeedApprovedPosts))
-	for postKey := range fes.HotFeedApprovedPosts {
-		hotFeedApprovedPosts[postKey] = []byte{}
+func (fes *APIServer) CopyHotFeedApprovedPostsMap() map[lib.BlockHash]float64 {
+	hotFeedApprovedPosts := make(
+		map[lib.BlockHash]float64, len(fes.HotFeedApprovedPostsToMultipliers))
+	for postKey, postVal := range fes.HotFeedApprovedPostsToMultipliers {
+		hotFeedApprovedPosts[postKey] = postVal
 	}
 	return hotFeedApprovedPosts
 }
@@ -133,7 +153,10 @@ type HotnessPostInfo struct {
 	PostBlockAge int
 	HotnessScore uint64
 }
-func (fes *APIServer) UpdateHotFeedOrderedList() (_hotFeedPostsMap map[lib.BlockHash]*HotnessPostInfo) {
+
+func (fes *APIServer) UpdateHotFeedOrderedList(postsToMultipliers map[lib.BlockHash]float64,
+) (_hotFeedPostsMap map[lib.BlockHash]*HotnessPostInfo,
+) {
 	// Check to see if any of the algorithm constants have changed.
 	foundNewConstants := false
 	globalStateInteractionCap, globalStateTimeDecayBlocks, err := fes.GetHotFeedConstantsFromGlobalState()
@@ -171,14 +194,18 @@ func (fes *APIServer) UpdateHotFeedOrderedList() (_hotFeedPostsMap map[lib.Block
 		fes.HotFeedInteractionCap = globalStateInteractionCap
 		fes.HotFeedTimeDecayBlocks = globalStateTimeDecayBlocks
 		foundNewConstants = true
+	} else if fes.HotFeedPostMultiplierUpdated {
+		// If a post's multiplier was updated, we need to recompute scores.
+		foundNewConstants = true
+		fes.HotFeedPostMultiplierUpdated = false
 	}
 
 	// If the constants for the algorithm haven't changed and we have already seen the latest
 	// block or the chain is out of sync, bail.
 	blockTip := fes.blockchain.BlockTip()
 	chainState := fes.blockchain.ChainState()
-	if !foundNewConstants &&
-		(blockTip.Height <= fes.HotnessBlockHeight || chainState != lib.SyncStateFullyCurrent) {
+	if (!foundNewConstants && blockTip.Height <= fes.HotFeedBlockHeight) ||
+		chainState != lib.SyncStateFullyCurrent {
 		return nil
 	}
 
@@ -250,15 +277,23 @@ func (fes *APIServer) UpdateHotFeedOrderedList() (_hotFeedPostsMap map[lib.Block
 			postHashScored, txnHotnessScore := fes.GetHotnessScoreInfoForTxn(
 				txn, postBlockAge, postInteractionMap, utxoView)
 			if txnHotnessScore != 0 && postHashScored != nil {
+				// Check for a post multiplier.
+				multiplier, hasMultiplier := postsToMultipliers[*postHashScored]
+				if hasMultiplier && multiplier >= 0 {
+					txnHotnessScore = uint64(multiplier * float64(txnHotnessScore))
+				}
+
 				// Check for overflow just in case.
 				if prevHotnessInfo.HotnessScore > math.MaxInt64-txnHotnessScore {
 					continue
 				}
+
 				// Finally, make sure the post scored isn't a comment or repost.
 				postEntryScored := utxoView.GetPostEntryForPostHash(postHashScored)
 				if len(postEntryScored.ParentStakeID) > 0 || lib.IsVanillaRepost(postEntryScored) {
 					continue
 				}
+
 				// Update the hotness score.
 				prevHotnessInfo.HotnessScore += txnHotnessScore
 			}
@@ -281,8 +316,8 @@ func (fes *APIServer) UpdateHotFeedOrderedList() (_hotFeedPostsMap map[lib.Block
 	})
 	fes.HotFeedOrderedList = hotFeedOrderedList
 
-	// Update the HotnessBlockHeight so we don't re-evaluate this set of blocks.
-	fes.HotnessBlockHeight = blockTip.Height
+	// Update the HotFeedBlockHeight so we don't re-evaluate this set of blocks.
+	fes.HotFeedBlockHeight = blockTip.Height
 
 	elapsed := time.Since(start)
 	glog.Infof("Successfully updated HotFeedOrderedList in %s", elapsed)
@@ -328,7 +363,7 @@ func CheckTxnForCreatePost(txn *lib.MsgDeSoTxn) (
 }
 
 func GetPostHashToScoreForTxn(txn *lib.MsgDeSoTxn,
-	utxoView *lib.UtxoView) (*lib.BlockHash) {
+	utxoView *lib.UtxoView) *lib.BlockHash {
 	// Figure out which post this transaction should affect.
 	interactionPostHash := &lib.BlockHash{}
 	txnType := txn.TxnMeta.GetTxnType()
@@ -415,9 +450,9 @@ func (fes *APIServer) GetHotnessScoreInfoForTxn(
 }
 
 func (fes *APIServer) PruneHotFeedApprovedPostsMap(
-	hotFeedPosts map[lib.BlockHash]*HotnessPostInfo, hotFeedApprovedPosts map[lib.BlockHash][]byte,
+	hotFeedPosts map[lib.BlockHash]*HotnessPostInfo, hotFeedApprovedPosts map[lib.BlockHash]float64,
 ) {
-	for postHash := range fes.HotFeedApprovedPosts {
+	for postHash := range fes.HotFeedApprovedPostsToMultipliers {
 		if _, inHotFeedMap := hotFeedPosts[postHash]; !inHotFeedMap {
 			delete(hotFeedApprovedPosts, postHash)
 		}
@@ -499,7 +534,7 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 		}
 
 		// Skip posts that aren't approved yet, if requested.
-		if _, isApproved := fes.HotFeedApprovedPosts[*hotFeedEntry.PostHash]; approvedPostsOnly && !isApproved {
+		if _, isApproved := fes.HotFeedApprovedPostsToMultipliers[*hotFeedEntry.PostHash]; approvedPostsOnly && !isApproved {
 			continue
 		}
 
@@ -643,6 +678,64 @@ func (fes *APIServer) AdminGetHotFeedAlgorithm(ww http.ResponseWriter, req *http
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetHotFeedAlgorithm: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type AdminUpdateHotFeedPostMultiplierRequest struct {
+	PostHashHex string  `safeforlogging:"true"`
+	Multiplier  float64 `safeforlogging:"true"`
+}
+
+type AdminUpdateHotFeedPostMultiplierResponse struct{}
+
+func (fes *APIServer) AdminUpdateHotFeedPostMultiplier(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminUpdateHotFeedPostMultiplierRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateHotFeedPostMultiplier: Problem parsing request body: %v", err))
+		return
+	}
+
+	if requestData.Multiplier < 0 {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AdminUpdateHotFeedPostMultiplier: Please provide non-negative multiplier: %d", requestData.Multiplier))
+		return
+	}
+
+	// Decode the postHash.
+	postHash := &lib.BlockHash{}
+	if requestData.PostHashHex != "" {
+		postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
+		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateHotFeedPostMultiplier: Error parsing post hash %v: %v",
+				requestData.PostHashHex, err))
+			return
+		}
+		copy(postHash[:], postHashBytes)
+	} else {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateHotFeedPostMultiplier: Request missing PostHashHex"))
+		return
+	}
+
+	// Add a new hot feed op for this post.
+	hotFeedOp := HotFeedOp{
+		IsRemoval:  false,
+		Multiplier: requestData.Multiplier,
+	}
+	hotFeedOpDataBuf := bytes.NewBuffer([]byte{})
+	gob.NewEncoder(hotFeedOpDataBuf).Encode(hotFeedOp)
+	opTimestamp := uint64(time.Now().UnixNano())
+	hotFeedOpKey := GlobalStateKeyForHotFeedOp(opTimestamp, postHash)
+	err := fes.GlobalStatePut(hotFeedOpKey, hotFeedOpDataBuf.Bytes())
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateHotFeedPostMultiplier: Problem putting hotFeedOp: %v", err))
+		return
+	}
+
+	res := AdminUpdateHotFeedPostMultiplierResponse{}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateHotFeedPostMultiplier: Problem encoding response as JSON: %v", err))
 		return
 	}
 }

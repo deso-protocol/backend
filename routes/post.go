@@ -248,7 +248,7 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 			res.InGlobalFeed = &inGlobalFeed
 		}
 
-		_, inHotFeed := fes.HotFeedApprovedPosts[*postEntry.PostHash]
+		_, inHotFeed := fes.HotFeedApprovedPostsToMultipliers[*postEntry.PostHash]
 		res.InHotFeed = &inHotFeed
 	}
 

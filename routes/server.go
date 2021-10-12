@@ -179,9 +179,10 @@ const (
 	RoutePathAdminRemoveNilPosts   = "/api/v0/admin/remove-nil-posts"
 
 	// hot_feed.go
-	RoutePathAdminGetUnfilteredHotFeed   = "/api/v0/admin/get-unfiltered-hot-feed"
-	RoutePathAdminGetHotFeedAlgorithm    = "/api/v0/admin/get-hot-feed-algorithm"
-	RoutePathAdminUpdateHotFeedAlgorithm = "/api/v0/admin/update-hot-feed-algorithm"
+	RoutePathAdminGetUnfilteredHotFeed        = "/api/v0/admin/get-unfiltered-hot-feed"
+	RoutePathAdminGetHotFeedAlgorithm         = "/api/v0/admin/get-hot-feed-algorithm"
+	RoutePathAdminUpdateHotFeedAlgorithm      = "/api/v0/admin/update-hot-feed-algorithm"
+	RoutePathAdminUpdateHotFeedPostMultiplier = "/api/v0/admin/update-hot-feed-post-multiplier"
 
 	// admin_nft.go
 	RoutePathAdminGetNFTDrop    = "/api/v0/admin/get-nft-drop"
@@ -260,14 +261,15 @@ type APIServer struct {
 	// A list of posts from the last 24hrs ordered by hotness score.
 	HotFeedOrderedList []*HotFeedEntry
 	// The height of the last block evaluated by the hotness routine.
-	HotnessBlockHeight uint32
-	// Map of whitelisted post hashes used for serving the hot feed. Since we only care about
-	// whether a post hash is in the map or not, we use a nil byte slice for the values.
-	HotFeedApprovedPosts              map[lib.BlockHash][]byte
+	HotFeedBlockHeight uint32
+	// Map of whitelisted post hashes used for serving the hot feed.
+	// The float64 value is a multiplier than can be modified and used in scoring.
+	HotFeedApprovedPostsToMultipliers map[lib.BlockHash]float64
 	LastHotFeedOpProcessedTstampNanos uint64
 	// Constants for the hotness score algorithm.
-	HotFeedInteractionCap  uint64
-	HotFeedTimeDecayBlocks uint64
+	HotFeedInteractionCap        uint64
+	HotFeedTimeDecayBlocks       uint64
+	HotFeedPostMultiplierUpdated bool
 
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
@@ -987,6 +989,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateHotFeedAlgorithm,
 			fes.AdminUpdateHotFeedAlgorithm,
+			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateHotFeedPostMultiplier",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateHotFeedPostMultiplier,
+			fes.AdminUpdateHotFeedPostMultiplier,
 			SuperAdminAccess,
 		},
 		{

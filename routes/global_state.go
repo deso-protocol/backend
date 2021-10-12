@@ -170,10 +170,11 @@ var (
 
 	// This prefix allows nodes to construct an in-memory map of the posthashes that are
 	// approved to be shown on the Hot Feed. We store approvals and removals as individual
-	// "operations" ("ops") in this index so that nodes don't need to regularly
-	// download the entire list of approved post hashes from global state.
+	// "ops" in this index so that nodes don't need to regularly download the entire list
+	// of approved post hashes from global state. HotFeedOps can also include "multipliers",
+	// which serve to multiply the hotness score of a given post hash.
 	//
-	// <prefix, OperationTimestampNanos, PostHash, IsRemoval Bool> -> <[]byte{1}>
+	// <prefix, OperationTimestampNanos, PostHash> -> <HotFeedOp>
 	_GlobalStatePrefixForHotFeedOps = []byte{28}
 
 	// Prefix for accessing hot feed score constants.  <prefix> -> <uint64>
@@ -187,6 +188,11 @@ var (
 
 	// NEXT_TAG: 31
 )
+
+type HotFeedOp struct {
+	IsRemoval  bool
+	Multiplier float64 // Negatives are ignored, 1 has no effect.
+}
 
 // A ReferralInfo struct holds all of the params and stats for a referral link/hash.
 type ReferralInfo struct {
@@ -425,12 +431,10 @@ func GlobalStateSeekKeyForHotFeedOps(startTimestampNanos uint64) []byte {
 func GlobalStateKeyForHotFeedOp(
 	opTimestampNanos uint64,
 	postHash *lib.BlockHash,
-	isRemoval bool,
 ) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixForHotFeedOps...)
 	key := append(prefixCopy, lib.EncodeUint64(opTimestampNanos)...)
 	key = append(key, postHash[:]...)
-	key = append(key, lib.BoolToByte(isRemoval))
 	return key
 }
 
