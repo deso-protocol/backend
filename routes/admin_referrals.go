@@ -6,6 +6,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/davecgh/go-spew/spew"
 	"io"
 	"net/http"
 	"reflect"
@@ -16,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil/base58"
 	"github.com/pkg/errors"
+	"github.com/golang/glog"
 )
 
 func (fes *APIServer) putReferralHashWithInfo(
@@ -473,7 +475,8 @@ func (fes *APIServer) getAllReferralInfos() (
 	var referralInfos []ReferralInfo
 	for valIdx, valBytes := range valsFound {
 		referralInfo := ReferralInfo{}
-		if valBytes != nil {
+		if valBytes != nil && len(valBytes) != 0 {
+			glog.Infof("valBytes found: \"%v\"", spew.Sdump(valBytes))
 			err = gob.NewDecoder(bytes.NewReader(valBytes)).Decode(&referralInfo)
 			if err != nil {
 				return nil, fmt.Errorf(
