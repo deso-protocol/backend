@@ -100,7 +100,8 @@ type PostEntryResponse struct {
 	DiamondsFromSender uint64
 
 	// Score given to this post by the hot feed go routine. Not always populated.
-	HotnessScore uint64
+	HotnessScore   uint64
+	PostMultiplier float64
 
 	RecloutCount               uint64             // Deprecated
 	QuoteRecloutCount          uint64             // Deprecated

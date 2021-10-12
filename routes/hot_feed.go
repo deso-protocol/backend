@@ -473,18 +473,19 @@ type HotFeedPageResponse struct {
 }
 
 func (fes *APIServer) AdminGetUnfilteredHotFeed(ww http.ResponseWriter, req *http.Request) {
-	fes.HandleHotFeedPageRequest(ww, req, false /*approvedPostsOnly*/)
+	fes.HandleHotFeedPageRequest(ww, req, false /*approvedPostsOnly*/, true /*addMultiplierBool*/)
 }
 
 func (fes *APIServer) GetHotFeed(ww http.ResponseWriter, req *http.Request) {
 	// RPH-FIXME: set approvedPostsOnly to true before launch.
-	fes.HandleHotFeedPageRequest(ww, req, false /*approvedPostsOnly*/)
+	fes.HandleHotFeedPageRequest(ww, req, false /*approvedPostsOnly*/, false /*addMultiplierBool*/)
 }
 
 func (fes *APIServer) HandleHotFeedPageRequest(
 	ww http.ResponseWriter,
 	req *http.Request,
 	approvedPostsOnly bool,
+	addMultiplierBool bool,
 ) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := HotFeedPageRequest{}
@@ -550,6 +551,10 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 		postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(
 			readerPublicKeyBytes, postEntry)
 		postEntryResponse.HotnessScore = hotFeedEntry.HotnessScore
+		hotFeedMultiplier, inHotFeed := fes.HotFeedApprovedPostsToMultipliers[*postEntry.PostHash]
+		if inHotFeed && addMultiplierBool {
+			postEntryResponse.PostMultiplier = hotFeedMultiplier
+		}
 		hotFeed = append(hotFeed, *postEntryResponse)
 	}
 
