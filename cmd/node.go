@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"path/filepath"
+
 	"github.com/deso-protocol/backend/config"
 	"github.com/deso-protocol/backend/routes"
 	coreCmd "github.com/deso-protocol/core/cmd"
@@ -8,15 +10,13 @@ import (
 	"github.com/dgraph-io/badger/v3"
 	"github.com/golang/glog"
 	"github.com/kevinburke/twilio-go"
-	"path/filepath"
 )
 
 type Node struct {
 	APIServer   *routes.APIServer
 	GlobalState *badger.DB
 	Config      *config.Config
-
-	CoreNode *coreCmd.Node
+	CoreNode    *coreCmd.Node
 }
 
 func NewNode(config *config.Config, coreNode *coreCmd.Node) *Node {

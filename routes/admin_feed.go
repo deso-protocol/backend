@@ -13,7 +13,7 @@ import (
 	"github.com/deso-protocol/core/lib"
 )
 
-// AdminPinPostRequest...
+// AdminPinPostRequest ...
 type AdminPinPostRequest struct {
 	// The post hash of the post to pin or unpin from the global feed
 	PostHashHex string `safeForLogging:"true"`
@@ -24,7 +24,7 @@ type AdminPinPostRequest struct {
 // AdminPinPostResponse ...
 type AdminPinPostResponse struct{}
 
-// AdminUpdateGlobalFeed ...
+// AdminPinPost  ...
 func (fes *APIServer) AdminPinPost(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := AdminPinPostRequest{}
