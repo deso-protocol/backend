@@ -13,11 +13,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil/base58"
-	"github.com/pkg/errors"
+	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
+	"github.com/pkg/errors"
 )
 
 func (fes *APIServer) putReferralHashWithInfo(
@@ -476,11 +476,11 @@ func (fes *APIServer) getAllReferralInfos() (
 	for valIdx, valBytes := range valsFound {
 		referralInfo := ReferralInfo{}
 		if valBytes != nil && len(valBytes) != 0 {
-			glog.Infof("valBytes found: \"%v\"", spew.Sdump(valBytes))
 			err = gob.NewDecoder(bytes.NewReader(valBytes)).Decode(&referralInfo)
 			if err != nil {
-				return nil, fmt.Errorf(
-					"getReferralInfoResponsesForPubKey: Failed decoding referral info #%d: %v", valIdx, err)
+				glog.Errorf(
+					"ERROR: getReferralInfoResponsesForPubKey: Failed decoding referral info #%d: %v ; valBytes found: \"%v\"", valIdx, err, spew.Sdump(valBytes))
+				continue
 			}
 		}
 
