@@ -162,7 +162,7 @@ var (
 	// 	- <prefix, PKID, referral hash (8 bytes)> -> <IsActive bool>
 	_GlobalStatePrefixPKIDReferralHashToIsActive = []byte{25}
 
-	// - <prefx, PKID, referral hash (6-8 bytes), Referred PKID
+	// - <prefix, PKID, referral hash (6-8 bytes), Referred PKID
 	_GlobalStatePrefixPKIDReferralHashRefereePKID = []byte{26}
 
 	// ETH purchases <prefix, ETH Txn Hash> -> <Complete bool>
@@ -179,6 +179,13 @@ var (
 	// Prefix for accessing hot feed score constants.  <prefix> -> <uint64>
 	_GlobalStatePrefixForHotFeedInteractionCap  = []byte{29}
 	_GlobalStatePrefixForHotFeedTimeDecayBlocks = []byte{30}
+
+	// - <prefix, lib.TxnType> -> []*lib.DeSoOutput
+	_GlobalStatePrefixTxnTypeToDeSoOutputs = []byte{28}
+
+	// Public keys exempt from node fees
+	// - <prefix, public key> -> void
+	_GlobalStatePrefixExemptPublicKeys = []byte{29}
 
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
@@ -589,6 +596,18 @@ func GlobalStateKeyUpAndComingTutorialCreators(pkid *lib.PKID) []byte {
 func GlobalStateKeyETHPurchases(txnHash string) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixForETHPurchases...)
 	key := append(prefixCopy, txnHash[:]...)
+	return key
+}
+
+func GlobalStateKeyTransactionFeeOutputsFromTxnType(txnType lib.TxnType) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixTxnTypeToDeSoOutputs...)
+	key := append(prefixCopy, lib.UintToBuf(uint64(txnType))...)
+	return key
+}
+
+func GlobalStateKeyExemptPublicKey(publicKey []byte) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixExemptPublicKeys...)
+	key := append(prefixCopy, publicKey[:]...)
 	return key
 }
 

@@ -66,6 +66,9 @@ type CreateNFTRequest struct {
 	MinBidAmountNanos              int    `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
 type CreateNFTResponse struct {
@@ -148,6 +151,13 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeCreateNFT, updaterPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	nftFee := utxoView.GlobalParamsEntry.CreateNFTFeeNanos * uint64(requestData.NumCopies)
 
 	// Try and create the create NFT txn for the user.
@@ -161,7 +171,7 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		nftFee,
 		uint64(requestData.NFTRoyaltyToCreatorBasisPoints),
 		uint64(requestData.NFTRoyaltyToCoinBasisPoints),
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Problem creating transaction: %v", err))
 		return
@@ -197,6 +207,9 @@ type UpdateNFTRequest struct {
 	MinBidAmountNanos           int    `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
 type UpdateNFTResponse struct {
@@ -263,6 +276,13 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeUpdateNFT, updaterPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateNFT: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	// Get the NFT in question so we can do a more hardcore validation of the request data.
 	nftKey := lib.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
 	nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
@@ -286,7 +306,7 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 		uint64(requestData.SerialNumber),
 		requestData.IsForSale,
 		uint64(requestData.MinBidAmountNanos),
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateNFT: Problem creating transaction: %v", err))
 		return
@@ -323,6 +343,9 @@ type CreateNFTBidRequest struct {
 	BidAmountNanos              int    `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
 type CreateNFTBidResponse struct {
@@ -391,6 +414,13 @@ func (fes *APIServer) CreateNFTBid(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeNFTBid, updaterPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateNFTBid: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	// Get the NFT in question so we can do a more hardcore validation of the request data.
 	if requestData.SerialNumber != 0 {
 		nftKey := lib.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
@@ -430,7 +460,7 @@ func (fes *APIServer) CreateNFTBid(ww http.ResponseWriter, req *http.Request) {
 		nftPostHash,
 		uint64(requestData.SerialNumber),
 		uint64(requestData.BidAmountNanos),
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFTBid: Problem creating transaction: %v", err))
 		return
@@ -471,6 +501,9 @@ type AcceptNFTBidRequest struct {
 	EncryptedUnlockableText     string `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
 type AcceptNFTBidResponse struct {
@@ -540,6 +573,13 @@ func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeAcceptNFTBid, updaterPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTBid: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	// Get the bidder's public key.
 	bidderPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.BidderPublicKeyBase58Check)
 	if err != nil {
@@ -580,7 +620,7 @@ func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
 		bidderPKID.PKID,
 		uint64(requestData.BidAmountNanos),
 		encryptedUnlockableTextBytes,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTBid: Problem creating transaction: %v", err))
 		return
@@ -1365,6 +1405,9 @@ type TransferNFTRequest struct {
 	EncryptedUnlockableText      string `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
 type TransferNFTResponse struct {
@@ -1433,6 +1476,13 @@ func (fes *APIServer) TransferNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeNFTTransfer, senderPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	// Get the receiver's public key.
 	receiverPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.ReceiverPublicKeyBase58Check)
 	if err != nil {
@@ -1476,7 +1526,7 @@ func (fes *APIServer) TransferNFT(ww http.ResponseWriter, req *http.Request) {
 		nftPostHash,
 		uint64(requestData.SerialNumber),
 		[]byte(requestData.EncryptedUnlockableText),
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Problem creating transaction: %v", err))
 		return
@@ -1514,6 +1564,9 @@ type AcceptNFTTransferRequest struct {
 	SerialNumber                int    `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
 type AcceptNFTTransferResponse struct {
@@ -1577,6 +1630,13 @@ func (fes *APIServer) AcceptNFTTransfer(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeAcceptNFTTransfer, updaterPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	// Get the NFT in question so we can do a more hardcore validation of the request data.
 	nftKey := lib.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
 	nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
@@ -1603,7 +1663,7 @@ func (fes *APIServer) AcceptNFTTransfer(ww http.ResponseWriter, req *http.Reques
 		updaterPublicKeyBytes,
 		nftPostHash,
 		uint64(requestData.SerialNumber),
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: Problem creating transaction: %v", err))
 		return
@@ -1640,6 +1700,9 @@ type BurnNFTRequest struct {
 	SerialNumber                int    `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
 type BurnNFTResponse struct {
@@ -1703,6 +1766,13 @@ func (fes *APIServer) BurnNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeBurnNFT, updaterPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	// Get the NFT in question so we can do a more hardcore validation of the request data.
 	nftKey := lib.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
 	nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
@@ -1729,7 +1799,7 @@ func (fes *APIServer) BurnNFT(ww http.ResponseWriter, req *http.Request) {
 		updaterPublicKeyBytes,
 		nftPostHash,
 		uint64(requestData.SerialNumber),
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Problem creating transaction: %v", err))
 		return
