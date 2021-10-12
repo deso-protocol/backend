@@ -3,11 +3,8 @@ package routes
 import (
 	"bytes"
 	"encoding/gob"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcutil"
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
@@ -15,6 +12,7 @@ import (
 	"io/ioutil"
 	"math/big"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -31,6 +29,7 @@ type CreateETHTxResponse struct {
 	Tx     BlockCypherTx
 	ToSign []string
 }
+
 // TODO: CHANGE
 func (fes *APIServer) CreateETHTx(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
@@ -75,13 +74,14 @@ type ETHTx struct {
 	Value   string `json:"value"`
 	ChainId string `json:"chainId"`
 	To      string `json:"to"`
+	R       string `json:"r"`
+	S       string `json:"s"`
 }
 
 type SubmitETHTxRequest struct {
 	PublicKeyBase58Check string
-	Tx                   map[string]interface{}//BlockCypherTx
-	ToSign               []string
-	SignedHashes         []string
+	Tx                   ETHTx
+	TxBytes              string
 }
 
 type SubmitETHTxResponse struct {
@@ -98,6 +98,29 @@ type TempRes struct {
 	Result interface{}
 }
 
+func (fes *APIServer) validateETHTx(ethTx ETHTx, publicKey string) error {
+	// Verify the deposit address is correct
+	configDepositAddress := strings.ToLower(fes.Config.BuyDESOETHAddress)
+	txDepositAddress := strings.ToLower(ethTx.To)
+	if configDepositAddress != txDepositAddress {
+		return errors.Errorf("Invalid deposit address: %s != %s", txDepositAddress, configDepositAddress)
+	}
+
+	// TODO: Recover public key from signature and verify it matches the publicKey
+
+	//pkBytes, _, err := lib.Base58CheckDecode(publicKey)
+	//if err != nil {
+	//	return errors.Errorf("Invalid public key: %v", err)
+	//}
+
+	//addressPubKey, err := btcutil.NewAddressPubKey(pkBytes, &chaincfg.MainNetParams)
+	//if err != nil {
+	//	return errors.Errorf("Invalid public key: %v", err)
+	//}
+
+	return nil
+}
+
 // TODO: switch API
 func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
@@ -112,72 +135,15 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Verify there's only one signature
-	if len(requestData.ToSign) != 1 || len(requestData.SignedHashes) != 1 {
-		_AddBadRequestError(ww, "SubmitETHTx: Invalid number of signatures")
-		return
-	}
-
-	// Normalize the signature to use low-S values by decoding and re-encoding
-	sig, err := hex.DecodeString(requestData.SignedHashes[0])
+	err := fes.validateETHTx(requestData.Tx, requestData.PublicKeyBase58Check)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to decode SignedHash: %v", err))
-		return
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to validate transaction: %v", err))
 	}
 
-	parsedSig, err := btcec.ParseDERSignature(sig, btcec.S256())
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Parsing signature failed: %v", err))
-		return
-	}
-
-	//normalizedSig := hex.EncodeToString(parsedSig.Serialize())
-
-	// Parse the public key
-	pkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Invalid public key: %v", err))
-		return
-	}
-	addressPubKey, err := btcutil.NewAddressPubKey(pkBytes, fes.Params.BitcoinBtcdParams)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Invalid public key: %v", err))
-		return
-	}
-	pubKey := addressPubKey.PubKey()
-
-	signedHash, err := hex.DecodeString(requestData.ToSign[0])
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to decode ToSign: %v", err))
-		return
-	}
-
-	// Verify the signature was signed by the public key we're going to pay
-	validSignature := parsedSig.Verify(signedHash, pubKey)
-	if !validSignature {
-		_AddBadRequestError(ww, "SubmitETHTx: Invalid signature")
-		return
-	}
-
-	params := []interface{}{fmt.Sprintf("0x%v", requestData.SignedHashes[0])}
+	params := []interface{}{fmt.Sprintf("0x%v", requestData.TxBytes)}
 	resp, err := fes.ExecuteETHRPCRequest("eth_sendRawTransaction", params)
 
 	fmt.Println(resp)
-
-	// Verify only one deposit address
-	//if len(requestData.Tx.Outputs) != 1 || len(requestData.Tx.Outputs[0].Addresses) != 1 {
-	//	_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Can only have one output"))
-	//	return
-	//}
-
-	// Verify the deposit address is correct
-	//configDepositAddress := strings.ToLower(fes.Config.BuyDESOETHAddress[2:])
-	//txDepositAddress := strings.ToLower(requestData.Tx.Outputs[0].Addresses[0])
-	//if configDepositAddress != txDepositAddress {
-	//	_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Invalid deposit address: %s", txDepositAddress))
-	//	return
-	//}
-	//
 	//// Submit the transaction
 	//submitTx, err := fes.BlockCypherSubmitETHTx(requestData.Tx, requestData.ToSign, []string{normalizedSig})
 	//if err != nil {
@@ -207,8 +173,6 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 	//	_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to fetch ETH transaction hex: %v", err))
 	//	return
 	//}
-	//
-	//fes.EtherscanSendRawTransaction(txHex.Hex)
 	//
 	//// Wait up to 10 minutes
 	//// TODO: Long running requests are bad. Replace this with polling (or websockets etc)
@@ -249,7 +213,7 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Problem encoding response: %v", err))
 		return
 	}
-  }
+}
 
 // 1. Validate the transaction mined
 // 2. Calculate the nanos to send
@@ -368,13 +332,13 @@ func (fes *APIServer) AdminProcessETHTx(ww http.ResponseWriter, req *http.Reques
 // JSON RPC with infura
 
 type InfuraRequest struct {
-	JSONRPC string `json:"jsonrpc"`
-	Method  string `json:"method"`
+	JSONRPC string        `json:"jsonrpc"`
+	Method  string        `json:"method"`
 	Params  []interface{} `json:"params"`
-	Id      uint64 `json:"id"`
+	Id      uint64        `json:"id"`
 }
 
-func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) (x interface{}, _err error){
+func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) (x interface{}, _err error) {
 	projectId := "30aa4e03c01d47bc81a24a7ef3ae0e94"
 	URL := fmt.Sprintf("https://mainnet.infura.io/v3/%v", projectId)
 	if fes.Params.NetworkType == lib.NetworkType_TESTNET {
@@ -383,9 +347,9 @@ func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) 
 
 	jsonData, err := json.Marshal(InfuraRequest{
 		JSONRPC: "2.0",
-		Method: method,
-		Params: params,
-		Id: 1,
+		Method:  method,
+		Params:  params,
+		Id:      1,
 	})
 
 	if err != nil {
