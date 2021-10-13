@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/deso-protocol/core/lib"
@@ -626,6 +627,16 @@ func (fes *APIServer) updateOrCreateReferralInfoFromCSVRow(row []string) (_err e
 			"updateOrCreateReferralInfoFromCSVRow: error parsing requires jumio (%s): %v", row[4], err)
 	}
 
+	tstampNanos := uint64(time.Now().UnixNano())
+	if len(row[10]) > 0 {
+		tstampNanos, err = strconv.ParseUint(row[10], 10, 64)
+		if err != nil {
+			return fmt.Errorf(
+				"updateOrCreateReferralInfoFromCSVRow: error parsing tstamp nanos (%s): %v", row[10], err)
+		}
+	}
+	referralInfo.DateCreatedTStampNanos = tstampNanos
+
 	// Set the updated referral info.
 	err = fes.putReferralHashWithInfo(referralInfo.ReferralHashBase58, &referralInfo)
 	if err != nil {
@@ -676,6 +687,11 @@ func (fes *APIServer) AdminUploadReferralCSV(ww http.ResponseWriter, req *http.R
 			_AddBadRequestError(ww, fmt.Sprintf(
 				"AdminUploadReferralCSV: Unexpected number of columns (%d) at rowIdx %d", len(row), rowIdx))
 			return
+		}
+
+		// Strip the whitespace from each string in the column
+		for ii := range row {
+			row[ii] = strings.TrimSpace(row[ii])
 		}
 
 		if rowIdx == 0 {
