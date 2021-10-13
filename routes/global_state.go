@@ -168,6 +168,9 @@ var (
 	// ETH purchases <prefix, ETH Txn Hash> -> <Complete bool>
 	_GlobalStatePrefixForETHPurchases = []byte{27}
 
+	// DO NOT USE: prefixes 28-30. At one point, these prefixes were used for multiple indexes.
+	// In order to prevent future issues with either index, these indexes were moved to start at 31.
+
 	// This prefix allows nodes to construct an in-memory map of the posthashes that are
 	// approved to be shown on the Hot Feed. We store approvals and removals as individual
 	// "ops" in this index so that nodes don't need to regularly download the entire list
@@ -175,25 +178,25 @@ var (
 	// which serve to multiply the hotness score of a given post hash.
 	//
 	// <prefix, OperationTimestampNanos, PostHash> -> <HotFeedOp>
-	_GlobalStatePrefixForHotFeedOps = []byte{28}
+	_GlobalStatePrefixForHotFeedOps = []byte{31}
 
 	// Prefix for accessing hot feed score constants.  <prefix> -> <uint64>
-	_GlobalStatePrefixForHotFeedInteractionCap  = []byte{29}
-	_GlobalStatePrefixForHotFeedTimeDecayBlocks = []byte{30}
+	_GlobalStatePrefixForHotFeedInteractionCap  = []byte{32}
+	_GlobalStatePrefixForHotFeedTimeDecayBlocks = []byte{33}
 
 	// - <prefix, lib.TxnType> -> []*lib.DeSoOutput
-	_GlobalStatePrefixTxnTypeToDeSoOutputs = []byte{28}
+	_GlobalStatePrefixTxnTypeToDeSoOutputs = []byte{34}
 
 	// Public keys exempt from node fees
 	// - <prefix, public key> -> void
-	_GlobalStatePrefixExemptPublicKeys = []byte{29}
+	_GlobalStatePrefixExemptPublicKeys = []byte{35}
 
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
 
-	// NEXT_TAG: 31
+	// NEXT_TAG: 36
 )
 
 type HotFeedOp struct {
