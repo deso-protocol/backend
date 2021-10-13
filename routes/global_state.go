@@ -168,19 +168,6 @@ var (
 	// ETH purchases <prefix, ETH Txn Hash> -> <Complete bool>
 	_GlobalStatePrefixForETHPurchases = []byte{27}
 
-	// This prefix allows nodes to construct an in-memory map of the posthashes that are
-	// approved to be shown on the Hot Feed. We store approvals and removals as individual
-	// "ops" in this index so that nodes don't need to regularly download the entire list
-	// of approved post hashes from global state. HotFeedOps can also include "multipliers",
-	// which serve to multiply the hotness score of a given post hash.
-	//
-	// <prefix, OperationTimestampNanos, PostHash> -> <HotFeedOp>
-	_GlobalStatePrefixForHotFeedOps = []byte{28}
-
-	// Prefix for accessing hot feed score constants.  <prefix> -> <uint64>
-	_GlobalStatePrefixForHotFeedInteractionCap  = []byte{29}
-	_GlobalStatePrefixForHotFeedTimeDecayBlocks = []byte{30}
-
 	// - <prefix, lib.TxnType> -> []*lib.DeSoOutput
 	_GlobalStatePrefixTxnTypeToDeSoOutputs = []byte{28}
 
@@ -188,12 +175,27 @@ var (
 	// - <prefix, public key> -> void
 	_GlobalStatePrefixExemptPublicKeys = []byte{29}
 
+	// This prefix allows nodes to construct an in-memory map of the posthashes that are
+	// approved to be shown on the Hot Feed. We store approvals and removals as individual
+	// "ops" in this index so that nodes don't need to regularly download the entire list
+	// of approved post hashes from global state. HotFeedOps can also include "multipliers",
+	// which serve to multiply the hotness score of a given post hash.
+	//
+	// <prefix, OperationTimestampNanos, PostHash> -> <HotFeedOp>
+	_GlobalStatePrefixForHotFeedOps = []byte{30}
+
+	// Prefix for accessing hot feed score constants.  <prefix> -> <uint64>
+	_GlobalStatePrefixForHotFeedInteractionCap  = []byte{31}
+	_GlobalStatePrefixForHotFeedTimeDecayBlocks = []byte{32}
+
+
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
 
-	// NEXT_TAG: 31
+	// NEXT_TAG: 33
 )
 
 type HotFeedOp struct {
