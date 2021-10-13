@@ -27,6 +27,9 @@ type Config struct {
 	GlobalStateRemoteNode   string
 	GlobalStateRemoteSecret string
 
+	// Hot Feed
+	RunHotFeedRoutine bool
+
 	// Web Security
 	AccessControlAllowOrigins []string
 	SecureHeaderDevelopment   bool
@@ -106,6 +109,9 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	// Global State
 	config.GlobalStateRemoteNode = viper.GetString("global-state-remote-node")
 	config.GlobalStateRemoteSecret = viper.GetString("global-state-remote-secret")
+
+	// Hot Feed
+	config.RunHotFeedRoutine = viper.GetBool("run-hot-feed-routine")
 
 	// Web Security
 	config.AccessControlAllowOrigins = viper.GetStringSlice("access-control-allow-origins")

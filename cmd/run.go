@@ -87,6 +87,11 @@ func init() {
 		"When a remote node is being used to set/fetch global state, a secret "+
 			"is also required to restrict access.")
 
+	// Hot Feed
+	runCmd.PersistentFlags().Bool("run-hot-feed-routine", false,
+		"If set, runs a go routine that accumulates 'hotness' scores for posts  in the "+
+			"last 24hrs.  This can be used to serve a 'hot' feed.")
+
 	// Web Security
 	runCmd.PersistentFlags().StringSlice("access-control-allow-origins", []string{"*"},
 		"Accepts a comma-separated lists of origin domains that will be allowed as the "+

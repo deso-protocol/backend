@@ -75,8 +75,8 @@ type PostEntryResponse struct {
 	DiamondCount uint64
 	// Information about the reader's state w/regard to this post (e.g. if they liked it).
 	PostEntryReaderState *lib.PostEntryReaderState
-	// True if this post hash hex is in the global feed.
-	InGlobalFeed *bool `json:",omitempty"`
+	InGlobalFeed         *bool `json:",omitempty"`
+	InHotFeed            *bool `json:",omitempty"`
 	// True if this post hash hex is pinned to the global feed.
 	IsPinned *bool `json:",omitempty"`
 	// PostExtraData stores an arbitrary map of attributes of a PostEntry
@@ -98,6 +98,10 @@ type PostEntryResponse struct {
 
 	// Number of diamonds the sender gave this post. Only set when getting diamond posts.
 	DiamondsFromSender uint64
+
+	// Score given to this post by the hot feed go routine. Not always populated.
+	HotnessScore   uint64
+	PostMultiplier float64
 
 	RecloutCount               uint64             // Deprecated
 	QuoteRecloutCount          uint64             // Deprecated
@@ -244,6 +248,9 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 			inGlobalFeed = true
 			res.InGlobalFeed = &inGlobalFeed
 		}
+
+		_, inHotFeed := fes.HotFeedApprovedPostsToMultipliers[*postEntry.PostHash]
+		res.InHotFeed = &inHotFeed
 	}
 
 	return res, nil

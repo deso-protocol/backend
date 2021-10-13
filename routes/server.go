@@ -87,6 +87,9 @@ const (
 	RoutePathGetPostsForPublicKey   = "/api/v0/get-posts-for-public-key"
 	RoutePathGetDiamondedPosts      = "/api/v0/get-diamonded-posts"
 
+	// hot_feed.go
+	RoutePathGetHotFeed = "/api/v0/get-hot-feed"
+
 	// nft.go
 	RoutePathCreateNFT                = "/api/v0/create-nft"
 	RoutePathUpdateNFT                = "/api/v0/update-nft"
@@ -181,6 +184,12 @@ const (
 	RoutePathAdminPinPost          = "/api/v0/admin/pin-post"
 	RoutePathAdminRemoveNilPosts   = "/api/v0/admin/remove-nil-posts"
 
+	// hot_feed.go
+	RoutePathAdminGetUnfilteredHotFeed        = "/api/v0/admin/get-unfiltered-hot-feed"
+	RoutePathAdminGetHotFeedAlgorithm         = "/api/v0/admin/get-hot-feed-algorithm"
+	RoutePathAdminUpdateHotFeedAlgorithm      = "/api/v0/admin/update-hot-feed-algorithm"
+	RoutePathAdminUpdateHotFeedPostMultiplier = "/api/v0/admin/update-hot-feed-post-multiplier"
+
 	// admin_fees.go
 	RoutePathAdminSetTransactionFeeForTransactionType = "/api/v0/admin/set-txn-fee-for-txn-type"
 	RoutePathAdminSetAllTransactionFees               = "/api/v0/admin/set-all-txn-fees"
@@ -262,10 +271,23 @@ type APIServer struct {
 	// Base-58 prefix to check for to determine if a string could be a public key.
 	PublicKeyBase58Prefix string
 
-	// Map of transaction type to []*lib.DeSoOutput that represent fees assessed on each transaction of that type.
+	// A list of posts from the last 24hrs ordered by hotness score.
+	HotFeedOrderedList []*HotFeedEntry
+	// The height of the last block evaluated by the hotness routine.
+	HotFeedBlockHeight uint32
+	// Map of whitelisted post hashes used for serving the hot feed.
+	// The float64 value is a multiplier than can be modified and used in scoring.
+	HotFeedApprovedPostsToMultipliers map[lib.BlockHash]float64
+	LastHotFeedOpProcessedTstampNanos uint64
+	// Constants for the hotness score algorithm.
+	HotFeedInteractionCap        uint64
+	HotFeedTimeDecayBlocks       uint64
+	HotFeedPostMultiplierUpdated bool
+
+	//Map of transaction type to []*lib.DeSoOutput that represent fees assessed on each transaction of that type.
 	TransactionFeeMap map[lib.TxnType][]*lib.DeSoOutput
 
-	// Map of public keys that are exempt from nod fees
+	// Map of public keys that are exempt from node fees
 	ExemptPublicKeyMap map[string]interface{}
 
 	// Signals that the frontend server is in a stopped state
@@ -336,6 +358,10 @@ func NewAPIServer(
 
 	// Then monitor them
 	fes.StartExchangePriceMonitoring()
+
+	if fes.Config.RunHotFeedRoutine {
+		fes.StartHotFeedRoutine()
+	}
 
 	return fes, nil
 }
@@ -545,6 +571,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetDiamondedPosts,
 			fes.GetDiamondedPosts,
+			PublicAccess,
+		},
+		{
+			"GetHotFeed",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetHotFeed,
+			fes.GetHotFeed,
 			PublicAccess,
 		},
 		{
@@ -988,7 +1021,35 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.AdminGetTutorialCreators,
 			AdminAccess,
 		},
+		{
+			"AdminGetUnfilteredHotFeed",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetUnfilteredHotFeed,
+			fes.AdminGetUnfilteredHotFeed,
+			AdminAccess,
+		},
 		// Super Admin routes
+		{
+			"AdminGetHotFeedAlgorithm",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetHotFeedAlgorithm,
+			fes.AdminGetHotFeedAlgorithm,
+			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateHotFeedAlgorithm",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateHotFeedAlgorithm,
+			fes.AdminUpdateHotFeedAlgorithm,
+			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateHotFeedPostMultiplier",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateHotFeedPostMultiplier,
+			fes.AdminUpdateHotFeedPostMultiplier,
+			SuperAdminAccess,
+		},
 		{
 			"AdminGetUserAdminData",
 			[]string{"POST", "OPTIONS"},

@@ -1,12 +1,16 @@
 package routes
 
 import (
+	"bytes"
+	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/deso-protocol/core/lib"
 	"io"
 	"net/http"
+	"time"
+
+	"github.com/deso-protocol/core/lib"
 )
 
 // AdminPinPostRequest ...
@@ -95,6 +99,7 @@ type AdminUpdateGlobalFeedRequest struct {
 type AdminUpdateGlobalFeedResponse struct{}
 
 // AdminUpdateGlobalFeed ...
+// NOTE: This function adds posts to the global feed as well as to the hot feed approved posts.
 func (fes *APIServer) AdminUpdateGlobalFeed(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := AdminUpdateGlobalFeedRequest{}
@@ -136,16 +141,31 @@ func (fes *APIServer) AdminUpdateGlobalFeed(ww http.ResponseWriter, req *http.Re
 	if requestData.RemoveFromGlobalFeed {
 		err = fes.GlobalStateDelete(dbKey)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem deleting post from global state: %v", err))
+			_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem deleting post from global state: %v", err))
 			return
 		}
 	} else {
 		// Encode the post entry and stick it in the database.
 		err = fes.GlobalStatePut(dbKey, []byte{1})
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem putting updated user metadata: %v", err))
+			_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem putting updated user metadata: %v", err))
 			return
 		}
+	}
+
+	// Add a hot feed op for this post.
+	hotFeedOp := HotFeedOp{
+		IsRemoval:  requestData.RemoveFromGlobalFeed,
+		Multiplier: 1,
+	}
+	hotFeedOpDataBuf := bytes.NewBuffer([]byte{})
+	gob.NewEncoder(hotFeedOpDataBuf).Encode(hotFeedOp)
+	opTimestamp := uint64(time.Now().UnixNano())
+	hotFeedOpKey := GlobalStateKeyForHotFeedOp(opTimestamp, postHash)
+	err = fes.GlobalStatePut(hotFeedOpKey, hotFeedOpDataBuf.Bytes())
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem putting hotFeedOp: %v", err))
+		return
 	}
 
 	// If we made it this far we were successful, return without error.

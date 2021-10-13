@@ -6,6 +6,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/davecgh/go-spew/spew"
 	"io"
 	"net/http"
 	"reflect"
@@ -13,9 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil/base58"
+	"github.com/deso-protocol/core/lib"
+	"github.com/golang/glog"
 	"github.com/pkg/errors"
 )
 
@@ -474,11 +476,12 @@ func (fes *APIServer) getAllReferralInfos() (
 	var referralInfos []ReferralInfo
 	for valIdx, valBytes := range valsFound {
 		referralInfo := ReferralInfo{}
-		if valBytes != nil {
+		if valBytes != nil && len(valBytes) != 0 {
 			err = gob.NewDecoder(bytes.NewReader(valBytes)).Decode(&referralInfo)
 			if err != nil {
-				return nil, fmt.Errorf(
-					"getReferralInfoResponsesForPubKey: Failed decoding referral info #%d: %v", valIdx, err)
+				glog.Errorf(
+					"ERROR: getReferralInfoResponsesForPubKey: Failed decoding referral info #%d: %v ; valBytes found: \"%v\"", valIdx, err, spew.Sdump(valBytes))
+				continue
 			}
 		}
 

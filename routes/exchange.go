@@ -5,12 +5,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/deso-protocol/core/lib"
 	"io"
 	"net/http"
 	"reflect"
 	"sort"
 	"time"
+
+	"github.com/deso-protocol/core/lib"
 
 	"github.com/pkg/errors"
 
