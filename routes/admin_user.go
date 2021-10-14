@@ -886,6 +886,9 @@ type AdminGetUserAdminDataResponse struct {
 	// Phone number verification
 	PhoneNumber string
 	Email       string
+
+	// Referral Code
+	ReferralHashBase58Check string
 }
 
 // Get the audit logs for a particular public key and their associated metadata
@@ -1051,6 +1054,7 @@ func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Re
 		LastBlacklistRemoverPublicKey: lastBlacklistRemoverPublicKey,
 		PhoneNumber:                   phoneNumber,
 		Email:                         email,
+		ReferralHashBase58Check:       userMetadata.ReferralHashBase58Check,
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem encoding response as JSON: %v", err))
