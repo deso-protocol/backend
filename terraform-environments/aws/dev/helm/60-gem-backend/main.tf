@@ -1,4 +1,4 @@
-# kick 8
+# kick 9
 
 locals {
   aws_region        = "us-east-1"
