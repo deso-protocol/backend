@@ -809,15 +809,16 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		return
 	}
 
-	lastTransactionIDBase58Check := transactionInfoRequest.LastTransactionIDBase58Check
 	var lastTxHash *lib.BlockHash
-	lastTransactionIDBase58CheckSeen := false
-	if lastTransactionIDBase58Check == "" {
-		lastTransactionIDBase58CheckSeen = true
+	lastTxSeen := false
+	lastTxID := transactionInfoRequest.LastTransactionIDBase58Check
+	if lastTxID == "" {
+		lastTxSeen = true
 	} else {
-		txIDBytes, _, err := lib.Base58CheckDecode(lastTransactionIDBase58Check)
+		txIDBytes, _, err := lib.Base58CheckDecode(lastTxID)
 		if err != nil {
-			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error decoding last transaction ID (%v): %v", lastTransactionIDBase58Check, err))
+			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error decoding last tx id (%v): %v", lastTxID, err))
+			return
 		}
 		lastTxHash = &lib.BlockHash{}
 		copy(lastTxHash[:], txIDBytes)
@@ -829,36 +830,24 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		limit = math.MaxUint64
 	}
 
-	// If the public key is set to "mempool" it means we should just return all of the
-	// transactions that are currently in the mempool.
-	nextBlockHeight := fes.TXIndex.TXIndexChain.BlockTip().Height + 1
+	// IsMempool means we should just return all of the transactions that are currently in the mempool.
 	if transactionInfoRequest.IsMempool {
 		// Get all the txns from the mempool.
 		poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
 		if err != nil {
-			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error getting txns from mempool "+
-				"for mempool request: %v", err))
+			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error getting txns from mempool: %v", err))
 			return
 		}
 
-		// Set up a view to apply txns to.
-		utxoView, err := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.Params, nil)
-		if err != nil {
-			APIAddError(ww, fmt.Sprintf("Update: Error initializing UtxoView "+
-				"for mempool request: %v", err))
-			return
-		}
-
-		// Connect all txns in the mempool up to the current view and save the txn meta.
 		res := &APITransactionInfoResponse{}
 		res.Transactions = []*TransactionResponse{}
 		for ii := len(poolTxns); ii > 0; ii-- {
 			poolTx := poolTxns[ii-1]
 
 			// If we haven't seen the last transaction of the previous page, skip ahead until we find it.
-			if !lastTransactionIDBase58CheckSeen {
+			if !lastTxSeen {
 				if reflect.DeepEqual(poolTx.Hash, lastTxHash) {
-					lastTransactionIDBase58CheckSeen = true
+					lastTxSeen = true
 					continue
 				}
 			}
@@ -867,20 +856,12 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 				res.Transactions = append(res.Transactions,
 					&TransactionResponse{TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params)})
 			} else {
-				txnMeta, err := lib.ConnectTxnAndComputeTransactionMetadata(
-					poolTx.Tx, utxoView, &lib.BlockHash{} /*Block hash*/, nextBlockHeight,
-					uint64(0) /*txnIndexInBlock*/)
-				if err != nil {
-					APIAddError(ww, fmt.Sprintf("UpdateTxindex: Error connecting "+
-						"txn for mempool request: %v: %v", poolTx.Tx, err))
-					return
-				}
-				res.Transactions = append(res.Transactions, APITransactionToResponse(poolTx.Tx, txnMeta, fes.Params))
+				res.Transactions = append(res.Transactions, APITransactionToResponse(poolTx.Tx, poolTx.TxMeta, fes.Params))
+			}
 
-				// If we've filled up the page, exit.
-				if uint64(len(res.Transactions)) == limit {
-					break
-				}
+			// If we've filled up the page, exit.
+			if uint64(len(res.Transactions)) == limit {
+				break
 			}
 		}
 
@@ -891,8 +872,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 
 		// At this point, all the transactions should have been added to the request.
 		if err := json.NewEncoder(ww).Encode(res); err != nil {
-			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem encoding response "+
-				"as JSON: %v", err))
+			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem encoding response as JSON: %v", err))
 			return
 		}
 
@@ -900,19 +880,18 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	}
 
 	// If no public key is set, we're doing a simple transaction lookup using
-	// the passed-in TransactionIDBase58Check.  Note: we do not apply pagination here as we are looking up a single value.
+	// the passed-in TransactionIDBase58Check.
+	//
+	// Note: we do not apply pagination here as we are looking up a single value.
 	if transactionInfoRequest.PublicKeyBase58Check == "" {
 		// Parse the passed-in txID
-		txIDBytes, _, err := lib.Base58CheckDecode(
-			transactionInfoRequest.TransactionIDBase58Check)
+		txIDBytes, _, err := lib.Base58CheckDecode(transactionInfoRequest.TransactionIDBase58Check)
 		if err != nil {
-			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem parsing "+
-				"TransactionID: %v", err))
+			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem parsing TransactionID: %v", err))
 			return
 		}
 		if len(txIDBytes) != 32 {
-			APIAddError(ww, fmt.Sprintf("APITransactionInfo: TransactionID byte length "+
-				"is %d but should be 32", len(txIDBytes)))
+			APIAddError(ww, fmt.Sprintf("APITransactionInfo: TransactionID byte length is %d but should be 32", len(txIDBytes)))
 			return
 		}
 		txID := &lib.BlockHash{}
@@ -920,52 +899,17 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 
 		// Use the txID to lookup the requested transaction.
 		txn, txnMeta := lib.DbGetTxindexFullTransactionByTxID(fes.TXIndex.TXIndexChain.DB(), fes.blockchain.DB(), txID)
-		_, _ = txn, txnMeta
 
 		if txn == nil {
 			// Try to look the transaction up in the mempool before giving up.
 			txnInPool := fes.mempool.GetTransaction(txID)
 			if txnInPool == nil {
-				APIAddError(ww, fmt.Sprintf("APITransactionInfo: Could not find "+
-					"transaction with TransactionIDBase58Check = %s",
+				APIAddError(ww, fmt.Sprintf("APITransactionInfo: Could not find transaction with TransactionIDBase58Check = %s",
 					transactionInfoRequest.TransactionIDBase58Check))
 				return
 			}
 			txn = txnInPool.Tx
-
-			// Get all the txns from the mempool.
-			poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
-			if err != nil {
-				APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error getting txns from mempool: %v", err))
-				return
-			}
-			// Set up a view to apply txns to.
-			utxoView, err := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.Params, nil)
-			if err != nil {
-				APIAddError(ww, fmt.Sprintf("Update: Error initializing UtxoView: %v", err))
-				return
-			}
-			// Connect all txns in the mempool up to the current one we want info on.
-			txnHash := txn.Hash()
-			for _, poolTx := range poolTxns {
-				if *poolTx.Tx.Hash() == *txnHash {
-					break
-				}
-				_, err := lib.ConnectTxnAndComputeTransactionMetadata(
-					poolTx.Tx, utxoView, &lib.BlockHash{} /*Block hash*/, nextBlockHeight, uint64(0) /*txnIndexInBlock*/)
-				if err != nil {
-					APIAddError(ww, fmt.Sprintf("Update: Error connecting txn: %v: %v", txn, err))
-					return
-				}
-			}
-
-			// Connect the current txn to the view and extract the metadata.
-			txnMeta, err = lib.ConnectTxnAndComputeTransactionMetadata(
-				txn, utxoView, &lib.BlockHash{} /*Block hash*/, nextBlockHeight, uint64(0) /*txnIndexInBlock*/)
-			if err != nil {
-				APIAddError(ww, fmt.Sprintf("Update: Error connecting MAIN txn: %v: %v", txn, err))
-				return
-			}
+			txnMeta = txnInPool.TxMeta
 		}
 
 		res := &APITransactionInfoResponse{}
@@ -974,38 +918,33 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		}
 
 		if err := json.NewEncoder(ww).Encode(res); err != nil {
-			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem encoding response "+
-				"as JSON: %v", err))
+			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem encoding response as JSON: %v", err))
 			return
 		}
 
 		return
 	}
 
-	// At this point, we know we're looking up all the transactions for
-	// a particular public key.
+	// At this point, we know we're looking up all the transactions for a particular public key
 
-	// Parse the public key.
-	publicKeyBytes, _, err := lib.Base58CheckDecode(
-		transactionInfoRequest.PublicKeyBase58Check)
+	// Parse the public key
+	publicKeyBytes, _, err := lib.Base58CheckDecode(transactionInfoRequest.PublicKeyBase58Check)
 	if err != nil {
-		APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem parsing "+
-			"PublicKeyBase58Check: %v", err))
+		APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem parsing PublicKeyBase58Check: %v", err))
 		return
 	}
 
-	// Compute the balance for the public key
-	totalBalanceNanos := uint64(0)
-	if fes.blockchain != nil && fes.backendServer != nil {
-		utxoEntries, err := fes.blockchain.GetSpendableUtxosForPublicKey(publicKeyBytes, fes.backendServer.GetMempool(), nil)
-		if err != nil {
-			APIAddError(ww, fmt.Sprintf(
-				"APITransactionInfo: Problem getting utxos from view: %v", err))
-			return
-		}
-		for _, utxoEntry := range utxoEntries {
-			totalBalanceNanos += utxoEntry.AmountNanos
-		}
+	// Get a view to fetch the balance
+	utxoView, err := fes.mempool.GetAugmentedUniversalView()
+	if err != nil {
+		APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem getting utxos from view: %v", err))
+		return
+	}
+
+	totalBalanceNanos, err := utxoView.GetDeSoBalanceNanosForPublicKey(publicKeyBytes)
+	if err != nil {
+		APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem getting utxos from view: %v", err))
+		return
 	}
 
 	res := &APITransactionInfoResponse{
@@ -1013,27 +952,70 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	}
 	res.Transactions = []*TransactionResponse{}
 
-	// Look up all the transactions for the public key.
-	txHashes := lib.DbGetTxindexTxnsForPublicKey(fes.TXIndex.TXIndexChain.DB(), publicKeyBytes)
+	validForPrefix := lib.DbTxindexPublicKeyPrefix(publicKeyBytes)
+	// If FetchStartIndex is specified then the startPrefix is the public key with FetchStartIndex appended.
+	// Otherwise, we leave off the index so that the seek will start from the end of the transaction list.
+	startPrefix := lib.DbTxindexPublicKeyPrefix(publicKeyBytes)
+	if transactionInfoRequest.LastPublicKeyTransactionIndex >= 0 {
+		startPrefix = lib.DbTxindexPublicKeyIndexToTxnKey(publicKeyBytes, uint32(transactionInfoRequest.LastPublicKeyTransactionIndex))
+	}
+	// The maximum key length is the length of the key with the public key plus the size of the uint64 appended to it.
+	maxKeyLen := len(lib.DbTxindexPublicKeyIndexToTxnKey(publicKeyBytes, uint32(0)))
 
-	// Process all the transactions found and add them to the response.
-	for _, txHash := range txHashes {
-		txIDString := lib.PkToString(txHash[:], fes.Params)
-		if transactionInfoRequest.IDsOnly {
-			res.Transactions = append(res.Transactions, &TransactionResponse{TransactionIDBase58Check: txIDString})
-		} else {
-			// In this case we need to look up the full transaction and convert
-			// it into a proper transaction response.
-			fullTxn, txnMeta := lib.DbGetTxindexFullTransactionByTxID(
-				fes.TXIndex.TXIndexChain.DB(), fes.blockchain.DB(), txHash)
-			if fullTxn == nil || txnMeta == nil {
-				APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem looking up "+
-					"transaction with TxID: %v; this should never happen", txIDString))
-				return
-			}
-			res.Transactions = append(res.Transactions,
-				APITransactionToResponse(fullTxn, txnMeta, fes.Params))
+	for {
+		keysFound, valsFound, err := lib.DBGetPaginatedKeysAndValuesForPrefix(
+			fes.TXIndex.TXIndexChain.DB(), startPrefix, validForPrefix,
+			maxKeyLen, int(limit), true, true)
+		if err != nil {
+			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error fetching paginated txns: %v", err))
+			return
 		}
+
+		for ii, txIDBytes := range valsFound {
+			txID := &lib.BlockHash{}
+			copy(txID[:], txIDBytes)
+
+			_ = keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(publicKeyBytes)):]
+
+			if transactionInfoRequest.IDsOnly {
+				res.Transactions = append(res.Transactions, &TransactionResponse{TransactionIDBase58Check: txID.String()})
+			} else {
+				// In this case we need to look up the full transaction and convert it into a proper transaction response.
+				fullTxn, txnMeta := lib.DbGetTxindexFullTransactionByTxID(fes.TXIndex.TXIndexChain.DB(), fes.blockchain.DB(), txID)
+				if fullTxn == nil || txnMeta == nil {
+					APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem looking up "+
+						"transaction with TxID: %v; this should never happen", txID))
+					return
+				}
+				res.Transactions = append(res.Transactions, APITransactionToResponse(fullTxn, txnMeta, fes.Params))
+			}
+		}
+
+		// If we've found enough transactions then break.
+		if len(res.Transactions) >= int(limit) {
+			res.Transactions = res.Transactions[:limit]
+			break
+		}
+
+		// If we didn't find any keys then we're done here.
+		if len(keysFound) == 0 {
+			break
+		}
+
+		// If we get here then we have at least one key.
+		// If the index of the last key we found is the zero index then we're done here.
+		lastKey := keysFound[len(keysFound)-1]
+		// The index comes after the <_Prefix, PublicKey> bytes.
+		lastKeyIndexBytes := lastKey[len(lib.DbTxindexPublicKeyPrefix(publicKeyBytes)):]
+		lastKeyIndex := lib.DecodeUint32(lastKeyIndexBytes)
+		if lastKeyIndex == 0 {
+			break
+		}
+
+		// If we get here it means that we don't have enough transactions yet *and*
+		// there are more keys to seek. It also means that the lastKeyIndex > 0. So
+		// update the startPrefix to place it right after the index of the last key.
+		startPrefix = lib.DbTxindexPublicKeyIndexToTxnKey(publicKeyBytes, uint32(lastKeyIndex-1))
 	}
 
 	// Get all the txns from the mempool.
@@ -1042,25 +1024,12 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error getting txns from mempool: %v", err))
 		return
 	}
-	// Set up a view to apply txns to.
-	utxoView, err := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.Params, nil)
-	if err != nil {
-		APIAddError(ww, fmt.Sprintf("Update: Error initializing UtxoView: %v", err))
-		return
-	}
+
 	// Look up all the transactions for the public key from the mempool.
 	pkTxnInfos := fes.mempool.PublicKeyTxnMap(publicKeyBytes)
-	// Connect all txns in the mempool up to the current view and save the
-	// txn meta for the ones that are relevant to this public key.
+
 	for _, poolTx := range poolTxns {
-		txnMeta, err := lib.ConnectTxnAndComputeTransactionMetadata(
-			poolTx.Tx, utxoView, &lib.BlockHash{} /*Block hash*/, nextBlockHeight,
-			uint64(0) /*txnIndexInBlock*/)
-		if err != nil {
-			APIAddError(ww, fmt.Sprintf("Update: Error connecting "+
-				"txn: %v: %v", poolTx.Tx, err))
-			return
-		}
+		txnMeta := poolTx.TxMeta
 
 		isRelevantTxn := false
 		// Iterate over the affected public keys to see if any of them hit the one
@@ -1076,11 +1045,12 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		if !isRelevantTxn && len(pkTxnInfos) != 0 {
 			_, isRelevantTxn = pkTxnInfos[*poolTx.Hash]
 		}
+
 		// Finally, add the transaction to our list if it's relevant
 		if isRelevantTxn {
 			if transactionInfoRequest.IDsOnly {
-				res.Transactions = append(res.Transactions,
-					&TransactionResponse{TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params)})
+				txRes := &TransactionResponse{TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params)}
+				res.Transactions = append(res.Transactions, txRes)
 			} else {
 				res.Transactions = append(res.Transactions,
 					APITransactionToResponse(poolTx.Tx, txnMeta, fes.Params))
@@ -1172,6 +1142,7 @@ func (fes *APIServer) APINodeInfo(ww http.ResponseWriter, rr *http.Request) {
 			"to node-control endpoint: %v", err))
 		return
 	}
+
 	request.Header.Set("Content-Type", "application/json")
 	fes.router.ServeHTTP(ww, request)
 }
