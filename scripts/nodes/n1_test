@@ -8,6 +8,8 @@ COMMAND="./backend run
   --connect-ips=localhost:18000
   --target-outbound-peers=1
   --testnet=true 
+  --admin-public-keys=*
+  --super-admin-public-keys=*
   --regtest
   --trusted-block-producer-public-keys=BC1YLiQ86kwXUy3nfK391xht7N72UmbFY6bGrUsds1A7QKZrs4jJsxo
   --trusted-block-producer-start-height=5

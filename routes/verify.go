@@ -580,6 +580,13 @@ func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	eventDataMap := make(map[string]interface{})
+	eventDataMap["referralCode"] = requestData.ReferralHashBase58
+	if err = fes.logAmplitudeEvent(requestData.PublicKey, "jumio : begin", eventDataMap); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Error logging Jumio Begin in amplitude: %v", err))
+		return
+	}
+
 	// CustomerInternalReference is Public Key + timestamp
 	// UserReference is just PublicKey
 	initData := &JumioInitRequest{
@@ -763,8 +770,12 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	// Always set JumioReturned so we know that Jumio callback has finished.
 	userMetadata.JumioReturned = true
 
+	// Map of data for amplitude
+	eventDataMap := make(map[string]interface{})
+	eventDataMap["referralCode"] = userMetadata.ReferralHashBase58Check
+
 	if req.FormValue("idScanStatus") != "SUCCESS" {
-		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : scan : fail", nil); err != nil {
+		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : scan : fail", eventDataMap); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error logging failed scan in amplitude: %v", err))
 			return
 		}
@@ -776,7 +787,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	if len(req.Form["livenessImages"]) == 0 {
-		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : liveness : fail", nil); err != nil {
+		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : liveness : fail", eventDataMap); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error logging failed scan in amplitude: %v", err))
 			return
 		}
@@ -800,7 +811,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 
 	if jumioIdentityVerification.Validity != true || jumioIdentityVerification.Similarity != "MATCH" {
 		// Don't raise an exception, but do not pay this user.
-		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : verification : fail", nil); err != nil {
+		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : verification : fail", eventDataMap); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error logging failed verification in amplitude: %v", err))
 			return
 		}
@@ -816,7 +827,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	// We expect badger to return a key not found error if this document has not been verified before.
 	// If it does not return an error, this is a duplicate, so we skip ahead.
 	if val, _ := fes.GlobalStateGet(uniqueJumioKey); val == nil || userMetadata.RedoJumio {
-		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : verified", nil); err != nil {
+		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : verified", eventDataMap); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error logging successful verification in amplitude: %v", err))
 			return
 		}
@@ -829,7 +840,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 			return
 		}
 	} else {
-		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : verified : duplicate", nil); err != nil {
+		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : verified : duplicate", eventDataMap); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error logging duplicate verification in amplitude: %v", err))
 			return
 		}

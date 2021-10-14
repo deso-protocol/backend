@@ -262,23 +262,18 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	user.IsAdmin = isAdmin
 	user.IsSuperAdmin = isSuperAdmin
 
-
 	return nil
 }
 
 func (fes *APIServer) UserAdminStatus(publicKeyBase58Check string) (_isAdmin bool, _isSuperAdmin bool) {
-	if len(fes.Config.AdminPublicKeys) == 0 && len(fes.Config.SuperAdminPublicKeys) == 0 {
-		return true, true
-	} else {
-		for _, k := range fes.Config.SuperAdminPublicKeys {
-			if k == publicKeyBase58Check {
-				return true, true
-			}
+	for _, k := range fes.Config.SuperAdminPublicKeys {
+		if k == publicKeyBase58Check || k == "*" {
+			return true, true
 		}
-		for _, k := range fes.Config.AdminPublicKeys {
-			if k == publicKeyBase58Check {
-				return true, false
-			}
+	}
+	for _, k := range fes.Config.AdminPublicKeys {
+		if k == publicKeyBase58Check || k == "*" {
+			return true, false
 		}
 	}
 	return false, false
@@ -530,9 +525,10 @@ type ProfileEntryResponse struct {
 	Comments             []*PostEntryResponse
 	Posts                []*PostEntryResponse
 	// Creator coin fields
-	CoinEntry lib.CoinEntry
+	CoinEntry *CoinEntryResponse
 	// Include current price for the frontend to display.
-	CoinPriceDeSoNanos uint64
+	CoinPriceDeSoNanos     uint64
+	CoinPriceBitCloutNanos uint64 // Deprecated
 
 	// Profiles of users that hold the coin + their balances.
 	UsersThatHODL []*BalanceEntryResponse
@@ -542,6 +538,17 @@ type ProfileEntryResponse struct {
 	// If user is featured as an up and coming creator in the tutorial.
 	// Note: a user should not be both featured as well known and up and coming
 	IsFeaturedTutorialUpAndComingCreator bool
+}
+
+// Deprecated: Temporary to add support for BitCloutLockedNanos
+type CoinEntryResponse struct {
+	CreatorBasisPoints      uint64
+	DeSoLockedNanos         uint64
+	NumberOfHolders         uint64
+	CoinsInCirculationNanos uint64
+	CoinWatermarkNanos      uint64
+
+	BitCloutLockedNanos uint64 // Deprecated
 }
 
 // GetProfiles ...
@@ -893,11 +900,19 @@ func _profileEntryToResponse(profileEntry *lib.ProfileEntry, params *lib.DeSoPar
 
 	// Generate profile entry response
 	profResponse := &ProfileEntryResponse{
-		PublicKeyBase58Check:   lib.PkToString(profileEntry.PublicKey, params),
-		Username:               string(profileEntry.Username),
-		Description:            string(profileEntry.Description),
-		CoinEntry:              profileEntry.CoinEntry,
-		CoinPriceDeSoNanos: coinPriceDeSoNanos,
+		PublicKeyBase58Check: lib.PkToString(profileEntry.PublicKey, params),
+		Username:             string(profileEntry.Username),
+		Description:          string(profileEntry.Description),
+		CoinEntry: &CoinEntryResponse{
+			CreatorBasisPoints:      profileEntry.CoinEntry.CreatorBasisPoints,
+			DeSoLockedNanos:         profileEntry.CoinEntry.DeSoLockedNanos,
+			NumberOfHolders:         profileEntry.CoinEntry.NumberOfHolders,
+			CoinsInCirculationNanos: profileEntry.CoinEntry.CoinsInCirculationNanos,
+			CoinWatermarkNanos:      profileEntry.CoinEntry.CoinWatermarkNanos,
+			BitCloutLockedNanos:     profileEntry.CoinEntry.DeSoLockedNanos,
+		},
+		CoinPriceDeSoNanos:     coinPriceDeSoNanos,
+		CoinPriceBitCloutNanos: coinPriceDeSoNanos,
 		IsHidden:               profileEntry.IsHidden,
 		IsReserved:             isReserved,
 		IsVerified:             isVerified,
@@ -2002,7 +2017,6 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 		return nil, nil, errors.Errorf("GetNotifications: Error getting blocked public keys for user: %v", err)
 	}
 
-
 	// A valid mempool object is used to compute the TransactionMetadata for the mempool
 	// and to allow for things like: filtering notifications for a hidden post.
 	utxoView, err := fes.mempool.GetAugmentedUniversalView()
@@ -2513,4 +2527,89 @@ func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Reque
 		return
 	}
 
+}
+
+// GetUserDerivedKeysRequest ...
+type GetUserDerivedKeysRequest struct {
+	// Public key which derived keys we want to query.
+	PublicKeyBase58Check string `safeForLogging:"true"`
+}
+
+// UserDerivedKey ...
+type UserDerivedKey struct {
+	// This is the public key of the owner.
+	OwnerPublicKeyBase58Check   string `safeForLogging:"true"`
+
+	// This is the derived public key.
+	DerivedPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// This is the expiration date of the derived key.
+	ExpirationBlock             uint64 `safeForLogging:"true"`
+
+	// This is the current state of the derived key.
+	IsValid                     bool `safeForLogging:"true"`
+}
+
+// GetUserDerivedKeysResponse ...
+type GetUserDerivedKeysResponse struct {
+	// DerivedKeys contains user's derived keys indexed by public keys in base58Check
+	DerivedKeys map[string]*UserDerivedKey `safeForLogging:"true"`
+}
+
+func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetUserDerivedKeysRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetUserDerivedKeys: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Check if a valid public key was passed.
+	var publicKeyBytes []byte
+	var err error
+	publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+	if err != nil || len(publicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetUserDerivedKeys: Problem decoding user public key %s: %v",
+			requestData.PublicKeyBase58Check, err))
+		return
+	}
+
+	// Get augmented utxoView.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUtxoViewForPublicKey(publicKeyBytes, nil)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetUserDerivedKeys: Problem getting augmented utxoView: %v", err))
+		return
+	}
+
+	// Get all derived key entries for the owner public key.
+	derivedKeyMappings, err := utxoView.GetAllDerivedKeyMappingsForOwner(publicKeyBytes)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetUserDerivedKeys: Problem getting derived key mappings for owner: %v", err))
+		return
+	}
+
+	// Create the derivedKeys map, indexed by derivedPublicKeys in base58Check.
+	// We use the UserDerivedKey struct instead of the lib.DerivedKeyEntry type
+	// so that we can return public keys in base58Check.
+	derivedKeys := make(map[string]*UserDerivedKey)
+	for _, entry := range derivedKeyMappings {
+		derivedPublicKey := lib.PkToString(entry.DerivedPublicKey[:], fes.Params)
+		derivedKeys[derivedPublicKey] = &UserDerivedKey{
+			OwnerPublicKeyBase58Check:   lib.PkToString(entry.OwnerPublicKey[:], fes.Params),
+			DerivedPublicKeyBase58Check: lib.PkToString(entry.DerivedPublicKey[:], fes.Params),
+			ExpirationBlock:             entry.ExpirationBlock,
+			IsValid:                     entry.OperationType == lib.AuthorizeDerivedKeyOperationValid,
+		}
+	}
+
+	res := GetUserDerivedKeysResponse{
+		DerivedKeys: derivedKeys,
+	}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetUserDerivedKeys: Problem serializing object to JSON: %v", err))
+		return
+	}
 }

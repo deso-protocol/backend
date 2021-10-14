@@ -162,19 +162,47 @@ var (
 	// 	- <prefix, PKID, referral hash (8 bytes)> -> <IsActive bool>
 	_GlobalStatePrefixPKIDReferralHashToIsActive = []byte{25}
 
-	// - <prefx, PKID, referral hash (6-8 bytes), Referred PKID
+	// - <prefix, PKID, referral hash (6-8 bytes), Referred PKID
 	_GlobalStatePrefixPKIDReferralHashRefereePKID = []byte{26}
 
-  // ETH purchases <prefix, ETH Txn Hash> -> <Complete bool>
-	_GlobalStateKeyETHPurchases = []byte{27}
+	// ETH purchases <prefix, ETH Txn Hash> -> <Complete bool>
+	_GlobalStatePrefixForETHPurchases = []byte{27}
+
+	// DO NOT USE: prefixes 28-30. At one point, these prefixes were used for multiple indexes.
+	// In order to prevent future issues with either index, these indexes were moved to start at 31.
+
+	// This prefix allows nodes to construct an in-memory map of the posthashes that are
+	// approved to be shown on the Hot Feed. We store approvals and removals as individual
+	// "ops" in this index so that nodes don't need to regularly download the entire list
+	// of approved post hashes from global state. HotFeedOps can also include "multipliers",
+	// which serve to multiply the hotness score of a given post hash.
+	//
+	// <prefix, OperationTimestampNanos, PostHash> -> <HotFeedOp>
+	_GlobalStatePrefixForHotFeedOps = []byte{31}
+
+	// Prefix for accessing hot feed score constants.  <prefix> -> <uint64>
+	_GlobalStatePrefixForHotFeedInteractionCap  = []byte{32}
+	_GlobalStatePrefixForHotFeedTimeDecayBlocks = []byte{33}
+
+	// - <prefix, lib.TxnType> -> []*lib.DeSoOutput
+	_GlobalStatePrefixTxnTypeToDeSoOutputs = []byte{34}
+
+	// Public keys exempt from node fees
+	// - <prefix, public key> -> void
+	_GlobalStatePrefixExemptPublicKeys = []byte{35}
 
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
 
-	// NEXT_TAG: 28
+	// NEXT_TAG: 36
 )
+
+type HotFeedOp struct {
+	IsRemoval  bool
+	Multiplier float64 // Negatives are ignored, 1 has no effect.
+}
 
 // A ReferralInfo struct holds all of the params and stats for a referral link/hash.
 type ReferralInfo struct {
@@ -186,19 +214,19 @@ type ReferralInfo struct {
 	RequiresJumio          bool
 
 	// Stats
-	NumJumioAttempts           uint64
-	NumJumioSuccesses          uint64
-	TotalReferrals             uint64
+	NumJumioAttempts       uint64
+	NumJumioSuccesses      uint64
+	TotalReferrals         uint64
 	TotalReferrerDeSoNanos uint64
 	TotalRefereeDeSoNanos  uint64
-	DateCreatedTStampNanos     uint64
+	DateCreatedTStampNanos uint64
 }
 
 type SimpleReferralInfo struct {
-	ReferralHashBase58     string
-	RefereeAmountUSDCents  uint64
-	MaxReferrals           uint64 // If set to zero, there is no cap on referrals.
-	TotalReferrals         uint64
+	ReferralHashBase58    string
+	RefereeAmountUSDCents uint64
+	MaxReferrals          uint64 // If set to zero, there is no cap on referrals.
+	TotalReferrals        uint64
 }
 
 type NFTDropEntry struct {
@@ -402,6 +430,24 @@ func GlobalStateKeyForPKIDReferralHashToIsActive(pkid *lib.PKID, referralHashByt
 	return key
 }
 
+// Key for seeking the DB for hot feed operations based on timestamp.
+func GlobalStateSeekKeyForHotFeedOps(startTimestampNanos uint64) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixForHotFeedOps...)
+	key := append(prefixCopy, lib.EncodeUint64(startTimestampNanos)...)
+	return key
+}
+
+// Key for seeking the DB for all hot feed operations.
+func GlobalStateKeyForHotFeedOp(
+	opTimestampNanos uint64,
+	postHash *lib.BlockHash,
+) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixForHotFeedOps...)
+	key := append(prefixCopy, lib.EncodeUint64(opTimestampNanos)...)
+	key = append(key, postHash[:]...)
+	return key
+}
+
 // Key for seeking the DB for all referral hashes with a specific PKID.
 func GlobalStateSeekKeyForPKIDReferralHashes(pkid *lib.PKID) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDReferralHashToIsActive...)
@@ -555,8 +601,20 @@ func GlobalStateKeyUpAndComingTutorialCreators(pkid *lib.PKID) []byte {
 }
 
 func GlobalStateKeyETHPurchases(txnHash string) []byte {
-	prefixCopy := append([]byte{}, _GlobalStateKeyETHPurchases...)
+	prefixCopy := append([]byte{}, _GlobalStatePrefixForETHPurchases...)
 	key := append(prefixCopy, txnHash[:]...)
+	return key
+}
+
+func GlobalStateKeyTransactionFeeOutputsFromTxnType(txnType lib.TxnType) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixTxnTypeToDeSoOutputs...)
+	key := append(prefixCopy, lib.UintToBuf(uint64(txnType))...)
+	return key
+}
+
+func GlobalStateKeyExemptPublicKey(publicKey []byte) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixExemptPublicKeys...)
+	key := append(prefixCopy, publicKey[:]...)
 	return key
 }
 

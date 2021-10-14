@@ -42,8 +42,8 @@ func (fes *APIServer) HealthCheck(ww http.ResponseWriter, rr *http.Request) {
 
 type GetExchangeRateResponse struct {
 	// BTC
-	SatoshisPerDeSoExchangeRate     uint64
-	USDCentsPerBitcoinExchangeRate  uint64
+	SatoshisPerDeSoExchangeRate    uint64
+	USDCentsPerBitcoinExchangeRate uint64
 
 	// ETH
 	NanosPerETHExchangeRate    uint64
@@ -54,6 +54,10 @@ type GetExchangeRateResponse struct {
 	USDCentsPerDeSoExchangeRate        uint64
 	USDCentsPerDeSoReserveExchangeRate uint64
 	BuyDeSoFeeBasisPoints              uint64
+
+	SatoshisPerBitCloutExchangeRate        uint64 // Deprecated
+	USDCentsPerBitCloutExchangeRate        uint64 // Deprecated
+	USDCentsPerBitCloutReserveExchangeRate uint64 // Deprecated
 }
 
 func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) {
@@ -81,7 +85,6 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 		usdCentsPerDeSoReserveExchangeRate = 0
 	}
 
-
 	startNanos := readUtxoView.NanosPurchased
 	feeBasisPoints, err := fes.GetBuyDeSoFeeBasisPointsResponseFromGlobalState()
 
@@ -92,8 +95,8 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 
 	res := &GetExchangeRateResponse{
 		// BTC
-		USDCentsPerBitcoinExchangeRate:  uint64(usdCentsPerBitcoin),
-		SatoshisPerDeSoExchangeRate: satoshisPerUnit,
+		USDCentsPerBitcoinExchangeRate: uint64(usdCentsPerBitcoin),
+		SatoshisPerDeSoExchangeRate:    satoshisPerUnit,
 
 		// ETH
 		USDCentsPerETHExchangeRate: usdCentsPerETH,
@@ -104,6 +107,11 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 		USDCentsPerDeSoExchangeRate:        usdCentsPerDeSoExchangeRate,
 		USDCentsPerDeSoReserveExchangeRate: usdCentsPerDeSoReserveExchangeRate,
 		BuyDeSoFeeBasisPoints:              feeBasisPoints,
+
+		// Deprecated
+		SatoshisPerBitCloutExchangeRate:        satoshisPerUnit,
+		USDCentsPerBitCloutExchangeRate:        usdCentsPerDeSoExchangeRate,
+		USDCentsPerBitCloutReserveExchangeRate: usdCentsPerDeSoReserveExchangeRate,
 	}
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
@@ -257,25 +265,27 @@ type GetAppStateResponse struct {
 	AmplitudeKey                        string
 	AmplitudeDomain                     string
 	MinSatoshisBurnedForProfileCreation uint64
+	BlockHeight                         uint32
 	IsTestnet                           bool
 	SupportEmail                        string
 	ShowProcessingSpinners              bool
 
-	HasStarterDeSoSeed bool
-	HasTwilioAPIKey        bool
-	CreateProfileFeeNanos  uint64
-	CompProfileCreation    bool
-	DiamondLevelMap        map[int64]uint64
-	HasWyreIntegration     bool
-	HasJumioIntegration    bool
-	BuyWithETH             bool
+	HasStarterDeSoSeed    bool
+	HasTwilioAPIKey       bool
+	CreateProfileFeeNanos uint64
+	CompProfileCreation   bool
+	DiamondLevelMap       map[int64]uint64
+	HasWyreIntegration    bool
+	HasJumioIntegration   bool
+	BuyWithETH            bool
 
 	USDCentsPerDeSoExchangeRate uint64
 	JumioDeSoNanos              uint64
 
-	// Send back the password stored in our HTTPOnly cookie
-	// so amplitude can track which passwords people are using
-	Password string
+	TransactionFeeMap     map[string][]TransactionFee
+
+	USDCentsPerBitCloutExchangeRate uint64 // Deprecated
+	JumioBitCloutNanos              uint64 // Deprecated
 }
 
 func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
@@ -299,10 +309,11 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		AmplitudeDomain:                     fes.Config.AmplitudeDomain,
 		ShowProcessingSpinners:              fes.Config.ShowProcessingSpinners,
 		MinSatoshisBurnedForProfileCreation: fes.Config.MinSatoshisForProfile,
+		BlockHeight:                         fes.backendServer.GetBlockchain().BlockTip().Height,
 		IsTestnet:                           fes.Params.NetworkType == lib.NetworkType_TESTNET,
 		SupportEmail:                        fes.Config.SupportEmail,
 		HasTwilioAPIKey:                     fes.Twilio != nil,
-		HasStarterDeSoSeed:              fes.Config.StarterDeSoSeed != "",
+		HasStarterDeSoSeed:                  fes.Config.StarterDeSoSeed != "",
 		CreateProfileFeeNanos:               utxoView.GlobalParamsEntry.CreateProfileFeeNanos,
 		CompProfileCreation:                 fes.Config.CompProfileCreation,
 		DiamondLevelMap:                     lib.GetDeSoNanosDiamondLevelMapAtBlockHeight(int64(fes.blockchain.BlockTip().Height)),
@@ -311,10 +322,14 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		BuyWithETH:                          fes.IsConfiguredForETH(),
 		USDCentsPerDeSoExchangeRate:         fes.GetExchangeDeSoPrice(),
 		JumioDeSoNanos:                      fes.GetJumioDeSoNanos(),
+		TransactionFeeMap:                   fes.TxnFeeMapToResponse(true),
 
+		// Deprecated
+		USDCentsPerBitCloutExchangeRate: fes.GetExchangeDeSoPrice(),
+		JumioBitCloutNanos:              fes.GetJumioDeSoNanos(),
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetNotifications: Problem encoding response as JSON: %v", err))
 		return
 	}

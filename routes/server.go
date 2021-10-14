@@ -13,7 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/config"
-	"github.com/dgrijalva/jwt-go/v4"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/tyler-smith/go-bip39"
 
 	"github.com/deso-protocol/core/lib"
@@ -35,6 +35,10 @@ const (
 )
 
 const (
+	RoutePathSendBitClout            = "/api/v0/send-bitclout"               // Deprecated
+	RoutePathGetRecloutsForPost      = "/api/v0/get-reclouts-for-post"       // Deprecated
+	RoutePathGetQuoteRecloutsForPost = "/api/v0/get-quote-reclouts-for-post" // Deprecated
+
 	// base.go
 	RoutePathHealthCheck     = "/api/v0/health-check"
 	RoutePathGetExchangeRate = "/api/v0/get-exchange-rate"
@@ -45,13 +49,16 @@ const (
 	RoutePathSubmitTransaction        = "/api/v0/submit-transaction"
 	RoutePathUpdateProfile            = "/api/v0/update-profile"
 	RoutePathExchangeBitcoin          = "/api/v0/exchange-bitcoin"
-	RoutePathSendDeSo             = "/api/v0/send-deso"
+	RoutePathSendDeSo                 = "/api/v0/send-deso"
 	RoutePathSubmitPost               = "/api/v0/submit-post"
 	RoutePathCreateFollowTxnStateless = "/api/v0/create-follow-txn-stateless"
 	RoutePathCreateLikeStateless      = "/api/v0/create-like-stateless"
 	RoutePathBuyOrSellCreatorCoin     = "/api/v0/buy-or-sell-creator-coin"
 	RoutePathTransferCreatorCoin      = "/api/v0/transfer-creator-coin"
 	RoutePathSendDiamonds             = "/api/v0/send-diamonds"
+	RoutePathAuthorizeDerivedKey      = "/api/v0/authorize-derived-key"
+	RoutePathAppendExtraData          = "/api/v0/append-extra-data"
+	RoutePathGetTransactionSpending   = "/api/v0/get-transaction-spending"
 
 	// user.go
 	RoutePathGetUsersStateless        = "/api/v0/get-users-stateless"
@@ -68,16 +75,20 @@ const (
 	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
 	RoutePathIsFollowingPublicKey     = "/api/v0/is-following-public-key"
 	RoutePathIsHodlingPublicKey       = "/api/v0/is-hodling-public-key"
+	RoutePathGetUserDerivedKeys       = "/api/v0/get-user-derived-keys"
 
 	// post.go
-	RoutePathGetPostsStateless       = "/api/v0/get-posts-stateless"
-	RoutePathGetSinglePost           = "/api/v0/get-single-post"
-	RoutePathGetLikesForPost         = "/api/v0/get-likes-for-post"
-	RoutePathGetDiamondsForPost      = "/api/v0/get-diamonds-for-post"
+	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
+	RoutePathGetSinglePost          = "/api/v0/get-single-post"
+	RoutePathGetLikesForPost        = "/api/v0/get-likes-for-post"
+	RoutePathGetDiamondsForPost     = "/api/v0/get-diamonds-for-post"
 	RoutePathGetRepostsForPost      = "/api/v0/get-reposts-for-post"
 	RoutePathGetQuoteRepostsForPost = "/api/v0/get-quote-reposts-for-post"
-	RoutePathGetPostsForPublicKey    = "/api/v0/get-posts-for-public-key"
-	RoutePathGetDiamondedPosts       = "/api/v0/get-diamonded-posts"
+	RoutePathGetPostsForPublicKey   = "/api/v0/get-posts-for-public-key"
+	RoutePathGetDiamondedPosts      = "/api/v0/get-diamonded-posts"
+
+	// hot_feed.go
+	RoutePathGetHotFeed = "/api/v0/get-hot-feed"
 
 	// nft.go
 	RoutePathCreateNFT                = "/api/v0/create-nft"
@@ -150,7 +161,9 @@ const (
 	RoutePathGetBuyDeSoFeeBasisPoints             = "/api/v0/admin/get-buy-deso-fee-basis-points"
 
 	// admin_transaction.go
-	RoutePathGetGlobalParams = "/api/v0/get-global-params"
+	RoutePathGetGlobalParams                   = "/api/v0/get-global-params"
+	RoutePathTestSignTransactionWithDerivedKey = "/api/v0/admin/test-sign-transaction-with-derived-key"
+
 	// Eventually we will deprecate the admin endpoint since it does not need to be protected.
 	RoutePathAdminGetGlobalParams = "/api/v0/admin/get-global-params"
 	RoutePathUpdateGlobalParams   = "/api/v0/admin/update-global-params"
@@ -171,13 +184,26 @@ const (
 	RoutePathAdminPinPost          = "/api/v0/admin/pin-post"
 	RoutePathAdminRemoveNilPosts   = "/api/v0/admin/remove-nil-posts"
 
+	// hot_feed.go
+	RoutePathAdminGetUnfilteredHotFeed        = "/api/v0/admin/get-unfiltered-hot-feed"
+	RoutePathAdminGetHotFeedAlgorithm         = "/api/v0/admin/get-hot-feed-algorithm"
+	RoutePathAdminUpdateHotFeedAlgorithm      = "/api/v0/admin/update-hot-feed-algorithm"
+	RoutePathAdminUpdateHotFeedPostMultiplier = "/api/v0/admin/update-hot-feed-post-multiplier"
+
+	// admin_fees.go
+	RoutePathAdminSetTransactionFeeForTransactionType = "/api/v0/admin/set-txn-fee-for-txn-type"
+	RoutePathAdminSetAllTransactionFees               = "/api/v0/admin/set-all-txn-fees"
+	RoutePathAdminGetTransactionFeeMap                = "/api/v0/admin/get-transaction-fee-map"
+	RoutePathAdminAddExemptPublicKey                  = "/api/v0/admin/add-exempt-public-key"
+	RoutePathAdminGetExemptPublicKeys                 = "/api/v0/admin/get-exempt-public-keys"
+
 	// admin_nft.go
 	RoutePathAdminGetNFTDrop    = "/api/v0/admin/get-nft-drop"
 	RoutePathAdminUpdateNFTDrop = "/api/v0/admin/update-nft-drop"
 
 	// admin_jumio.go
 	RoutePathAdminResetJumioForPublicKey = "/api/v0/admin/reset-jumio-for-public-key"
-	RoutePathAdminUpdateJumioDeSo    = "/api/v0/admin/update-jumio-deso"
+	RoutePathAdminUpdateJumioDeSo        = "/api/v0/admin/update-jumio-deso"
 	RoutePathAdminJumioCallback          = "/api/v0/admin/jumio-callback"
 
 	// admin_referrals.go
@@ -245,6 +271,25 @@ type APIServer struct {
 	// Base-58 prefix to check for to determine if a string could be a public key.
 	PublicKeyBase58Prefix string
 
+	// A list of posts from the last 24hrs ordered by hotness score.
+	HotFeedOrderedList []*HotFeedEntry
+	// The height of the last block evaluated by the hotness routine.
+	HotFeedBlockHeight uint32
+	// Map of whitelisted post hashes used for serving the hot feed.
+	// The float64 value is a multiplier than can be modified and used in scoring.
+	HotFeedApprovedPostsToMultipliers map[lib.BlockHash]float64
+	LastHotFeedOpProcessedTstampNanos uint64
+	// Constants for the hotness score algorithm.
+	HotFeedInteractionCap        uint64
+	HotFeedTimeDecayBlocks       uint64
+	HotFeedPostMultiplierUpdated bool
+
+	//Map of transaction type to []*lib.DeSoOutput that represent fees assessed on each transaction of that type.
+	TransactionFeeMap map[lib.TxnType][]*lib.DeSoOutput
+
+	// Map of public keys that are exempt from node fees
+	ExemptPublicKeyMap map[string]interface{}
+
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
 }
@@ -281,18 +326,18 @@ func NewAPIServer(
 		// the backendServer. Right now it's here because it was the easiest
 		// way to give the APIServer the ability to add transactions
 		// to the mempool and relay them to peers.
-		backendServer:                 _backendServer,
-		mempool:                       _mempool,
-		blockchain:                    _blockchain,
-		blockProducer:                 _blockProducer,
-		TXIndex:                       txIndex,
-		Params:                        params,
-		Config:                        config,
-		GlobalStateDB:                 globalStateDB,
-		Twilio:                        twilio,
-		BlockCypherAPIKey:             blockCypherAPIKey,
+		backendServer:             _backendServer,
+		mempool:                   _mempool,
+		blockchain:                _blockchain,
+		blockProducer:             _blockProducer,
+		TXIndex:                   txIndex,
+		Params:                    params,
+		Config:                    config,
+		GlobalStateDB:             globalStateDB,
+		Twilio:                    twilio,
+		BlockCypherAPIKey:         blockCypherAPIKey,
 		LastTradeDeSoPriceHistory: []LastTradePriceHistoryItem{},
-		PublicKeyBase58Prefix:         publicKeyBase58Prefix,
+		PublicKeyBase58Prefix:     publicKeyBase58Prefix,
 		// We consider last trade prices from the last hour when determining the current price of DeSo.
 		// This helps prevents attacks that attempt to purchase $DESO at below market value.
 		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
@@ -306,8 +351,17 @@ func NewAPIServer(
 	fes.UpdateUSDToBTCPrice()
 	fes.UpdateUSDToETHPrice()
 
+	// Get the transaction fee map from global state if it exists
+	fes.TransactionFeeMap = fes.GetTransactionFeeMapFromGlobalState()
+
+	fes.ExemptPublicKeyMap = fes.GetExemptPublicKeyMapFromGlobalState()
+
 	// Then monitor them
 	fes.StartExchangePriceMonitoring()
+
+	if fes.Config.RunHotFeedRoutine {
+		fes.StartHotFeedRoutine()
+	}
 
 	return fes, nil
 }
@@ -335,6 +389,29 @@ type Route struct {
 // frontend code. If not, then requests will fail.
 func (fes *APIServer) NewRouter() *muxtrace.Router {
 	var FrontendRoutes = []Route{
+		// Deprecated
+		{
+			"SendBitClout",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSendBitClout,
+			fes.SendDeSo,
+			PublicAccess,
+		},
+		{
+			"GetRecloutsForPost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetRecloutsForPost,
+			fes.GetRepostsForPost,
+			PublicAccess,
+		},
+		{
+			"GetQuoteRecloutsForPost",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetQuoteRecloutsForPost,
+			fes.GetQuoteRepostsForPost,
+			PublicAccess,
+		},
+
 		{
 			"Index",
 			[]string{"GET"},
@@ -497,6 +574,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"GetHotFeed",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetHotFeed,
+			fes.GetHotFeed,
+			PublicAccess,
+		},
+		{
 			"CreateNFT",
 			[]string{"POST", "OPTIONS"},
 			RoutePathCreateNFT,
@@ -644,6 +728,27 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"AuthorizeDerivedKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAuthorizeDerivedKey,
+			fes.AuthorizeDerivedKey,
+			PublicAccess,
+		},
+		{
+			"AppendExtraData",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAppendExtraData,
+			fes.AppendExtraData,
+			PublicAccess,
+		},
+		{
+			"GetTransactionSpending",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetTransactionSpending,
+			fes.GetTransactionSpending,
+			PublicAccess,
+		},
+		{
 			"GetNotifications",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetNotifications,
@@ -725,6 +830,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathVerifyEmail,
 			fes.VerifyEmail,
+			PublicAccess,
+		},
+		{
+			"GetUserDerivedKeys",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetUserDerivedKeys,
+			fes.GetUserDerivedKeys,
 			PublicAccess,
 		},
 		// Jumio Routes
@@ -909,7 +1021,35 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.AdminGetTutorialCreators,
 			AdminAccess,
 		},
+		{
+			"AdminGetUnfilteredHotFeed",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetUnfilteredHotFeed,
+			fes.AdminGetUnfilteredHotFeed,
+			AdminAccess,
+		},
 		// Super Admin routes
+		{
+			"AdminGetHotFeedAlgorithm",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetHotFeedAlgorithm,
+			fes.AdminGetHotFeedAlgorithm,
+			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateHotFeedAlgorithm",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateHotFeedAlgorithm,
+			fes.AdminUpdateHotFeedAlgorithm,
+			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateHotFeedPostMultiplier",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateHotFeedPostMultiplier,
+			fes.AdminUpdateHotFeedPostMultiplier,
+			SuperAdminAccess,
+		},
 		{
 			"AdminGetUserAdminData",
 			[]string{"POST", "OPTIONS"},
@@ -988,6 +1128,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			SuperAdminAccess,
 		},
 		{
+			"AdminTestSignTransactionWithDerivedKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathTestSignTransactionWithDerivedKey,
+			fes.TestSignTransactionWithDerivedKey,
+			SuperAdminAccess,
+		},
+		{
 			"AdminJumioCallback",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminJumioCallback,
@@ -1034,6 +1181,41 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateTutorialCreators,
 			fes.AdminUpdateTutorialCreator,
+			SuperAdminAccess,
+		},
+		{
+			"AdminSetTransactionFeeForTransactionType",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminSetTransactionFeeForTransactionType,
+			fes.AdminSetTransactionFeeForTransactionType,
+			SuperAdminAccess,
+		},
+		{
+			"AdminSetAllTransactionFees",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminSetAllTransactionFees,
+			fes.AdminSetAllTransactionFees,
+			SuperAdminAccess,
+		},
+		{
+			"AdminGetTransactionFeeMap",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetTransactionFeeMap,
+			fes.AdminGetTransactionFeeMap,
+			SuperAdminAccess,
+		},
+		{
+			"AdminAddExemptPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminAddExemptPublicKey,
+			fes.AdminAddExemptPublicKey,
+			SuperAdminAccess,
+		},
+		{
+			"AdminGetExemptPublicKeys",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetExemptPublicKeys,
+			fes.AdminGetExemptPublicKeys,
 			SuperAdminAccess,
 		},
 		// End all /admin routes
@@ -1207,8 +1389,9 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		// then A will be called first B will be called second, and C will be called
 		// last.
 
-		// Anyone can access the admin panel if no public keys exist
-		if route.AccessLevel != PublicAccess && (len(fes.Config.AdminPublicKeys) > 0 || len(fes.Config.SuperAdminPublicKeys) > 0) {
+		// If the route is not "PublicAccess" we wrap it in a function to check that the caller
+		// has the correct permissions before calling its handler.
+		if route.AccessLevel != PublicAccess {
 			handler = fes.CheckAdminPublicKey(handler, route.AccessLevel)
 		}
 		handler = Logger(handler, route.Name)
@@ -1264,11 +1447,30 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 		actualOrigin := r.Header.Get("Origin")
 		match := false
 		for _, allowedOrigin := range allowedOrigins {
-			// Note: Prior versions of this code used a regex, but I changed it to a literal match,
-			// since I didn't want to risk a security vulnerability with a broken regex
-			if allowedOrigin == actualOrigin || allowedOrigin == "*" {
+			// Match wildcard
+			if allowedOrigin == "*" {
 				match = true
 				break
+			}
+
+			// Exact match including protocol and subdomain e.g. https://my.domain.com
+			if allowedOrigin == actualOrigin {
+				match = true
+				break
+			}
+
+			// Match any domain excluding protocol and subdomain e.g. domain.com
+			actualDomain := strings.Split(actualOrigin, "://")
+			if len(actualDomain) >= 2 {
+				actualDomain = strings.Split(actualDomain[1], ".")
+				actualDomainLen := len(actualDomain)
+				if actualDomainLen >= 2 {
+					actualDomainStr := fmt.Sprintf("%s.%s", actualDomain[actualDomainLen-2], actualDomain[actualDomainLen-1])
+					if actualDomainStr == allowedOrigin {
+						match = true
+						break
+					}
+				}
 			}
 		}
 
@@ -1279,16 +1481,16 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 		if r.RequestURI == RoutePathUploadImage && strings.HasPrefix(contentType, "multipart/form-data") {
 			match = true
 			actualOrigin = "*"
-		} else if r.RequestURI == RoutePathGetJumioStatusForPublicKey {
-			// we set the headers for all requests to GetJumioStatusForPublicKey. This allows third-party frontends to
-			// access this endpoint
+		} else if r.RequestURI == RoutePathGetJumioStatusForPublicKey || r.RequestURI == RoutePathUploadVideo || r.RequestURI == RoutePathGetVideoStatus {
+			// We set the headers for all requests to GetJumioStatusForPublicKey, UploadVideo, and GetVideoStatus.
+			// This allows third-party frontends to access this endpoint
 			match = true
 			actualOrigin = "*"
-		} else if r.Method == "POST" && contentType != "application/json" && r.RequestURI != RoutePathJumioCallback && r.RequestURI != RoutePathUploadVideo {
+		} else if r.Method == "POST" && contentType != "application/json" && r.RequestURI != RoutePathJumioCallback {
 			invalidPostRequest = true
 		}
 
-		if match || r.RequestURI == RoutePathUploadImage || r.RequestURI == RoutePathGetJumioStatusForPublicKey {
+		if match {
 			// Needed in order for the user's browser to set a cookie
 			w.Header().Add("Access-Control-Allow-Credentials", "true")
 
@@ -1373,7 +1575,7 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel Access
 		// If this a regular admin endpoint, we iterate through all the admin public keys.
 		if AccessLevel == AdminAccess {
 			for _, adminPubKey := range fes.Config.AdminPublicKeys {
-				if adminPubKey == requestData.AdminPublicKey {
+				if adminPubKey == requestData.AdminPublicKey || adminPubKey == "*" {
 					// We found a match, serve the request
 					inner.ServeHTTP(ww, req)
 					return
@@ -1383,7 +1585,7 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel Access
 
 		// We also check super admins, as they have a superset of capabilities.
 		for _, superAdminPubKey := range fes.Config.SuperAdminPublicKeys {
-			if superAdminPubKey == requestData.AdminPublicKey {
+			if superAdminPubKey == requestData.AdminPublicKey || superAdminPubKey == "*" {
 				// We found a match, serve the request
 				inner.ServeHTTP(ww, req)
 				return
@@ -1411,6 +1613,10 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 	}
 
 	token, err := jwt.Parse(jwtToken, func(token *jwt.Token) (interface{}, error) {
+		// Do not check token issued at time. We still check expiration time.
+		mapClaims := token.Claims.(jwt.MapClaims)
+		delete(mapClaims, "iat")
+
 		return pubKey.ToECDSA(), nil
 	})
 
