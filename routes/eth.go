@@ -49,10 +49,6 @@ type ETHTxLog struct {
 	DESOTxHash string
 }
 
-type TempRes struct {
-	Result interface{}
-}
-
 func (fes *APIServer) validateETHTx(ethTx ETHTx, publicKey string) error {
 	// Verify the deposit address is correct
 	configDepositAddress := strings.ToLower(fes.Config.BuyDESOETHAddress)
@@ -117,7 +113,6 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 	// Convert the result from interface to string.
 	hash := response.Result.(string)
 
-	// what is my hash? Can I just use the signed hash?
 	globalStateKey := GlobalStateKeyETHPurchases(hash)
 	globalStateVal := bytes.NewBuffer([]byte{})
 	if err = gob.NewEncoder(globalStateVal).Encode(ethTxLog); err != nil {
@@ -340,6 +335,7 @@ type QueryETHRPCRequest struct {
 	PublicKeyBase58Check string
 }
 
+// QueryETHRPC is an endpoint used to execute queries through Infura
 func (fes *APIServer) QueryETHRPC(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := QueryETHRPCRequest{}
@@ -368,6 +364,7 @@ func (fes *APIServer) QueryETHRPC(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// ExecuteETHRPCRequest makes a request to Infura to fetch information about the Ethereum blockchain
 func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) (response *InfuraResponse, _err error) {
 	projectId := fes.Config.InfuraProjectID
 	URL := fmt.Sprintf("https://mainnet.infura.io/v3/%v", projectId)
@@ -398,7 +395,7 @@ func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) 
 
 	// Decode the response into the appropriate struct.
 	body, _ := ioutil.ReadAll(resp.Body)
-	var responseData *InfuraResponse //make(map[string]interface{})
+	var responseData *InfuraResponse
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	if err = decoder.Decode(&responseData); err != nil {
 		return nil, fmt.Errorf("BlockCypherCreateETHTx: Problem decoding response JSON: %v, response: %v, error: %v", responseData, resp, err)
@@ -409,6 +406,7 @@ func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) 
 	return responseData, nil
 }
 
+// GetETHTransactionByHash is a helper function to fetch transaction details and parse it into an InfuraTx struct
 func (fes *APIServer) GetETHTransactionByHash(hash string) (_tx *InfuraTx, _err error) {
 	params := []interface{}{hash}
 	txRes, err := fes.ExecuteETHRPCRequest("eth_getTransactionByHash", params)
