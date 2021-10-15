@@ -959,7 +959,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	if transactionInfoRequest.LastPublicKeyTransactionIndex >= 0 {
 		startPrefix = lib.DbTxindexPublicKeyIndexToTxnKey(publicKeyBytes, uint32(transactionInfoRequest.LastPublicKeyTransactionIndex))
 	}
-	// The maximum key length is the length of the key with the public key plus the size of the uint64 appended to it.
+	// The maximum key length is the length of the DB key constructed from the public key plus the size of the uint64 appended to it.
 	maxKeyLen := len(lib.DbTxindexPublicKeyIndexToTxnKey(publicKeyBytes, uint32(0)))
 
 	keysFound, valsFound, err := lib.DBGetPaginatedKeysAndValuesForPrefix(
