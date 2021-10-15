@@ -133,8 +133,6 @@ const (
 	RoutePathStartOrSkipTutorial = "/api/v0/start-or-skip-tutorial"
 
 	// eth.go
-	RoutePathGetETHBalance     = "/api/v0/get-eth-balance"
-	RoutePathCreateETHTx       = "/api/v0/create-eth-tx"
 	RoutePathSubmitETHTx       = "/api/v0/submit-eth-tx"
 	RoutePathQueryETHRPC       = "/api/v0/query-eth-rpc"
 	RoutePathAdminProcessETHTx = "/api/v0/admin/process-eth-tx"
