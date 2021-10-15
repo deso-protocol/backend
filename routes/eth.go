@@ -49,27 +49,16 @@ type ETHTxLog struct {
 	DESOTxHash string
 }
 
-func (fes *APIServer) validateETHTx(ethTx ETHTx, publicKey string) error {
+// We assume that there are valid signatures if the transaction mines.
+func (fes *APIServer) validateETHDepositAddress(depositAddress string) error {
 	// Verify the deposit address is correct
 	configDepositAddress := strings.ToLower(fes.Config.BuyDESOETHAddress)
-	txDepositAddress := strings.ToLower(ethTx.To)
-	if configDepositAddress != txDepositAddress {
-		return errors.Errorf("Invalid deposit address: %s != %s", txDepositAddress, configDepositAddress)
-	}
-
-	return nil
-}
-
-func (fes *APIServer) validateInfuraETHTx(ethTx *InfuraTx) error {
-	// Verify the deposit address is correct
-	configDepositAddress := strings.ToLower(fes.Config.BuyDESOETHAddress)
-	txDepositAddress := strings.ToLower(*ethTx.To)
+	txDepositAddress := strings.ToLower(depositAddress)
 	if configDepositAddress != txDepositAddress {
 		return errors.Errorf("Invalid deposit address: %s != %s", txDepositAddress, configDepositAddress)
 	}
 	return nil
 }
-
 
 func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
@@ -91,7 +80,7 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if err = fes.validateETHTx(requestData.Tx, requestData.PublicKeyBase58Check); err != nil {
+	if err = fes.validateETHDepositAddress(requestData.Tx.To); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to validate transaction: %v", err))
 		return
 	}
@@ -179,7 +168,7 @@ func (fes *APIServer) finishETHTx(ethTxIn *InfuraTx, ethTxLog *ETHTxLog) (desoTx
 		return nil, errors.New("Transaction failed to mine")
 	}
 
-	if err = fes.validateInfuraETHTx(ethTx); err != nil {
+	if err = fes.validateETHDepositAddress(*ethTx.To); err != nil {
 		return nil, errors.New(fmt.Sprintf("Error validating Infura ETH Tx: %v", err))
 
 	}
