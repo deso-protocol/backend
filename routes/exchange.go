@@ -1024,8 +1024,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 
 	// Go from most recent to least recent
 	// TODO: Support pagination for mempool transactions
-	for ii := len(poolTxns); ii > 0; ii-- {
-		poolTx := poolTxns[ii-1]
+	for _, poolTx := range poolTxns {
 		txnMeta := poolTx.TxMeta
 
 		isRelevantTxn := false
