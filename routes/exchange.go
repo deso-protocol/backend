@@ -841,9 +841,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 
 		res := &APITransactionInfoResponse{}
 		res.Transactions = []*TransactionResponse{}
-		for ii := len(poolTxns); ii > 0; ii-- {
-			poolTx := poolTxns[ii-1]
-
+		for _, poolTx := range poolTxns {
 			// If we haven't seen the last transaction of the previous page, skip ahead until we find it.
 			if !lastTxSeen {
 				if reflect.DeepEqual(poolTx.Hash, lastTxHash) {
@@ -961,8 +959,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 
 	// Go from most recent to least recent
 	// TODO: Support pagination for mempool transactions
-	for ii := len(poolTxns); ii > 0; ii-- {
-		poolTx := poolTxns[ii-1]
+	for _, poolTx := range poolTxns {
 		txnMeta := poolTx.TxMeta
 
 		isRelevantTxn := false
@@ -1009,11 +1006,11 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	// Speed up calls to GetBlock with a local cache
 	blockMap := make(map[*lib.BlockHash]*lib.MsgDeSoBlock)
 
-	for ii, txIDBytes := range valsFound {
+	// The API response returns oldest -> newest so we need to iterate over the results backwards
+	for ii := len(valsFound) - 1; ii >= 0; ii-- {
+		txIDBytes := valsFound[ii]
 		txID := &lib.BlockHash{}
 		copy(txID[:], txIDBytes)
-
-		_ = keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(publicKeyBytes)):]
 
 		if transactionInfoRequest.IDsOnly {
 			res.Transactions = append(res.Transactions, &TransactionResponse{TransactionIDBase58Check: txID.String()})
