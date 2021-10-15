@@ -515,9 +515,9 @@ func APITransactionToResponse(
 		signatureHex = hex.EncodeToString(txnn.Signature.Serialize())
 	}
 
-	// Remove BasicTransferTxindexMetadata from the response because it's massive and usually useless
+	// Remove UtxoOps from the response because it's massive and usually useless
 	txnMetaResponse := txnMeta
-	txnMetaResponse.BasicTransferTxindexMetadata = nil
+	txnMetaResponse.BasicTransferTxindexMetadata.UtxoOps = nil
 
 	txnBytes, _ := txnn.ToBytes(false /*preSignature*/)
 	ret := &TransactionResponse{
