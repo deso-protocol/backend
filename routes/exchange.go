@@ -952,6 +952,42 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	}
 	res.Transactions = []*TransactionResponse{}
 
+	// Start with the mempool
+	poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
+	if err != nil {
+		APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error getting txns from mempool: %v", err))
+		return
+	}
+
+	// Go from most recent to least recent
+	// TODO: Support pagination for mempool transactions
+	for ii := len(poolTxns); ii > 0; ii-- {
+		poolTx := poolTxns[ii-1]
+		txnMeta := poolTx.TxMeta
+
+		isRelevantTxn := false
+		// Iterate over the affected public keys to see if any of them hit the one we're looking for.
+		for _, affectedPks := range txnMeta.AffectedPublicKeys {
+			if affectedPks.PublicKeyBase58Check == lib.PkToString(publicKeyBytes, fes.Params) {
+				isRelevantTxn = true
+				break
+			}
+		}
+
+		// Skip irrelevant transactions
+		if !isRelevantTxn {
+			continue
+		}
+
+		// Finally, add the transaction to our list if it's relevant
+		if transactionInfoRequest.IDsOnly {
+			txRes := &TransactionResponse{TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params)}
+			res.Transactions = append(res.Transactions, txRes)
+		} else {
+			res.Transactions = append(res.Transactions, APITransactionToResponse(poolTx.Tx, txnMeta, fes.Params))
+		}
+	}
+
 	validForPrefix := lib.DbTxindexPublicKeyPrefix(publicKeyBytes)
 	// If FetchStartIndex is specified then the startPrefix is the public key with FetchStartIndex appended.
 	// Otherwise, we leave off the index so that the seek will start from the end of the transaction list.
@@ -962,133 +998,58 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	// The maximum key length is the length of the key with the public key plus the size of the uint64 appended to it.
 	maxKeyLen := len(lib.DbTxindexPublicKeyIndexToTxnKey(publicKeyBytes, uint32(0)))
 
-	for {
-		keysFound, valsFound, err := lib.DBGetPaginatedKeysAndValuesForPrefix(
-			fes.TXIndex.TXIndexChain.DB(), startPrefix, validForPrefix,
-			maxKeyLen, int(limit), true, true)
-		if err != nil {
-			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error fetching paginated txns: %v", err))
-			return
-		}
-
-		for ii, txIDBytes := range valsFound {
-			txID := &lib.BlockHash{}
-			copy(txID[:], txIDBytes)
-
-			_ = keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(publicKeyBytes)):]
-
-			if transactionInfoRequest.IDsOnly {
-				res.Transactions = append(res.Transactions, &TransactionResponse{TransactionIDBase58Check: txID.String()})
-			} else {
-				// In this case we need to look up the full transaction and convert it into a proper transaction response.
-				fullTxn, txnMeta := lib.DbGetTxindexFullTransactionByTxID(fes.TXIndex.TXIndexChain.DB(), fes.blockchain.DB(), txID)
-				if fullTxn == nil || txnMeta == nil {
-					APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem looking up "+
-						"transaction with TxID: %v; this should never happen", txID))
-					return
-				}
-				res.Transactions = append(res.Transactions, APITransactionToResponse(fullTxn, txnMeta, fes.Params))
-			}
-		}
-
-		// If we've found enough transactions then break.
-		if len(res.Transactions) >= int(limit) {
-			res.Transactions = res.Transactions[:limit]
-			break
-		}
-
-		// If we didn't find any keys then we're done here.
-		if len(keysFound) == 0 {
-			break
-		}
-
-		// If we get here then we have at least one key.
-		// If the index of the last key we found is the zero index then we're done here.
-		lastKey := keysFound[len(keysFound)-1]
-		// The index comes after the <_Prefix, PublicKey> bytes.
-		lastKeyIndexBytes := lastKey[len(lib.DbTxindexPublicKeyPrefix(publicKeyBytes)):]
-		lastKeyIndex := lib.DecodeUint32(lastKeyIndexBytes)
-		if lastKeyIndex == 0 {
-			break
-		}
-
-		// If we get here it means that we don't have enough transactions yet *and*
-		// there are more keys to seek. It also means that the lastKeyIndex > 0. So
-		// update the startPrefix to place it right after the index of the last key.
-		startPrefix = lib.DbTxindexPublicKeyIndexToTxnKey(publicKeyBytes, uint32(lastKeyIndex-1))
-	}
-
-	// Get all the txns from the mempool.
-	poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
+	keysFound, valsFound, err := lib.DBGetPaginatedKeysAndValuesForPrefix(
+		fes.TXIndex.TXIndexChain.DB(), startPrefix, validForPrefix,
+		maxKeyLen, int(limit), true, true)
 	if err != nil {
-		APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error getting txns from mempool: %v", err))
+		APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error fetching paginated txns: %v", err))
 		return
 	}
 
-	// Look up all the transactions for the public key from the mempool.
-	pkTxnInfos := fes.mempool.PublicKeyTxnMap(publicKeyBytes)
+	// Speed up calls to GetBlock with a local cache
+	blockMap := make(map[*lib.BlockHash]*lib.MsgDeSoBlock)
 
-	for _, poolTx := range poolTxns {
-		txnMeta := poolTx.TxMeta
+	for ii, txIDBytes := range valsFound {
+		txID := &lib.BlockHash{}
+		copy(txID[:], txIDBytes)
 
-		isRelevantTxn := false
-		// Iterate over the affected public keys to see if any of them hit the one
-		// we're looking for.
-		for _, affectedPks := range txnMeta.AffectedPublicKeys {
-			if affectedPks.PublicKeyBase58Check == lib.PkToString(publicKeyBytes, fes.Params) {
-				isRelevantTxn = true
-				break
+		_ = keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(publicKeyBytes)):]
+
+		if transactionInfoRequest.IDsOnly {
+			res.Transactions = append(res.Transactions, &TransactionResponse{TransactionIDBase58Check: txID.String()})
+		} else {
+			// In this case we need to look up the full transaction and convert it into a proper transaction response.
+			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txID)
+			blockHashBytes, err := hex.DecodeString(txnMeta.BlockHashHex)
+			if err != nil {
+				APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error parsing block: %v %v", txnMeta.BlockHashHex, err))
+				return
 			}
-		}
 
-		// See if the mempool thinks it's relevant as well
-		if !isRelevantTxn && len(pkTxnInfos) != 0 {
-			_, isRelevantTxn = pkTxnInfos[*poolTx.Hash]
-		}
-
-		// Finally, add the transaction to our list if it's relevant
-		if isRelevantTxn {
-			if transactionInfoRequest.IDsOnly {
-				txRes := &TransactionResponse{TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params)}
-				res.Transactions = append(res.Transactions, txRes)
-			} else {
-				res.Transactions = append(res.Transactions,
-					APITransactionToResponse(poolTx.Tx, txnMeta, fes.Params))
-				//=======
-				//		if uint64(len(res.Transactions)) < limit {
-				//			// We only need to fetch enough transactions to reach the limit.
-				//			dbLimit := limit - uint64(len(res.Transactions))
-				//			// Look up all the transactions for the public key.
-				//			txHashes, lastIndexSeen := lib.DbGetTxindexTxnsForPublicKeyPaginated(fes.TxIndexChain.DB(), publicKeyBytes, lastTransationIndex, dbLimit)
-				//			res.LastPublicKeyTransactionIndex = int64(lastIndexSeen)
-				//			res.LastTransactionIDBase58Check = ""
-				//			// Keep track of the blocks we've gotten to reduce calls to GetBlock.
-				//			blockMap := make(map[*lib.BlockHash]*lib.MsgBitCloutBlock)
-				//			// Process all the transactions found and add them to the response.
-				//			// We iterate in reverse so we add the most recent transactions first.
-				//			for ii := len(txHashes); ii > 0; ii-- {
-				//				// If we've filled up the page, we exit
-				//				if uint64(len(res.Transactions)) == dbLimit {
-				//					break
-				//				}
-				//				txHash := txHashes[ii-1]
-				//				txIDString := lib.PkToString(txHash[:], fes.Params)
-				//				var fullTxn *lib.MsgBitCloutTxn
-				//				var txnMeta *lib.TransactionMetadata
-				//				// In this case we need to look up the full transaction and convert
-				//				// it into a proper transaction response.
-				//				fullTxn, txnMeta, blockMap = lib.DbGetTxindexFullTransactionByTxIDWithBlockMap(
-				//					fes.TxIndexChain.DB(), fes.blockchain.DB(), txHash, blockMap)
-				//				if fullTxn == nil || txnMeta == nil {
-				//					APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem looking up "+
-				//						"transaction with TxID: %v; this should never happen", txIDString))
-				//					return
-				//				}
-				//				res.Transactions = append(res.Transactions, APITransactionToResponse(fullTxn, txnMeta, fes.Params))
-				//>>>>>>> be0d5fc (update block explorer to use pagination)
+			// Fetch the block
+			blockHash := &lib.BlockHash{}
+			copy(blockHash[:], blockHashBytes)
+			block := blockMap[blockHash]
+			if block == nil {
+				block, err = lib.GetBlock(blockHash, fes.blockchain.DB())
+				if block == nil || err != nil {
+					fmt.Errorf("DbGetTxindexFullTransactionByTxID: Block corresponding to txn not found")
+					return
+				}
+				blockMap[blockHash] = block
 			}
+
+			// Fetch the transaction
+			fullTxn := block.Txns[txnMeta.TxnIndexInBlock]
+
+			res.Transactions = append(res.Transactions, APITransactionToResponse(fullTxn, txnMeta, fes.Params))
 		}
 	}
+
+	lastKey := keysFound[len(keysFound)-1]
+	// The index comes after the <_Prefix, PublicKey> bytes.
+	lastKeyIndexBytes := lastKey[len(lib.DbTxindexPublicKeyPrefix(publicKeyBytes)):]
+	res.LastPublicKeyTransactionIndex = int64(lib.DecodeUint32(lastKeyIndexBytes))
 
 	// At this point, all the transactions should have been added to the request.
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
