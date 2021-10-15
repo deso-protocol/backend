@@ -41,6 +41,15 @@ type HotFeedInteractionKey struct {
 	InteractionPostHash lib.BlockHash
 }
 
+// Multipliers to help a node operator boost content from PKID's relevant to their node.
+// For example, a sports-focused node could boost athlete PKIDs.
+type HotFeedPKIDMultiplier struct {
+	// A multiplier applied to the score that each user interaction adds to a post.
+	InteractionMultiplier float64
+	// A multiplier applied to all posts from this specific PKID.
+	PostsMultiplier float64
+}
+
 // A cached "HotFeedOrderedList" is stored on the server object and updated whenever a new
 // block is found. In addition, a "HotFeedApprovedPostMap" is maintained using hot feed
 // approval/removal operations stored in global state. Once started, the routine runs every
@@ -62,38 +71,42 @@ func (fes *APIServer) StartHotFeedRoutine() {
 
 // The business.
 func (fes *APIServer) UpdateHotFeed() {
-	// We copy the HotFeedApprovedPosts map so we can access it safely without locking it.
+	// We copy the HotFeedApprovedPosts map and HotFeedPKIDMultiplier maps so we can access
+	// them safely without locking them.
 	hotFeedApprovedPosts := fes.CopyHotFeedApprovedPostsMap()
+	hotFeedPKIDMultipliers := fes.CopyHotFeedPKIDMultipliersMap()
 
-	// Update the approved posts map based on global state.
+	// Update the approved posts map and pkid multipliers map based on global state.
 	fes.UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts)
+	fes.UpdateHotFeedPKIDMultipliersMap(hotFeedPKIDMultipliers)
 
 	// Update the HotFeedOrderedList based on the last 288 blocks.
-	hotFeedPosts := fes.UpdateHotFeedOrderedList(hotFeedApprovedPosts)
+	hotFeedPosts := fes.UpdateHotFeedOrderedList(hotFeedApprovedPosts, hotFeedPKIDMultipliers)
 
-	// The hotFeedPostsMap will be nil unless we found new blocks in the call above.
+	// The hotFeedPosts map will be nil unless we found new blocks in the call above.
 	if hotFeedPosts != nil {
 		fes.PruneHotFeedApprovedPostsMap(hotFeedPosts, hotFeedApprovedPosts)
 	}
 
-	// Replace the HotFeedApprovedPostsMap with the fresh one.
+	// Replace the HotFeedApprovedPostsMap and HotFeedPKIDMultiplier map with the fresh ones.
 	fes.HotFeedApprovedPostsToMultipliers = hotFeedApprovedPosts
+	fes.HotFeedPKIDMultipliers = hotFeedPKIDMultipliers
 }
 
 func (fes *APIServer) UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts map[lib.BlockHash]float64) {
 	// Grab all of the relevant operations to update the map with.
 	startTimestampNanos := uint64(time.Now().UTC().AddDate(0, 0, -1).UnixNano()) // 1 day ago.
-	if fes.LastHotFeedOpProcessedTstampNanos != 0 {
-		startTimestampNanos = fes.LastHotFeedOpProcessedTstampNanos
+	if fes.LastHotFeedApprovedPostOpProcessedTstampNanos != 0 {
+		startTimestampNanos = fes.LastHotFeedApprovedPostOpProcessedTstampNanos
 	}
-	startPrefix := GlobalStateSeekKeyForHotFeedOps(startTimestampNanos)
+	startPrefix := GlobalStateSeekKeyForHotFeedApprovedPostOps(startTimestampNanos)
 	opKeys, opVals, err := fes.GlobalStateSeek(
 		startPrefix,
-		_GlobalStatePrefixForHotFeedOps, /*validForPrefix*/
-		0,                               /*maxKeyLen -- ignored since reverse is false*/
-		0,                               /*numToFetch -- 0 is ignored*/
-		false,                           /*reverse*/
-		true,                            /*fetchValues*/
+		_GlobalStatePrefixForHotFeedApprovedPostOps, /*validForPrefix*/
+		0,     /*maxKeyLen -- ignored since reverse is false*/
+		0,     /*numToFetch -- 0 is ignored*/
+		false, /*reverse*/
+		true,  /*fetchValues*/
 	)
 	if err != nil {
 		glog.Infof("UpdateHotFeedApprovedPostsMap: GlobalStateSeek failed: %v", err)
@@ -109,23 +122,23 @@ func (fes *APIServer) UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts map[lib
 		postHash := &lib.BlockHash{}
 		copy(postHash[:], postHashBytes)
 
-		// Deserialize the HotFeedOp.
-		hotFeedOp := HotFeedOp{}
+		// Deserialize the HotFeedApprovedPostOp.
+		hotFeedOp := HotFeedApprovedPostOp{}
 		hotFeedOpBytes := opVals[opIdx]
 		if len(hotFeedOpBytes) > 0 {
 			err = gob.NewDecoder(bytes.NewReader(hotFeedOpBytes)).Decode(&hotFeedOp)
 			if err != nil {
-				glog.Infof("UpdateHotFeedApprovedPostsMap: ERROR decoding HotFeedOp: %v", err)
+				glog.Infof("UpdateHotFeedApprovedPostsMap: ERROR decoding HotFeedApprovedPostOp: %v", err)
 				continue
 			}
 		} else {
-			// If this row doesn't actually have a HotFeedOp, bail.
+			// If this row doesn't actually have a HotFeedApprovedPostOp, bail.
 			continue
 		}
 
 		if hotFeedOp.IsRemoval {
 			delete(hotFeedApprovedPosts, *postHash)
-		} else {
+		} else if hotFeedOp.Multiplier >= 0 {
 			hotFeedApprovedPosts[*postHash] = hotFeedOp.Multiplier
 
 			// Now we need to figure out if this was a multiplier update.
@@ -136,16 +149,101 @@ func (fes *APIServer) UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts map[lib
 				fes.HotFeedPostMultiplierUpdated = true
 			}
 		}
+
+		// If we've made it to the end of the op list, update the last op processed timestamp.
+		if opIdx == len(opKeys)-1 {
+			opTstampBytes := opKey[timestampStartIdx:postHashStartIdx]
+			opTstampNanos := lib.DecodeUint64(opTstampBytes)
+			fes.LastHotFeedApprovedPostOpProcessedTstampNanos = opTstampNanos
+		}
+	}
+}
+
+func (fes *APIServer) UpdateHotFeedPKIDMultipliersMap(
+	hotFeedPKIDMultipliers map[lib.PKID]*HotFeedPKIDMultiplier,
+) {
+	// Grab all of the relevant operations to update the map with.
+	startTimestampNanos := uint64(time.Now().UTC().AddDate(0, 0, -1).UnixNano()) // 1 day ago.
+	if fes.LastHotFeedPKIDMultiplierOpProcessedTstampNanos != 0 {
+		startTimestampNanos = fes.LastHotFeedPKIDMultiplierOpProcessedTstampNanos
+	}
+	startPrefix := GlobalStateSeekKeyForHotFeedPKIDMultiplierOps(startTimestampNanos)
+	opKeys, opVals, err := fes.GlobalStateSeek(
+		startPrefix,
+		_GlobalStatePrefixForHotFeedPKIDMultiplierOps, /*validForPrefix*/
+		0,     /*maxKeyLen -- ignored since reverse is false*/
+		0,     /*numToFetch -- 0 is ignored*/
+		false, /*reverse*/
+		true,  /*fetchValues*/
+	)
+	if err != nil {
+		glog.Infof("UpdateHotFeedPKIDMultipliersMap: GlobalStateSeek failed: %v", err)
+	}
+
+	// RPH-FIXME: Kill this.
+	glog.Infof("UpdateHotFeedPKIDMultipliersMap: OPKEYS LEN: %d", len(opKeys))
+
+	// Chop up the keys and process each operation.
+	for opIdx, opKey := range opKeys {
+		// Each key consists of: prefix, timestamp, PKID.
+		timestampStartIdx := 1
+		pkidStartIdx := timestampStartIdx + 8
+
+		opPKIDBytes := opKey[pkidStartIdx:]
+		opPKID := &lib.PKID{}
+		copy(opPKID[:], opPKIDBytes)
+
+		// Deserialize the HotFeedPKIDMultiplierOp.
+		hotFeedOp := HotFeedPKIDMultiplierOp{}
+		hotFeedOpBytes := opVals[opIdx]
+		if len(hotFeedOpBytes) > 0 {
+			err = gob.NewDecoder(bytes.NewReader(hotFeedOpBytes)).Decode(&hotFeedOp)
+			if err != nil {
+				glog.Infof("UpdateHotFeedPKIDMultipliersMap: ERROR decoding HotFeedPKIDMultiplierOp: %v", err)
+				continue
+			}
+		} else {
+			// If this row doesn't actually have a HotFeedPKIDMultiplierOp, bail.
+			continue
+		}
+
+		// Get the current multiplier and update it. Note that negatives are ignored.
+		hotFeedPKIDMultiplier := hotFeedPKIDMultipliers[*opPKID]
+		if hotFeedOp.InteractionMultiplier >= 0 {
+			hotFeedPKIDMultiplier.InteractionMultiplier = hotFeedOp.InteractionMultiplier
+		} else if hotFeedOp.PostsMultiplier >= 0 {
+			hotFeedPKIDMultiplier.PostsMultiplier = hotFeedOp.PostsMultiplier
+		}
+		hotFeedPKIDMultipliers[*opPKID] = hotFeedPKIDMultiplier
+
+		// If we've made it to the end of the op list, update trackers.
+		if opIdx == len(opKeys)-1 {
+			// Update the time stamp of the last op processed.
+			opTstampBytes := opKey[timestampStartIdx:pkidStartIdx]
+			opTstampNanos := lib.DecodeUint64(opTstampBytes)
+			fes.LastHotFeedPKIDMultiplierOpProcessedTstampNanos = opTstampNanos
+
+			// Record that the multiplier map has updates.
+			fes.HotFeedPKIDMultiplierUpdated = true
+		}
 	}
 }
 
 func (fes *APIServer) CopyHotFeedApprovedPostsMap() map[lib.BlockHash]float64 {
-	hotFeedApprovedPosts := make(
-		map[lib.BlockHash]float64, len(fes.HotFeedApprovedPostsToMultipliers))
+	hotFeedApprovedPosts := make(map[lib.BlockHash]float64, len(fes.HotFeedApprovedPostsToMultipliers))
 	for postKey, postVal := range fes.HotFeedApprovedPostsToMultipliers {
 		hotFeedApprovedPosts[postKey] = postVal
 	}
 	return hotFeedApprovedPosts
+}
+
+func (fes *APIServer) CopyHotFeedPKIDMultipliersMap() map[lib.PKID]*HotFeedPKIDMultiplier {
+	hotFeedPKIDMultipliers := make(map[lib.PKID]*HotFeedPKIDMultiplier, len(fes.HotFeedPKIDMultipliers))
+	for pkidKey, multiplierVal := range fes.HotFeedPKIDMultipliers {
+		multiplierValCopy := *multiplierVal
+		hotFeedPKIDMultipliers[pkidKey] = &multiplierValCopy
+	}
+	return hotFeedPKIDMultipliers
 }
 
 type HotnessPostInfo struct {
@@ -154,7 +252,9 @@ type HotnessPostInfo struct {
 	HotnessScore uint64
 }
 
-func (fes *APIServer) UpdateHotFeedOrderedList(postsToMultipliers map[lib.BlockHash]float64,
+func (fes *APIServer) UpdateHotFeedOrderedList(
+	postsToMultipliers map[lib.BlockHash]float64,
+	pkidsToMultipliers map[lib.PKID]*HotFeedPKIDMultiplier,
 ) (_hotFeedPostsMap map[lib.BlockHash]*HotnessPostInfo,
 ) {
 	// Check to see if any of the algorithm constants have changed.
@@ -194,10 +294,11 @@ func (fes *APIServer) UpdateHotFeedOrderedList(postsToMultipliers map[lib.BlockH
 		fes.HotFeedInteractionCap = globalStateInteractionCap
 		fes.HotFeedTimeDecayBlocks = globalStateTimeDecayBlocks
 		foundNewConstants = true
-	} else if fes.HotFeedPostMultiplierUpdated {
+	} else if fes.HotFeedPostMultiplierUpdated || fes.HotFeedPKIDMultiplierUpdated {
 		// If a post's multiplier was updated, we need to recompute scores.
 		foundNewConstants = true
 		fes.HotFeedPostMultiplierUpdated = false
+		fes.HotFeedPKIDMultiplierUpdated = false
 	}
 
 	// If the constants for the algorithm haven't changed and we have already seen the latest
@@ -274,13 +375,25 @@ func (fes *APIServer) UpdateHotFeedOrderedList(postsToMultipliers map[lib.BlockH
 			// post that was created within the last 24 hours.
 
 			// Evaluate the txn and attempt to update the hotnessInfoMap.
-			postHashScored, txnHotnessScore := fes.GetHotnessScoreInfoForTxn(
-				txn, postBlockAge, postInteractionMap, utxoView)
+			postHashScored, interactionPKID, txnHotnessScore :=
+				fes.GetHotnessScoreInfoForTxn(txn, postBlockAge, postInteractionMap, utxoView)
 			if txnHotnessScore != 0 && postHashScored != nil {
-				// Check for a post multiplier.
+				// Check for a post-specific multiplier.
 				multiplier, hasMultiplier := postsToMultipliers[*postHashScored]
 				if hasMultiplier && multiplier >= 0 {
 					txnHotnessScore = uint64(multiplier * float64(txnHotnessScore))
+				}
+
+				// Check for PKID-specifc multipliers for the poster and the interactor.
+				if posterPKIDMultiplier, hasPosterPKIDMultiplier :=
+					pkidsToMultipliers[*interactionPKID]; hasPosterPKIDMultiplier {
+					txnHotnessScore = uint64(
+						posterPKIDMultiplier.PostsMultiplier * float64(txnHotnessScore))
+				}
+				if interactionPKIDMultiplier, hasInteractionPKIDMultiplier :=
+					pkidsToMultipliers[*interactionPKID]; hasInteractionPKIDMultiplier {
+					txnHotnessScore = uint64(
+						interactionPKIDMultiplier.InteractionMultiplier * float64(txnHotnessScore))
 				}
 
 				// Check for overflow just in case.
@@ -417,7 +530,8 @@ func (fes *APIServer) GetHotnessScoreInfoForTxn(
 	blockAge int, // Number of blocks this txn is from the blockTip.  Not block height.
 	postInteractionMap map[HotFeedInteractionKey][]byte,
 	utxoView *lib.UtxoView,
-) (_postHashScored *lib.BlockHash, _hotnessScore uint64) {
+) (_postHashScored *lib.BlockHash, _interactionPKID *lib.PKID, _hotnessScore uint64,
+) {
 	// Figure out who is responsible for the transaction.
 	interactionPKIDEntry := utxoView.GetPKIDForPublicKey(txn.PublicKey)
 
@@ -429,7 +543,7 @@ func (fes *APIServer) GetHotnessScoreInfoForTxn(
 		InteractionPostHash: *interactionPostHash,
 	}
 	if _, exists := postInteractionMap[interactionKey]; exists {
-		return nil, 0
+		return nil, nil, 0
 	} else {
 		postInteractionMap[interactionKey] = []byte{}
 	}
@@ -438,7 +552,7 @@ func (fes *APIServer) GetHotnessScoreInfoForTxn(
 	interactionProfile := utxoView.GetProfileEntryForPKID(interactionPKIDEntry.PKID)
 	// It is possible for the profile to be nil since you don't need a profile for diamonds.
 	if interactionProfile == nil || interactionProfile.IsDeleted() {
-		return nil, 0
+		return nil, nil, 0
 	}
 	hotnessScore := interactionProfile.DeSoLockedNanos
 	if hotnessScore > fes.HotFeedInteractionCap {
@@ -446,7 +560,7 @@ func (fes *APIServer) GetHotnessScoreInfoForTxn(
 	}
 	hotnessScoreTimeDecayed := uint64(float64(hotnessScore) *
 		math.Pow(0.5, float64(blockAge)/float64(fes.HotFeedTimeDecayBlocks)))
-	return interactionPostHash, hotnessScoreTimeDecayed
+	return interactionPostHash, interactionPKIDEntry.PKID, hotnessScoreTimeDecayed
 }
 
 func (fes *APIServer) PruneHotFeedApprovedPostsMap(
@@ -724,14 +838,14 @@ func (fes *APIServer) AdminUpdateHotFeedPostMultiplier(ww http.ResponseWriter, r
 	}
 
 	// Add a new hot feed op for this post.
-	hotFeedOp := HotFeedOp{
+	hotFeedOp := HotFeedApprovedPostOp{
 		IsRemoval:  false,
 		Multiplier: requestData.Multiplier,
 	}
 	hotFeedOpDataBuf := bytes.NewBuffer([]byte{})
 	gob.NewEncoder(hotFeedOpDataBuf).Encode(hotFeedOp)
 	opTimestamp := uint64(time.Now().UnixNano())
-	hotFeedOpKey := GlobalStateKeyForHotFeedOp(opTimestamp, postHash)
+	hotFeedOpKey := GlobalStateKeyForHotFeedApprovedPostOp(opTimestamp, postHash)
 	err := fes.GlobalStatePut(hotFeedOpKey, hotFeedOpDataBuf.Bytes())
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateHotFeedPostMultiplier: Problem putting hotFeedOp: %v", err))

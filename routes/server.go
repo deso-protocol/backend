@@ -277,12 +277,17 @@ type APIServer struct {
 	HotFeedBlockHeight uint32
 	// Map of whitelisted post hashes used for serving the hot feed.
 	// The float64 value is a multiplier than can be modified and used in scoring.
-	HotFeedApprovedPostsToMultipliers map[lib.BlockHash]float64
-	LastHotFeedOpProcessedTstampNanos uint64
+	HotFeedApprovedPostsToMultipliers             map[lib.BlockHash]float64
+	LastHotFeedApprovedPostOpProcessedTstampNanos uint64
+	// Multipliers applied to individual PKIDs to help node operators better fit their
+	// hot feed to the type of content they would like to display.
+	HotFeedPKIDMultipliers                          map[lib.PKID]*HotFeedPKIDMultiplier
+	LastHotFeedPKIDMultiplierOpProcessedTstampNanos uint64
 	// Constants for the hotness score algorithm.
 	HotFeedInteractionCap        uint64
 	HotFeedTimeDecayBlocks       uint64
 	HotFeedPostMultiplierUpdated bool
+	HotFeedPKIDMultiplierUpdated bool
 
 	//Map of transaction type to []*lib.DeSoOutput that represent fees assessed on each transaction of that type.
 	TransactionFeeMap map[lib.TxnType][]*lib.DeSoOutput
