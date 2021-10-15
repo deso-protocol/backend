@@ -516,8 +516,11 @@ func APITransactionToResponse(
 	}
 
 	// Remove UtxoOps from the response because it's massive and usually useless
-	txnMetaResponse := txnMeta
-	txnMetaResponse.BasicTransferTxindexMetadata.UtxoOps = nil
+	// We do some funky pointer stuff here so that we don't change the original object
+	txnMetaResponse := *txnMeta
+	basicMetadata := *txnMeta.BasicTransferTxindexMetadata
+	basicMetadata.UtxoOps = nil
+	txnMetaResponse.BasicTransferTxindexMetadata = &basicMetadata
 
 	txnBytes, _ := txnn.ToBytes(false /*preSignature*/)
 	ret := &TransactionResponse{
@@ -525,8 +528,7 @@ func APITransactionToResponse(
 		RawTransactionHex:        hex.EncodeToString(txnBytes),
 		SignatureHex:             signatureHex,
 		TransactionType:          txnn.TxnMeta.GetTxnType().String(),
-
-		TransactionMetadata: txnMetaResponse,
+		TransactionMetadata:      &txnMetaResponse,
 
 		// Inputs, Outputs, and some txnMeta fields set below.
 	}
@@ -950,41 +952,6 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	}
 	res.Transactions = []*TransactionResponse{}
 
-	// Start with the mempool
-	poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
-	if err != nil {
-		APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error getting txns from mempool: %v", err))
-		return
-	}
-
-	// Go from most recent to least recent
-	// TODO: Support pagination for mempool transactions
-	for _, poolTx := range poolTxns {
-		txnMeta := poolTx.TxMeta
-
-		isRelevantTxn := false
-		// Iterate over the affected public keys to see if any of them hit the one we're looking for.
-		for _, affectedPks := range txnMeta.AffectedPublicKeys {
-			if affectedPks.PublicKeyBase58Check == lib.PkToString(publicKeyBytes, fes.Params) {
-				isRelevantTxn = true
-				break
-			}
-		}
-
-		// Skip irrelevant transactions
-		if !isRelevantTxn {
-			continue
-		}
-
-		// Finally, add the transaction to our list if it's relevant
-		if transactionInfoRequest.IDsOnly {
-			txRes := &TransactionResponse{TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params)}
-			res.Transactions = append(res.Transactions, txRes)
-		} else {
-			res.Transactions = append(res.Transactions, APITransactionToResponse(poolTx.Tx, txnMeta, fes.Params))
-		}
-	}
-
 	validForPrefix := lib.DbTxindexPublicKeyPrefix(publicKeyBytes)
 	// If FetchStartIndex is specified then the startPrefix is the public key with FetchStartIndex appended.
 	// Otherwise, we leave off the index so that the seek will start from the end of the transaction list.
@@ -1047,6 +1014,42 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	// The index comes after the <_Prefix, PublicKey> bytes.
 	lastKeyIndexBytes := lastKey[len(lib.DbTxindexPublicKeyPrefix(publicKeyBytes)):]
 	res.LastPublicKeyTransactionIndex = int64(lib.DecodeUint32(lastKeyIndexBytes))
+
+	// Start with the mempool
+	poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
+	if err != nil {
+		APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error getting txns from mempool: %v", err))
+		return
+	}
+
+	// Go from most recent to least recent
+	// TODO: Support pagination for mempool transactions
+	for ii := len(poolTxns); ii > 0; ii-- {
+		poolTx := poolTxns[ii-1]
+		txnMeta := poolTx.TxMeta
+
+		isRelevantTxn := false
+		// Iterate over the affected public keys to see if any of them hit the one we're looking for.
+		for _, affectedPks := range txnMeta.AffectedPublicKeys {
+			if affectedPks.PublicKeyBase58Check == transactionInfoRequest.PublicKeyBase58Check {
+				isRelevantTxn = true
+				break
+			}
+		}
+
+		// Skip irrelevant transactions
+		if !isRelevantTxn {
+			continue
+		}
+
+		// Finally, add the transaction to our list if it's relevant
+		if transactionInfoRequest.IDsOnly {
+			txRes := &TransactionResponse{TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params)}
+			res.Transactions = append(res.Transactions, txRes)
+		} else {
+			res.Transactions = append(res.Transactions, APITransactionToResponse(poolTx.Tx, txnMeta, fes.Params))
+		}
+	}
 
 	// At this point, all the transactions should have been added to the request.
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
