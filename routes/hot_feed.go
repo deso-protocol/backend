@@ -360,7 +360,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 			// The age used in determining the score should be that of the post
 			// that we are evaluating. The interaction's score will be discounted
 			// by this age.
-			postHashToScore := GetPostHashToScoreForTxn(txn, utxoView)
+			postHashToScore, posterPKID := GetPostHashToScoreForTxn(txn, utxoView)
 			if postHashToScore == nil {
 				// If we don't have a post hash to score then this txn is not relevant
 				// and we can continue.
@@ -388,13 +388,13 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 				}
 
 				// Check for PKID-specifc multipliers for the poster and the interactor.
-				if posterPKIDMultiplier, hasPosterPKIDMultiplier :=
-					pkidsToMultipliers[*interactionPKID]; hasPosterPKIDMultiplier {
+				posterPKIDMultiplier, hasPosterPKIDMultiplier := pkidsToMultipliers[*posterPKID]
+				if hasPosterPKIDMultiplier {
 					txnHotnessScore = uint64(
 						posterPKIDMultiplier.PostsMultiplier * float64(txnHotnessScore))
 				}
-				if interactionPKIDMultiplier, hasInteractionPKIDMultiplier :=
-					pkidsToMultipliers[*interactionPKID]; hasInteractionPKIDMultiplier {
+				interactionPKIDMultiplier, hasInteractionPKIDMultiplier := pkidsToMultipliers[*interactionPKID]
+				if hasInteractionPKIDMultiplier {
 					txnHotnessScore = uint64(
 						interactionPKIDMultiplier.InteractionMultiplier * float64(txnHotnessScore))
 				}
@@ -479,9 +479,10 @@ func CheckTxnForCreatePost(txn *lib.MsgDeSoTxn) (
 }
 
 func GetPostHashToScoreForTxn(txn *lib.MsgDeSoTxn,
-	utxoView *lib.UtxoView) *lib.BlockHash {
+	utxoView *lib.UtxoView) (_postHashScored *lib.BlockHash, _posterPKID *lib.PKID) {
 	// Figure out which post this transaction should affect.
 	interactionPostHash := &lib.BlockHash{}
+	var interactionPostEntry *lib.PostEntry
 	txnType := txn.TxnMeta.GetTxnType()
 	if txnType == lib.TxnTypeLike {
 		txMeta := txn.TxnMeta.(*lib.LikeMetadata)
@@ -494,35 +495,43 @@ func GetPostHashToScoreForTxn(txn *lib.MsgDeSoTxn,
 			copy(interactionPostHash[:], diamondPostHashBytes[:])
 		} else {
 			// If this basic transfer doesn't have a diamond, it is irrelevant.
-			return nil
+			return nil, nil
 		}
 
 	} else if txnType == lib.TxnTypeSubmitPost {
 		txMeta := txn.TxnMeta.(*lib.SubmitPostMetadata)
 		// If this is a transaction creating a brand new post, we can ignore it.
 		if len(txMeta.PostHashToModify) == 0 {
-			return nil
+			return nil, nil
 		}
 		postHash := &lib.BlockHash{}
 		copy(postHash[:], txMeta.PostHashToModify[:])
-		postEntry := utxoView.GetPostEntryForPostHash(postHash)
+		interactionPostEntry = utxoView.GetPostEntryForPostHash(postHash)
 
 		// For posts we must process three cases: Reposts, Quoted Reposts, and Comments.
-		if lib.IsVanillaRepost(postEntry) || lib.IsQuotedRepost(postEntry) {
+		if lib.IsVanillaRepost(interactionPostEntry) || lib.IsQuotedRepost(interactionPostEntry) {
 			repostedPostHashBytes := txn.ExtraData[lib.RepostedPostHash]
 			copy(interactionPostHash[:], repostedPostHashBytes)
-		} else if len(postEntry.ParentStakeID) > 0 {
-			copy(interactionPostHash[:], postEntry.ParentStakeID[:])
+		} else if len(interactionPostEntry.ParentStakeID) > 0 {
+			copy(interactionPostHash[:], interactionPostEntry.ParentStakeID[:])
 		} else {
-			return nil
+			return nil, nil
 		}
 
 	} else {
 		// This transaction is not relevant, bail.
-		return nil
+		return nil, nil
 	}
 
-	return interactionPostHash
+	// If we haven't gotten the post entry yet, make sure we fetch it.
+	if interactionPostEntry == nil {
+		interactionPostEntry = utxoView.GetPostEntryForPostHash(interactionPostHash)
+	}
+
+	// At this point, we have a post hash to return so look up the posterPKID as well.
+	posterPKIDEntry := utxoView.GetPKIDForPublicKey(interactionPostEntry.PosterPublicKey)
+
+	return interactionPostHash, posterPKIDEntry.PKID
 }
 
 // Returns the post hash that a txn is relevant to and the amount that the txn should contribute
@@ -538,7 +547,7 @@ func (fes *APIServer) GetHotnessScoreInfoForTxn(
 	// Figure out who is responsible for the transaction.
 	interactionPKIDEntry := utxoView.GetPKIDForPublicKey(txn.PublicKey)
 
-	interactionPostHash := GetPostHashToScoreForTxn(txn, utxoView)
+	interactionPostHash, _ := GetPostHashToScoreForTxn(txn, utxoView)
 
 	// Check to see if we've seen this interaction pair before. Log an interaction if not.
 	interactionKey := HotFeedInteractionKey{
