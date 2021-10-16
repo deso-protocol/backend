@@ -99,7 +99,7 @@ func (fes *APIServer) UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts map[lib
 	if fes.LastHotFeedApprovedPostOpProcessedTstampNanos != 0 {
 		startTimestampNanos = fes.LastHotFeedApprovedPostOpProcessedTstampNanos
 	}
-	startPrefix := GlobalStateSeekKeyForHotFeedApprovedPostOps(startTimestampNanos)
+	startPrefix := GlobalStateSeekKeyForHotFeedApprovedPostOps(startTimestampNanos + 1)
 	opKeys, opVals, err := fes.GlobalStateSeek(
 		startPrefix,
 		_GlobalStatePrefixForHotFeedApprovedPostOps, /*validForPrefix*/
@@ -167,7 +167,7 @@ func (fes *APIServer) UpdateHotFeedPKIDMultipliersMap(
 	if fes.LastHotFeedPKIDMultiplierOpProcessedTstampNanos != 0 {
 		startTimestampNanos = fes.LastHotFeedPKIDMultiplierOpProcessedTstampNanos
 	}
-	startPrefix := GlobalStateSeekKeyForHotFeedPKIDMultiplierOps(startTimestampNanos)
+	startPrefix := GlobalStateSeekKeyForHotFeedPKIDMultiplierOps(startTimestampNanos + 1)
 	opKeys, opVals, err := fes.GlobalStateSeek(
 		startPrefix,
 		_GlobalStatePrefixForHotFeedPKIDMultiplierOps, /*validForPrefix*/
@@ -209,6 +209,9 @@ func (fes *APIServer) UpdateHotFeedPKIDMultipliersMap(
 
 		// Get the current multiplier and update it. Note that negatives are ignored.
 		hotFeedPKIDMultiplier := hotFeedPKIDMultipliers[*opPKID]
+		if hotFeedPKIDMultiplier == nil {
+			hotFeedPKIDMultiplier = &HotFeedPKIDMultiplier{}
+		}
 		if hotFeedOp.InteractionMultiplier >= 0 {
 			hotFeedPKIDMultiplier.InteractionMultiplier = hotFeedOp.InteractionMultiplier
 		} else if hotFeedOp.PostsMultiplier >= 0 {
