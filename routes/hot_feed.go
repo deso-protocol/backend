@@ -207,7 +207,10 @@ func (fes *APIServer) UpdateHotFeedPKIDMultipliersMap(
 		// Get the current multiplier and update it. Note that negatives are ignored.
 		hotFeedPKIDMultiplier := hotFeedPKIDMultipliers[*opPKID]
 		if hotFeedPKIDMultiplier == nil {
-			hotFeedPKIDMultiplier = &HotFeedPKIDMultiplier{}
+			hotFeedPKIDMultiplier = &HotFeedPKIDMultiplier{
+				InteractionMultiplier: 1,
+				PostsMultiplier:       1,
+			}
 		}
 		if hotFeedOp.InteractionMultiplier >= 0 {
 			hotFeedPKIDMultiplier.InteractionMultiplier = hotFeedOp.InteractionMultiplier
