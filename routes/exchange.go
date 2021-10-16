@@ -956,7 +956,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	// If FetchStartIndex is specified then the startPrefix is the public key with FetchStartIndex appended.
 	// Otherwise, we leave off the index so that the seek will start from the end of the transaction list.
 	startPrefix := lib.DbTxindexPublicKeyPrefix(publicKeyBytes)
-	if transactionInfoRequest.LastPublicKeyTransactionIndex >= 0 {
+	if transactionInfoRequest.LastPublicKeyTransactionIndex > 0 {
 		startPrefix = lib.DbTxindexPublicKeyIndexToTxnKey(publicKeyBytes, uint32(transactionInfoRequest.LastPublicKeyTransactionIndex))
 	}
 	// The maximum key length is the length of the DB key constructed from the public key plus the size of the uint64 appended to it.
