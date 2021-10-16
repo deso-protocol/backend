@@ -858,3 +858,131 @@ func (fes *APIServer) AdminUpdateHotFeedPostMultiplier(ww http.ResponseWriter, r
 		return
 	}
 }
+
+type AdminUpdateHotFeedPKIDMultiplierRequest struct {
+	Username              string  `safeforlogging:"true"`
+	InteractionMultiplier float64 `safeforlogging:"true"`
+	PostsMultiplier       float64 `safeforlogging:"true"`
+}
+
+type AdminUpdateHotFeedPKIDMultiplierResponse struct{}
+
+func (fes *APIServer) AdminUpdateHotFeedPKIDMultiplier(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminUpdateHotFeedPKIDMultiplierRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateHotFeedPKIDMultiplier: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Verify the username adheres to the consensus username criteria.
+	if len(requestData.Username) == 0 ||
+		len(requestData.Username) > lib.MaxUsernameLengthBytes ||
+		!lib.UsernameRegex.Match([]byte(requestData.Username)) {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateHotFeedPKIDMultiplier: Must provide a valid username"))
+		return
+	}
+
+	// Verify the username has an underlying profile.
+	pubKey, err := fes.getPublicKeyFromUsernameOrPublicKeyString(requestData.Username)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf(
+				"AdminUpdateHotFeedPKIDMultiplier: Username %s has no associated underlying publickey.",
+				requestData.Username))
+		return
+	}
+
+	// Use a utxoView to get the pkid for this pub key.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateHotFeedPKIDMultiplier: Problem getting utxoView: %v", err))
+		return
+	}
+	pkidEntry := utxoView.GetPKIDForPublicKey(pubKey)
+	if pkidEntry == nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateHotFeedPKIDMultiplier: PKID not found for username: %s", requestData.Username))
+		return
+	}
+
+	// Add a new hot feed op for this post.
+	hotFeedOp := HotFeedPKIDMultiplierOp{
+		InteractionMultiplier: requestData.InteractionMultiplier,
+		PostsMultiplier:       requestData.PostsMultiplier,
+	}
+	hotFeedOpDataBuf := bytes.NewBuffer([]byte{})
+	gob.NewEncoder(hotFeedOpDataBuf).Encode(hotFeedOp)
+	opTimestamp := uint64(time.Now().UnixNano())
+	hotFeedOpKey := GlobalStateKeyForHotFeedPKIDMultiplierOp(opTimestamp, pkidEntry.PKID)
+	err = fes.GlobalStatePut(hotFeedOpKey, hotFeedOpDataBuf.Bytes())
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateHotFeedPKIDMultiplier: Problem putting hotFeedOp: %v", err))
+		return
+	}
+
+	res := AdminUpdateHotFeedPKIDMultiplierResponse{}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateHotFeedPKIDMultiplier: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type AdminGetHotFeedPKIDMultiplierRequest struct {
+	Username string `safeforlogging:"true"`
+}
+
+type AdminGetHotFeedPKIDMultiplierResponse struct {
+	InteractionMultiplier float64 `safeforlogging:"true"`
+	PostsMultiplier       float64 `safeforlogging:"true"`
+}
+
+func (fes *APIServer) AdminGetHotFeedPKIDMultiplier(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminGetHotFeedPKIDMultiplierRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetHotFeedPKIDMultiplier: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Verify the username adheres to the consensus username criteria.
+	if len(requestData.Username) == 0 ||
+		len(requestData.Username) > lib.MaxUsernameLengthBytes ||
+		!lib.UsernameRegex.Match([]byte(requestData.Username)) {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetHotFeedPKIDMultiplier: Must provide a valid username"))
+		return
+	}
+
+	// Verify the username has an underlying profile.
+	pubKey, err := fes.getPublicKeyFromUsernameOrPublicKeyString(requestData.Username)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf(
+				"AdminGetHotFeedPKIDMultiplier: Username %s has no associated underlying publickey.",
+				requestData.Username))
+		return
+	}
+
+	// Use a utxoView to get the pkid for this pub key.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetHotFeedPKIDMultiplier: Problem getting utxoView: %v", err))
+		return
+	}
+	pkidEntry := utxoView.GetPKIDForPublicKey(pubKey)
+	if pkidEntry == nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetHotFeedPKIDMultiplier: PKID not found for username: %s", requestData.Username))
+		return
+	}
+
+	// Grab the current multiplier object for this PKID.
+	hotFeedMultiplier := fes.HotFeedPKIDMultipliers[*pkidEntry.PKID]
+
+	res := AdminGetHotFeedPKIDMultiplierResponse{
+		InteractionMultiplier: hotFeedMultiplier.InteractionMultiplier,
+		PostsMultiplier:       hotFeedMultiplier.PostsMultiplier,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetHotFeedPKIDMultiplier: Problem encoding response as JSON: %v", err))
+		return
+	}
+}

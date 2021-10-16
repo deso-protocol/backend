@@ -189,6 +189,8 @@ const (
 	RoutePathAdminGetHotFeedAlgorithm         = "/api/v0/admin/get-hot-feed-algorithm"
 	RoutePathAdminUpdateHotFeedAlgorithm      = "/api/v0/admin/update-hot-feed-algorithm"
 	RoutePathAdminUpdateHotFeedPostMultiplier = "/api/v0/admin/update-hot-feed-post-multiplier"
+	RoutePathAdminUpdateHotFeedPKIDMultiplier = "/api/v0/admin/update-hot-feed-pkid-multiplier"
+	RoutePathAdminGetHotFeedPKIDMultiplier    = "/api/v0/admin/get-hot-feed-pkid-multiplier"
 
 	// admin_fees.go
 	RoutePathAdminSetTransactionFeeForTransactionType = "/api/v0/admin/set-txn-fee-for-txn-type"
@@ -1053,6 +1055,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateHotFeedPostMultiplier,
 			fes.AdminUpdateHotFeedPostMultiplier,
+			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateHotFeedPKIDMultiplier",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateHotFeedPKIDMultiplier,
+			fes.AdminUpdateHotFeedPKIDMultiplier,
+			SuperAdminAccess,
+		},
+		{
+			"AdminGetHotFeedPKIDMultiplier",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetHotFeedPKIDMultiplier,
+			fes.AdminGetHotFeedPKIDMultiplier,
 			SuperAdminAccess,
 		},
 		{

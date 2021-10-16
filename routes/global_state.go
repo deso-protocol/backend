@@ -464,11 +464,11 @@ func GlobalStateSeekKeyForHotFeedPKIDMultiplierOps(startTimestampNanos uint64) [
 
 func GlobalStateKeyForHotFeedPKIDMultiplierOp(
 	opTimestampNanos uint64,
-	postHash *lib.BlockHash,
+	opPKID *lib.PKID,
 ) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixForHotFeedPKIDMultiplierOps...)
 	key := append(prefixCopy, lib.EncodeUint64(opTimestampNanos)...)
-	key = append(key, postHash[:]...)
+	key = append(key, opPKID[:]...)
 	return key
 }
 
