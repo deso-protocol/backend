@@ -180,9 +180,6 @@ func (fes *APIServer) UpdateHotFeedPKIDMultipliersMap(
 		glog.Infof("UpdateHotFeedPKIDMultipliersMap: GlobalStateSeek failed: %v", err)
 	}
 
-	// RPH-FIXME: Kill this.
-	glog.Infof("UpdateHotFeedPKIDMultipliersMap: OPKEYS LEN: %d", len(opKeys))
-
 	// Chop up the keys and process each operation.
 	for opIdx, opKey := range opKeys {
 		// Each key consists of: prefix, timestamp, PKID.
