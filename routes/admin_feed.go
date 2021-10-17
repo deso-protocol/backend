@@ -154,14 +154,14 @@ func (fes *APIServer) AdminUpdateGlobalFeed(ww http.ResponseWriter, req *http.Re
 	}
 
 	// Add a hot feed op for this post.
-	hotFeedOp := HotFeedOp{
+	hotFeedOp := HotFeedApprovedPostOp{
 		IsRemoval:  requestData.RemoveFromGlobalFeed,
 		Multiplier: 1,
 	}
 	hotFeedOpDataBuf := bytes.NewBuffer([]byte{})
 	gob.NewEncoder(hotFeedOpDataBuf).Encode(hotFeedOp)
 	opTimestamp := uint64(time.Now().UnixNano())
-	hotFeedOpKey := GlobalStateKeyForHotFeedOp(opTimestamp, postHash)
+	hotFeedOpKey := GlobalStateKeyForHotFeedApprovedPostOp(opTimestamp, postHash)
 	err = fes.GlobalStatePut(hotFeedOpKey, hotFeedOpDataBuf.Bytes())
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem putting hotFeedOp: %v", err))

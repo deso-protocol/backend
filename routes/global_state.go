@@ -178,7 +178,7 @@ var (
 	// which serve to multiply the hotness score of a given post hash.
 	//
 	// <prefix, OperationTimestampNanos, PostHash> -> <HotFeedOp>
-	_GlobalStatePrefixForHotFeedOps = []byte{31}
+	_GlobalStatePrefixForHotFeedApprovedPostOps = []byte{31}
 
 	// Prefix for accessing hot feed score constants.  <prefix> -> <uint64>
 	_GlobalStatePrefixForHotFeedInteractionCap  = []byte{32}
@@ -191,17 +191,27 @@ var (
 	// - <prefix, public key> -> void
 	_GlobalStatePrefixExemptPublicKeys = []byte{35}
 
+	// This key is used in a similar way to the _GlobalStatePrefixForHotFeedApprovedPostOps
+	// above except it is used to track changes to the HotFeedPKIDMultiplier map.
+	// <prefix, OperationTimestampNanos, PKID> -> <HotFeedPKIDMultiplierOp>
+	_GlobalStatePrefixForHotFeedPKIDMultiplierOps = []byte{36}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
 
-	// NEXT_TAG: 36
+	// NEXT_TAG: 37
 )
 
-type HotFeedOp struct {
+type HotFeedApprovedPostOp struct {
 	IsRemoval  bool
-	Multiplier float64 // Negatives are ignored, 1 has no effect.
+	Multiplier float64 // Negatives are ignored when updating the ApprovedPosts map.
+}
+
+type HotFeedPKIDMultiplierOp struct {
+	InteractionMultiplier float64 // Negatives are ignored when updating the PKIDMultiplier map.
+	PostsMultiplier       float64 // Negatives are ignored when updating the PKIDMultiplier map.
 }
 
 // A ReferralInfo struct holds all of the params and stats for a referral link/hash.
@@ -430,21 +440,35 @@ func GlobalStateKeyForPKIDReferralHashToIsActive(pkid *lib.PKID, referralHashByt
 	return key
 }
 
-// Key for seeking the DB for hot feed operations based on timestamp.
-func GlobalStateSeekKeyForHotFeedOps(startTimestampNanos uint64) []byte {
-	prefixCopy := append([]byte{}, _GlobalStatePrefixForHotFeedOps...)
+func GlobalStateSeekKeyForHotFeedApprovedPostOps(startTimestampNanos uint64) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixForHotFeedApprovedPostOps...)
 	key := append(prefixCopy, lib.EncodeUint64(startTimestampNanos)...)
 	return key
 }
 
-// Key for seeking the DB for all hot feed operations.
-func GlobalStateKeyForHotFeedOp(
+func GlobalStateKeyForHotFeedApprovedPostOp(
 	opTimestampNanos uint64,
 	postHash *lib.BlockHash,
 ) []byte {
-	prefixCopy := append([]byte{}, _GlobalStatePrefixForHotFeedOps...)
+	prefixCopy := append([]byte{}, _GlobalStatePrefixForHotFeedApprovedPostOps...)
 	key := append(prefixCopy, lib.EncodeUint64(opTimestampNanos)...)
 	key = append(key, postHash[:]...)
+	return key
+}
+
+func GlobalStateSeekKeyForHotFeedPKIDMultiplierOps(startTimestampNanos uint64) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixForHotFeedPKIDMultiplierOps...)
+	key := append(prefixCopy, lib.EncodeUint64(startTimestampNanos)...)
+	return key
+}
+
+func GlobalStateKeyForHotFeedPKIDMultiplierOp(
+	opTimestampNanos uint64,
+	opPKID *lib.PKID,
+) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixForHotFeedPKIDMultiplierOps...)
+	key := append(prefixCopy, lib.EncodeUint64(opTimestampNanos)...)
+	key = append(key, opPKID[:]...)
 	return key
 }
 
