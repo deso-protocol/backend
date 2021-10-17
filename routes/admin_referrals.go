@@ -549,9 +549,14 @@ func (fes *APIServer) AdminDownloadReferralCSV(ww http.ResponseWriter, req *http
 	for _, referralInfo := range referralInfos {
 		profileEntry := utxoView.GetProfileEntryForPKID(referralInfo.ReferrerPKID)
 
+		usernameStr := ""
+		if profileEntry != nil {
+			usernameStr = string(profileEntry.Username)
+		}
+
 		nextRow := []string{}
 		nextRow = append(nextRow, referralInfo.ReferralHashBase58)
-		nextRow = append(nextRow, string(profileEntry.Username))
+		nextRow = append(nextRow, usernameStr)
 		nextRow = append(nextRow, lib.PkToString(lib.PKIDToPublicKey(referralInfo.ReferrerPKID), fes.Params))
 		nextRow = append(nextRow, strconv.FormatUint(referralInfo.ReferrerAmountUSDCents, 10))
 		nextRow = append(nextRow, strconv.FormatUint(referralInfo.RefereeAmountUSDCents, 10))
