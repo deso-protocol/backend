@@ -6,7 +6,6 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
-	"github.com/davecgh/go-spew/spew"
 	"io"
 	"net/http"
 	"reflect"
@@ -14,11 +13,25 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil/base58"
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
+)
+
+const (
+	// Columns that don't have an ID number are ignored.
+	CSVColumnReferralHash   = 0
+	CSVColumnPKID           = 2
+	CSVColumnReferrerAmount = 3
+	CSVColumnRefereeAmount  = 4
+	CSVColumnMaxReferrals   = 5
+	CSVColumnRequiresJumio  = 6
+	CSVColumnTstampNanos    = 11
+	CSVColumnIsActive       = 12
 )
 
 func (fes *APIServer) putReferralHashWithInfo(
@@ -493,7 +506,7 @@ func (fes *APIServer) getAllReferralInfos() (
 
 func ReferralCSVHeaders() (_headers []string) {
 	return []string{
-		"ReferralHashBase58", "ReferrerPKIDBase58Check", "ReferrerAmountUSDCents", "RefereeAmountUSDCents",
+		"ReferralHashBase58", "Username", "ReferrerPKIDBase58Check", "ReferrerAmountUSDCents", "RefereeAmountUSDCents",
 		"MaxReferrals", "RequiresJumio", "NumJumioAttempts", "NumJumioSuccesses", "TotalReferrerDeSoNanos",
 		"TotalRefereeDeSoNanos", "DateCreatedTStampNanos", "IsActive",
 	}
@@ -527,9 +540,23 @@ func (fes *APIServer) AdminDownloadReferralCSV(ww http.ResponseWriter, req *http
 			ww, fmt.Sprintf("AdminDownloadReferralCSV: problem getting referralInfos: %v", err))
 	}
 
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminDownloadReferralCSV: Problem fetching utxoView: %v", err))
+		return
+	}
+
 	for _, referralInfo := range referralInfos {
+		profileEntry := utxoView.GetProfileEntryForPKID(referralInfo.ReferrerPKID)
+
+		usernameStr := ""
+		if profileEntry != nil {
+			usernameStr = string(profileEntry.Username)
+		}
+
 		nextRow := []string{}
 		nextRow = append(nextRow, referralInfo.ReferralHashBase58)
+		nextRow = append(nextRow, usernameStr)
 		nextRow = append(nextRow, lib.PkToString(lib.PKIDToPublicKey(referralInfo.ReferrerPKID), fes.Params))
 		nextRow = append(nextRow, strconv.FormatUint(referralInfo.ReferrerAmountUSDCents, 10))
 		nextRow = append(nextRow, strconv.FormatUint(referralInfo.RefereeAmountUSDCents, 10))
@@ -576,10 +603,14 @@ func (fes *APIServer) AdminDownloadReferralCSV(ww http.ResponseWriter, req *http
 	}
 }
 
+func GetCSVColumnNum(string) {
+
+}
+
 func (fes *APIServer) updateOrCreateReferralInfoFromCSVRow(row []string) (_err error) {
 	// Sort out the referralHash.
 	referralInfo := ReferralInfo{}
-	if len(row[0]) == 0 {
+	if len(row[CSVColumnReferralHash]) == 0 {
 		// Generate a fresh referral hash for the new link.
 		referralHashBase58, err := generateNewReferralHash()
 		if err != nil {
@@ -587,7 +618,7 @@ func (fes *APIServer) updateOrCreateReferralInfoFromCSVRow(row []string) (_err e
 		}
 		referralInfo.ReferralHashBase58 = referralHashBase58
 	} else {
-		referralInfo.ReferralHashBase58 = row[0]
+		referralInfo.ReferralHashBase58 = row[CSVColumnReferralHash]
 
 		// Since this is an existing referralInfo, we fetch it and copy it for the latest stats.
 		existingReferralInfo, err := fes.getInfoForReferralHashBase58(referralInfo.ReferralHashBase58)
@@ -601,7 +632,7 @@ func (fes *APIServer) updateOrCreateReferralInfoFromCSVRow(row []string) (_err e
 
 	// Decode and fill the PKID.
 	var err error
-	pkBytes, _, err := lib.Base58CheckDecode(row[1])
+	pkBytes, _, err := lib.Base58CheckDecode(row[CSVColumnPKID])
 	if err != nil || len(pkBytes) != btcec.PubKeyBytesLenCompressed {
 		return fmt.Errorf(
 			"updateOrCreateReferralInfoFromCSVRow: Problem decoding pkid %s: %v", row[1], err)
@@ -609,30 +640,30 @@ func (fes *APIServer) updateOrCreateReferralInfoFromCSVRow(row []string) (_err e
 	referralInfo.ReferrerPKID = lib.PublicKeyToPKID(pkBytes)
 
 	// Update the non-stats elements of the ReferralInfo.
-	referralInfo.ReferrerAmountUSDCents, err = strconv.ParseUint(row[2], 10, 64)
+	referralInfo.ReferrerAmountUSDCents, err = strconv.ParseUint(row[CSVColumnReferrerAmount], 10, 64)
 	if err != nil {
 		return fmt.Errorf(
 			"updateOrCreateReferralInfoFromCSVRow: error parsing referrer amount (%s): %v", row[2], err)
 	}
-	referralInfo.RefereeAmountUSDCents, err = strconv.ParseUint(row[3], 10, 64)
+	referralInfo.RefereeAmountUSDCents, err = strconv.ParseUint(row[CSVColumnRefereeAmount], 10, 64)
 	if err != nil {
 		return fmt.Errorf(
 			"updateOrCreateReferralInfoFromCSVRow: error parsing refereer amount (%s): %v", row[3], err)
 	}
-	referralInfo.MaxReferrals, err = strconv.ParseUint(row[4], 10, 64)
+	referralInfo.MaxReferrals, err = strconv.ParseUint(row[CSVColumnMaxReferrals], 10, 64)
 	if err != nil {
 		return fmt.Errorf(
 			"updateOrCreateReferralInfoFromCSVRow: error parsing max referrals (%s): %v", row[4], err)
 	}
-	referralInfo.RequiresJumio, err = strconv.ParseBool(row[5])
+	referralInfo.RequiresJumio, err = strconv.ParseBool(row[CSVColumnRequiresJumio])
 	if err != nil {
 		return fmt.Errorf(
 			"updateOrCreateReferralInfoFromCSVRow: error parsing requires jumio (%s): %v", row[4], err)
 	}
 
 	tstampNanos := uint64(time.Now().UnixNano())
-	if len(row[10]) > 0 {
-		tstampNanos, err = strconv.ParseUint(row[10], 10, 64)
+	if len(row[CSVColumnTstampNanos]) > 0 {
+		tstampNanos, err = strconv.ParseUint(row[CSVColumnTstampNanos], 10, 64)
 		if err != nil {
 			return fmt.Errorf(
 				"updateOrCreateReferralInfoFromCSVRow: error parsing tstamp nanos (%s): %v", row[10], err)
@@ -650,8 +681,8 @@ func (fes *APIServer) updateOrCreateReferralInfoFromCSVRow(row []string) (_err e
 
 	// Figure out the links "IsActive" status and then set it.
 	isActive := true
-	if len(row[11]) > 0 {
-		isActive, err = strconv.ParseBool(row[11])
+	if len(row[CSVColumnIsActive]) > 0 {
+		isActive, err = strconv.ParseBool(row[CSVColumnIsActive])
 		if err != nil {
 			return fmt.Errorf(
 				"updateOrCreateReferralInfoFromCSVRow: error parsing requires jumio (%s): %v", row[4], err)
@@ -706,7 +737,7 @@ func (fes *APIServer) AdminUploadReferralCSV(ww http.ResponseWriter, req *http.R
 			}
 		} else {
 			// Make sure the referralHash is reasonable, if provided.
-			if len(row[0]) != 8 && len(row[0]) != 0 {
+			if len(row[CSVColumnReferralHash]) != 8 && len(row[CSVColumnReferralHash]) != 0 {
 				_AddBadRequestError(ww, fmt.Sprintf(
 					"AdminUploadReferralCSV: Unexpected referralHash length (%d) at rowIdx %d", len(row[0]), rowIdx))
 				return
@@ -719,7 +750,7 @@ func (fes *APIServer) AdminUploadReferralCSV(ww http.ResponseWriter, req *http.R
 				return
 			}
 
-			if len(row[0]) == 0 {
+			if len(row[CSVColumnReferralHash]) == 0 {
 				numLinksCreated++
 			} else {
 				numLinksUpdated++
