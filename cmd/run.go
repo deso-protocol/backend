@@ -135,6 +135,7 @@ func init() {
 	runCmd.PersistentFlags().String("buy-deso-btc-address", "", "BTC Address for all Wyre Wallet Orders and 'Buy With BTC' purchases")
 	runCmd.PersistentFlags().String("buy-deso-seed", "", "Seed phrase from which DeSo will be sent for orders placed through Wyre and 'Buy With BTC' purchases")
 	runCmd.PersistentFlags().String("buy-deso-eth-address", "", "ETH Address for all 'Buy With ETH' purchases")
+	runCmd.PersistentFlags().String("infura-project-id", "", "Project ID for Infura requests")
 
 	// Email
 	runCmd.PersistentFlags().String("sendgrid-api-key", "", "Sendgrid API key")
