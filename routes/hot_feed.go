@@ -671,6 +671,12 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 		if err != nil {
 			continue
 		}
+
+		// Skip posts that are pinned (these will be added to the very top of the feed later)
+		if *postEntryResponse.IsPinned {
+			continue
+		}
+
 		profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
 		postEntryResponse.ProfileEntryResponse = _profileEntryToResponse(
 			profileEntry, fes.Params, verifiedMap, utxoView)
