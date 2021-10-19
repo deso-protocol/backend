@@ -239,22 +239,9 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	}
 
 	// Check if the user is blacklisted/graylisted
-	blacklistKey := GlobalStateKeyForBlacklistedProfile(publicKeyBytes[:])
-	userBlacklistState, err := fes.GlobalStateGet(blacklistKey)
-	if err != nil {
-		return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem getting blacklist: %v", err), "")
-	}
-	if reflect.DeepEqual(userBlacklistState, lib.IsBlacklisted) {
-		user.IsBlacklisted = true
-	}
-	graylistKey := GlobalStateKeyForGraylistedProfile(publicKeyBytes[:])
-	userGraylistState, err := fes.GlobalStateGet(graylistKey)
-	if err != nil {
-		return errors.Wrap(fmt.Errorf("updateUserFieldsStateless: Problem getting graylist: %v", err), "")
-	}
-	if reflect.DeepEqual(userGraylistState, lib.IsGraylisted) {
-		user.IsGraylisted = true
-	}
+	user.IsBlacklisted = fes.IsUserBlacklisted(pkid.PKID)
+
+	user.IsGraylisted = fes.IsUserGraylisted(pkid.PKID)
 
 	// Only set User.IsAdmin in GetUsersStateless
 	// We don't want or need to set this on every endpoint that generates a ProfileEntryResponse
@@ -845,7 +832,7 @@ func (fes *APIServer) GetProfilesByUsernamePrefixAndDeSoLocked(
 		pubKeyMap[lib.MakePkMapKey(profileEntry.PublicKey)] = profileEntry.PublicKey
 	}
 
-	filteredPubKeyMap, err := fes.FilterOutRestrictedPubKeysFromMap(pubKeyMap, readerPK, "leaderboard")
+	filteredPubKeyMap, err := fes.FilterOutRestrictedPubKeysFromMap(pubKeyMap, readerPK, "leaderboard", utxoView)
 	if err != nil {
 		return nil, fmt.Errorf("DBGetProfilesByUsernamePrefixAndDeSoLocked: %v", err)
 	}
@@ -1090,28 +1077,31 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 		Profile: profileEntryResponse,
 	}
 
+	pkid := utxoView.GetPKIDForPublicKey(publicKeyBytes)
+	res.IsBlacklisted = fes.IsUserBlacklisted(pkid.PKID)
+	res.IsGraylisted = fes.IsUserGraylisted(pkid.PKID)
 	// Check if the user is blacklisted/graylisted
-	blacklistKey := GlobalStateKeyForBlacklistedProfile(publicKeyBytes[:])
-	userBlacklistState, err := fes.GlobalStateGet(blacklistKey)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Problem getting blacklist: %v", err))
-		return
-	}
-
-	if reflect.DeepEqual(userBlacklistState, lib.IsBlacklisted) {
-		res.IsBlacklisted = true
-	}
-
-	graylistKey := GlobalStateKeyForGraylistedProfile(publicKeyBytes[:])
-	userGraylistState, err := fes.GlobalStateGet(graylistKey)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Problem getting graylist: %v", err))
-		return
-	}
-
-	if reflect.DeepEqual(userGraylistState, lib.IsGraylisted) {
-		res.IsGraylisted = true
-	}
+	//blacklistKey := GlobalStateKeyForBlacklistedProfile(publicKeyBytes[:])
+	//userBlacklistState, err := fes.GlobalStateGet(blacklistKey)
+	//if err != nil {
+	//	_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Problem getting blacklist: %v", err))
+	//	return
+	//}
+	//
+	//if reflect.DeepEqual(userBlacklistState, lib.IsBlacklisted) {
+	//	res.IsBlacklisted = true
+	//}
+	//
+	//graylistKey := GlobalStateKeyForGraylistedProfile(publicKeyBytes[:])
+	//userGraylistState, err := fes.GlobalStateGet(graylistKey)
+	//if err != nil {
+	//	_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: Problem getting graylist: %v", err))
+	//	return
+	//}
+	//
+	//if reflect.DeepEqual(userGraylistState, lib.IsGraylisted) {
+	//	res.IsGraylisted = true
+	//}
 
 	var userMetadata *UserMetadata
 	userMetadata, err = fes.getUserMetadataFromGlobalState(publicKeyBase58Check)
@@ -1124,1274 +1114,1274 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 	res.Profile.IsFeaturedTutorialWellKnownCreator = userMetadata.IsFeaturedTutorialWellKnownCreator
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("GetSingleProfile: Problem serializing object to JSON: %v", err))
-		return
-	}
-}
-
-type GetHodlersForPublicKeyRequest struct {
-	// Either PublicKeyBase58Check or Username can be set by the client to specify
-	// which user we're obtaining posts for
-	// If both are specified, PublicKeyBase58Check will supercede
-	PublicKeyBase58Check string `safeForLogging:"true"`
-	Username             string `safeForLogging:"true"`
-
-	// Public Key of the last post from the previous page
-	LastPublicKeyBase58Check string `safeForLogging:"true"`
-	// Number of records to fetch
-	NumToFetch uint64 `safeForLogging:"true"`
-
-	// If true, fetch balance entries for your hodlings instead of balance entries for hodler's of your coin
-	FetchHodlings bool
-
-	// If true, fetch all hodlers/hodlings -- supercedes NumToFetch
-	FetchAll bool
-}
-
-type GetHodlersForPublicKeyResponse struct {
-	Hodlers                  []*BalanceEntryResponse
-	LastPublicKeyBase58Check string
-}
-
-// Helper function to get the creator public key or the hodler public key depending upon fetchHodlings.
-func getHodlerOrHodlingPublicKey(balanceEntryResponse *BalanceEntryResponse, fetchHodlings bool) (_publicKeyBase58Check string) {
-	if fetchHodlings {
-		return balanceEntryResponse.CreatorPublicKeyBase58Check
-	} else {
-		return balanceEntryResponse.HODLerPublicKeyBase58Check
-	}
-}
-
-// GetHodlersForPublicKey... Get BalanceEntryResponses for hodlings.
-func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := GetHodlersForPublicKeyRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetHodlersForPublicKey: Problem parsing request body: %v", err))
-		return
+			_AddInternalServerError(ww, fmt.Sprintf("GetSingleProfile: Problem serializing object to JSON: %v", err))
+			return
+		}
 	}
 
-	// Get a view
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Error getting utxoView: %v", err))
-		return
+	type GetHodlersForPublicKeyRequest struct {
+		// Either PublicKeyBase58Check or Username can be set by the client to specify
+		// which user we're obtaining posts for
+		// If both are specified, PublicKeyBase58Check will supercede
+		PublicKeyBase58Check string `safeForLogging:"true"`
+		Username             string `safeForLogging:"true"`
+
+		// Public Key of the last post from the previous page
+		LastPublicKeyBase58Check string `safeForLogging:"true"`
+		// Number of records to fetch
+		NumToFetch uint64 `safeForLogging:"true"`
+
+		// If true, fetch balance entries for your hodlings instead of balance entries for hodler's of your coin
+		FetchHodlings bool
+
+		// If true, fetch all hodlers/hodlings -- supercedes NumToFetch
+		FetchAll bool
 	}
 
-	// Decode the public key for which we are fetching hodlers / hodlings.  If public key is not provided, use username
-	var publicKeyBytes []byte
-	if requestData.PublicKeyBase58Check != "" {
-		publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+	type GetHodlersForPublicKeyResponse struct {
+		Hodlers                  []*BalanceEntryResponse
+		LastPublicKeyBase58Check string
+	}
+
+	// Helper function to get the creator public key or the hodler public key depending upon fetchHodlings.
+	func getHodlerOrHodlingPublicKey(balanceEntryResponse *BalanceEntryResponse, fetchHodlings bool) (_publicKeyBase58Check string) {
+		if fetchHodlings {
+							 return balanceEntryResponse.CreatorPublicKeyBase58Check
+							 } else {
+																					   return balanceEntryResponse.HODLerPublicKeyBase58Check
+																					   }
+	}
+
+	// GetHodlersForPublicKey... Get BalanceEntryResponses for hodlings.
+	func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.Request) {
+		decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+		requestData := GetHodlersForPublicKeyRequest{}
+		if err := decoder.Decode(&requestData); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"GetHodlersForPublicKey: Problem parsing request body: %v", err))
+			return
+		}
+
+		// Get a view
+		utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Problem decoding user public key: %v", err))
-			return
-		}
-	} else {
-		username := requestData.Username
-		profileEntry := utxoView.GetProfileEntryForUsername([]byte(username))
-
-		// Return an error if we failed to find a profile entry
-		if profileEntry == nil {
-			_AddNotFoundError(ww, fmt.Sprintf("GetHodlersForPublicKey: could not find profile for username: %v", username))
-			return
-		}
-		publicKeyBytes = profileEntry.PublicKey
-	}
-
-	// Get the appropriate hodl map, convert to a slice, and order by balance.
-	var hodlMap map[string]*BalanceEntryResponse
-	hodlList := []*BalanceEntryResponse{}
-	if requestData.FetchHodlings {
-		hodlMap, err = fes.GetYouHodlMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: error getting youHodlMap: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Error getting utxoView: %v", err))
 			return
 		}
 
-	} else {
-		hodlMap, err = fes.GetHodlYouMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: error getting youHodlMap: %v", err))
-			return
+		// Decode the public key for which we are fetching hodlers / hodlings.  If public key is not provided, use username
+		var publicKeyBytes []byte
+		if requestData.PublicKeyBase58Check != "" {
+			publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Problem decoding user public key: %v", err))
+				return
+			}
+		} else {
+			username := requestData.Username
+			profileEntry := utxoView.GetProfileEntryForUsername([]byte(username))
+
+			// Return an error if we failed to find a profile entry
+			if profileEntry == nil {
+				_AddNotFoundError(ww, fmt.Sprintf("GetHodlersForPublicKey: could not find profile for username: %v", username))
+				return
+			}
+			publicKeyBytes = profileEntry.PublicKey
 		}
-	}
-	for _, balanceEntryResponse := range hodlMap {
-		hodlList = append(hodlList, balanceEntryResponse)
-	}
-	sort.Slice(hodlList, func(ii, jj int) bool {
-		if hodlList[ii].CreatorPublicKeyBase58Check == hodlList[ii].HODLerPublicKeyBase58Check {
-			return true
+
+		// Get the appropriate hodl map, convert to a slice, and order by balance.
+		var hodlMap map[string]*BalanceEntryResponse
+		hodlList := []*BalanceEntryResponse{}
+		if requestData.FetchHodlings {
+			hodlMap, err = fes.GetYouHodlMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: error getting youHodlMap: %v", err))
+				return
+			}
+
+		} else {
+			hodlMap, err = fes.GetHodlYouMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: error getting youHodlMap: %v", err))
+				return
+			}
 		}
-		if hodlList[jj].CreatorPublicKeyBase58Check == hodlList[jj].HODLerPublicKeyBase58Check {
-			return false
+		for _, balanceEntryResponse := range hodlMap {
+			hodlList = append(hodlList, balanceEntryResponse)
 		}
-		return hodlList[ii].BalanceNanos > hodlList[jj].BalanceNanos
-	})
-	if !requestData.FetchAll {
-		numToFetch := int(requestData.NumToFetch)
-		lastPublicKey := requestData.LastPublicKeyBase58Check
-		// Take up to numToFetch.  If this is a request for a single post, it was selected by the utxo view.
-		if len(hodlList) > numToFetch || lastPublicKey != "" {
-			startIndex := 0
-			if lastPublicKey != "" {
-				// If we have a startPostHash, find it's index in the postEntries slice as the starting point
-				for ii, balanceEntryResponse := range hodlList {
-					if getHodlerOrHodlingPublicKey(balanceEntryResponse, requestData.FetchHodlings) == lastPublicKey {
-						// Start the new slice from the post that comes after the startPostHash
-						startIndex = ii + 1
-						break
+		sort.Slice(hodlList, func(ii, jj int) bool {
+			if hodlList[ii].CreatorPublicKeyBase58Check == hodlList[ii].HODLerPublicKeyBase58Check {
+																									   return true
+																									   }
+			if hodlList[jj].CreatorPublicKeyBase58Check == hodlList[jj].HODLerPublicKeyBase58Check {
+																									   return false
+																									   }
+			return hodlList[ii].BalanceNanos > hodlList[jj].BalanceNanos
+		})
+		if !requestData.FetchAll {
+			numToFetch := int(requestData.NumToFetch)
+			lastPublicKey := requestData.LastPublicKeyBase58Check
+			// Take up to numToFetch.  If this is a request for a single post, it was selected by the utxo view.
+			if len(hodlList) > numToFetch || lastPublicKey != "" {
+				startIndex := 0
+				if lastPublicKey != "" {
+					// If we have a startPostHash, find it's index in the postEntries slice as the starting point
+					for ii, balanceEntryResponse := range hodlList {
+						if getHodlerOrHodlingPublicKey(balanceEntryResponse, requestData.FetchHodlings) == lastPublicKey {
+							// Start the new slice from the post that comes after the startPostHash
+							startIndex = ii + 1
+							break
+						}
 					}
 				}
+				hodlList = hodlList[startIndex:lib.MinInt(startIndex+numToFetch, len(hodlList))]
 			}
-			hodlList = hodlList[startIndex:lib.MinInt(startIndex+numToFetch, len(hodlList))]
+		}
+
+		// Grab verified username map pointer
+		verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Error fetching verifiedMap: %v", err))
+		}
+		for _, balanceEntryResponse := range hodlList {
+			publicKeyBase58Check := getHodlerOrHodlingPublicKey(balanceEntryResponse, requestData.FetchHodlings)
+
+			profileEntry := utxoView.GetProfileEntryForPublicKey(lib.MustBase58CheckDecode(publicKeyBase58Check))
+			if profileEntry != nil {
+				balanceEntryResponse.ProfileEntryResponse = _profileEntryToResponse(
+					profileEntry, fes.Params, verifiedMap, utxoView)
+			}
+		}
+		// Return the last public key in this slice to simplify pagination.
+		var resLastPublicKey string
+		if len(hodlList) > 0 {
+			resLastPublicKey = getHodlerOrHodlingPublicKey(hodlList[len(hodlList)-1], requestData.FetchHodlings)
+		}
+		res := &GetHodlersForPublicKeyResponse{
+			Hodlers:                  hodlList,
+			LastPublicKeyBase58Check: resLastPublicKey,
+		}
+		if err = json.NewEncoder(ww).Encode(res); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"GetHodlersForPublicKey: Problem encoding response as JSON: %v", err))
+			return
 		}
 	}
 
-	// Grab verified username map pointer
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Error fetching verifiedMap: %v", err))
-	}
-	for _, balanceEntryResponse := range hodlList {
-		publicKeyBase58Check := getHodlerOrHodlingPublicKey(balanceEntryResponse, requestData.FetchHodlings)
+	// A DiamondSenderSummaryResponse is a response struct that rolls up all diamonds
+	// received by a user from a single sender into a nice, simple summary struct.
+	type DiamondSenderSummaryResponse struct {
+		SenderPublicKeyBase58Check   string
+		ReceiverPublicKeyBase58Check string
 
-		profileEntry := utxoView.GetProfileEntryForPublicKey(lib.MustBase58CheckDecode(publicKeyBase58Check))
-		if profileEntry != nil {
-			balanceEntryResponse.ProfileEntryResponse = _profileEntryToResponse(
-				profileEntry, fes.Params, verifiedMap, utxoView)
+		TotalDiamonds       uint64
+		HighestDiamondLevel uint64
+
+		DiamondLevelMap      map[uint64]uint64
+		ProfileEntryResponse *ProfileEntryResponse
+	}
+
+	type GetDiamondsForPublicKeyRequest struct {
+		// The user we are getting diamonds for.
+		PublicKeyBase58Check string `safeForLogging:"true"`
+
+		// If true, fetch the diamonds this public key gave out instead of the diamond this public key received
+		FetchYouDiamonded bool
+	}
+
+	type GetDiamondsForPublicKeyResponse struct {
+		DiamondSenderSummaryResponses []*DiamondSenderSummaryResponse
+		TotalDiamonds                 uint64
+	}
+
+	func (fes *APIServer) GetDiamondsForPublicKey(ww http.ResponseWriter, req *http.Request) {
+		decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+		requestData := GetDiamondsForPublicKeyRequest{}
+		if err := decoder.Decode(&requestData); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"GetHodlersForPublicKey: Problem parsing request body: %v", err))
+			return
+		}
+
+		// Get a view
+		utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetDiamondsForPublicKey: Error getting utxoView: %v", err))
+			return
+		}
+
+		// Decode the public key for which we are fetching diamonds.
+		publicKeyBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetDiamondsForPublicKey: Problem decoding user public key: %v", err))
+			return
+		}
+
+		// Get the DiamondEntries for this public key.
+		pkidToDiamondEntriesMap, err := utxoView.GetDiamondEntryMapForPublicKey(publicKeyBytes, requestData.FetchYouDiamonded)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetDiamondsForPublicKey: Problem getting diamond entries: %v", err))
+			return
+		}
+
+		// Roll the DiamondEntries into summary responses.
+		diamondSenderSummaryResponses := []*DiamondSenderSummaryResponse{}
+		for pkidKeyIter, diamondEntryList := range pkidToDiamondEntriesMap {
+			pkidKey := pkidKeyIter
+			pubKey := utxoView.GetPublicKeyForPKID(&pkidKey)
+			var receiverPubKey []byte
+			var senderPubKey []byte
+			if requestData.FetchYouDiamonded {
+				receiverPubKey = pubKey
+				senderPubKey = publicKeyBytes
+			} else {
+				receiverPubKey = publicKeyBytes
+				senderPubKey = pubKey
+			}
+			diamondSenderSummary := &DiamondSenderSummaryResponse{
+				SenderPublicKeyBase58Check:   lib.PkToString(senderPubKey, fes.Params),
+				ReceiverPublicKeyBase58Check: lib.PkToString(receiverPubKey, fes.Params),
+				DiamondLevelMap:              make(map[uint64]uint64),
+			}
+			for _, diamondEntry := range diamondEntryList {
+				diamondLevel := uint64(diamondEntry.DiamondLevel)
+				diamondSenderSummary.TotalDiamonds += diamondLevel
+				if _, diamondLevelSeen := diamondSenderSummary.DiamondLevelMap[diamondLevel]; !diamondLevelSeen {
+					diamondSenderSummary.DiamondLevelMap[diamondLevel] = 0
+				}
+				diamondSenderSummary.DiamondLevelMap[diamondLevel] += 1
+				if diamondSenderSummary.HighestDiamondLevel < diamondLevel {
+					diamondSenderSummary.HighestDiamondLevel = diamondLevel
+				}
+			}
+			diamondSenderSummaryResponses = append(diamondSenderSummaryResponses, diamondSenderSummary)
+		}
+
+		// Grab verified username map pointer so we can verify the profiles.
+		verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"GetDiamondsForPublicKey: Error fetching verifiedMap: %v", err))
+			return
+		}
+		totalDiamonds := uint64(0)
+		for _, diamondSenderSummaryResponse := range diamondSenderSummaryResponses {
+			var profilePK []byte
+			if requestData.FetchYouDiamonded {
+				profilePK = lib.MustBase58CheckDecode(diamondSenderSummaryResponse.ReceiverPublicKeyBase58Check)
+			} else {
+				profilePK = lib.MustBase58CheckDecode(diamondSenderSummaryResponse.SenderPublicKeyBase58Check)
+			}
+			profileEntry := utxoView.GetProfileEntryForPublicKey(profilePK)
+			if profileEntry != nil {
+				diamondSenderSummaryResponse.ProfileEntryResponse = _profileEntryToResponse(
+					profileEntry, fes.Params, verifiedMap, utxoView)
+			}
+			totalDiamonds += diamondSenderSummaryResponse.TotalDiamonds
+		}
+
+		// Sort.
+		sort.Slice(diamondSenderSummaryResponses, func(ii, jj int) bool {
+			iiProfile := diamondSenderSummaryResponses[ii].ProfileEntryResponse
+			jjProfile := diamondSenderSummaryResponses[jj].ProfileEntryResponse
+
+			if iiProfile == nil && jjProfile == nil {
+														return false
+														}
+
+			// If ii has a profile but jj doesn't, prioritize it.
+			if iiProfile != nil && jjProfile == nil {
+														return true
+														}
+			if jjProfile != nil && iiProfile == nil {
+														return false
+														}
+
+			iiDeSoLocked := iiProfile.CoinEntry.DeSoLockedNanos
+			jjDeSoLocked := jjProfile.CoinEntry.DeSoLockedNanos
+
+			return iiDeSoLocked > jjDeSoLocked
+		})
+
+		res := &GetDiamondsForPublicKeyResponse{
+			DiamondSenderSummaryResponses: diamondSenderSummaryResponses,
+			TotalDiamonds:                 totalDiamonds,
+		}
+		if err = json.NewEncoder(ww).Encode(res); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"GetHodlersForPublicKey: Problem encoding response as JSON: %v", err))
+			return
 		}
 	}
-	// Return the last public key in this slice to simplify pagination.
-	var resLastPublicKey string
-	if len(hodlList) > 0 {
-		resLastPublicKey = getHodlerOrHodlingPublicKey(hodlList[len(hodlList)-1], requestData.FetchHodlings)
-	}
-	res := &GetHodlersForPublicKeyResponse{
-		Hodlers:                  hodlList,
-		LastPublicKeyBase58Check: resLastPublicKey,
-	}
-	if err = json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetHodlersForPublicKey: Problem encoding response as JSON: %v", err))
-		return
-	}
-}
 
-// A DiamondSenderSummaryResponse is a response struct that rolls up all diamonds
-// received by a user from a single sender into a nice, simple summary struct.
-type DiamondSenderSummaryResponse struct {
-	SenderPublicKeyBase58Check   string
-	ReceiverPublicKeyBase58Check string
+	// GetFollowsStatelessRequest ...
+	type GetFollowsStatelessRequest struct {
+		// Either PublicKeyBase58Check or Username can be set by the client to specify
+		// which user we're obtaining follows for
+		// If both are specified, PublicKeyBase58Check will supercede
+		PublicKeyBase58Check        string `safeForLogging:"true"`
+		Username                    string `safeForLogging:"true"`
+		GetEntriesFollowingUsername bool   `safeForLogging:"true"`
 
-	TotalDiamonds       uint64
-	HighestDiamondLevel uint64
-
-	DiamondLevelMap      map[uint64]uint64
-	ProfileEntryResponse *ProfileEntryResponse
-}
-
-type GetDiamondsForPublicKeyRequest struct {
-	// The user we are getting diamonds for.
-	PublicKeyBase58Check string `safeForLogging:"true"`
-
-	// If true, fetch the diamonds this public key gave out instead of the diamond this public key received
-	FetchYouDiamonded bool
-}
-
-type GetDiamondsForPublicKeyResponse struct {
-	DiamondSenderSummaryResponses []*DiamondSenderSummaryResponse
-	TotalDiamonds                 uint64
-}
-
-func (fes *APIServer) GetDiamondsForPublicKey(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := GetDiamondsForPublicKeyRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetHodlersForPublicKey: Problem parsing request body: %v", err))
-		return
+		// Public Key of the last follower / followee from the previous page
+		LastPublicKeyBase58Check string `safeForLogging:"true"`
+		// Number of records to fetch
+		NumToFetch uint64 `safeForLogging:"true"`
 	}
 
-	// Get a view
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetDiamondsForPublicKey: Error getting utxoView: %v", err))
-		return
+	// GetFollowsResponse ...
+	type GetFollowsResponse struct {
+		PublicKeyToProfileEntry map[string]*ProfileEntryResponse `safeForLogging:"true"`
+		NumFollowers            uint64
 	}
 
-	// Decode the public key for which we are fetching diamonds.
-	publicKeyBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetDiamondsForPublicKey: Problem decoding user public key: %v", err))
-		return
+	func (fes *APIServer) sortFollowEntries(followEntryPKIDii *lib.PKID, followEntryPKIDjj *lib.PKID, utxoView *lib.UtxoView, fetchValues bool) bool {
+		followEntryPublicKeyii := utxoView.GetPublicKeyForPKID(followEntryPKIDii)
+		followEntryPublicKeyjj := utxoView.GetPublicKeyForPKID(followEntryPKIDjj)
+		// if we're fetching values, we want public keys that don't have profiles to be at the end.
+		if fetchValues {
+			profileEntryii := utxoView.GetProfileEntryForPublicKey(followEntryPublicKeyii)
+			profileEntryjj := utxoView.GetProfileEntryForPublicKey(followEntryPublicKeyjj)
+			// FollowEntries that have a profile should come before FollowEntries that do not have a profile.
+			if profileEntryii == nil && profileEntryjj != nil {
+																  return false
+																  }
+			if profileEntryjj == nil && profileEntryii != nil {
+																  return true
+																  }
+			// If both FollowEntries have a profile, compare the two based on coin price.
+			if profileEntryii != nil && profileEntryjj != nil {
+				return profileEntryii.CoinEntry.DeSoLockedNanos > profileEntryjj.CoinEntry.DeSoLockedNanos
+			}
+		}
+		// If we're not fetching values (meaning no profiles for public keys) or neither FollowEntry has a profile,
+		// sort based on public key as a string.
+		return lib.PkToString(followEntryPublicKeyii, fes.Params) < lib.PkToString(followEntryPublicKeyjj, fes.Params)
 	}
 
-	// Get the DiamondEntries for this public key.
-	pkidToDiamondEntriesMap, err := utxoView.GetDiamondEntryMapForPublicKey(publicKeyBytes, requestData.FetchYouDiamonded)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetDiamondsForPublicKey: Problem getting diamond entries: %v", err))
-		return
-	}
+	// Returns a map like {publicKey1: profileEntry1, publicKey2: profileEntry2, ...} for publicKeyBytes's
+	// followers / following
+	func (fes *APIServer) getPublicKeyToProfileEntryMapForFollows(publicKeyBytes []byte,
+		getEntriesFollowingPublicKey bool, referenceUtxoView *lib.UtxoView,
+		lastFollowPublicKeyBytes []byte, numToFetch uint64, fetchValues bool, fetchAllFollows bool) (
+		_publicKeyToProfileEntry map[string]*ProfileEntryResponse, numFollowers uint64,
+		_err error) {
 
-	// Roll the DiamondEntries into summary responses.
-	diamondSenderSummaryResponses := []*DiamondSenderSummaryResponse{}
-	for pkidKeyIter, diamondEntryList := range pkidToDiamondEntriesMap {
-		pkidKey := pkidKeyIter
-		pubKey := utxoView.GetPublicKeyForPKID(&pkidKey)
-		var receiverPubKey []byte
-		var senderPubKey []byte
-		if requestData.FetchYouDiamonded {
-			receiverPubKey = pubKey
-			senderPubKey = publicKeyBytes
+		// Allow a reference view to be passed in. This speeds things up in the event we've already
+		// created this view.
+		var utxoView *lib.UtxoView
+		var err error
+		if referenceUtxoView != nil {
+			utxoView = referenceUtxoView
 		} else {
-			receiverPubKey = publicKeyBytes
-			senderPubKey = pubKey
-		}
-		diamondSenderSummary := &DiamondSenderSummaryResponse{
-			SenderPublicKeyBase58Check:   lib.PkToString(senderPubKey, fes.Params),
-			ReceiverPublicKeyBase58Check: lib.PkToString(receiverPubKey, fes.Params),
-			DiamondLevelMap:              make(map[uint64]uint64),
-		}
-		for _, diamondEntry := range diamondEntryList {
-			diamondLevel := uint64(diamondEntry.DiamondLevel)
-			diamondSenderSummary.TotalDiamonds += diamondLevel
-			if _, diamondLevelSeen := diamondSenderSummary.DiamondLevelMap[diamondLevel]; !diamondLevelSeen {
-				diamondSenderSummary.DiamondLevelMap[diamondLevel] = 0
-			}
-			diamondSenderSummary.DiamondLevelMap[diamondLevel] += 1
-			if diamondSenderSummary.HighestDiamondLevel < diamondLevel {
-				diamondSenderSummary.HighestDiamondLevel = diamondLevel
+			utxoView, err = fes.backendServer.GetMempool().GetAugmentedUtxoViewForPublicKey(publicKeyBytes, nil)
+			if err != nil {
+				return nil, 0, errors.Wrapf(
+					err, "getPublicKeyToProfileEntryMapForFollows: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
 			}
 		}
-		diamondSenderSummaryResponses = append(diamondSenderSummaryResponses, diamondSenderSummary)
-	}
 
-	// Grab verified username map pointer so we can verify the profiles.
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetDiamondsForPublicKey: Error fetching verifiedMap: %v", err))
-		return
-	}
-	totalDiamonds := uint64(0)
-	for _, diamondSenderSummaryResponse := range diamondSenderSummaryResponses {
-		var profilePK []byte
-		if requestData.FetchYouDiamonded {
-			profilePK = lib.MustBase58CheckDecode(diamondSenderSummaryResponse.ReceiverPublicKeyBase58Check)
-		} else {
-			profilePK = lib.MustBase58CheckDecode(diamondSenderSummaryResponse.SenderPublicKeyBase58Check)
-		}
-		profileEntry := utxoView.GetProfileEntryForPublicKey(profilePK)
-		if profileEntry != nil {
-			diamondSenderSummaryResponse.ProfileEntryResponse = _profileEntryToResponse(
-				profileEntry, fes.Params, verifiedMap, utxoView)
-		}
-		totalDiamonds += diamondSenderSummaryResponse.TotalDiamonds
-	}
+		followEntries := []*lib.FollowEntry{}
+		followEntries, err = utxoView.GetFollowEntriesForPublicKey(publicKeyBytes, getEntriesFollowingPublicKey)
 
-	// Sort.
-	sort.Slice(diamondSenderSummaryResponses, func(ii, jj int) bool {
-		iiProfile := diamondSenderSummaryResponses[ii].ProfileEntryResponse
-		jjProfile := diamondSenderSummaryResponses[jj].ProfileEntryResponse
-
-		if iiProfile == nil && jjProfile == nil {
-			return false
-		}
-
-		// If ii has a profile but jj doesn't, prioritize it.
-		if iiProfile != nil && jjProfile == nil {
-			return true
-		}
-		if jjProfile != nil && iiProfile == nil {
-			return false
-		}
-
-		iiDeSoLocked := iiProfile.CoinEntry.DeSoLockedNanos
-		jjDeSoLocked := jjProfile.CoinEntry.DeSoLockedNanos
-
-		return iiDeSoLocked > jjDeSoLocked
-	})
-
-	res := &GetDiamondsForPublicKeyResponse{
-		DiamondSenderSummaryResponses: diamondSenderSummaryResponses,
-		TotalDiamonds:                 totalDiamonds,
-	}
-	if err = json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetHodlersForPublicKey: Problem encoding response as JSON: %v", err))
-		return
-	}
-}
-
-// GetFollowsStatelessRequest ...
-type GetFollowsStatelessRequest struct {
-	// Either PublicKeyBase58Check or Username can be set by the client to specify
-	// which user we're obtaining follows for
-	// If both are specified, PublicKeyBase58Check will supercede
-	PublicKeyBase58Check        string `safeForLogging:"true"`
-	Username                    string `safeForLogging:"true"`
-	GetEntriesFollowingUsername bool   `safeForLogging:"true"`
-
-	// Public Key of the last follower / followee from the previous page
-	LastPublicKeyBase58Check string `safeForLogging:"true"`
-	// Number of records to fetch
-	NumToFetch uint64 `safeForLogging:"true"`
-}
-
-// GetFollowsResponse ...
-type GetFollowsResponse struct {
-	PublicKeyToProfileEntry map[string]*ProfileEntryResponse `safeForLogging:"true"`
-	NumFollowers            uint64
-}
-
-func (fes *APIServer) sortFollowEntries(followEntryPKIDii *lib.PKID, followEntryPKIDjj *lib.PKID, utxoView *lib.UtxoView, fetchValues bool) bool {
-	followEntryPublicKeyii := utxoView.GetPublicKeyForPKID(followEntryPKIDii)
-	followEntryPublicKeyjj := utxoView.GetPublicKeyForPKID(followEntryPKIDjj)
-	// if we're fetching values, we want public keys that don't have profiles to be at the end.
-	if fetchValues {
-		profileEntryii := utxoView.GetProfileEntryForPublicKey(followEntryPublicKeyii)
-		profileEntryjj := utxoView.GetProfileEntryForPublicKey(followEntryPublicKeyjj)
-		// FollowEntries that have a profile should come before FollowEntries that do not have a profile.
-		if profileEntryii == nil && profileEntryjj != nil {
-			return false
-		}
-		if profileEntryjj == nil && profileEntryii != nil {
-			return true
-		}
-		// If both FollowEntries have a profile, compare the two based on coin price.
-		if profileEntryii != nil && profileEntryjj != nil {
-			return profileEntryii.CoinEntry.DeSoLockedNanos > profileEntryjj.CoinEntry.DeSoLockedNanos
-		}
-	}
-	// If we're not fetching values (meaning no profiles for public keys) or neither FollowEntry has a profile,
-	// sort based on public key as a string.
-	return lib.PkToString(followEntryPublicKeyii, fes.Params) < lib.PkToString(followEntryPublicKeyjj, fes.Params)
-}
-
-// Returns a map like {publicKey1: profileEntry1, publicKey2: profileEntry2, ...} for publicKeyBytes's
-// followers / following
-func (fes *APIServer) getPublicKeyToProfileEntryMapForFollows(publicKeyBytes []byte,
-	getEntriesFollowingPublicKey bool, referenceUtxoView *lib.UtxoView,
-	lastFollowPublicKeyBytes []byte, numToFetch uint64, fetchValues bool, fetchAllFollows bool) (
-	_publicKeyToProfileEntry map[string]*ProfileEntryResponse, numFollowers uint64,
-	_err error) {
-
-	// Allow a reference view to be passed in. This speeds things up in the event we've already
-	// created this view.
-	var utxoView *lib.UtxoView
-	var err error
-	if referenceUtxoView != nil {
-		utxoView = referenceUtxoView
-	} else {
-		utxoView, err = fes.backendServer.GetMempool().GetAugmentedUtxoViewForPublicKey(publicKeyBytes, nil)
 		if err != nil {
 			return nil, 0, errors.Wrapf(
-				err, "getPublicKeyToProfileEntryMapForFollows: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
-		}
-	}
-
-	followEntries := []*lib.FollowEntry{}
-	followEntries, err = utxoView.GetFollowEntriesForPublicKey(publicKeyBytes, getEntriesFollowingPublicKey)
-
-	if err != nil {
-		return nil, 0, errors.Wrapf(
-			err, "getPublicKeyToProfileEntryMapForFollows: Problem fetching FollowEntries from augmented UtxoView: ")
-	}
-
-	// If getEntriesFollowingUsername is set to true, this will be a map of
-	//   {followerPubKey => ProfileEntryResponse}
-	//
-	// If getEntriesFollowingUsername is not set or set to false, this will be a map of
-	//   {followedPubKey => ProfileEntryResponse}
-	//
-	// Sorry this is confusing
-	publicKeyToProfileEntry := make(map[string]*ProfileEntryResponse)
-
-	// Grab verified username map pointer
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		return nil, 0, errors.Wrapf(
-			err, "getPublicKeyToProfileEntryMapForFollows: Problem fetching verifiedMap: ")
-	}
-
-	// We only need to sort if we are fetching values.  When we do not fetch values, we are getting all public keys and
-	// their ordering doesn't mean anything.  Currently, fetchValues is only false for GetUsersStateless calls for which
-	// we only care about getting an unordered list of public keys a user is following.
-	if fetchValues {
-		// Sort the follow entries for pagination purposes
-		if getEntriesFollowingPublicKey {
-			sort.Slice(followEntries, func(ii, jj int) bool {
-				return fes.sortFollowEntries(followEntries[ii].FollowerPKID, followEntries[jj].FollowerPKID, utxoView, fetchValues)
-			})
-		} else {
-			sort.Slice(followEntries, func(ii, jj int) bool {
-				return fes.sortFollowEntries(followEntries[ii].FollowedPKID, followEntries[jj].FollowedPKID, utxoView, fetchValues)
-			})
-		}
-	}
-
-	// Track whether we've hit the start of the page.
-	lastFollowKeySeen := false
-	if lastFollowPublicKeyBytes == nil {
-		// If we don't have a last follow public key, we are starting from the beginning.
-		lastFollowKeySeen = true
-	}
-
-	for _, followEntry := range followEntries {
-		// get the profile entry for each follower pubkey
-		var followPKID *lib.PKID
-		if getEntriesFollowingPublicKey {
-			followPKID = followEntry.FollowerPKID
-		} else {
-			followPKID = followEntry.FollowedPKID
-		}
-		// Convert the followPKID to a public key using the view. The followPubKey should never
-		// be nil.
-		followPubKey := utxoView.GetPublicKeyForPKID(followPKID)
-		// If we haven't seen the public key of the last followEntry from the previous page, skip ahead.
-		if !lastFollowKeySeen {
-			if reflect.DeepEqual(lastFollowPublicKeyBytes, followPubKey) {
-				lastFollowKeySeen = true
-			}
-			continue
+				err, "getPublicKeyToProfileEntryMapForFollows: Problem fetching FollowEntries from augmented UtxoView: ")
 		}
 
-		var followProfileEntry *ProfileEntryResponse
+		// If getEntriesFollowingUsername is set to true, this will be a map of
+		//   {followerPubKey => ProfileEntryResponse}
+		//
+		// If getEntriesFollowingUsername is not set or set to false, this will be a map of
+		//   {followedPubKey => ProfileEntryResponse}
+		//
+		// Sorry this is confusing
+		publicKeyToProfileEntry := make(map[string]*ProfileEntryResponse)
+
+		// Grab verified username map pointer
+		verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+		if err != nil {
+			return nil, 0, errors.Wrapf(
+				err, "getPublicKeyToProfileEntryMapForFollows: Problem fetching verifiedMap: ")
+		}
+
+		// We only need to sort if we are fetching values.  When we do not fetch values, we are getting all public keys and
+		// their ordering doesn't mean anything.  Currently, fetchValues is only false for GetUsersStateless calls for which
+		// we only care about getting an unordered list of public keys a user is following.
 		if fetchValues {
-			followProfileEntry = _profileEntryToResponse(
-				utxoView.GetProfileEntryForPublicKey(followPubKey), fes.Params, verifiedMap, utxoView)
+			// Sort the follow entries for pagination purposes
+			if getEntriesFollowingPublicKey {
+				sort.Slice(followEntries, func(ii, jj int) bool {
+					return fes.sortFollowEntries(followEntries[ii].FollowerPKID, followEntries[jj].FollowerPKID, utxoView, fetchValues)
+				})
+			} else {
+				sort.Slice(followEntries, func(ii, jj int) bool {
+					return fes.sortFollowEntries(followEntries[ii].FollowedPKID, followEntries[jj].FollowedPKID, utxoView, fetchValues)
+				})
+			}
 		}
-		followPubKeyBase58Check := lib.PkToString(followPubKey, fes.Params)
-		publicKeyToProfileEntry[followPubKeyBase58Check] = followProfileEntry
 
-		// If we've fetched enough followers and we're not fetching all followers, break.
-		if uint64(len(publicKeyToProfileEntry)) >= numToFetch && !fetchAllFollows {
-			break
+		// Track whether we've hit the start of the page.
+		lastFollowKeySeen := false
+		if lastFollowPublicKeyBytes == nil {
+			// If we don't have a last follow public key, we are starting from the beginning.
+			lastFollowKeySeen = true
 		}
-	}
-	return publicKeyToProfileEntry, uint64(len(followEntries)), nil
-}
 
-// GetFollowsStateless ...
-// Equivalent to the following REST endpoints:
-//   - GET /:username/followers
-//   - GET /:username/following
-func (fes *APIServer) GetFollowsStateless(ww http.ResponseWriter, rr *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(rr.Body, MaxRequestBodySizeBytes))
-	getFollowsRequest := GetFollowsStatelessRequest{}
-	if err := decoder.Decode(&getFollowsRequest); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetFollowsStateless: Error parsing request body: %v", err))
-		return
+		for _, followEntry := range followEntries {
+			// get the profile entry for each follower pubkey
+			var followPKID *lib.PKID
+			if getEntriesFollowingPublicKey {
+				followPKID = followEntry.FollowerPKID
+			} else {
+				followPKID = followEntry.FollowedPKID
+			}
+			// Convert the followPKID to a public key using the view. The followPubKey should never
+			// be nil.
+			followPubKey := utxoView.GetPublicKeyForPKID(followPKID)
+			// If we haven't seen the public key of the last followEntry from the previous page, skip ahead.
+			if !lastFollowKeySeen {
+				if reflect.DeepEqual(lastFollowPublicKeyBytes, followPubKey) {
+					lastFollowKeySeen = true
+				}
+				continue
+			}
+
+			var followProfileEntry *ProfileEntryResponse
+			if fetchValues {
+				followProfileEntry = _profileEntryToResponse(
+					utxoView.GetProfileEntryForPublicKey(followPubKey), fes.Params, verifiedMap, utxoView)
+			}
+			followPubKeyBase58Check := lib.PkToString(followPubKey, fes.Params)
+			publicKeyToProfileEntry[followPubKeyBase58Check] = followProfileEntry
+
+			// If we've fetched enough followers and we're not fetching all followers, break.
+			if uint64(len(publicKeyToProfileEntry)) >= numToFetch && !fetchAllFollows {
+				break
+			}
+		}
+		return publicKeyToProfileEntry, uint64(len(followEntries)), nil
 	}
 
-	// Get a view
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetFollowsStateless Error getting view: %v", err))
-		return
-	}
-
-	var publicKeyBytes []byte
-	if getFollowsRequest.PublicKeyBase58Check != "" {
-		publicKeyBytes, _, err = lib.Base58CheckDecode(getFollowsRequest.PublicKeyBase58Check)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetFollowsStateless: Problem decoding user public key: %v", err))
+	// GetFollowsStateless ...
+	// Equivalent to the following REST endpoints:
+	//   - GET /:username/followers
+	//   - GET /:username/following
+	func (fes *APIServer) GetFollowsStateless(ww http.ResponseWriter, rr *http.Request) {
+		decoder := json.NewDecoder(io.LimitReader(rr.Body, MaxRequestBodySizeBytes))
+		getFollowsRequest := GetFollowsStatelessRequest{}
+		if err := decoder.Decode(&getFollowsRequest); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetFollowsStateless: Error parsing request body: %v", err))
 			return
 		}
-	} else {
-		username := getFollowsRequest.Username
-		profileEntry := utxoView.GetProfileEntryForUsername([]byte(username))
 
-		// Return an error if we failed to find a profile entry
-		if profileEntry == nil {
-			_AddNotFoundError(ww, fmt.Sprintf("GetFollowsStateless: could not find profile for username: %v", username))
+		// Get a view
+		utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetFollowsStateless Error getting view: %v", err))
 			return
 		}
 
-		publicKeyBytes = profileEntry.PublicKey
-	}
+		var publicKeyBytes []byte
+		if getFollowsRequest.PublicKeyBase58Check != "" {
+			publicKeyBytes, _, err = lib.Base58CheckDecode(getFollowsRequest.PublicKeyBase58Check)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("GetFollowsStateless: Problem decoding user public key: %v", err))
+				return
+			}
+		} else {
+			username := getFollowsRequest.Username
+			profileEntry := utxoView.GetProfileEntryForUsername([]byte(username))
 
-	var lastPublicKeySeenBytes []byte
-	if getFollowsRequest.LastPublicKeyBase58Check != "" {
-		lastPublicKeySeenBytes, _, err = lib.Base58CheckDecode(getFollowsRequest.LastPublicKeyBase58Check)
+			// Return an error if we failed to find a profile entry
+			if profileEntry == nil {
+				_AddNotFoundError(ww, fmt.Sprintf("GetFollowsStateless: could not find profile for username: %v", username))
+				return
+			}
+
+			publicKeyBytes = profileEntry.PublicKey
+		}
+
+		var lastPublicKeySeenBytes []byte
+		if getFollowsRequest.LastPublicKeyBase58Check != "" {
+			lastPublicKeySeenBytes, _, err = lib.Base58CheckDecode(getFollowsRequest.LastPublicKeyBase58Check)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("GetFollowsStateless: Problem decoding last public key seen: %v", err))
+				return
+			}
+		}
+
+		publicKeyToProfileEntry, numFollowers, err := fes.getPublicKeyToProfileEntryMapForFollows(
+			publicKeyBytes,
+			getFollowsRequest.GetEntriesFollowingUsername,
+			utxoView,
+			lastPublicKeySeenBytes,
+			getFollowsRequest.NumToFetch, true, false)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetFollowsStateless: Problem decoding last public key seen: %v", err))
+			_AddInternalServerError(ww, fmt.Sprintf("GetFollowsStateless: Problem fetching and decrypting follows: %v", err))
+			return
+		}
+
+		res := GetFollowsResponse{
+			PublicKeyToProfileEntry: publicKeyToProfileEntry,
+			NumFollowers:            numFollowers,
+		}
+
+		if err := json.NewEncoder(ww).Encode(res); err != nil {
+			_AddInternalServerError(ww, fmt.Sprintf("GetFollows: Problem serializing object to JSON: %v", err))
 			return
 		}
 	}
 
-	publicKeyToProfileEntry, numFollowers, err := fes.getPublicKeyToProfileEntryMapForFollows(
-		publicKeyBytes,
-		getFollowsRequest.GetEntriesFollowingUsername,
-		utxoView,
-		lastPublicKeySeenBytes,
-		getFollowsRequest.NumToFetch, true, false)
-	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("GetFollowsStateless: Problem fetching and decrypting follows: %v", err))
-		return
+	// GetUserGlobalMetadataRequest...
+	type GetUserGlobalMetadataRequest struct {
+		// The public key of the user who is trying to update their metadata.
+		UserPublicKeyBase58Check string `safeForLogging:"true"`
+
+		// JWT token authenticates the user
+		JWT string
 	}
 
-	res := GetFollowsResponse{
-		PublicKeyToProfileEntry: publicKeyToProfileEntry,
-		NumFollowers:            numFollowers,
+	// GetUserGlobalMetadataResponse ...
+	type GetUserGlobalMetadataResponse struct {
+		Email       string
+		PhoneNumber string
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("GetFollows: Problem serializing object to JSON: %v", err))
-		return
-	}
-}
-
-// GetUserGlobalMetadataRequest...
-type GetUserGlobalMetadataRequest struct {
-	// The public key of the user who is trying to update their metadata.
-	UserPublicKeyBase58Check string `safeForLogging:"true"`
-
-	// JWT token authenticates the user
-	JWT string
-}
-
-// GetUserGlobalMetadataResponse ...
-type GetUserGlobalMetadataResponse struct {
-	Email       string
-	PhoneNumber string
-}
-
-// GetUserGlobalMetadata ...
-// Allows a user to change the global metadata for a public key, if they prove ownership.
-func (fes *APIServer) GetUserGlobalMetadata(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := GetUserGlobalMetadataRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetUserGlobalMetadata: Problem parsing request body: %v", err))
-		return
-	}
-
-	if requestData.UserPublicKeyBase58Check == "" {
-		_AddBadRequestError(ww, fmt.Sprintf("GetUserGlobalMetadataRequest: Must provide a valid public key."))
-		return
-	}
-
-	// Validate their permissions
-	isValid, err := fes.ValidateJWT(requestData.UserPublicKeyBase58Check, requestData.JWT)
-	if !isValid {
-		_AddBadRequestError(ww, fmt.Sprintf("UpdateUserGlobalMetadataRequest: Invalid token: %v", err))
-		return
-	}
-
-	userPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.UserPublicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("UpdateUserGlobalMetadataRequest: Invalid public key: %v", err))
-		return
-	}
-
-	// Now that we have a public key, update get the global state object.
-	userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetUserGlobalMetadata: Problem getting metadata from global state: %v", err))
-		return
-	}
-
-	// If we made it this far we were successful, return email and password.
-	res := GetUserGlobalMetadataResponse{
-		Email:       userMetadata.Email,
-		PhoneNumber: userMetadata.PhoneNumber,
-	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserGlobalMetadata: Problem encoding response as JSON: %v", err))
-		return
-	}
-}
-
-// UpdateUserGlobalMetadataRequest...
-type UpdateUserGlobalMetadataRequest struct {
-	// The public key of the user who is trying to update their metadata.
-	UserPublicKeyBase58Check string `safeForLogging:"true"`
-
-	// JWT token authenticates the user
-	JWT string
-
-	// User's email for receiving notifications.
-	Email string
-
-	// A map of ContactPublicKeyBase58Check keys and number of read messages int values.
-	MessageReadStateUpdatesByContact map[string]int
-}
-
-// UpdateUserGlobalMetadataResponse ...
-type UpdateUserGlobalMetadataResponse struct{}
-
-// UpdateUserGlobalMetadata ...
-// Allows a user to change the global metadata for a public key, if they prove ownership.
-func (fes *APIServer) UpdateUserGlobalMetadata(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := UpdateUserGlobalMetadataRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("UpdateUserGlobalMetadata: Problem parsing request body: %v", err))
-		return
-	}
-
-	if requestData.UserPublicKeyBase58Check == "" {
-		_AddBadRequestError(ww, fmt.Sprintf("UpdateUserGlobalMetadataRequest: Must provide a valid public key."))
-		return
-	}
-
-	if requestData.Email == "" && requestData.MessageReadStateUpdatesByContact == nil {
-		_AddBadRequestError(ww, fmt.Sprintf("UpdateUserGlobalMetadataRequest: Must provide something to update."))
-		return
-	}
-
-	// Validate their permissions
-	isValid, err := fes.ValidateJWT(requestData.UserPublicKeyBase58Check, requestData.JWT)
-	if !isValid {
-		_AddBadRequestError(ww, fmt.Sprintf("UpdateUserGlobalMetadataRequest: Invalid token: %v", err))
-		return
-	}
-
-	userPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.UserPublicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("UpdateUserGlobalMetadataRequest: Invalid public key: %v", err))
-		return
-	}
-
-	// Now that we have a public key, update the global state object.
-	userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem with getUserMetadataFromGlobalState: %v", err))
-		return
-	}
-
-	// Now that we have a userMetadata object, update it based on the request.
-	if requestData.Email != "" {
-		// Send verification email if email changed
-		if userMetadata.Email != requestData.Email {
-			fes.sendVerificationEmail(requestData.Email, requestData.UserPublicKeyBase58Check)
-			userMetadata.EmailVerified = false
+	// GetUserGlobalMetadata ...
+	// Allows a user to change the global metadata for a public key, if they prove ownership.
+	func (fes *APIServer) GetUserGlobalMetadata(ww http.ResponseWriter, req *http.Request) {
+		decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+		requestData := GetUserGlobalMetadataRequest{}
+		if err := decoder.Decode(&requestData); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetUserGlobalMetadata: Problem parsing request body: %v", err))
+			return
 		}
 
-		userMetadata.Email = requestData.Email
-	}
-
-	if requestData.MessageReadStateUpdatesByContact != nil {
-		if userMetadata.MessageReadStateByContact == nil {
-			userMetadata.MessageReadStateByContact = make(map[string]int)
+		if requestData.UserPublicKeyBase58Check == "" {
+			_AddBadRequestError(ww, fmt.Sprintf("GetUserGlobalMetadataRequest: Must provide a valid public key."))
+			return
 		}
-		for contactPubKey, readMessageCount := range requestData.MessageReadStateUpdatesByContact {
-			userMetadata.MessageReadStateByContact[contactPubKey] = readMessageCount
+
+		// Validate their permissions
+		isValid, err := fes.ValidateJWT(requestData.UserPublicKeyBase58Check, requestData.JWT)
+		if !isValid {
+			_AddBadRequestError(ww, fmt.Sprintf("UpdateUserGlobalMetadataRequest: Invalid token: %v", err))
+			return
 		}
-	}
 
-	// Stick userMetadata back into global state object.
-	err = fes.putUserMetadataInGlobalState(userMetadata)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem putting updated user metadata: %v", err))
-		return
-	}
-
-	// If we made it this far we were successful, return without error.
-	res := UpdateUserGlobalMetadataResponse{}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem encoding response as JSON: %v", err))
-		return
-	}
-}
-
-type GetNotificationsRequest struct {
-	// This is the index of the notification we want to start our paginated lookup at. We
-	// will fetch up to "NumToFetch" notifications after it, ordered by index.  If no
-	// index is provided we will return the most recent posts.
-	PublicKeyBase58Check string
-	FetchStartIndex      int64
-	NumToFetch           int64
-}
-
-type GetNotificationsResponse struct {
-	Notifications       []*TransactionMetadataResponse
-	ProfilesByPublicKey map[string]*ProfileEntryResponse
-	PostsByHash         map[string]*PostEntryResponse
-}
-
-func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := GetNotificationsRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetNotifications: Problem parsing request body: %v", err))
-		return
-	}
-	finalTxnMetadataList, utxoView, err := fes._getNotifications(&requestData)
-	if err != nil {
-		_AddBadRequestError(ww, err.Error())
-		return
-	}
-
-	var userPublicKeyBytes []byte
-	userPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
-	if err != nil || len(userPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetNotifications: Problem decoding updater public key %s: %v",
-			requestData.PublicKeyBase58Check, err))
-		return
-	}
-
-	// Grab verified username map pointer
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		APIAddError(ww, err.Error())
-		return
-	}
-
-	// At this point, finalTxnMetadata contains the proper list of transactions that we
-	// want to notify the user about. In order to help the UI display this information,
-	// we fetch a profile for each public key in each transaction that we're going to return
-	// and include it in a map.
-	profileEntryResponses := make(map[string]*ProfileEntryResponse)
-	// Set up a view to fetch the ProfileEntrys from
-	addProfileForPubKey := func(publicKeyBase58Check string) error {
-		currentPkBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
+		userPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.UserPublicKeyBase58Check)
 		if err != nil {
-			return errors.Errorf("GetNotifications: "+
-				"Error decoding public key in txn metadata: %v",
-				publicKeyBase58Check)
+			_AddBadRequestError(ww, fmt.Sprintf("UpdateUserGlobalMetadataRequest: Invalid public key: %v", err))
+			return
 		}
 
-		// Note we are recycling the UtxoView from previously.
-		// Note also that if we didn't need to use the mempool to fetch notifications
-		// then we won't have loaded any of the mempool transactions into the view, and
-		// so the profile information could be out of date.
-		profileEntry := utxoView.GetProfileEntryForPublicKey(currentPkBytes)
-		if profileEntry != nil {
-			profileEntryResponses[lib.PkToString(profileEntry.PublicKey, fes.Params)] =
-				_profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+		// Now that we have a public key, update get the global state object.
+		userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"GetUserGlobalMetadata: Problem getting metadata from global state: %v", err))
+			return
 		}
-		return nil
+
+		// If we made it this far we were successful, return email and password.
+		res := GetUserGlobalMetadataResponse{
+			Email:       userMetadata.Email,
+			PhoneNumber: userMetadata.PhoneNumber,
+		}
+		if err := json.NewEncoder(ww).Encode(res); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserGlobalMetadata: Problem encoding response as JSON: %v", err))
+			return
+		}
 	}
-	for _, txnMeta := range finalTxnMetadataList {
-		if err := addProfileForPubKey(txnMeta.Metadata.TransactorPublicKeyBase58Check); err != nil {
+
+	// UpdateUserGlobalMetadataRequest...
+	type UpdateUserGlobalMetadataRequest struct {
+		// The public key of the user who is trying to update their metadata.
+		UserPublicKeyBase58Check string `safeForLogging:"true"`
+
+		// JWT token authenticates the user
+		JWT string
+
+		// User's email for receiving notifications.
+		Email string
+
+		// A map of ContactPublicKeyBase58Check keys and number of read messages int values.
+		MessageReadStateUpdatesByContact map[string]int
+	}
+
+	// UpdateUserGlobalMetadataResponse ...
+	type UpdateUserGlobalMetadataResponse struct{}
+
+	// UpdateUserGlobalMetadata ...
+	// Allows a user to change the global metadata for a public key, if they prove ownership.
+	func (fes *APIServer) UpdateUserGlobalMetadata(ww http.ResponseWriter, req *http.Request) {
+		decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+		requestData := UpdateUserGlobalMetadataRequest{}
+		if err := decoder.Decode(&requestData); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("UpdateUserGlobalMetadata: Problem parsing request body: %v", err))
+			return
+		}
+
+		if requestData.UserPublicKeyBase58Check == "" {
+			_AddBadRequestError(ww, fmt.Sprintf("UpdateUserGlobalMetadataRequest: Must provide a valid public key."))
+			return
+		}
+
+		if requestData.Email == "" && requestData.MessageReadStateUpdatesByContact == nil {
+			_AddBadRequestError(ww, fmt.Sprintf("UpdateUserGlobalMetadataRequest: Must provide something to update."))
+			return
+		}
+
+		// Validate their permissions
+		isValid, err := fes.ValidateJWT(requestData.UserPublicKeyBase58Check, requestData.JWT)
+		if !isValid {
+			_AddBadRequestError(ww, fmt.Sprintf("UpdateUserGlobalMetadataRequest: Invalid token: %v", err))
+			return
+		}
+
+		userPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.UserPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("UpdateUserGlobalMetadataRequest: Invalid public key: %v", err))
+			return
+		}
+
+		// Now that we have a public key, update the global state object.
+		userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem with getUserMetadataFromGlobalState: %v", err))
+			return
+		}
+
+		// Now that we have a userMetadata object, update it based on the request.
+		if requestData.Email != "" {
+			// Send verification email if email changed
+			if userMetadata.Email != requestData.Email {
+				fes.sendVerificationEmail(requestData.Email, requestData.UserPublicKeyBase58Check)
+				userMetadata.EmailVerified = false
+			}
+
+			userMetadata.Email = requestData.Email
+		}
+
+		if requestData.MessageReadStateUpdatesByContact != nil {
+			if userMetadata.MessageReadStateByContact == nil {
+				userMetadata.MessageReadStateByContact = make(map[string]int)
+			}
+			for contactPubKey, readMessageCount := range requestData.MessageReadStateUpdatesByContact {
+				userMetadata.MessageReadStateByContact[contactPubKey] = readMessageCount
+			}
+		}
+
+		// Stick userMetadata back into global state object.
+		err = fes.putUserMetadataInGlobalState(userMetadata)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem putting updated user metadata: %v", err))
+			return
+		}
+
+		// If we made it this far we were successful, return without error.
+		res := UpdateUserGlobalMetadataResponse{}
+		if err := json.NewEncoder(ww).Encode(res); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem encoding response as JSON: %v", err))
+			return
+		}
+	}
+
+	type GetNotificationsRequest struct {
+		// This is the index of the notification we want to start our paginated lookup at. We
+		// will fetch up to "NumToFetch" notifications after it, ordered by index.  If no
+		// index is provided we will return the most recent posts.
+		PublicKeyBase58Check string
+		FetchStartIndex      int64
+		NumToFetch           int64
+	}
+
+	type GetNotificationsResponse struct {
+		Notifications       []*TransactionMetadataResponse
+		ProfilesByPublicKey map[string]*ProfileEntryResponse
+		PostsByHash         map[string]*PostEntryResponse
+	}
+
+	func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request) {
+		decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+		requestData := GetNotificationsRequest{}
+		if err := decoder.Decode(&requestData); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"GetNotifications: Problem parsing request body: %v", err))
+			return
+		}
+		finalTxnMetadataList, utxoView, err := fes._getNotifications(&requestData)
+		if err != nil {
+			_AddBadRequestError(ww, err.Error())
+			return
+		}
+
+		var userPublicKeyBytes []byte
+		userPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+		if err != nil || len(userPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"GetNotifications: Problem decoding updater public key %s: %v",
+				   requestData.PublicKeyBase58Check, err))
+			return
+		}
+
+		// Grab verified username map pointer
+		verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+		if err != nil {
 			APIAddError(ww, err.Error())
 			return
 		}
 
-		for _, affectedPk := range txnMeta.Metadata.AffectedPublicKeys {
-			if err := addProfileForPubKey(affectedPk.PublicKeyBase58Check); err != nil {
+		// At this point, finalTxnMetadata contains the proper list of transactions that we
+		// want to notify the user about. In order to help the UI display this information,
+		// we fetch a profile for each public key in each transaction that we're going to return
+		// and include it in a map.
+		profileEntryResponses := make(map[string]*ProfileEntryResponse)
+		// Set up a view to fetch the ProfileEntrys from
+		addProfileForPubKey := func(publicKeyBase58Check string) error {
+			currentPkBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
+			if err != nil {
+				return errors.Errorf("GetNotifications: "+
+					"Error decoding public key in txn metadata: %v",
+					publicKeyBase58Check)
+			}
+
+			// Note we are recycling the UtxoView from previously.
+			// Note also that if we didn't need to use the mempool to fetch notifications
+			// then we won't have loaded any of the mempool transactions into the view, and
+			// so the profile information could be out of date.
+			profileEntry := utxoView.GetProfileEntryForPublicKey(currentPkBytes)
+			if profileEntry != nil {
+				profileEntryResponses[lib.PkToString(profileEntry.PublicKey, fes.Params)] =
+					_profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+			}
+			return nil
+		}
+		for _, txnMeta := range finalTxnMetadataList {
+			if err := addProfileForPubKey(txnMeta.Metadata.TransactorPublicKeyBase58Check); err != nil {
 				APIAddError(ww, err.Error())
 				return
 			}
-		}
-	}
 
-	// To help the UI we fetch all posts that were involved in any notification
-	// and index them by PostHashHex. This includes posts that were liked,
-	// posts that mentioned us, or posts that replied to us.
-	//
-	// We also embed the ProfileEntryResponse of the poster in the post.
-	// In the future we could de-duplicate this and make the frontend do more
-	// heavy lifting.
-	postEntryResponses := make(map[string]*PostEntryResponse)
-
-	addPostForHash := func(postHashHex string, readerPK []byte) {
-		postHashBytes, err := hex.DecodeString(postHashHex)
-		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
-			return
-		}
-		postHash := &lib.BlockHash{}
-		copy(postHash[:], postHashBytes)
-
-		postEntry := utxoView.GetPostEntryForPostHash(postHash)
-		if postEntry == nil {
-			return
-		}
-		postEntryResponse, err := fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, userPublicKeyBytes, 2)
-		if err != nil {
-			return
-		}
-
-		postEntryResponse.ProfileEntryResponse = profileEntryResponses[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]
-		if postEntryResponse.ProfileEntryResponse == nil {
-			return
-		}
-
-		postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPK, postEntry)
-
-		postEntryResponses[postHashHex] = postEntryResponse
-	}
-
-	for _, txnMeta := range finalTxnMetadataList {
-		postMetadata := txnMeta.Metadata.SubmitPostTxindexMetadata
-		likeMetadata := txnMeta.Metadata.LikeTxindexMetadata
-		transferCreatorCoinMetadata := txnMeta.Metadata.CreatorCoinTransferTxindexMetadata
-		nftBidMetadata := txnMeta.Metadata.NFTBidTxindexMetadata
-		acceptNFTBidMetadata := txnMeta.Metadata.AcceptNFTBidTxindexMetadata
-		basicTransferMetadata := txnMeta.Metadata.BasicTransferTxindexMetadata
-
-		if postMetadata != nil {
-			addPostForHash(postMetadata.PostHashBeingModifiedHex, userPublicKeyBytes)
-			addPostForHash(postMetadata.ParentPostHashHex, userPublicKeyBytes)
-		} else if likeMetadata != nil {
-			addPostForHash(likeMetadata.PostHashHex, userPublicKeyBytes)
-		} else if transferCreatorCoinMetadata != nil {
-			if transferCreatorCoinMetadata.PostHashHex != "" {
-				addPostForHash(transferCreatorCoinMetadata.PostHashHex, userPublicKeyBytes)
-			}
-		} else if nftBidMetadata != nil {
-			addPostForHash(nftBidMetadata.NFTPostHashHex, userPublicKeyBytes)
-		} else if acceptNFTBidMetadata != nil {
-			addPostForHash(acceptNFTBidMetadata.NFTPostHashHex, userPublicKeyBytes)
-		} else if basicTransferMetadata != nil {
-			txnOutputs := txnMeta.Metadata.TxnOutputs
-			for _, output := range txnOutputs {
-				txnMeta.TxnOutputResponses = append(
-					txnMeta.TxnOutputResponses,
-					&OutputResponse{
-						PublicKeyBase58Check: lib.PkToString(output.PublicKey, fes.Params),
-						AmountNanos:          output.AmountNanos,
-					})
-			}
-			if basicTransferMetadata.PostHashHex != "" {
-				addPostForHash(basicTransferMetadata.PostHashHex, userPublicKeyBytes)
+			for _, affectedPk := range txnMeta.Metadata.AffectedPublicKeys {
+				if err := addProfileForPubKey(affectedPk.PublicKeyBase58Check); err != nil {
+					APIAddError(ww, err.Error())
+					return
+				}
 			}
 		}
-	}
 
-	// save the most recent notification into global state so we know
-	// if we have any unread notifications later
-	//
-	// only try to update the index if we're requesting the first page of results
-	// and we have at least one notification
-	if requestData.FetchStartIndex < 0 && len(finalTxnMetadataList) > 0 {
-		// global state does not have good support for concurrency. if someone
-		// else fetches this user's data and writes at the same time we could
-		// overwrite each other. there's a task in jira to investigate concurrency
-		// issues with global state.
-		userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"GetNotifications: Problem getting metadata from global state: %v", err))
-			return
+		// To help the UI we fetch all posts that were involved in any notification
+		// and index them by PostHashHex. This includes posts that were liked,
+		// posts that mentioned us, or posts that replied to us.
+		//
+		// We also embed the ProfileEntryResponse of the poster in the post.
+		// In the future we could de-duplicate this and make the frontend do more
+		// heavy lifting.
+		postEntryResponses := make(map[string]*PostEntryResponse)
+
+		addPostForHash := func(postHashHex string, readerPK []byte) {
+			postHashBytes, err := hex.DecodeString(postHashHex)
+			if err != nil || len(postHashBytes) != lib.HashSizeBytes {
+																		 return
+																		 }
+			postHash := &lib.BlockHash{}
+			copy(postHash[:], postHashBytes)
+
+			postEntry := utxoView.GetPostEntryForPostHash(postHash)
+			if postEntry == nil {
+									return
+									}
+			postEntryResponse, err := fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, userPublicKeyBytes, 2)
+			if err != nil {
+							  return
+							  }
+
+			postEntryResponse.ProfileEntryResponse = profileEntryResponses[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]
+			if postEntryResponse.ProfileEntryResponse == nil {
+																 return
+																 }
+
+			postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPK, postEntry)
+
+			postEntryResponses[postHashHex] = postEntryResponse
 		}
 
-		// only update the index if it's greater than the current index we have stored
-		lastSeenIndex := finalTxnMetadataList[0].Index
-		if lastSeenIndex > userMetadata.NotificationLastSeenIndex {
-			userMetadata.NotificationLastSeenIndex = lastSeenIndex
+		for _, txnMeta := range finalTxnMetadataList {
+			postMetadata := txnMeta.Metadata.SubmitPostTxindexMetadata
+			likeMetadata := txnMeta.Metadata.LikeTxindexMetadata
+			transferCreatorCoinMetadata := txnMeta.Metadata.CreatorCoinTransferTxindexMetadata
+			nftBidMetadata := txnMeta.Metadata.NFTBidTxindexMetadata
+			acceptNFTBidMetadata := txnMeta.Metadata.AcceptNFTBidTxindexMetadata
+			basicTransferMetadata := txnMeta.Metadata.BasicTransferTxindexMetadata
 
-			// Place the update metadata into the global state
-			err = fes.putUserMetadataInGlobalState(userMetadata)
+			if postMetadata != nil {
+				addPostForHash(postMetadata.PostHashBeingModifiedHex, userPublicKeyBytes)
+				addPostForHash(postMetadata.ParentPostHashHex, userPublicKeyBytes)
+			} else if likeMetadata != nil {
+				addPostForHash(likeMetadata.PostHashHex, userPublicKeyBytes)
+			} else if transferCreatorCoinMetadata != nil {
+				if transferCreatorCoinMetadata.PostHashHex != "" {
+					addPostForHash(transferCreatorCoinMetadata.PostHashHex, userPublicKeyBytes)
+				}
+			} else if nftBidMetadata != nil {
+				addPostForHash(nftBidMetadata.NFTPostHashHex, userPublicKeyBytes)
+			} else if acceptNFTBidMetadata != nil {
+				addPostForHash(acceptNFTBidMetadata.NFTPostHashHex, userPublicKeyBytes)
+			} else if basicTransferMetadata != nil {
+				txnOutputs := txnMeta.Metadata.TxnOutputs
+				for _, output := range txnOutputs {
+					txnMeta.TxnOutputResponses = append(
+						txnMeta.TxnOutputResponses,
+						&OutputResponse{
+							PublicKeyBase58Check: lib.PkToString(output.PublicKey, fes.Params),
+							AmountNanos:          output.AmountNanos,
+						})
+				}
+				if basicTransferMetadata.PostHashHex != "" {
+					addPostForHash(basicTransferMetadata.PostHashHex, userPublicKeyBytes)
+				}
+			}
+		}
+
+		// save the most recent notification into global state so we know
+		// if we have any unread notifications later
+		//
+		// only try to update the index if we're requesting the first page of results
+		// and we have at least one notification
+		if requestData.FetchStartIndex < 0 && len(finalTxnMetadataList) > 0 {
+			// global state does not have good support for concurrency. if someone
+			// else fetches this user's data and writes at the same time we could
+			// overwrite each other. there's a task in jira to investigate concurrency
+			// issues with global state.
+			userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf(
-					"GetNotifications: Problem putting updated user metadata: %v", err))
+					"GetNotifications: Problem getting metadata from global state: %v", err))
 				return
 			}
+
+			// only update the index if it's greater than the current index we have stored
+			lastSeenIndex := finalTxnMetadataList[0].Index
+			if lastSeenIndex > userMetadata.NotificationLastSeenIndex {
+				userMetadata.NotificationLastSeenIndex = lastSeenIndex
+
+				// Place the update metadata into the global state
+				err = fes.putUserMetadataInGlobalState(userMetadata)
+				if err != nil {
+					_AddBadRequestError(ww, fmt.Sprintf(
+						"GetNotifications: Problem putting updated user metadata: %v", err))
+					return
+				}
+			}
+		}
+
+		// At this point, we should have all the profiles and all the notifications
+		// that the user requested so return them in the response.
+		res := &GetNotificationsResponse{
+			Notifications:       finalTxnMetadataList,
+			ProfilesByPublicKey: profileEntryResponses,
+			PostsByHash:         postEntryResponses,
+		}
+		if err := json.NewEncoder(ww).Encode(res); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"GetNotifications: Problem encoding response as JSON: %v", err))
+			return
 		}
 	}
 
-	// At this point, we should have all the profiles and all the notifications
-	// that the user requested so return them in the response.
-	res := &GetNotificationsResponse{
-		Notifications:       finalTxnMetadataList,
-		ProfilesByPublicKey: profileEntryResponses,
-		PostsByHash:         postEntryResponses,
-	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetNotifications: Problem encoding response as JSON: %v", err))
-		return
-	}
-}
-
-func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*TransactionMetadataResponse, *lib.UtxoView, error) {
-	// If the TxIndex flag was not passed to this node then we can't compute
-	// notifications.
-	if fes.TXIndex == nil {
-		return nil, nil, errors.Errorf(
-			"GetNotifications: Cannot be called when TXIndexChain " +
-				"is nil. This error occurs when --txindex was not passed to the program " +
-				"on startup")
-	}
-
-	pkBytes, _, err := lib.Base58CheckDecode(request.PublicKeyBase58Check)
-	if err != nil {
-		return nil, nil, errors.Errorf("GetNotifications: Problem parsing public key: %v", err)
-	}
-
-	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(pkBytes)
-	if err != nil {
-		return nil, nil, errors.Errorf("GetNotifications: Error getting blocked public keys for user: %v", err)
-	}
-
-	// A valid mempool object is used to compute the TransactionMetadata for the mempool
-	// and to allow for things like: filtering notifications for a hidden post.
-	utxoView, err := fes.mempool.GetAugmentedUniversalView()
-	if err != nil {
-		return nil, nil, errors.Errorf("GetNotifications: Problem getting view: %v", err)
-	}
-
-	// Iterate backward over the database to find as many keys as we can.
-	//
-	// Start by constructing the validForPrefix. It's just the public key.
-	validForPrefix := lib.DbTxindexPublicKeyPrefix(pkBytes)
-	// If FetchStartIndex is specified then the startPrefix is the public key
-	// with FetchStartIndex appended. Otherwise, we leave off the index so that
-	// the seek will start from the end of the transaction list.
-	startPrefix := lib.DbTxindexPublicKeyPrefix(pkBytes)
-	if request.FetchStartIndex >= 0 {
-		startPrefix = lib.DbTxindexPublicKeyIndexToTxnKey(pkBytes, uint32(request.FetchStartIndex))
-	}
-	// The maximum key length is the length of the key with the public key
-	// plus the size of the uint64 appended to it.
-	maxKeyLen := len(lib.DbTxindexPublicKeyIndexToTxnKey(pkBytes, uint32(0)))
-
-	// txnMetadataFound will contain TransactionMetadata objects, with the newest txns
-	// showing up at the beginning of the list.
-	dbTxnMetadataFound := []*TransactionMetadataResponse{}
-	// Note that we are always guaranteed to hit one of the stopping conditions defined at
-	// the end of this loop.
-	for {
-		keysFound, valsFound, err := lib.DBGetPaginatedKeysAndValuesForPrefix(
-			fes.TXIndex.TXIndexChain.DB(), startPrefix, validForPrefix,
-			maxKeyLen, int(request.NumToFetch), true, /*reverse*/
-			true /*fetchValues*/)
-		if err != nil {
+	func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*TransactionMetadataResponse, *lib.UtxoView, error) {
+		// If the TxIndex flag was not passed to this node then we can't compute
+		// notifications.
+		if fes.TXIndex == nil {
 			return nil, nil, errors.Errorf(
-				"GetNotifications: Error fetching paginated TransactionMetadata for notifications: %v", err)
+				"GetNotifications: Cannot be called when TXIndexChain " +
+					"is nil. This error occurs when --txindex was not passed to the program " +
+					"on startup")
 		}
 
-		for ii, txIDBytes := range valsFound {
-			txID := &lib.BlockHash{}
-			copy(txID[:], txIDBytes)
-
-			// In this case we need to look up the full transaction and convert
-			// it into a proper transaction response.
-			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txID)
-			if txnMeta == nil {
-				// We should never be missing a transaction for a given txid, but
-				// just continue in this case.
-				glog.Errorf("GetNotifications: Missing TransactionMetadata for txid %v", txID)
-				continue
-			}
-			// Skip transactions that aren't notifications
-			if !TxnMetaIsNotification(txnMeta, request.PublicKeyBase58Check, utxoView) {
-				continue
-			}
-			transactorPkBytes, _, err := lib.Base58CheckDecode(txnMeta.TransactorPublicKeyBase58Check)
-			if err != nil {
-				glog.Errorf("GetNotifications: unable to decode public key %v", txnMeta.TransactorPublicKeyBase58Check)
-				continue
-			}
-			// Skip transactions from blocked users.
-			if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
-				continue
-			}
-			currentIndexBytes := keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]
-			res := &TransactionMetadataResponse{
-				Metadata: txnMeta,
-				Index:    int64(lib.DecodeUint32(currentIndexBytes)),
-			}
-			dbTxnMetadataFound = append(dbTxnMetadataFound, res)
-		}
-
-		// If we've found enough transactions then break.
-		if len(dbTxnMetadataFound) >= int(request.NumToFetch) {
-			dbTxnMetadataFound = dbTxnMetadataFound[:request.NumToFetch]
-			break
-		}
-
-		// If we didn't find any keys then we're done here.
-		if len(keysFound) == 0 {
-			break
-		}
-
-		// If we get here then we have at least one key.
-		// If the index of the last key we found is the zero index then we're done here.
-		lastKey := keysFound[len(keysFound)-1]
-		// The index comes after the <_Prefix, PublicKey> bytes.
-		lastKeyIndexBytes := lastKey[len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]
-		lastKeyIndex := lib.DecodeUint32(lastKeyIndexBytes)
-		if lastKeyIndex == 0 {
-			break
-		}
-
-		// If we get here it means that we don't have enough transactions yet *and*
-		// there are more keys to seek. It also means that the lastKeyIndex > 0. So
-		// update the startPrefix to place it right after the index of the last key.
-		startPrefix = lib.DbTxindexPublicKeyIndexToTxnKey(
-			pkBytes, uint32(lastKeyIndex-1))
-	}
-
-	// Get the NextIndex from the db. This will be used to determine whether
-	// or not it's appropriate to fetch txns from the mempool. It will also be
-	// used to assign consistent index values to memppool txns.
-	NextIndexVal := lib.DbGetTxindexNextIndexForPublicKey(fes.TXIndex.TXIndexChain.DB(), pkBytes)
-	if NextIndexVal == nil {
-		return nil, nil, fmt.Errorf("Unable to get next index for public key: %v", request.PublicKeyBase58Check)
-	}
-	NextIndex := int64(*NextIndexVal)
-	// If the FetchStartIndex is unset *or* if it's set to a value that is larger
-	// than what we have in the db then it means we need to augment our list with
-	// txns from the mempool.
-	combinedMempoolDBTxnMetadata := []*TransactionMetadataResponse{}
-	if request.FetchStartIndex < 0 || request.FetchStartIndex >= NextIndex {
-		// At this point we should have zero or more TransactionMetadata objects from
-		// the database that could trigger a notification for the user.
-		//
-		// Create a new list of events from the mempool and augment the list we found
-		// from the database with these transactions.
-		//
-		// Get all the txns from the mempool.
-		//
-		// TODO(performance): This could get slow if the mempool gets big. Fix is to organize everything
-		// in the mempool by public key and only look up transactions that are relevant to this public key.
-		poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
+		pkBytes, _, err := lib.Base58CheckDecode(request.PublicKeyBase58Check)
 		if err != nil {
-			return nil, nil, errors.Errorf("APITransactionInfo: Error getting txns from mempool: %v", err)
+						  return nil, nil, errors.Errorf("GetNotifications: Problem parsing public key: %v", err)
+						  }
+
+		blockedPubKeys, err := fes.GetBlockedPubKeysForUser(pkBytes)
+		if err != nil {
+						  return nil, nil, errors.Errorf("GetNotifications: Error getting blocked public keys for user: %v", err)
+						  }
+
+		// A valid mempool object is used to compute the TransactionMetadata for the mempool
+		// and to allow for things like: filtering notifications for a hidden post.
+		utxoView, err := fes.mempool.GetAugmentedUniversalView()
+		if err != nil {
+						  return nil, nil, errors.Errorf("GetNotifications: Problem getting view: %v", err)
+						  }
+
+		// Iterate backward over the database to find as many keys as we can.
+		//
+		// Start by constructing the validForPrefix. It's just the public key.
+		validForPrefix := lib.DbTxindexPublicKeyPrefix(pkBytes)
+		// If FetchStartIndex is specified then the startPrefix is the public key
+		// with FetchStartIndex appended. Otherwise, we leave off the index so that
+		// the seek will start from the end of the transaction list.
+		startPrefix := lib.DbTxindexPublicKeyPrefix(pkBytes)
+		if request.FetchStartIndex >= 0 {
+			startPrefix = lib.DbTxindexPublicKeyIndexToTxnKey(pkBytes, uint32(request.FetchStartIndex))
 		}
+		// The maximum key length is the length of the key with the public key
+		// plus the size of the uint64 appended to it.
+		maxKeyLen := len(lib.DbTxindexPublicKeyIndexToTxnKey(pkBytes, uint32(0)))
 
-		mempoolTxnMetadata := []*TransactionMetadataResponse{}
-		for _, poolTx := range poolTxns {
-			txnMeta := poolTx.TxMeta
-			if txnMeta == nil {
-				continue
+		// txnMetadataFound will contain TransactionMetadata objects, with the newest txns
+		// showing up at the beginning of the list.
+		dbTxnMetadataFound := []*TransactionMetadataResponse{}
+		// Note that we are always guaranteed to hit one of the stopping conditions defined at
+		// the end of this loop.
+		for {
+			keysFound, valsFound, err := lib.DBGetPaginatedKeysAndValuesForPrefix(
+				fes.TXIndex.TXIndexChain.DB(), startPrefix, validForPrefix,
+				maxKeyLen, int(request.NumToFetch), true, /*reverse*/
+				true /*fetchValues*/)
+			if err != nil {
+				return nil, nil, errors.Errorf(
+					"GetNotifications: Error fetching paginated TransactionMetadata for notifications: %v", err)
 			}
 
-			// Set the current index we will use to identify this transaction.
-			currentIndex := NextIndex
+			for ii, txIDBytes := range valsFound {
+				txID := &lib.BlockHash{}
+				copy(txID[:], txIDBytes)
 
-			// Increment the NextIndex if this transaction is associated with the user's
-			// public key in any way. This is what the db would do when storing it, and so
-			// this treatment should be consistent.
-			if TxnIsAssociatedWithPublicKey(txnMeta, request.PublicKeyBase58Check) {
-				NextIndex++
-			}
-
-			// If the transaction is a notification then add it to our list with the proper
-			// index value if the transactor is not a blocked public key
-			if TxnMetaIsNotification(txnMeta, request.PublicKeyBase58Check, utxoView) {
+				// In this case we need to look up the full transaction and convert
+				// it into a proper transaction response.
+				txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txID)
+				if txnMeta == nil {
+					// We should never be missing a transaction for a given txid, but
+					// just continue in this case.
+					glog.Errorf("GetNotifications: Missing TransactionMetadata for txid %v", txID)
+					continue
+				}
+				// Skip transactions that aren't notifications
+				if !TxnMetaIsNotification(txnMeta, request.PublicKeyBase58Check, utxoView) {
+					continue
+				}
 				transactorPkBytes, _, err := lib.Base58CheckDecode(txnMeta.TransactorPublicKeyBase58Check)
 				if err != nil {
 					glog.Errorf("GetNotifications: unable to decode public key %v", txnMeta.TransactorPublicKeyBase58Check)
 					continue
 				}
-
 				// Skip transactions from blocked users.
 				if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
 					continue
 				}
-				mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
+				currentIndexBytes := keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]
+				res := &TransactionMetadataResponse{
 					Metadata: txnMeta,
-					Index:    currentIndex,
-				})
+					Index:    int64(lib.DecodeUint32(currentIndexBytes)),
+				}
+				dbTxnMetadataFound = append(dbTxnMetadataFound, res)
 			}
 
-			// TODO: Commenting this out for now because it causes incorrect behavior
-			// in the event the user is asking to fetch the *latest* notifications via
-			// a StartIndex < 0 where NumToFetch is less than the number of mempool txns.
-			//
-			// If we've found enough notification objects then break out.
-			//if len(mempoolTxnMetadata) >= int(requestData.NumToFetch) {
-			//	mempoolTxnMetadata = mempoolTxnMetadata[:requestData.NumToFetch]
-			//	break
-			//}
+			// If we've found enough transactions then break.
+			if len(dbTxnMetadataFound) >= int(request.NumToFetch) {
+				dbTxnMetadataFound = dbTxnMetadataFound[:request.NumToFetch]
+				break
+			}
+
+			// If we didn't find any keys then we're done here.
+			if len(keysFound) == 0 {
+				break
+			}
+
+			// If we get here then we have at least one key.
+			// If the index of the last key we found is the zero index then we're done here.
+			lastKey := keysFound[len(keysFound)-1]
+			// The index comes after the <_Prefix, PublicKey> bytes.
+			lastKeyIndexBytes := lastKey[len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]
+			lastKeyIndex := lib.DecodeUint32(lastKeyIndexBytes)
+			if lastKeyIndex == 0 {
+				break
+			}
+
+			// If we get here it means that we don't have enough transactions yet *and*
+			// there are more keys to seek. It also means that the lastKeyIndex > 0. So
+			// update the startPrefix to place it right after the index of the last key.
+			startPrefix = lib.DbTxindexPublicKeyIndexToTxnKey(
+				pkBytes, uint32(lastKeyIndex-1))
 		}
 
-		// Since the mempool transactions are ordered with the oldest transaction first,
-		// we need to reverse them. Add them to the combinedMempoolDBTxnMetadata as we go.
-		for ii := range mempoolTxnMetadata {
-			currentMempoolTxnMetadata := mempoolTxnMetadata[len(mempoolTxnMetadata)-1-ii]
-			combinedMempoolDBTxnMetadata = append(combinedMempoolDBTxnMetadata, currentMempoolTxnMetadata)
+		// Get the NextIndex from the db. This will be used to determine whether
+		// or not it's appropriate to fetch txns from the mempool. It will also be
+		// used to assign consistent index values to memppool txns.
+		NextIndexVal := lib.DbGetTxindexNextIndexForPublicKey(fes.TXIndex.TXIndexChain.DB(), pkBytes)
+		if NextIndexVal == nil {
+			return nil, nil, fmt.Errorf("Unable to get next index for public key: %v", request.PublicKeyBase58Check)
 		}
+		NextIndex := int64(*NextIndexVal)
+		// If the FetchStartIndex is unset *or* if it's set to a value that is larger
+		// than what we have in the db then it means we need to augment our list with
+		// txns from the mempool.
+		combinedMempoolDBTxnMetadata := []*TransactionMetadataResponse{}
+		if request.FetchStartIndex < 0 || request.FetchStartIndex >= NextIndex {
+			// At this point we should have zero or more TransactionMetadata objects from
+			// the database that could trigger a notification for the user.
+			//
+			// Create a new list of events from the mempool and augment the list we found
+			// from the database with these transactions.
+			//
+			// Get all the txns from the mempool.
+			//
+			// TODO(performance): This could get slow if the mempool gets big. Fix is to organize everything
+			// in the mempool by public key and only look up transactions that are relevant to this public key.
+			poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
+			if err != nil {
+							  return nil, nil, errors.Errorf("APITransactionInfo: Error getting txns from mempool: %v", err)
+							  }
+
+			mempoolTxnMetadata := []*TransactionMetadataResponse{}
+			for _, poolTx := range poolTxns {
+				txnMeta := poolTx.TxMeta
+				if txnMeta == nil {
+					continue
+				}
+
+				// Set the current index we will use to identify this transaction.
+				currentIndex := NextIndex
+
+				// Increment the NextIndex if this transaction is associated with the user's
+				// public key in any way. This is what the db would do when storing it, and so
+				// this treatment should be consistent.
+				if TxnIsAssociatedWithPublicKey(txnMeta, request.PublicKeyBase58Check) {
+					NextIndex++
+				}
+
+				// If the transaction is a notification then add it to our list with the proper
+				// index value if the transactor is not a blocked public key
+				if TxnMetaIsNotification(txnMeta, request.PublicKeyBase58Check, utxoView) {
+					transactorPkBytes, _, err := lib.Base58CheckDecode(txnMeta.TransactorPublicKeyBase58Check)
+					if err != nil {
+						glog.Errorf("GetNotifications: unable to decode public key %v", txnMeta.TransactorPublicKeyBase58Check)
+						continue
+					}
+
+					// Skip transactions from blocked users.
+					if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
+						continue
+					}
+					mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
+						Metadata: txnMeta,
+						Index:    currentIndex,
+					})
+				}
+
+				// TODO: Commenting this out for now because it causes incorrect behavior
+				// in the event the user is asking to fetch the *latest* notifications via
+				// a StartIndex < 0 where NumToFetch is less than the number of mempool txns.
+				//
+				// If we've found enough notification objects then break out.
+				//if len(mempoolTxnMetadata) >= int(requestData.NumToFetch) {
+				//	mempoolTxnMetadata = mempoolTxnMetadata[:requestData.NumToFetch]
+				//	break
+				//}
+			}
+
+			// Since the mempool transactions are ordered with the oldest transaction first,
+			// we need to reverse them. Add them to the combinedMempoolDBTxnMetadata as we go.
+			for ii := range mempoolTxnMetadata {
+				currentMempoolTxnMetadata := mempoolTxnMetadata[len(mempoolTxnMetadata)-1-ii]
+				combinedMempoolDBTxnMetadata = append(combinedMempoolDBTxnMetadata, currentMempoolTxnMetadata)
+			}
+		}
+
+		// At this point, the combinedMempoolDBTxnMetadata either contains the latest transactions
+		// from the mempool *or* it's empty. The latter occurs when the FetchStartIndex
+		// is set to a value below the smallest index of any transaction in the mempool.
+		// In either case, appending the transactions we found in the db is the correct
+		// thing to do.
+		combinedMempoolDBTxnMetadata = append(combinedMempoolDBTxnMetadata, dbTxnMetadataFound...)
+
+		// If a start index was set, then only consider transactions whose indes is <=
+		// this start index. This loop also enforces the final NumToFetch constraint.
+		finalTxnMetadataList := []*TransactionMetadataResponse{}
+		if request.FetchStartIndex >= 0 {
+			for _, txnMeta := range combinedMempoolDBTxnMetadata {
+				if txnMeta.Index <= request.FetchStartIndex {
+					finalTxnMetadataList = append(finalTxnMetadataList, txnMeta)
+				}
+
+				if len(finalTxnMetadataList) >= int(request.NumToFetch) {
+					break
+				}
+			}
+		} else {
+			// In this case, no start index is set and so we just return NumToFetch
+			// txns from the combined list starting at the beginning, which holds the
+			// latest txns.
+			finalTxnMetadataList = combinedMempoolDBTxnMetadata
+			if len(finalTxnMetadataList) > int(request.NumToFetch) {
+				finalTxnMetadataList = finalTxnMetadataList[:request.NumToFetch]
+			}
+		}
+
+		return finalTxnMetadataList, utxoView, nil
 	}
 
-	// At this point, the combinedMempoolDBTxnMetadata either contains the latest transactions
-	// from the mempool *or* it's empty. The latter occurs when the FetchStartIndex
-	// is set to a value below the smallest index of any transaction in the mempool.
-	// In either case, appending the transactions we found in the db is the correct
-	// thing to do.
-	combinedMempoolDBTxnMetadata = append(combinedMempoolDBTxnMetadata, dbTxnMetadataFound...)
+	func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Check string, utxoView *lib.UtxoView) bool {
+		// Transactions initiated by the passed-in public key should not
+		// trigger notifications.
+		if txnMeta.TransactorPublicKeyBase58Check == publicKeyBase58Check {
+																			  return false
+																			  }
 
-	// If a start index was set, then only consider transactions whose indes is <=
-	// this start index. This loop also enforces the final NumToFetch constraint.
-	finalTxnMetadataList := []*TransactionMetadataResponse{}
-	if request.FetchStartIndex >= 0 {
-		for _, txnMeta := range combinedMempoolDBTxnMetadata {
-			if txnMeta.Index <= request.FetchStartIndex {
-				finalTxnMetadataList = append(finalTxnMetadataList, txnMeta)
-			}
-
-			if len(finalTxnMetadataList) >= int(request.NumToFetch) {
+		// Transactions where the user's public key is not affected should not trigger
+		// notifications.
+		publicKeyIsAffected := false
+		for _, affectedObj := range txnMeta.AffectedPublicKeys {
+			if affectedObj.PublicKeyBase58Check == publicKeyBase58Check {
+				publicKeyIsAffected = true
 				break
 			}
 		}
-	} else {
-		// In this case, no start index is set and so we just return NumToFetch
-		// txns from the combined list starting at the beginning, which holds the
-		// latest txns.
-		finalTxnMetadataList = combinedMempoolDBTxnMetadata
-		if len(finalTxnMetadataList) > int(request.NumToFetch) {
-			finalTxnMetadataList = finalTxnMetadataList[:request.NumToFetch]
-		}
-	}
+		if !publicKeyIsAffected {
+									return false
+									}
 
-	return finalTxnMetadataList, utxoView, nil
-}
+		// If we get here, we know the user did not initiate the transaction and
+		// we know that the user is affected by the transaction.
+		//
+		// Whitelist particular types of transactions for notification triggering.
+		if txnMeta.FollowTxindexMetadata != nil {
+													// Someone followed you. Don't include unfollows
+													return !txnMeta.FollowTxindexMetadata.IsUnfollow
+													} else if txnMeta.LikeTxindexMetadata != nil {
+																																			 // Someone liked a post/comment from you. Don't include unlikes
+																																			 return !txnMeta.LikeTxindexMetadata.IsUnlike
+																																			 } else if txnMeta.SubmitPostTxindexMetadata != nil {
+			notificationPostHash, err := GetPostHashFromPostHashHex(txnMeta.SubmitPostTxindexMetadata.PostHashBeingModifiedHex)
+			if err != nil {
+							  // If this post hash isn't valid, we don't need a notification.
+							  return false
+							  }
+			notificationPostEntry := utxoView.GetPostEntryForPostHash(notificationPostHash)
+			if notificationPostEntry == nil {
+												// If this post entry doesn't exist, we don't need a notification.
+												return false
+												}
 
-func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Check string, utxoView *lib.UtxoView) bool {
-	// Transactions initiated by the passed-in public key should not
-	// trigger notifications.
-	if txnMeta.TransactorPublicKeyBase58Check == publicKeyBase58Check {
+			// Someone commented on your post.  Notify, if it isn't hidden.
+			return !notificationPostEntry.IsHidden
+		} else if txnMeta.CreatorCoinTxindexMetadata != nil {
+																// Someone bought your coin
+																return txnMeta.CreatorCoinTxindexMetadata.OperationType == "buy"
+																} else if txnMeta.CreatorCoinTransferTxindexMetadata != nil {
+																																														// Someone transferred you creator coins
+																																														return true
+																																														} else if txnMeta.BitcoinExchangeTxindexMetadata != nil {
+																																																													   // You got some DeSo from a BitcoinExchange txn
+																																																													   return true
+																																																													   } else if txnMeta.NFTBidTxindexMetadata != nil {
+																																																																											 // Someone bid on your NFT
+																																																																											 return true
+																																																																											 } else if txnMeta.AcceptNFTBidTxindexMetadata != nil {
+																																																																																										 // Someone accepted your bid for an NFT
+																																																																																										 return true
+																																																																																										 } else if txnMeta.TxnType == lib.TxnTypeBasicTransfer.String() {
+																																																																																																											   // Someone paid you
+																																																																																																											   return true
+																																																																																																											   }
+
 		return false
 	}
 
-	// Transactions where the user's public key is not affected should not trigger
-	// notifications.
-	publicKeyIsAffected := false
-	for _, affectedObj := range txnMeta.AffectedPublicKeys {
-		if affectedObj.PublicKeyBase58Check == publicKeyBase58Check {
-			publicKeyIsAffected = true
-			break
+	func TxnIsAssociatedWithPublicKey(txnMeta *lib.TransactionMetadata, publicKeyBase58Check string) bool {
+		if txnMeta.TransactorPublicKeyBase58Check == publicKeyBase58Check {
+																			  return true
+																			  }
+		for _, affectedObj := range txnMeta.AffectedPublicKeys {
+			if affectedObj.PublicKeyBase58Check == publicKeyBase58Check {
+																			return true
+																			}
 		}
-	}
-	if !publicKeyIsAffected {
 		return false
 	}
 
-	// If we get here, we know the user did not initiate the transaction and
-	// we know that the user is affected by the transaction.
-	//
-	// Whitelist particular types of transactions for notification triggering.
-	if txnMeta.FollowTxindexMetadata != nil {
-		// Someone followed you. Don't include unfollows
-		return !txnMeta.FollowTxindexMetadata.IsUnfollow
-	} else if txnMeta.LikeTxindexMetadata != nil {
-		// Someone liked a post/comment from you. Don't include unlikes
-		return !txnMeta.LikeTxindexMetadata.IsUnlike
-	} else if txnMeta.SubmitPostTxindexMetadata != nil {
-		notificationPostHash, err := GetPostHashFromPostHashHex(txnMeta.SubmitPostTxindexMetadata.PostHashBeingModifiedHex)
+	type TransactionMetadataResponse struct {
+		Metadata           *lib.TransactionMetadata
+		TxnOutputResponses []*OutputResponse
+		Txn                *TransactionResponse
+		Index              int64
+	}
+
+	type BlockPublicKeyRequest struct {
+		PublicKeyBase58Check      string
+		BlockPublicKeyBase58Check string
+		Unblock                   bool
+		JWT                       string
+	}
+
+	type BlockPublicKeyResponse struct {
+		BlockedPublicKeys map[string]struct{}
+	}
+
+	// This endpoint is used for blocking and unblocking users.  A boolean flag Unblock is passed to indicate whether
+	// a user should be blocked or unblocked.
+	func (fes *APIServer) BlockPublicKey(ww http.ResponseWriter, req *http.Request) {
+		decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+		requestData := BlockPublicKeyRequest{}
+		if err := decoder.Decode(&requestData); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"BlockPublicKey: Problem parsing request body: %v", err))
+			return
+		}
+
+		var userPublicKeyBytes []byte
+		var err error
+		userPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+		if err != nil || len(userPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"BlockPublicKey: Problem decoding user public key %s: %v",
+				   requestData.PublicKeyBase58Check, err))
+			return
+		}
+
+		// Validate their permissions
+		isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
+		if !isValid {
+			_AddBadRequestError(ww, fmt.Sprintf("BlockPublicKey: Invalid token: %v", err))
+			return
+		}
+
+		// Get the public key for the user that is being blocked / unblocked.
+		var blockPublicKeyBytes []byte
+		blockPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.BlockPublicKeyBase58Check)
+		if err != nil || len(blockPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"BlockPublicKey: Problem decoding public key to block %s: %v",
+				   requestData.BlockPublicKeyBase58Check, err))
+			return
+		}
+
+		userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.PublicKeyBase58Check)
 		if err != nil {
-			// If this post hash isn't valid, we don't need a notification.
-			return false
+			_AddBadRequestError(ww, fmt.Sprintf("BlockPublicKey: Problem with getUserMetadataFromGlobalState: %v", err))
+			return
 		}
-		notificationPostEntry := utxoView.GetPostEntryForPostHash(notificationPostHash)
-		if notificationPostEntry == nil {
-			// If this post entry doesn't exist, we don't need a notification.
-			return false
+		blockPublicKeyString := lib.PkToString(blockPublicKeyBytes, fes.Params)
+
+		blockedPublicKeys := userMetadata.BlockedPublicKeys
+		if blockedPublicKeys == nil {
+			blockedPublicKeys = make(map[string]struct{})
 		}
+		// Check if the user is already blocked by the reader.
+		_, keyExists := blockedPublicKeys[blockPublicKeyString]
 
-		// Someone commented on your post.  Notify, if it isn't hidden.
-		return !notificationPostEntry.IsHidden
-	} else if txnMeta.CreatorCoinTxindexMetadata != nil {
-		// Someone bought your coin
-		return txnMeta.CreatorCoinTxindexMetadata.OperationType == "buy"
-	} else if txnMeta.CreatorCoinTransferTxindexMetadata != nil {
-		// Someone transferred you creator coins
-		return true
-	} else if txnMeta.BitcoinExchangeTxindexMetadata != nil {
-		// You got some DeSo from a BitcoinExchange txn
-		return true
-	} else if txnMeta.NFTBidTxindexMetadata != nil {
-		// Someone bid on your NFT
-		return true
-	} else if txnMeta.AcceptNFTBidTxindexMetadata != nil {
-		// Someone accepted your bid for an NFT
-		return true
-	} else if txnMeta.TxnType == lib.TxnTypeBasicTransfer.String() {
-		// Someone paid you
-		return true
-	}
-
-	return false
-}
-
-func TxnIsAssociatedWithPublicKey(txnMeta *lib.TransactionMetadata, publicKeyBase58Check string) bool {
-	if txnMeta.TransactorPublicKeyBase58Check == publicKeyBase58Check {
-		return true
-	}
-	for _, affectedObj := range txnMeta.AffectedPublicKeys {
-		if affectedObj.PublicKeyBase58Check == publicKeyBase58Check {
-			return true
-		}
-	}
-	return false
-}
-
-type TransactionMetadataResponse struct {
-	Metadata           *lib.TransactionMetadata
-	TxnOutputResponses []*OutputResponse
-	Txn                *TransactionResponse
-	Index              int64
-}
-
-type BlockPublicKeyRequest struct {
-	PublicKeyBase58Check      string
-	BlockPublicKeyBase58Check string
-	Unblock                   bool
-	JWT                       string
-}
-
-type BlockPublicKeyResponse struct {
-	BlockedPublicKeys map[string]struct{}
-}
-
-// This endpoint is used for blocking and unblocking users.  A boolean flag Unblock is passed to indicate whether
-// a user should be blocked or unblocked.
-func (fes *APIServer) BlockPublicKey(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := BlockPublicKeyRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"BlockPublicKey: Problem parsing request body: %v", err))
-		return
-	}
-
-	var userPublicKeyBytes []byte
-	var err error
-	userPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
-	if err != nil || len(userPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"BlockPublicKey: Problem decoding user public key %s: %v",
-			requestData.PublicKeyBase58Check, err))
-		return
-	}
-
-	// Validate their permissions
-	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
-	if !isValid {
-		_AddBadRequestError(ww, fmt.Sprintf("BlockPublicKey: Invalid token: %v", err))
-		return
-	}
-
-	// Get the public key for the user that is being blocked / unblocked.
-	var blockPublicKeyBytes []byte
-	blockPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.BlockPublicKeyBase58Check)
-	if err != nil || len(blockPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"BlockPublicKey: Problem decoding public key to block %s: %v",
-			requestData.BlockPublicKeyBase58Check, err))
-		return
-	}
-
-	userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.PublicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("BlockPublicKey: Problem with getUserMetadataFromGlobalState: %v", err))
-		return
-	}
-	blockPublicKeyString := lib.PkToString(blockPublicKeyBytes, fes.Params)
-
-	blockedPublicKeys := userMetadata.BlockedPublicKeys
-	if blockedPublicKeys == nil {
-		blockedPublicKeys = make(map[string]struct{})
-	}
-	// Check if the user is already blocked by the reader.
-	_, keyExists := blockedPublicKeys[blockPublicKeyString]
-
-	// Delete the public keys from the Reader's map of blocked public keys if we are unblocking and the public key is
-	// in the map.  Add the public key to the User's map of blocked public keys if we are blocking and the public key is
-	// not currently present in the User's map of blocked public keys.
-	if keyExists && requestData.Unblock {
-		delete(blockedPublicKeys, blockPublicKeyString)
-	} else if !keyExists && !requestData.Unblock {
-		blockedPublicKeys[blockPublicKeyString] = struct{}{}
+		// Delete the public keys from the Reader's map of blocked public keys if we are unblocking and the public key is
+		// in the map.  Add the public key to the User's map of blocked public keys if we are blocking and the public key is
+		// not currently present in the User's map of blocked public keys.
+		if keyExists && requestData.Unblock {
+			delete(blockedPublicKeys, blockPublicKeyString)
+		} else if !keyExists && !requestData.Unblock {
+			blockedPublicKeys[blockPublicKeyString] = struct{}{}
 	}
 	userMetadata.BlockedPublicKeys = blockedPublicKeys
 	err = fes.putUserMetadataInGlobalState(userMetadata)
@@ -2616,4 +2606,98 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 		_AddInternalServerError(ww, fmt.Sprintf("GetUserDerivedKeys: Problem serializing object to JSON: %v", err))
 		return
 	}
+}
+
+type DeletePIIRequest struct {
+	PublicKeyBase58Check string
+	JWT                  string
+}
+
+func (fes *APIServer) DeletePII(ww http.ResponseWriter, rr *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(rr.Body, MaxRequestBodySizeBytes))
+	requestData := DeletePIIRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DeletePII: Error parsing request body: %v", err))
+		return
+	}
+
+	// Check request's JWT
+	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DeletePII: error validating JWT: %v", err))
+		return
+	}
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("DeletePII: Invalid token: %v", err))
+		return
+	}
+
+	// Decode Public key
+	var publicKeyBytes []byte
+	if requestData.PublicKeyBase58Check != "" {
+		publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetFollowsStateless: Problem decoding user public key: %v", err))
+			return
+		}
+	} else {
+		_AddBadRequestError(ww, fmt.Sprintf("DeletePII: PublicKeyBase58Check required"))
+		return
+	}
+
+	// Fetch user metadata struct that needs to be updated
+	userMetadata, err := fes.getUserMetadataFromGlobalStateByPublicKeyBytes(publicKeyBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DeletePII: Error fetching user metadata from global state: %v", err))
+		return
+	}
+
+	// If user metadata has a phone number, get the phone number metadata and delete relevant fields.
+	if userMetadata.PhoneNumber != "" {
+		var phoneNumberMetadata *PhoneNumberMetadata
+		phoneNumberMetadata, err = fes.getPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("DeletePII: Error fetching phone number metadata from global state: %v", err))
+			return
+		}
+		// Unset the public key so the history of this phone number can't be tracked back to a public key
+		phoneNumberMetadata.PublicKey = nil
+		// We explicity set should comp profile creation to false since we can't associate this phone number to a public key anymore.
+		phoneNumberMetadata.ShouldCompProfileCreation = false
+
+		phoneNumberMetadata.PublicKeyDeleted = true
+
+		if err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("DeletePII: Error putting updated phone number metadata in global state: %v", err))
+			return
+		}
+	}
+
+	userMetadata.PhoneNumber = ""
+	userMetadata.Email = ""
+	userMetadata.PhoneNumberCountryCode = ""
+	userMetadata.EmailVerified = false
+	// This is a deprecated field but we set it to nil anyway.
+	userMetadata.JumioDocumentKey = nil
+
+	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DeletePII: Error putting updated user metadata in global state: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) IsUserGraylisted(pkid *lib.PKID) bool {
+	return reflect.DeepEqual(fes.GetGraylistState(pkid), lib.IsGraylisted)
+}
+
+func (fes *APIServer) GetGraylistState(pkid *lib.PKID) []byte {
+	return fes.GraylistedPKIDMap[*pkid]
+}
+
+func (fes *APIServer) IsUserBlacklisted(pkid *lib.PKID) bool {
+	return reflect.DeepEqual(fes.GetBlacklistState(pkid), lib.IsBlacklisted)
+}
+
+func (fes *APIServer) GetBlacklistState(pkid *lib.PKID) []byte {
+	return fes.BlacklistedPKIDMap[*pkid]
 }

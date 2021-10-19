@@ -122,6 +122,8 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 			return
 		}
 		phoneNumberMetadata.PublicKey = nil
+		// We set PublicKeyDeleted to false so that this phone number can be used again for verification.
+		phoneNumberMetadata.PublicKeyDeleted = false
 		err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Error saving phone number metadata: %v", err))
@@ -146,6 +148,8 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 	userPKIDEntry := utxoView.GetPKIDForPublicKey(userPublicKeyBytes)
 	profileEntry := utxoView.GetProfileEntryForPKID(userPKIDEntry.PKID)
 
+	// NOTE: for now, if pointing to a different global state, this will not be merged with the black/graylist from
+	// the external source. This is a planned future enhancements.
 	// Now that we have a userMetadata object, update it based on the request.
 	if requestData.IsBlacklistUpdate {
 		userMetadata.RemoveEverywhere = requestData.RemoveEverywhere
@@ -596,7 +600,7 @@ func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *h
 	}
 
 	// Pull the verified map from global state
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMapFromGlobalState()
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("AdminGrantVerificationBadge: Failed fetching verified map from database: %v", err))
 		return
@@ -694,29 +698,24 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 	}
 
 	// Pull the verified map from global state
-	verifiedMapBytes, err := fes.GlobalStateGet(_GlobalStatePrefixForVerifiedMap)
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMapFromGlobalState()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Failed fetching verified map from database."))
+		_AddInternalServerError(ww, fmt.Sprintf("AdminGrantVerificationBadge: Failed fetching verified map from database: %v", err))
 		return
 	}
-	verifiedMapStruct := VerifiedUsernameToPKID{}
-	if verifiedMapBytes != nil {
-		err = gob.NewDecoder(bytes.NewReader(verifiedMapBytes)).Decode(&verifiedMapStruct)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Failed decoding verified map from database."))
-			return
-		}
-	} else {
-		// If we don't find a map in global state, return early.
+	// We can exit early if there are no users in the verified map.
+	if verifiedMap == nil || len(verifiedMap) == 0 {
 		res := AdminRemoveVerificationBadgeResponse{
 			Message: "Couldn't find a verified username map in global state.  Nothing to delete.",
 		}
-		if err := json.NewEncoder(ww).Encode(res); err != nil {
+		if err = json.NewEncoder(ww).Encode(res); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Problem encoding response as "+
 				"JSON: %v", err))
-			return
 		}
 		return
+	}
+	verifiedMapStruct := VerifiedUsernameToPKID{
+		VerifiedUsernameToPKID: verifiedMap,
 	}
 
 	// Add a new audit log for this verification removal request.
@@ -731,7 +730,9 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 
 	// Encode the updated entry and stick it in the database.
 	metadataDataBuf := bytes.NewBuffer([]byte{})
-	gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct)
+	if err = gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Failed encoding new verification map: %v", err))
+	}
 	err = fes.GlobalStatePut(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
 	if err != nil {
 		_AddBadRequestError(ww, "AdminRemoveVerificationBadge: Failed placing new verification map into the database.")
@@ -742,7 +743,7 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 	res := AdminRemoveVerificationBadgeResponse{
 		Message: "Successfully removed verification badge for: " + usernameToRemove,
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Problem encoding response as JSON: %v", err))
 		return
 	}

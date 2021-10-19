@@ -153,6 +153,10 @@ func init() {
 	runCmd.PersistentFlags().String("cloudflare-stream-token", "", "API Token with Edit access to Cloudflare's stream service")
 	runCmd.PersistentFlags().String("cloudflare-account-id", "", "Cloudflare Account ID")
 
+	// Global State
+	runCmd.PersistentFlags().Bool("expose-global-state", false, "Expose global state data to all origins")
+	runCmd.PersistentFlags().String("global-state-api-url", "", "URL to use to fetch global state data. Only used if expose-global-state is false. If not provided, use own global state.")
+
 	runCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
 		viper.BindPFlag(flag.Name, flag)
 	})

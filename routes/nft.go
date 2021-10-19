@@ -1215,7 +1215,6 @@ func (fes *APIServer) GetNFTEntriesForPostHash(ww http.ResponseWriter, req *http
 	// Decode the postHash.
 	postHash := &lib.BlockHash{}
 	if requestData.PostHashHex != "" {
-		var postHashBytes []byte
 		postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
 		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
 			_AddBadRequestError(ww, fmt.Sprintf("GetNFTEntriesForPostHash: Error parsing post hash %v: %v",

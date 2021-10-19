@@ -375,6 +375,9 @@ type PhoneNumberMetadata struct {
 
 	// if true, when the public key associated with this metadata tries to create a profile, we will comp their fee.
 	ShouldCompProfileCreation bool
+
+	// True if user deleted PII. Since users can
+	PublicKeyDeleted bool
 }
 
 type WyreWalletOrderMetadata struct {

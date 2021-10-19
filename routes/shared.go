@@ -181,10 +181,14 @@ func (fes *APIServer) GetBalanceForPublicKey(publicKeyBytes []byte) (
 // Returns nil it encounters an error. Returning nil is not dangerous, as
 // _profileEntryToResponse() will ignore the map entirely in that case.
 func (fes *APIServer) GetVerifiedUsernameToPKIDMap() (_verificationMap map[string]*lib.PKID, _err error) {
+	return fes.VerifiedUsernameToPKIDMap, nil
+}
+
+func (fes *APIServer) GetVerifiedUsernameToPKIDMapFromGlobalState() (_verificationMap map[string]*lib.PKID, _err error) {
 	// Pull the verified map from global state.
 	verifiedMapBytes, err := fes.GlobalStateGet(_GlobalStatePrefixForVerifiedMap)
 	if err != nil {
-		return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMap: Cannot Decode Verification Map: %v", err)
+		return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMapFromGlobalState: Cannot Decode Verification Map: %v", err)
 	}
 	verifiedMapStruct := VerifiedUsernameToPKID{}
 
@@ -192,7 +196,7 @@ func (fes *APIServer) GetVerifiedUsernameToPKIDMap() (_verificationMap map[strin
 	if len(verifiedMapBytes) > 0 {
 		err = gob.NewDecoder(bytes.NewReader(verifiedMapBytes)).Decode(&verifiedMapStruct)
 		if err != nil {
-			return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMap: Cannot Decode Verification Map: %v", err)
+			return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMapFromGlobalState: Cannot Decode Verification Map: %v", err)
 		}
 	} else {
 		// Create the inital map structure
@@ -203,7 +207,7 @@ func (fes *APIServer) GetVerifiedUsernameToPKIDMap() (_verificationMap map[strin
 		gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct)
 		err = fes.GlobalStatePut(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
 		if err != nil {
-			return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMap: Cannot Decode Verification Map: %v", err)
+			return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMapFromGlobalState: Cannot Decode Verification Map: %v", err)
 		}
 	}
 	// Return the verificationMap

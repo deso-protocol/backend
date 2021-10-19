@@ -388,7 +388,7 @@ func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
 	}
 
 	// Filter restricted public keys out of the posts.
-	filteredPostEntryPubKeyMap, err := fes.FilterOutRestrictedPubKeysFromMap(postEntryPubKeyMap, readerPK, "leaderboard")
+	filteredPostEntryPubKeyMap, err := fes.FilterOutRestrictedPubKeysFromMap(postEntryPubKeyMap, readerPK, "leaderboard", utxoView)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "GetPostsByDESO: Problem filtering restricted profiles from map: ")
 	}
@@ -715,6 +715,13 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	// TODO: if we are using an external global state and we want to fetch the global feed, can we just hit
+	// get-posts-stateless on the external node?
+	if fes.Config.GlobalStateAPIUrl != "" && requestData.GetPostsForGlobalWhitelist {
+		// hit external get-posts-stateless and return.
+		return
+	}
+
 	// Decode the reader public key into bytes. Default to nil if no pub key is passed in.
 	var readerPublicKeyBytes []byte
 	var err error
@@ -1030,7 +1037,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 
 	// Filter out restricted PosterPublicKeys.
 	filteredProfilePubKeyMap, err := fes.FilterOutRestrictedPubKeysFromMap(
-		profilePubKeyMap, readerPublicKeyBytes, "leaderboard" /*moderationType*/)
+		profilePubKeyMap, readerPublicKeyBytes, "leaderboard" /*moderationType*/, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error filtering out restricted profiles: %v", err))
 		return
@@ -1637,9 +1644,9 @@ func (fes *APIServer) GetLikesForPost(ww http.ResponseWriter, req *http.Request)
 
 	var filteredPkMap map[lib.PkMapKey][]byte
 	if addReaderPublicKey := utxoView.GetLikedByReader(readerPublicKeyBytes, postHash); addReaderPublicKey {
-		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, readerPublicKeyBytes, "leaderboard" /*moderationType*/)
+		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, readerPublicKeyBytes, "leaderboard" /*moderationType*/, utxoView)
 	} else {
-		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, nil, "leaderboard" /*moderationType*/)
+		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, nil, "leaderboard" /*moderationType*/, utxoView)
 	}
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetLikesForPost: Error filtering out restricted profiles: %v", err))
@@ -1763,7 +1770,7 @@ func (fes *APIServer) GetDiamondsForPost(ww http.ResponseWriter, req *http.Reque
 			pkMapToFilter[pkMapKey] = profileEntry.PublicKey
 		}
 	}
-	filteredPkMap, err := fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, readerPublicKeyBytes, "leaderboard" /*moderationType*/)
+	filteredPkMap, err := fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, readerPublicKeyBytes, "leaderboard" /*moderationType*/, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDiamondsForPost: Error filtering out restricted profiles: %v", err))
 		return
@@ -1906,9 +1913,9 @@ func (fes *APIServer) GetRepostsForPost(ww http.ResponseWriter, req *http.Reques
 	var filteredPkMap map[lib.PkMapKey][]byte
 	if _, addReaderPublicKey := utxoView.GetRepostPostEntryStateForReader(readerPublicKeyBytes, postHash); addReaderPublicKey {
 		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(
-			pkMapToFilter, readerPublicKeyBytes, "leaderboard" /*moderationType*/)
+			pkMapToFilter, readerPublicKeyBytes, "leaderboard" /*moderationType*/, utxoView)
 	} else {
-		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, nil, "leaderboard" /*moderationType*/)
+		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, nil, "leaderboard" /*moderationType*/, utxoView)
 	}
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetRepostsForPost: Error filtering out restricted profiles: %v", err))
@@ -2024,7 +2031,7 @@ func (fes *APIServer) GetQuoteRepostsForPost(ww http.ResponseWriter, req *http.R
 
 	// Filter out any restricted profiles.
 	filteredPubKeys, err := fes.FilterOutRestrictedPubKeysFromList(
-		quoteReposterPubKeys, readerPublicKeyBytes, "leaderboard" /*moderationType*/)
+		quoteReposterPubKeys, readerPublicKeyBytes, "leaderboard" /*moderationType*/, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetQuoteRepostsForPost: Error filtering out restricted profiles: %v", err))
 		return
