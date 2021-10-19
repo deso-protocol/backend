@@ -2613,3 +2613,84 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 		return
 	}
 }
+
+type DeletePIIRequest struct {
+	PublicKeyBase58Check string
+	JWT                  string
+}
+
+func (fes *APIServer) DeletePII(ww http.ResponseWriter, rr *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(rr.Body, MaxRequestBodySizeBytes))
+	requestData := DeletePIIRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DeletePII: Error parsing request body: %v", err))
+		return
+	}
+
+	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DeletePII: error validating JWT: %v", err))
+		return
+	}
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("DeletePII: Invalid token: %v", err))
+		return
+	}
+
+	// Get a view
+	//utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	//if err != nil {
+	//	_AddBadRequestError(ww, fmt.Sprintf("GetFollowsStateless Error getting view: %v", err))
+	//	return
+	//}
+
+	var publicKeyBytes []byte
+	if requestData.PublicKeyBase58Check != "" {
+		publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetFollowsStateless: Problem decoding user public key: %v", err))
+			return
+		}
+	} else {
+		_AddBadRequestError(ww, fmt.Sprintf("DeletePII: PublicKeyBase58Check required"))
+		return
+	}
+
+	userMetadata, err := fes.getUserMetadataFromGlobalStateByPublicKeyBytes(publicKeyBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DeletePII: Error fetching user metadata from global state: %v", err))
+		return
+	}
+
+	if userMetadata.PhoneNumber != "" {
+		var phoneNumberMetadata *PhoneNumberMetadata
+		phoneNumberMetadata, err = fes.getPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("DeletePII: Error fetching phone number metadata from global state: %v", err))
+			return
+		}
+		// Unset the public key so the history of this phone number can't be tracked back to a public key
+		phoneNumberMetadata.PublicKey = []byte{}
+		// We explicity set should comp profile creation to false since we can't associate this phone number to a public key anymore.
+		phoneNumberMetadata.ShouldCompProfileCreation = false
+
+		phoneNumberMetadata.PublicKeyDeleted = true
+
+		if err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("DeletePII: Error putting updated phone number metadata in global state: %v", err))
+			return
+		}
+	}
+
+	userMetadata.PhoneNumber = ""
+	userMetadata.Email = ""
+	userMetadata.PhoneNumberCountryCode = ""
+	userMetadata.EmailVerified = false
+	// This is a deprecated field but we set it to nil anyway.
+	userMetadata.JumioDocumentKey = nil
+
+	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DeletePII: Error putting updated user metadata in global state: %v", err))
+		return
+	}
+}

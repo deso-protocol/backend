@@ -76,6 +76,7 @@ const (
 	RoutePathIsFollowingPublicKey     = "/api/v0/is-following-public-key"
 	RoutePathIsHodlingPublicKey       = "/api/v0/is-hodling-public-key"
 	RoutePathGetUserDerivedKeys       = "/api/v0/get-user-derived-keys"
+	RoutePathDeletePII                = "/api/v0/delete-pii"
 
 	// post.go
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
@@ -843,6 +844,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetUserDerivedKeys,
 			fes.GetUserDerivedKeys,
+			PublicAccess,
+		},
+		{
+			"DeletePII",
+			[]string{"POST", "OPTIONS"},
+			RoutePathDeletePII,
+			fes.DeletePII,
 			PublicAccess,
 		},
 		// Jumio Routes
