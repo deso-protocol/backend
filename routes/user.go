@@ -2013,7 +2013,6 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 
 	filteredOutCategories := request.FilteredOutNotificationCategories
 
-	fmt.Printf("%v", filteredOutCategories)
 	pkBytes, _, err := lib.Base58CheckDecode(request.PublicKeyBase58Check)
 	if err != nil {
 		return nil, nil, errors.Errorf("GetNotifications: Problem parsing public key: %v", err)
