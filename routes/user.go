@@ -2627,6 +2627,7 @@ func (fes *APIServer) DeletePII(ww http.ResponseWriter, rr *http.Request) {
 		return
 	}
 
+	// Check request's JWT
 	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("DeletePII: error validating JWT: %v", err))
@@ -2637,13 +2638,7 @@ func (fes *APIServer) DeletePII(ww http.ResponseWriter, rr *http.Request) {
 		return
 	}
 
-	// Get a view
-	//utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	//if err != nil {
-	//	_AddBadRequestError(ww, fmt.Sprintf("GetFollowsStateless Error getting view: %v", err))
-	//	return
-	//}
-
+	// Decode Public key
 	var publicKeyBytes []byte
 	if requestData.PublicKeyBase58Check != "" {
 		publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
@@ -2656,12 +2651,14 @@ func (fes *APIServer) DeletePII(ww http.ResponseWriter, rr *http.Request) {
 		return
 	}
 
+	// Fetch user metadata struct that needs to be updated
 	userMetadata, err := fes.getUserMetadataFromGlobalStateByPublicKeyBytes(publicKeyBytes)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("DeletePII: Error fetching user metadata from global state: %v", err))
 		return
 	}
 
+	// If user metadata has a phone number, get the phone number metadata and delete relevant fields.
 	if userMetadata.PhoneNumber != "" {
 		var phoneNumberMetadata *PhoneNumberMetadata
 		phoneNumberMetadata, err = fes.getPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
