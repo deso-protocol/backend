@@ -1801,6 +1801,10 @@ type GetNotificationsRequest struct {
 	PublicKeyBase58Check string
 	FetchStartIndex      int64
 	NumToFetch           int64
+	// This defines notifications that should be filtered OUT of the response
+	// If a field is missing from this struct, it should be included in the response
+	// Accepted values are like, diamond, follow, transfer, nft, post
+	FilteredOutNotificationCategories map[string]bool
 }
 
 type GetNotificationsResponse struct {
@@ -2007,6 +2011,9 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 				"on startup")
 	}
 
+	filteredOutCategories := request.FilteredOutNotificationCategories
+
+	fmt.Printf("%v", filteredOutCategories)
 	pkBytes, _, err := lib.Base58CheckDecode(request.PublicKeyBase58Check)
 	if err != nil {
 		return nil, nil, errors.Errorf("GetNotifications: Problem parsing public key: %v", err)
@@ -2211,7 +2218,7 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 	finalTxnMetadataList := []*TransactionMetadataResponse{}
 	if request.FetchStartIndex >= 0 {
 		for _, txnMeta := range combinedMempoolDBTxnMetadata {
-			if txnMeta.Index <= request.FetchStartIndex {
+			if txnMeta.Index <= request.FetchStartIndex && NotificationTxnShouldBeIncluded(txnMeta.Metadata, &filteredOutCategories) {
 				finalTxnMetadataList = append(finalTxnMetadataList, txnMeta)
 			}
 
@@ -2223,13 +2230,49 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 		// In this case, no start index is set and so we just return NumToFetch
 		// txns from the combined list starting at the beginning, which holds the
 		// latest txns.
-		finalTxnMetadataList = combinedMempoolDBTxnMetadata
+		for _, txnMeta := range combinedMempoolDBTxnMetadata {
+			if NotificationTxnShouldBeIncluded(txnMeta.Metadata, &filteredOutCategories) {
+				finalTxnMetadataList = append(finalTxnMetadataList, txnMeta)
+			}
+		}
 		if len(finalTxnMetadataList) > int(request.NumToFetch) {
 			finalTxnMetadataList = finalTxnMetadataList[:request.NumToFetch]
 		}
 	}
 
 	return finalTxnMetadataList, utxoView, nil
+}
+
+// Determine if a transaction should be included in the notifications response based on filters
+func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredOutCategoriesPointer *map[string]bool) bool {
+	filteredOutCategories := *filteredOutCategoriesPointer
+
+	// If filteredOutCategory map isn't defined in the request, everything should be included
+	if (filteredOutCategories == nil) {
+		return true
+	}
+
+	if txnMeta.TxnType == "BASIC_TRANSFER" || txnMeta.TxnType == "CREATOR_COIN_TRANSFER" {
+		if txnMeta.BasicTransferTxindexMetadata != nil && txnMeta.BasicTransferTxindexMetadata.DiamondLevel > 0 {
+			return !filteredOutCategories["diamond"]
+		} else if txnMeta.CreatorCoinTransferTxindexMetadata != nil && txnMeta.CreatorCoinTransferTxindexMetadata.DiamondLevel > 0 {
+			return !filteredOutCategories["diamond"]
+		} else {
+			return !filteredOutCategories["transfer"]
+		}
+	} else if txnMeta.TxnType == "CREATOR_COIN" {
+		return !filteredOutCategories["transfer"]
+	} else if txnMeta.TxnType == "SUBMIT_POST" {
+		return !filteredOutCategories["post"]
+	} else if txnMeta.TxnType == "FOLLOW" {
+		return !filteredOutCategories["follow"]
+	} else if txnMeta.TxnType == "LIKE" {
+		return !filteredOutCategories["like"]
+	} else if txnMeta.TxnType == "NFT" || txnMeta.TxnType == "ACCEPT_NFT_BID" {
+		return !filteredOutCategories["nft"]
+	}
+	// If the transaction type doesn't fall into any of the previous steps, we don't want it
+	return false
 }
 
 func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Check string, utxoView *lib.UtxoView) bool {
