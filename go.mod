@@ -14,6 +14,7 @@ require (
 	cloud.google.com/go/storage v1.15.0
 	github.com/btcsuite/btcd v0.21.0-beta
 	github.com/btcsuite/btcutil v1.0.2
+	github.com/davecgh/go-spew v1.1.1
 	github.com/deso-protocol/core v0.0.0-00010101000000-000000000000
 	github.com/dgraph-io/badger/v3 v3.2103.0
 	github.com/fatih/structs v1.1.0
@@ -26,6 +27,7 @@ require (
 	github.com/kevinburke/rest v0.0.0-20210506044642-5611499aa33c // indirect
 	github.com/kevinburke/twilio-go v0.0.0-20210327194925-1623146bcf73
 	github.com/mitchellh/go-homedir v1.1.0
+	github.com/mitchellh/mapstructure v1.1.2
 	github.com/montanaflynn/stats v0.0.0-20171201202039-1bf9dbcd8cbe
 	github.com/nyaruka/phonenumbers v1.0.69
 	github.com/pkg/errors v0.9.1
