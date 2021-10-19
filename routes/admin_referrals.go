@@ -887,6 +887,8 @@ func (fes *APIServer) AdminDownloadRefereeCSV(ww http.ResponseWriter, req *http.
 		} else {
 			nextRow = append(nextRow, "")
 		}
+
+		csvRows = append(csvRows, nextRow)
 	}
 
 	// If we made it this far we were successful, return without error.
