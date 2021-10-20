@@ -441,6 +441,7 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeR
 					profileEntryResponse := ProfileEntryResponse{}
 					profileEntryResponse.PublicKeyBase58Check =
 						lib.PkToString(lib.PKIDToPublicKey(refereePKID), fes.Params)
+					referredUsers = append(referredUsers, profileEntryResponse)
 				}
 			}
 		}
