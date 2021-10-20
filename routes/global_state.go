@@ -480,6 +480,13 @@ func GlobalStateSeekKeyForPKIDReferralHashes(pkid *lib.PKID) []byte {
 	return key
 }
 
+func GlobalStateSeekKeyForPKIDReferralHashRefereePKIDs(pkid *lib.PKID, referralHash []byte) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDReferralHashRefereePKID...)
+	key := append(prefixCopy, pkid[:]...)
+	key = append(key, referralHash[:]...)
+	return key
+}
+
 func GlobalStateKeyForPKIDReferralHashRefereePKID(pkid *lib.PKID, referralHash []byte, refereePKID *lib.PKID) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDReferralHashRefereePKID...)
 	key := append(prefixCopy, pkid[:]...)
