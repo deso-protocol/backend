@@ -161,9 +161,10 @@ var (
 	_GlobalStatePrefixReferralHashToReferralInfo = []byte{24}
 	// 	- <prefix, PKID, referral hash (8 bytes)> -> <IsActive bool>
 	_GlobalStatePrefixPKIDReferralHashToIsActive = []byte{25}
-
-	// - <prefix, PKID, referral hash (6-8 bytes), Referred PKID
+	// - <prefix, PKID, referral hash (8 bytes), Referred PKID
 	_GlobalStatePrefixPKIDReferralHashRefereePKID = []byte{26}
+	// - <prefix, TimestampNanos, PKID, referral hash (8 bytes), Referred PKID
+	_GlobalStatePrefixTimestampPKIDReferralHashRefereePKID = []byte{37}
 
 	// ETH purchases <prefix, ETH Txn Hash> -> <Complete bool>
 	_GlobalStatePrefixForETHPurchases = []byte{27}
@@ -201,7 +202,7 @@ var (
 	// same ID.
 	//
 
-	// NEXT_TAG: 37
+	// NEXT_TAG: 38
 )
 
 type HotFeedApprovedPostOp struct {
@@ -482,6 +483,16 @@ func GlobalStateSeekKeyForPKIDReferralHashes(pkid *lib.PKID) []byte {
 func GlobalStateKeyForPKIDReferralHashRefereePKID(pkid *lib.PKID, referralHash []byte, refereePKID *lib.PKID) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDReferralHashRefereePKID...)
 	key := append(prefixCopy, pkid[:]...)
+	key = append(key, referralHash[:]...)
+	key = append(key, refereePKID[:]...)
+	return key
+}
+
+func GlobalStateKeyForTimestampPKIDReferralHashRefereePKID(
+	tstampNanos uint64, pkid *lib.PKID, referralHash []byte, refereePKID *lib.PKID) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixTimestampPKIDReferralHashRefereePKID...)
+	key := append(prefixCopy, lib.EncodeUint64(tstampNanos)...)
+	key = append(key, pkid[:]...)
 	key = append(key, referralHash[:]...)
 	key = append(key, refereePKID[:]...)
 	return key
