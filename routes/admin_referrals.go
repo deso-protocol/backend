@@ -335,8 +335,9 @@ func (fes *APIServer) AdminUpdateReferralHash(ww http.ResponseWriter, req *http.
 }
 
 type ReferralInfoResponse struct {
-	IsActive bool
-	Info     ReferralInfo
+	IsActive      bool
+	Info          ReferralInfo
+	ReferredUsers []ProfileEntryResponse
 }
 
 type SimpleReferralInfoResponse struct {
@@ -407,10 +408,46 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte,
 			}
 		}
 
+		// Look up all of the users referred by this referral hash.
+		refereeSeekKey := GlobalStateSeekKeyForPKIDReferralHashRefereePKIDs(
+			referrerPKID.PKID, referralHashBytes)
+		refereeKeys, _, err := fes.GlobalStateSeek(refereeSeekKey, refereeSeekKey, 0, 0, false, false)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"getReferralInfoResponsesForPubKey: Failed to get referees (%s): %v",
+				referralHash, err)
+		}
+		// Get the map of verified usernames.
+		verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+		if err != nil {
+			return nil, fmt.Errorf("GetProfiles: Error fetching verifiedMap: %v", err)
+		}
+		// Now we chop the RefereePKIDs out of the keys and look up their profiles.
+		// The key consists of: Prefix, ReferralPKID, ReferralHash, RefereePKID.
+		refereePKIDStartIdx := 1 + btcec.PubKeyBytesLenCompressed + 8
+		referredUsers := []ProfileEntryResponse{}
+		for _, keyBytes := range refereeKeys {
+			refereePKIDBytes := keyBytes[refereePKIDStartIdx:]
+			refereePKID := &lib.PKID{}
+			copy(refereePKID[:], refereePKIDBytes)
+
+			profileEntry := utxoView.GetProfileEntryForPKID(refereePKID)
+			if profileEntry != nil {
+				profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+				referredUsers = append(referredUsers, *profileEntryResponse)
+			} else {
+				// This is an anon profile, so we just populate the pub key and call it good.
+				profileEntryResponse := ProfileEntryResponse{}
+				profileEntryResponse.PublicKeyBase58Check =
+					lib.PkToString(lib.PKIDToPublicKey(refereePKID), fes.Params)
+			}
+		}
+
 		// Construct the referral info response and append it to our list.
 		referralInfoResponse := ReferralInfoResponse{
-			IsActive: isActive,
-			Info:     referralInfo,
+			IsActive:      isActive,
+			Info:          referralInfo,
+			ReferredUsers: referredUsers,
 		}
 		referralInfoResponses = append(referralInfoResponses, referralInfoResponse)
 
