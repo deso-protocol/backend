@@ -2667,7 +2667,7 @@ func (fes *APIServer) DeletePII(ww http.ResponseWriter, rr *http.Request) {
 			return
 		}
 		// Unset the public key so the history of this phone number can't be tracked back to a public key
-		phoneNumberMetadata.PublicKey = []byte{}
+		phoneNumberMetadata.PublicKey = nil
 		// We explicity set should comp profile creation to false since we can't associate this phone number to a public key anymore.
 		phoneNumberMetadata.ShouldCompProfileCreation = false
 

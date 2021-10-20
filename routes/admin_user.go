@@ -5,8 +5,8 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
-	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io"
 	"net/http"
@@ -121,6 +121,8 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 			return
 		}
 		phoneNumberMetadata.PublicKey = nil
+		// We set PublicKeyDeleted to false so that this phone number can be used again for verification.
+		phoneNumberMetadata.PublicKeyDeleted = false
 		err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Error saving phone number metadata: %v", err))
