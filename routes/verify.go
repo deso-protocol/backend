@@ -906,11 +906,20 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			if err != nil {
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error getting referral info: %v", err)
 			}
+			// Add an index for logging all the PKIDs referred by a single PKID+ReferralHash pair.
 			refereePKID := utxoView.GetPKIDForPublicKey(publicKeyBytes)
 			pkidReferralHashRefereePKIDKey := GlobalStateKeyForPKIDReferralHashRefereePKID(referralInfo.ReferrerPKID, []byte(referralInfo.ReferralHashBase58), refereePKID.PKID)
 			if err = fes.GlobalStatePut(pkidReferralHashRefereePKIDKey, []byte{1}); err != nil {
 				glog.Errorf("JumioVerifiedHandler: Error adding to the index of users who were referred by a given referral code")
 			}
+			// Same as the index above but sorted by timestamp.
+			currTimestampNanos := uint64(time.Now().UTC().UnixNano()) // current tstamp
+			tstampPKIDReferralHashRefereePKIDKey := GlobalStateKeyForTimestampPKIDReferralHashRefereePKID(
+				currTimestampNanos, referralInfo.ReferrerPKID, []byte(referralInfo.ReferralHashBase58), refereePKID.PKID)
+			if err = fes.GlobalStatePut(tstampPKIDReferralHashRefereePKIDKey, []byte{1}); err != nil {
+				glog.Errorf("JumioVerifiedHandler: Error adding to the index of users who were referred by a given referral code")
+			}
+
 			// Calculate how much to pay the referrer
 			referrerDeSoNanos := fes.GetNanosFromUSDCents(float64(referralInfo.ReferrerAmountUSDCents), 0)
 			if referralInfo.TotalReferrals >= referralInfo.MaxReferrals && referralInfo.MaxReferrals > 0 {
