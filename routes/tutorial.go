@@ -20,6 +20,7 @@ type UpdateTutorialStatusRequest struct {
 	PublicKeyBase58Check string
 	TutorialStatus                      TutorialStatus
 	CreatorPurchasedInTutorialPublicKey string
+	ClearCreatorCoinPurchasedInTutorial bool
 }
 
 type GetTutorialCreatorResponse struct {
@@ -54,6 +55,10 @@ func (fes *APIServer) UpdateTutorialStatus(ww http.ResponseWriter, req *http.Req
 
 	if userMetadata.TutorialStatus != requestData.TutorialStatus {
 		userMetadata.TutorialStatus = requestData.TutorialStatus
+		// If a user is skipping the buy step, we need to set this to 0
+		if (requestData.ClearCreatorCoinPurchasedInTutorial) {
+			userMetadata.CreatorCoinsPurchasedInTutorial = 0
+		}
 		if (requestData.CreatorPurchasedInTutorialPublicKey != "") {
 			CreatorPurchasedInTutorialPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.CreatorPurchasedInTutorialPublicKey)
 			if err != nil || len(CreatorPurchasedInTutorialPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
