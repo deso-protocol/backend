@@ -357,6 +357,7 @@ const (
 	INVEST_OTHERS_SELL TutorialStatus = "InvestInOthersSellComplete"
 	CREATE_PROFILE     TutorialStatus = "TutorialCreateProfileComplete"
 	INVEST_SELF        TutorialStatus = "InvestInYourselfComplete"
+	FOLLOW_CREATORS	   TutorialStatus = "FollowCreatorsComplete"
 	DIAMOND            TutorialStatus = "GiveADiamondComplete"
 	COMPLETE           TutorialStatus = "TutorialComplete"
 )
