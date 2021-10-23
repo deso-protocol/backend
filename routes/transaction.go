@@ -1743,7 +1743,7 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		// TODO: check that user is buying from list of creators included in tutorial
 		// TODO: Save which creator a user purchased by PKID in user metadata so we can bring them to the same place in the flow
 		// TODO: Do we need to save how much they bought for usage in tutorial?
-		if operationType == lib.CreatorCoinOperationTypeBuy && userMetadata.TutorialStatus == STARTED {
+		if operationType == lib.CreatorCoinOperationTypeBuy && userMetadata.TutorialStatus == CREATE_PROFILE {
 			if reflect.DeepEqual(updaterPublicKeyBytes, creatorPublicKeyBytes) {
 				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Cannot purchase your own coin in the Invest in others step"))
 				return
