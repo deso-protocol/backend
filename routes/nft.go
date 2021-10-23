@@ -729,6 +729,10 @@ func (fes *APIServer) GetNFTShowcase(ww http.ResponseWriter, req *http.Request) 
 			return
 		}
 
+		if postEntry.NumNFTCopiesBurned == postEntry.NumNFTCopies {
+			continue
+		}
+
 		nftKey := lib.MakeNFTKey(nftHash, 1)
 		nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
 
