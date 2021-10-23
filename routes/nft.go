@@ -730,7 +730,6 @@ func (fes *APIServer) GetNFTShowcase(ww http.ResponseWriter, req *http.Request) 
 		}
 
 		if postEntry.NumNFTCopiesBurned == postEntry.NumNFTCopies {
-			_AddInternalServerError(ww, fmt.Sprint("GetNFTShowcase: All copies of the NFT have been burned."))
 			continue
 		}
 
