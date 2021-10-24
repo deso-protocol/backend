@@ -2117,7 +2117,7 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem getting user metadata from global state: %v", err))
 			return
 		}
-		if userMetadata.TutorialStatus != FOLLOW_CREATORS {
+		if userMetadata.TutorialStatus != INVEST_SELF {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: User should not be sending diamonds at this point in the tutorial"))
 			return
 		}
