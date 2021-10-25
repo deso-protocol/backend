@@ -305,15 +305,10 @@ type APIServer struct {
 	// Map of public keys that are exempt from node fees
 	ExemptPublicKeyMap map[string]interface{}
 
-	// Global State monitoring data
-	VerifiedUsernameToPublicKeyMap map[string]string
+	// Global State cache
 	VerifiedUsernameToPKIDMap map[string]*lib.PKID
-
-	BlacklistedPublicKeys []string
-	BlacklistedPKIDMap map[lib.PKID][]byte
-
-	GraylistedPublicKeys []string
-	GraylistedPKIDMap map[lib.PKID][]byte
+	BlacklistedPKIDMap        map[lib.PKID][]byte
+	GraylistedPKIDMap         map[lib.PKID][]byte
 
 
 	// Signals that the frontend server is in a stopped state
@@ -1891,25 +1886,22 @@ func (fes *APIServer) StartGlobalStateMonitoring() {
 					glog.Errorf("GlobalStateMonitoring: problem with GetAugmentedUniversalView: %v", err)
 					return
 				}
-				verifiedUsernameMap, verifiedPKIDMap, err := fes.GetVerifiedUsernameMapResponse(utxoView)
+				verifiedPKIDMap, err := fes.GetVerifiedUsernameMapResponse(utxoView)
 				if err != nil {
 					glog.Errorf("GlobalStateMonitoring: Error getting verified username map: %v", err)
 				} else {
-					fes.VerifiedUsernameToPublicKeyMap = verifiedUsernameMap
 					fes.VerifiedUsernameToPKIDMap = verifiedPKIDMap
 				}
-				blacklist, blacklistMap, err := fes.GetBlacklist(utxoView)
+				blacklistMap, err := fes.GetBlacklist(utxoView)
 				if err != nil {
 					glog.Errorf("GlobalStateMonitoring: Error getting blacklist: %v", err)
 				} else {
-					fes.BlacklistedPublicKeys = blacklist
 					fes.BlacklistedPKIDMap = blacklistMap
 				}
-				graylist, graylistMap, err := fes.GetGraylist(utxoView)
+				graylistMap, err := fes.GetGraylist(utxoView)
 				if err != nil {
 					glog.Errorf("GlobalStateMonitoring: Error getting graylist: %v", err)
 				} else {
-					fes.GraylistedPublicKeys = graylist
 					fes.GraylistedPKIDMap = graylistMap
 				}
 			case <-fes.quit:
