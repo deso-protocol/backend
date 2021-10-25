@@ -21,6 +21,7 @@ type UpdateTutorialStatusRequest struct {
 	TutorialStatus                      TutorialStatus
 	CreatorPurchasedInTutorialPublicKey string
 	ClearCreatorCoinPurchasedInTutorial bool
+	JWT string
 }
 
 type GetTutorialCreatorResponse struct {
@@ -35,8 +36,19 @@ func (fes *APIServer) GetTutorialCreators(ww http.ResponseWriter, req *http.Requ
 func (fes *APIServer) UpdateTutorialStatus(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := UpdateTutorialStatusRequest{}
+
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminResetTutorialStatus: Problem parsing request body: %v", err))
+		return
+	}
+	// Validate the JWT is legit.
+	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetReferralInfoForUser: Error validating JWT: %v", err))
+		return
+	}
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("GetReferralInfoForUser: Invalid token: %v", err))
 		return
 	}
 
@@ -55,6 +67,10 @@ func (fes *APIServer) UpdateTutorialStatus(ww http.ResponseWriter, req *http.Req
 
 	if userMetadata.TutorialStatus != requestData.TutorialStatus {
 		userMetadata.TutorialStatus = requestData.TutorialStatus
+		// We need to set this to false once the user completes the tutorial, so any actions aren't blocked
+		if (requestData.TutorialStatus == COMPLETE) {
+			userMetadata.MustCompleteTutorial = false
+		}
 		// If a user is skipping the buy step, we need to set this to 0
 		if (requestData.ClearCreatorCoinPurchasedInTutorial) {
 			userMetadata.CreatorCoinsPurchasedInTutorial = 0
