@@ -700,7 +700,7 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 	// Pull the verified map from global state
 	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMapFromGlobalState()
 	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("AdminGrantVerificationBadge: Failed fetching verified map from database: %v", err))
+		_AddInternalServerError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Failed fetching verified map from database: %v", err))
 		return
 	}
 	// We can exit early if there are no users in the verified map.
