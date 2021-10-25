@@ -1365,16 +1365,16 @@ func (fes *APIServer) GetDiamondsForPublicKey(ww http.ResponseWriter, req *http.
 		jjProfile := diamondSenderSummaryResponses[jj].ProfileEntryResponse
 
 		if iiProfile == nil && jjProfile == nil {
-													return false
-													}
+			return false
+		}
 
 		// If ii has a profile but jj doesn't, prioritize it.
 		if iiProfile != nil && jjProfile == nil {
-													return true
-													}
+			return true
+		}
 		if jjProfile != nil && iiProfile == nil {
-													return false
-													}
+			return false
+		}
 
 		iiDeSoLocked := iiProfile.CoinEntry.DeSoLockedNanos
 		jjDeSoLocked := jjProfile.CoinEntry.DeSoLockedNanos
@@ -1423,11 +1423,11 @@ func (fes *APIServer) sortFollowEntries(followEntryPKIDii *lib.PKID, followEntry
 		profileEntryjj := utxoView.GetProfileEntryForPublicKey(followEntryPublicKeyjj)
 		// FollowEntries that have a profile should come before FollowEntries that do not have a profile.
 		if profileEntryii == nil && profileEntryjj != nil {
-															  return false
-															  }
+			return false
+		}
 		if profileEntryjj == nil && profileEntryii != nil {
-															  return true
-															  }
+			return true
+		}
 		// If both FollowEntries have a profile, compare the two based on coin price.
 		if profileEntryii != nil && profileEntryjj != nil {
 			return profileEntryii.CoinEntry.DeSoLockedNanos > profileEntryjj.CoinEntry.DeSoLockedNanos
@@ -1863,24 +1863,24 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	addPostForHash := func(postHashHex string, readerPK []byte) {
 		postHashBytes, err := hex.DecodeString(postHashHex)
 		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
-																	 return
-																	 }
+			return
+		}
 		postHash := &lib.BlockHash{}
 		copy(postHash[:], postHashBytes)
 
 		postEntry := utxoView.GetPostEntryForPostHash(postHash)
 		if postEntry == nil {
-								return
-								}
+			return
+		}
 		postEntryResponse, err := fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, userPublicKeyBytes, 2)
 		if err != nil {
-						  return
-						  }
+			return
+		}
 
 		postEntryResponse.ProfileEntryResponse = profileEntryResponses[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]
 		if postEntryResponse.ProfileEntryResponse == nil {
-															 return
-															 }
+			return
+		}
 
 		postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPK, postEntry)
 
@@ -1982,20 +1982,20 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 
 	pkBytes, _, err := lib.Base58CheckDecode(request.PublicKeyBase58Check)
 	if err != nil {
-					  return nil, nil, errors.Errorf("GetNotifications: Problem parsing public key: %v", err)
-					  }
+		return nil, nil, errors.Errorf("GetNotifications: Problem parsing public key: %v", err)
+	}
 
 	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(pkBytes)
 	if err != nil {
-					  return nil, nil, errors.Errorf("GetNotifications: Error getting blocked public keys for user: %v", err)
-					  }
+		return nil, nil, errors.Errorf("GetNotifications: Error getting blocked public keys for user: %v", err)
+	}
 
 	// A valid mempool object is used to compute the TransactionMetadata for the mempool
 	// and to allow for things like: filtering notifications for a hidden post.
 	utxoView, err := fes.mempool.GetAugmentedUniversalView()
 	if err != nil {
-					  return nil, nil, errors.Errorf("GetNotifications: Problem getting view: %v", err)
-					  }
+		return nil, nil, errors.Errorf("GetNotifications: Problem getting view: %v", err)
+	}
 
 	// Iterate backward over the database to find as many keys as we can.
 	//
@@ -2114,8 +2114,8 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 		// in the mempool by public key and only look up transactions that are relevant to this public key.
 		poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
 		if err != nil {
-						  return nil, nil, errors.Errorf("APITransactionInfo: Error getting txns from mempool: %v", err)
-						  }
+			return nil, nil, errors.Errorf("APITransactionInfo: Error getting txns from mempool: %v", err)
+		}
 
 		mempoolTxnMetadata := []*TransactionMetadataResponse{}
 		for _, poolTx := range poolTxns {
@@ -2209,8 +2209,8 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 	// Transactions initiated by the passed-in public key should not
 	// trigger notifications.
 	if txnMeta.TransactorPublicKeyBase58Check == publicKeyBase58Check {
-																		  return false
-																		  }
+		return false
+	}
 
 	// Transactions where the user's public key is not affected should not trigger
 	// notifications.
@@ -2222,8 +2222,8 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 		}
 	}
 	if !publicKeyIsAffected {
-								return false
-								}
+		return false
+	}
 
 	// If we get here, we know the user did not initiate the transaction and
 	// we know that the user is affected by the transaction.
@@ -2317,7 +2317,7 @@ func (fes *APIServer) BlockPublicKey(ww http.ResponseWriter, req *http.Request) 
 	if err != nil || len(userPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"BlockPublicKey: Problem decoding user public key %s: %v",
-			   requestData.PublicKeyBase58Check, err))
+			requestData.PublicKeyBase58Check, err))
 		return
 	}
 
@@ -2334,7 +2334,7 @@ func (fes *APIServer) BlockPublicKey(ww http.ResponseWriter, req *http.Request) 
 	if err != nil || len(blockPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"BlockPublicKey: Problem decoding public key to block %s: %v",
-			   requestData.BlockPublicKeyBase58Check, err))
+			requestData.BlockPublicKeyBase58Check, err))
 		return
 	}
 
