@@ -1801,7 +1801,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	if err != nil || len(userPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetNotifications: Problem decoding updater public key %s: %v",
-			   requestData.PublicKeyBase58Check, err))
+			requestData.PublicKeyBase58Check, err))
 		return
 	}
 
