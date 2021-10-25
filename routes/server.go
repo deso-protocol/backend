@@ -390,11 +390,8 @@ func NewAPIServer(
 		fes.StartHotFeedRoutine()
 	}
 
-	//if fes.Config.ExposeGlobalState {
+	// Kick off Global State Monitoring to set up cache of Verified Username, Blacklist, and Graylist.
 	fes.StartGlobalStateMonitoring()
-	//} else if fes.Config.GlobalStateAPIUrl != "" {
-	//
-	//}
 
 	return fes, nil
 }
@@ -1582,7 +1579,7 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 			match = true
 			actualOrigin = "*"
 		} else if _, exists := publicRoutes[r.RequestURI]; exists {
-			// We set the headers for all requests to GetJumioStatusForPublicKey, UploadVideo, and GetVideoStatus.
+			// We set the headers for all requests to public routes.
 			// This allows third-party frontends to access this endpoint
 			match = true
 			actualOrigin = "*"
