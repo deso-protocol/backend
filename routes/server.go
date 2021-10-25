@@ -131,6 +131,7 @@ const (
 	// tutorial.go
 	RoutePathGetTutorialCreators = "/api/v0/get-tutorial-creators"
 	RoutePathStartOrSkipTutorial = "/api/v0/start-or-skip-tutorial"
+	RoutePathUpdateTutorialStatus = "/api/v0/update-tutorial-status"
 
 	// eth.go
 	RoutePathSubmitETHTx       = "/api/v0/submit-eth-tx"
@@ -895,6 +896,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetTutorialCreators,
 			fes.GetTutorialCreators,
+			PublicAccess,
+		},
+		{
+			"UpdateTutorialStatus",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateTutorialStatus,
+			fes.UpdateTutorialStatus,
 			PublicAccess,
 		},
 

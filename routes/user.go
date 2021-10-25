@@ -1025,6 +1025,8 @@ type GetSingleProfileRequest struct {
 	PublicKeyBase58Check string `safeForLogging:"true"`
 	// When set, we return profiles starting at the given username up to numEntriesToReturn.
 	Username string `safeForLogging:"true"`
+	// When true, we don't log a 404 for missing profiles
+	NoErrorOnMissing bool `safeForLogging:"true"`
 }
 
 type GetSingleProfileResponse struct {
@@ -1070,7 +1072,9 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 
 	// Return an error if we failed to find a profile entry
 	if profileEntry == nil {
-		_AddNotFoundError(ww, fmt.Sprintf("GetSingleProfile: could not find profile for username or public key: %v, %v", requestData.Username, requestData.PublicKeyBase58Check))
+		if (!requestData.NoErrorOnMissing) {
+			_AddNotFoundError(ww, fmt.Sprintf("GetSingleProfile: could not find profile for username or public key: %v, %v", requestData.Username, requestData.PublicKeyBase58Check))
+		}
 		return
 	}
 
