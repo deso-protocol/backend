@@ -893,6 +893,15 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error sending starter DeSo: %v", err)
 			}
 
+			// Log payout to referee in amplitude
+			eventDataMap := make(map[string]interface{})
+			eventDataMap["amountNanos"] = desoNanos
+			eventDataMap["txnHashHex"] = txnHash.String()
+			eventDataMap["referralCode"] = userMetadata.ReferralHashBase58Check
+			if err = fes.logAmplitudeEvent(lib.PkToString(publicKeyBytes, fes.Params), "referral : payout", eventDataMap); err != nil {
+				glog.Errorf("JumioVerifiedhandler: Error logging payout to referee in amplitude: %v", err)
+			}
+
 			// Save transaction hash hex in user metadata.
 			userMetadata.JumioStarterDeSoTxnHashHex = txnHash.String()
 		}
@@ -956,6 +965,17 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			referrerTxnHash, err = fes.SendSeedDeSo(referrerPublicKeyBytes, referrerDeSoNanos, false)
 			if err != nil {
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error sending DESO to referrer: %v", err)
+			}
+			// Log payout to referee in amplitude
+			eventDataMap := make(map[string]interface{})
+			eventDataMap["amountNanos"] = referrerDeSoNanos
+			eventDataMap["txnHashHex"] = referrerTxnHash.String()
+			eventDataMap["referralCode"] = userMetadata.ReferralHashBase58Check
+			eventDataMap["refereePublicKey"] = lib.PkToString(publicKeyBytes, fes.Params)
+			eventDataMap["totalReferrals"] = referralInfo.TotalReferrals
+			eventDataMap["totalReferrerPayoutNanos"] = referralInfo.TotalReferrerDeSoNanos
+			if err = fes.logAmplitudeEvent(lib.PkToString(referrerPublicKeyBytes, fes.Params), "referral : payout : referer", eventDataMap); err != nil {
+				glog.Errorf("JumioVerifiedhandler: Error logging payout to referer in amplitude: %v", err)
 			}
 			// Set the referrer deso txn hash.
 			userMetadata.ReferrerDeSoTxnHash = referrerTxnHash.String()
