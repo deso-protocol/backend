@@ -148,8 +148,6 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 	userPKIDEntry := utxoView.GetPKIDForPublicKey(userPublicKeyBytes)
 	profileEntry := utxoView.GetProfileEntryForPKID(userPKIDEntry.PKID)
 
-	// NOTE: for now, if pointing to a different global state, this will not be merged with the black/graylist from
-	// the external source. This is a planned future enhancements.
 	// Now that we have a userMetadata object, update it based on the request.
 	if requestData.IsBlacklistUpdate {
 		userMetadata.RemoveEverywhere = requestData.RemoveEverywhere
@@ -157,12 +155,12 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 		if userMetadata.RemoveEverywhere {
 			err = fes.GlobalStatePut(blacklistKey, lib.IsBlacklisted)
 			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating blacklist: %v", err))
+				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem adding to blacklist: %v", err))
 			}
 		} else {
-			err = fes.GlobalStateDelete(blacklistKey)
+			err = fes.GlobalStatePut(blacklistKey, lib.NotBlacklisted)
 			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem deleting from blacklist: %v", err))
+				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem removing from blacklist: %v", err))
 				return
 			}
 		}
@@ -180,13 +178,13 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 			// We need to update global state's list of graylisted users.
 			err = fes.GlobalStatePut(graylistkey, lib.IsGraylisted)
 			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating graylist: %v", err))
+				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem adding to graylist: %v", err))
 				return
 			}
 		} else {
-			err = fes.GlobalStateDelete(graylistkey)
+			err = fes.GlobalStatePut(graylistkey, lib.NotGraylisted)
 			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem deleting from graylist: %v", err))
+				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem removing from graylist: %v", err))
 				return
 			}
 		}
@@ -643,7 +641,7 @@ func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *h
 	}
 
 	// Force a refresh of the Verified Username map.
-	fes.SetVerifiedUsernameMapResponse(utxoView)
+	fes.SetVerifiedUsernameMapResponse()
 
 	// Return a success message
 	res := AdminGrantVerificationBadgeResponse{
@@ -751,7 +749,7 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 	}
 
 	// Force a refresh of the Verified Username map.
-	fes.SetVerifiedUsernameMapResponse(utxoView)
+	fes.SetVerifiedUsernameMapResponse()
 
 	// Return a success message
 	res := AdminRemoveVerificationBadgeResponse{

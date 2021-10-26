@@ -8,7 +8,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"reflect"
 )
 
 // GetVerifiedUsernameMap returns the VerifiedUsernameToPKID map if global state is exposed.
@@ -121,8 +120,10 @@ func (fes *APIServer) GetGlobalFeed(ww http.ResponseWriter, req *http.Request) {
 }
 
 // GetVerifiedUsernameMapResponse gets the verified username map (both map[string]string and map[string]*lib.PKID) from
-// the configured GlobalStateAPIUrl or this node's global state.
-func (fes *APIServer) GetVerifiedUsernameMapResponse(utxoView *lib.UtxoView) (
+// the configured GlobalStateAPIUrl and merges it with this node's global state.
+// Note that it is not possible to remove a verification from a user who has been granted verification on the node
+// configured at the GlobalStateAPIUrl.
+func (fes *APIServer) GetVerifiedUsernameMapResponse() (
 	_verifiedUsernameToPKID map[string]*lib.PKID, _err error,
 ){
 	verifiedUsernameMap := make(map[string]*lib.PKID)
@@ -140,13 +141,18 @@ func (fes *APIServer) GetVerifiedUsernameMapResponse(utxoView *lib.UtxoView) (
 		if err = decoder.Decode(&verifiedUsernameMap); err != nil {
 			return  nil, fmt.Errorf("GetVerifiedUsernameMapResponse: Error decoding bytes: %v", err)
 		}
-	} else {
-		// If we're getting from this node's global state, fetch the bytes from the global state instead of using the
-		// cache.
-		verifiedUsernameMap, err = fes.GetVerifiedUsernameToPKIDMapFromGlobalState()
-		if err != nil {
-			return  nil, fmt.Errorf("GetVerifiedUsernameMapResponse: Error getting verified username map %v", err)
-		}
+	}
+	verifiedUsernameMapLocal := make(map[string]*lib.PKID)
+	// Now we merge this node's global state in with the verifications fetch from the remote node
+	// If we're getting from this node's global state, fetch the bytes from the global state instead of using the
+	// cache.
+	verifiedUsernameMapLocal, err = fes.GetVerifiedUsernameToPKIDMapFromGlobalState()
+	if err != nil {
+		return  nil, fmt.Errorf("GetVerifiedUsernameMapResponse: Error getting verified username map %v", err)
+	}
+
+	for username, pkid := range verifiedUsernameMapLocal {
+		verifiedUsernameMap[username] = pkid
 	}
 
 	return verifiedUsernameMap, nil
@@ -157,7 +163,7 @@ func (fes *APIServer) GetVerifiedUsernameMapResponse(utxoView *lib.UtxoView) (
 func (fes *APIServer) GetBlacklist(utxoView *lib.UtxoView) (
 	_blacklistedPKIDMap map[lib.PKID][]byte, _err error,
 ) {
-	return fes.GetRestrictedPublicKeys(_GlobalStatePrefixPublicKeyToBlacklistState, lib.IsBlacklisted, utxoView, RoutePathGetBlacklistedPublicKeys)
+	return fes.GetRestrictedPublicKeys(_GlobalStatePrefixPublicKeyToBlacklistState, utxoView, RoutePathGetBlacklistedPublicKeys)
 }
 
 // GetGraylist returns both a slice of strings and a map of PKID to []byte representing the current state of graylisted
@@ -165,14 +171,15 @@ func (fes *APIServer) GetBlacklist(utxoView *lib.UtxoView) (
 func (fes *APIServer) GetGraylist(utxoView *lib.UtxoView) (
 	_graylistedPKIDMap map[lib.PKID][]byte, _err error,
 ) {
-	return fes.GetRestrictedPublicKeys(_GlobalStatePrefixPublicKeyToGraylistState, lib.IsGraylisted, utxoView, RoutePathGetGraylistedPublicKeys)
+	return fes.GetRestrictedPublicKeys(_GlobalStatePrefixPublicKeyToGraylistState, utxoView, RoutePathGetGraylistedPublicKeys)
 }
 
-// GetRestrictedPublicKeys fetches the blacklisted or graylisted public keys from this node's global state or the configured
-// external global state. This returns both a slice of public keys (strings) and a map of PKID to restricted bytes.
-func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, filterValue []byte, utxoView *lib.UtxoView, routePath string) (
+// GetRestrictedPublicKeys fetches the blacklisted or graylisted public keys from the configured external global state
+// (if available) and merges it with this node's global state. This returns a map of PKID to restricted bytes.
+func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, utxoView *lib.UtxoView, routePath string) (
 	_pkidMap map[lib.PKID][]byte, _err error,
 ) {
+	pkidMap := make(map[lib.PKID][]byte)
 	// Hit GlobalStateAPIUrl for restricted public keys.
 	if fes.Config.GlobalStateAPIUrl != "" {
 		// Fetch the bytes from the external global state.
@@ -188,7 +195,6 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, filterValue []byte,
 			return nil, fmt.Errorf("GetRestrictedPublicKeys: Error decoding bytes: %v", err)
 		}
 		// Iterate over the restricted public key map to convert string to PKIDs and create a filteredPublicKeys slice.
-		pkidMap := make(map[lib.PKID][]byte)
 		for k, v := range stringifiedPKIDsMap {
 			var publicKeyBytes []byte
 			publicKeyBytes, _, err = lib.Base58CheckDecode(k)
@@ -198,9 +204,8 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, filterValue []byte,
 			pkid := lib.PublicKeyToPKID(publicKeyBytes)
 			pkidMap[*pkid] = v
 		}
-		return pkidMap, nil
 	}
-	// Otherwise, we're using our own global state. Seek global state for all restricted public keys of this type.
+	// Now, get  we're using our own global state. Seek global state for all restricted public keys of this type.
 	publicKeys, states, err := fes.GlobalStateSeek(
 		prefix,
 		prefix, /*validForPrefix*/
@@ -212,18 +217,14 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, filterValue []byte,
 	if err != nil {
 		return nil, err
 	}
-	filteredPKIDMap := make(map[lib.PKID][]byte)
-	// Iterate over all restricted public keys
+	// Iterate over all restricted public keys from the local global state and merge into the map.
 	for ii, publicKeyWithPrefix := range publicKeys {
-		// Sanity check that the byte found in global state indicates this is a restricted key.
-		if reflect.DeepEqual(states[ii], filterValue) {
-			// Remove the prefix byte
-			publicKey := publicKeyWithPrefix[1:]
-			pkid := utxoView.GetPKIDForPublicKey(publicKey)
-			filteredPKIDMap[*pkid.PKID] = filterValue
-		}
+		// Remove the prefix byte
+		publicKey := publicKeyWithPrefix[1:]
+		pkid := utxoView.GetPKIDForPublicKey(publicKey)
+		pkidMap[*pkid.PKID] = states[ii]
 	}
-	return filteredPKIDMap, nil
+	return pkidMap, nil
 }
 
 // FetchFromExternalGlobalState hits an endpoint at the configured GlobalStateAPIUrl and returns the bytes read from

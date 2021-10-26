@@ -1896,13 +1896,13 @@ func (fes *APIServer) SetGlobalStateCache() {
 		glog.Errorf("SetGlobalStateCache: problem with GetAugmentedUniversalView: %v", err)
 		return
 	}
-	fes.SetVerifiedUsernameMapResponse(utxoView)
+	fes.SetVerifiedUsernameMapResponse()
 	fes.SetBlacklistedPKIDMap(utxoView)
 	fes.SetGraylistedPKIDMap(utxoView)
 }
 
-func (fes *APIServer) SetVerifiedUsernameMapResponse(utxoView *lib.UtxoView) {
-	verifiedPKIDMap, err := fes.GetVerifiedUsernameMapResponse(utxoView)
+func (fes *APIServer) SetVerifiedUsernameMapResponse() {
+	verifiedPKIDMap, err := fes.GetVerifiedUsernameMapResponse()
 	if err != nil {
 		glog.Errorf("SetVerifiedUsernameMapResponse: Error getting verified username map: %v", err)
 	} else {
