@@ -196,6 +196,9 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating graylist logs: %v", err))
 			return
 		}
+		// Force Blacklist and Graylist to update instantly.
+		fes.SetBlacklistedPKIDMap(utxoView)
+		fes.SetGraylistedPKIDMap(utxoView)
 	} else if requestData.IsWhitelistUpdate {
 		userMetadata.WhitelistPosts = requestData.WhitelistPosts
 		// We update the logs accordingly
@@ -358,7 +361,7 @@ func (fes *APIServer) AdminGetUserGlobalMetadata(ww http.ResponseWriter, req *ht
 	// If we made it this far we were successful, return without error.
 	res := AdminGetUserGlobalMetadataResponse{
 		UserMetadata:             *userMetadata,
-		UserProfileEntryResponse: _profileEntryToResponse(profileEntry, fes.Params, nil, utxoView),
+		UserProfileEntryResponse: fes._profileEntryToResponse(profileEntry, utxoView),
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserGlobalMetadata: Problem encoding response as JSON: %v", err))
@@ -562,8 +565,9 @@ type AdminGrantVerificationBadgeResponse struct {
 
 // AdminGrantVerificationBadge
 //
-// This endpoint enables anyone with access to a node's shared secret to grant a verifiaction
+// This endpoint enables anyone with access to a node's shared secret to grant a verification
 // badge to a particular username.
+// This operates on this node's global state and does not interact with the configured GlobalStateAPIUrl.
 func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *http.Request) {
 	requestData := AdminGrantVerificationBadgeRequest{}
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
@@ -628,12 +632,18 @@ func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *h
 
 	// Encode the updated entry and stick it in the database.
 	metadataDataBuf := bytes.NewBuffer([]byte{})
-	gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct)
+	if err = gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGrantVerificationBadge: failed to encode verified map struct: %v", err))
+		return
+	}
 	err = fes.GlobalStatePut(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
 	if err != nil {
 		_AddBadRequestError(ww, "AdminGrantVerificationBadge: Failed placing new verification map into the database.")
 		return
 	}
+
+	// Force a refresh of the Verified Username map.
+	fes.SetVerifiedUsernameMapResponse(utxoView)
 
 	// Return a success message
 	res := AdminGrantVerificationBadgeResponse{
@@ -663,6 +673,7 @@ type AdminRemoveVerificationBadgeResponse struct {
 // If the public key still has the same username, the user is considered verified.
 // In order to "delete" a user efficiently, we simply map their public key to an empty string.
 // Since their public key can never have an underlying username of "", it will never show up as verified.
+// This operates on this node's global state and does not interact with the configured GlobalStateAPIUrl.
 func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *http.Request) {
 	requestData := AdminRemoveVerificationBadgeRequest{}
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
@@ -739,6 +750,9 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 		return
 	}
 
+	// Force a refresh of the Verified Username map.
+	fes.SetVerifiedUsernameMapResponse(utxoView)
+
 	// Return a success message
 	res := AdminRemoveVerificationBadgeResponse{
 		Message: "Successfully removed verification badge for: " + usernameToRemove,
@@ -757,9 +771,7 @@ type AdminGetVerifiedUsersResponse struct {
 	VerifiedUsers []string
 }
 
-// AdminGetVerifiedUsers
-//
-// Gets a list of all verified users.
+// AdminGetVerifiedUsers gets a list of all verified users from this node's global state.
 func (fes *APIServer) AdminGetVerifiedUsers(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := AdminGetVerifiedUsersRequest{}
@@ -769,7 +781,7 @@ func (fes *APIServer) AdminGetVerifiedUsers(ww http.ResponseWriter, req *http.Re
 	}
 
 	// Pull the verified map from global state
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMapFromGlobalState()
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("AdminGetVerifiedUsers: Failed fetching verified map from database: %v", err))
 		return
@@ -812,7 +824,8 @@ type AdminGetUsernameVerificationAuditLogsResponse struct {
 	VerificationAuditLogs []VerificationUsernameAuditLogResponse
 }
 
-// Get the verification audit logs for a given username
+// AdminGetUsernameVerificationAuditLogs gets the verification audit logs for a given username from this node's global
+// state.  It does not look at the configured GlobalStateAPIUrl to fetch this information.
 func (fes *APIServer) AdminGetUsernameVerificationAuditLogs(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := AdminGetUsernameVerificationAuditLogsRequest{}
@@ -895,7 +908,8 @@ type AdminGetUserAdminDataResponse struct {
 	ReferrerDeSoTxnHashBase58Check     string
 }
 
-// Get the audit logs for a particular public key and their associated metadata
+// AdminGetUserAdminData gets the audit logs for a particular public key and their associated metadata from this node's
+// global state. This does not use verifications fetched from other APIs.
 func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := AdminGetUserAdminDataRequest{}
@@ -929,7 +943,7 @@ func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Re
 	lastVerifyRemoverPublicKey := ""
 	if profileEntry != nil {
 		username := strings.ToLower(string(profileEntry.Username))
-		verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+		verifiedMap, err := fes.GetVerifiedUsernameToPKIDMapFromGlobalState()
 		if err != nil {
 			_AddInternalServerError(ww, fmt.Sprintf("AdminGetUserMetadata: Failed fetching verified map from database: %v", err))
 			return

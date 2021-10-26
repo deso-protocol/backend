@@ -95,7 +95,7 @@ func (fes *APIServer) GetPostsForNFTDropEntry(dropEntryToReturn *NFTDropEntry,
 				// If we didn't find a profile entry, skip this post.
 				continue
 			} else {
-				profileEntryResponse = _profileEntryToResponse(profileEntry, fes.Params, nil, utxoView)
+				profileEntryResponse = fes._profileEntryToResponse(profileEntry, utxoView)
 				profileEntryResponseMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] = profileEntryResponse
 			}
 		}

@@ -384,6 +384,7 @@ func NewAPIServer(
 		fes.StartHotFeedRoutine()
 	}
 
+	fes.SetGlobalStateCache()
 	// Kick off Global State Monitoring to set up cache of Verified Username, Blacklist, and Graylist.
 	fes.StartGlobalStateMonitoring()
 
@@ -1881,32 +1882,48 @@ func (fes *APIServer) StartGlobalStateMonitoring() {
 		for {
 			select {
 			case <-time.After(1 * time.Minute):
-				utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-				if err != nil {
-					glog.Errorf("GlobalStateMonitoring: problem with GetAugmentedUniversalView: %v", err)
-					return
-				}
-				verifiedPKIDMap, err := fes.GetVerifiedUsernameMapResponse(utxoView)
-				if err != nil {
-					glog.Errorf("GlobalStateMonitoring: Error getting verified username map: %v", err)
-				} else {
-					fes.VerifiedUsernameToPKIDMap = verifiedPKIDMap
-				}
-				blacklistMap, err := fes.GetBlacklist(utxoView)
-				if err != nil {
-					glog.Errorf("GlobalStateMonitoring: Error getting blacklist: %v", err)
-				} else {
-					fes.BlacklistedPKIDMap = blacklistMap
-				}
-				graylistMap, err := fes.GetGraylist(utxoView)
-				if err != nil {
-					glog.Errorf("GlobalStateMonitoring: Error getting graylist: %v", err)
-				} else {
-					fes.GraylistedPKIDMap = graylistMap
-				}
+				fes.SetGlobalStateCache()
 			case <-fes.quit:
 				break out
 			}
 		}
 	}()
+}
+
+func (fes *APIServer) SetGlobalStateCache() {
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		glog.Errorf("SetGlobalStateCache: problem with GetAugmentedUniversalView: %v", err)
+		return
+	}
+	fes.SetVerifiedUsernameMapResponse(utxoView)
+	fes.SetBlacklistedPKIDMap(utxoView)
+	fes.SetGraylistedPKIDMap(utxoView)
+}
+
+func (fes *APIServer) SetVerifiedUsernameMapResponse(utxoView *lib.UtxoView) {
+	verifiedPKIDMap, err := fes.GetVerifiedUsernameMapResponse(utxoView)
+	if err != nil {
+		glog.Errorf("SetVerifiedUsernameMapResponse: Error getting verified username map: %v", err)
+	} else {
+		fes.VerifiedUsernameToPKIDMap = verifiedPKIDMap
+	}
+}
+
+func (fes *APIServer) SetBlacklistedPKIDMap(utxoView *lib.UtxoView) {
+	blacklistMap, err := fes.GetBlacklist(utxoView)
+	if err != nil {
+		glog.Errorf("SetBlacklistedPKIDMap: Error getting blacklist: %v", err)
+	} else {
+		fes.BlacklistedPKIDMap = blacklistMap
+	}
+}
+
+func (fes *APIServer) SetGraylistedPKIDMap(utxoView *lib.UtxoView) {
+	graylistMap, err := fes.GetGraylist(utxoView)
+	if err != nil {
+		glog.Errorf("SetGraylistedPKIDMap: Error getting graylist: %v", err)
+	} else {
+		fes.GraylistedPKIDMap = graylistMap
+	}
 }
