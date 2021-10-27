@@ -308,8 +308,10 @@ type APIServer struct {
 	// Global State cache
 	VerifiedUsernameToPKIDMap map[string]*lib.PKID
 	BlacklistedPKIDMap        map[lib.PKID][]byte
+	BlacklistedResponseMap    map[string][]byte
 	GraylistedPKIDMap         map[lib.PKID][]byte
-
+	GraylistedResponseMap     map[string][]byte
+	GlobalFeedPostHashes      []*lib.BlockHash
 
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
@@ -1436,7 +1438,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		},
 		{
 			"GetGlobalFeed",
-			[]string{"POST", "OPTIONS"},
+			[]string{"GET"},
 			RoutePathGetGlobalFeed,
 			fes.GetGlobalFeed,
 			PublicAccess,
@@ -1523,6 +1525,7 @@ var publicRoutes = map[string]interface{}{
 	RoutePathGetVerifiedUsernameMap: nil,
 	RoutePathGetBlacklistedPublicKeys: nil,
 	RoutePathGetGraylistedPublicKeys: nil,
+	RoutePathGetGlobalFeed: nil,
 }
 
 // AddHeaders ...
@@ -1881,7 +1884,7 @@ func (fes *APIServer) StartGlobalStateMonitoring() {
 	out:
 		for {
 			select {
-			case <-time.After(1 * time.Minute):
+			case <-time.After(10 * time.Second):
 				fes.SetGlobalStateCache()
 			case <-fes.quit:
 				break out
@@ -1899,6 +1902,7 @@ func (fes *APIServer) SetGlobalStateCache() {
 	fes.SetVerifiedUsernameMapResponse()
 	fes.SetBlacklistedPKIDMap(utxoView)
 	fes.SetGraylistedPKIDMap(utxoView)
+	fes.SetGlobalFeedPostHashes()
 }
 
 func (fes *APIServer) SetVerifiedUsernameMapResponse() {
@@ -1916,6 +1920,7 @@ func (fes *APIServer) SetBlacklistedPKIDMap(utxoView *lib.UtxoView) {
 		glog.Errorf("SetBlacklistedPKIDMap: Error getting blacklist: %v", err)
 	} else {
 		fes.BlacklistedPKIDMap = blacklistMap
+		fes.BlacklistedResponseMap = fes.makePKIDMapJSONEncodable(blacklistMap)
 	}
 }
 
@@ -1925,5 +1930,24 @@ func (fes *APIServer) SetGraylistedPKIDMap(utxoView *lib.UtxoView) {
 		glog.Errorf("SetGraylistedPKIDMap: Error getting graylist: %v", err)
 	} else {
 		fes.GraylistedPKIDMap = graylistMap
+		fes.GraylistedResponseMap = fes.makePKIDMapJSONEncodable(graylistMap)
 	}
+}
+
+func (fes *APIServer) SetGlobalFeedPostHashes() {
+	postHashes, err := fes.GetGlobalFeedCache()
+	if err != nil {
+		glog.Errorf("SetGlobalFeedPostHashes: Error getting global feed post hashes: %v", err)
+	} else {
+		fes.GlobalFeedPostHashes = postHashes
+	}
+}
+
+// makeMapJSONEncodable converts a map that has PKID keys into Base58-encoded strings.
+func (fes *APIServer) makePKIDMapJSONEncodable(restrictedKeysMap map[lib.PKID][]byte) map[string][]byte {
+	outputMap := make(map[string][]byte)
+	for k, v := range restrictedKeysMap {
+		outputMap[lib.PkToString(k.ToBytes(), fes.Params)] = v
+	}
+	return outputMap
 }

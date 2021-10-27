@@ -518,6 +518,13 @@ func GlobalStateKeyForTstampPostHash(tstampNanos uint64, postHash *lib.BlockHash
 	return key
 }
 
+func GlobalStateSeekKeyForTstampPostHash(tstampNanos uint64) []byte {
+	// Make a copy to avoid multiple calls to this function re-using the same slice.
+	key := append([]byte{}, _GlobalStatePrefixTstampNanosPostHash...)
+	key = append(key, lib.EncodeUint64(tstampNanos)...)
+	return key
+}
+
 // Key for accessing a pinned post.
 func GlobalStateKeyForTstampPinnedPostHash(tstampNanos uint64, postHash *lib.BlockHash) []byte {
 	// Make a copy to avoid multiple calls to this function re-using the same slice.
