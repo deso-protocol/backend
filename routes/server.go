@@ -309,7 +309,7 @@ type APIServer struct {
 	VerifiedUsernameToPKIDMap map[string]*lib.PKID
 	BlacklistedPKIDMap        map[lib.PKID][]byte
 	GraylistedPKIDMap         map[lib.PKID][]byte
-
+	GlobalStatePostHashes     []*lib.BlockHash
 
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}

@@ -527,7 +527,7 @@ func (fes *APIServer) _shouldSkipCommentResponse(commentResponse *PostEntryRespo
 }
 
 func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
-	startPostHash *lib.BlockHash, readerPK []byte, numToFetch int, utxoView *lib.UtxoView, mediaRequired bool) (
+	startPostHash *lib.BlockHash, startTstampNanos uint64, readerPK []byte, numToFetch int, utxoView *lib.UtxoView, mediaRequired bool) (
 	_postEntries []*lib.PostEntry,
 	_profilesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry,
 	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, err error) {
@@ -542,6 +542,8 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 	if startPost != nil {
 		seekStartKey = GlobalStateKeyForTstampPostHash(startPost.TimestampNanos, startPost.PostHash)
 		skipFirstEntry = true
+	} else if startTstampNanos != 0 {
+		seekStartKey = GlobalStateKeyForTstampPostHash(startTstampNanos, nil)
 	} else {
 		// If we can't find a valid start post, we just use the prefix. GlobalStateSeek will
 		// pad the value as necessary.
@@ -556,11 +558,17 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 	var postEntries []*lib.PostEntry
 	nextStartKey := seekStartKey
 
+	getNumToFetch := func() int {
+		if numToFetch == 0 {
+			return 0
+		}
+		return numToFetch - len(postEntries)
+	}
 	// Iterate over posts in global state until we have at least num to fetch
 	for len(postEntries) < numToFetch {
 		// Get numToFetch - len(postEntries) postHashes from global state.
 		keys, _, err := fes.GlobalStateSeek(nextStartKey /*startPrefix*/, validForPrefix, /*validForPrefix*/
-			maxKeyLen /*maxKeyLen -- ignored since reverse is false*/, numToFetch-len(postEntries), true, /*reverse*/
+			maxKeyLen /*maxKeyLen -- ignored since reverse is false*/, getNumToFetch(), true, /*reverse*/
 			false /*fetchValues*/)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("GetPostEntriesForGlobalWhitelist: Getting posts for reader: %v", err)
@@ -777,7 +785,7 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 		postEntries,
 			profileEntryMap,
 			readerStateMap,
-			err = fes.GetPostEntriesForGlobalWhitelist(startPostHash, readerPublicKeyBytes, numToFetch, utxoView, requestData.MediaRequired)
+			err = fes.GetPostEntriesForGlobalWhitelist(startPostHash, 0, readerPublicKeyBytes, numToFetch, utxoView, requestData.MediaRequired)
 		// if we're getting posts for the global whitelist, no comments are returned (they aren't necessary)
 		commentsByPostHash = make(map[lib.BlockHash][]*lib.PostEntry)
 	} else if requestData.GetPostsByDESO || requestData.GetPostsByClout {
