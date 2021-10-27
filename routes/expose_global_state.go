@@ -7,6 +7,7 @@ import (
 	"github.com/deso-protocol/core/lib"
 	"io/ioutil"
 	"net/http"
+	"sort"
 )
 
 // GetVerifiedUsernameMap returns the VerifiedUsernameToPKID map if global state is exposed.
@@ -151,26 +152,37 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, utxoView *lib.UtxoV
 	return pkidMap, nil
 }
 
-func (fes *APIServer) GetGlobalFeedCache() (_postHashes []*lib.BlockHash, _err error){
+func (fes *APIServer) GetGlobalFeedCache(utxoView *lib.UtxoView) (_postHashes []*lib.BlockHash, _postEntries []*lib.PostEntry, _err error){
+	var postHashes []*lib.BlockHash
 	if fes.Config.GlobalStateAPIUrl != "" {
 		body, err := fes.FetchFromExternalGlobalState(RoutePathGetGlobalFeed)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		// Decode the body into a slice of BlockHashes
-		var blockHashes []*lib.BlockHash
 		decoder := json.NewDecoder(bytes.NewReader(body))
-		if err = decoder.Decode(&blockHashes); err != nil {
-			return nil, fmt.Errorf("GetGlobalFeed: Error decoding bytes: %v", err)
+		if err = decoder.Decode(&postHashes); err != nil {
+			return nil, nil, fmt.Errorf("GetGlobalFeed: Error decoding bytes: %v", err)
 		}
-		return blockHashes, nil
 	}
-	postHashes, err := fes.GetGlobalFeedPostHashesForLastWeek()
+	localPostHashes, err := fes.GetGlobalFeedPostHashesForLastWeek()
+	postHashes = append(postHashes, localPostHashes...)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return postHashes, nil
+	var postEntries []*lib.PostEntry
+	for _, postHash := range postHashes {
+		postEntries = append(postEntries, utxoView.GetPostEntryForPostHash(postHash))
+	}
+	sort.Slice(postEntries, func(ii, jj int) bool {
+		return postEntries[ii].TimestampNanos > postEntries[jj].TimestampNanos
+	})
+	var orderedPostHashes []*lib.BlockHash
+	for _, postEntry := range postEntries {
+		orderedPostHashes = append(orderedPostHashes, postEntry.PostHash)
+	}
+	return orderedPostHashes, postEntries, nil
 }
 
 // FetchFromExternalGlobalState hits an endpoint at the configured GlobalStateAPIUrl and returns the bytes read from

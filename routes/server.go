@@ -312,6 +312,7 @@ type APIServer struct {
 	GraylistedPKIDMap         map[lib.PKID][]byte
 	GraylistedResponseMap     map[string][]byte
 	GlobalFeedPostHashes      []*lib.BlockHash
+	GlobalFeedPostEntries     []*lib.PostEntry
 
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
@@ -1902,7 +1903,7 @@ func (fes *APIServer) SetGlobalStateCache() {
 	fes.SetVerifiedUsernameMapResponse()
 	fes.SetBlacklistedPKIDMap(utxoView)
 	fes.SetGraylistedPKIDMap(utxoView)
-	fes.SetGlobalFeedPostHashes()
+	fes.SetGlobalFeedPostHashes(utxoView)
 }
 
 func (fes *APIServer) SetVerifiedUsernameMapResponse() {
@@ -1934,12 +1935,13 @@ func (fes *APIServer) SetGraylistedPKIDMap(utxoView *lib.UtxoView) {
 	}
 }
 
-func (fes *APIServer) SetGlobalFeedPostHashes() {
-	postHashes, err := fes.GetGlobalFeedCache()
+func (fes *APIServer) SetGlobalFeedPostHashes(utxoView *lib.UtxoView) {
+	postHashes, postEntries, err := fes.GetGlobalFeedCache(utxoView)
 	if err != nil {
 		glog.Errorf("SetGlobalFeedPostHashes: Error getting global feed post hashes: %v", err)
 	} else {
 		fes.GlobalFeedPostHashes = postHashes
+		fes.GlobalFeedPostEntries = postEntries
 	}
 }
 
