@@ -527,7 +527,7 @@ func (fes *APIServer) _shouldSkipCommentResponse(commentResponse *PostEntryRespo
 }
 
 func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
-	startPostHash *lib.BlockHash, startTstampNanos uint64, readerPK []byte, numToFetch int, utxoView *lib.UtxoView, mediaRequired bool) (
+	startPostHash *lib.BlockHash, readerPK []byte, numToFetch int, utxoView *lib.UtxoView, mediaRequired bool) (
 	_postEntries []*lib.PostEntry,
 	_profilesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry,
 	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, err error) {
@@ -538,12 +538,12 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 	}
 
 	var seekStartKey []byte
+	var seekStartPostHash *lib.BlockHash
 	skipFirstEntry := false
 	if startPost != nil {
 		seekStartKey = GlobalStateKeyForTstampPostHash(startPost.TimestampNanos, startPost.PostHash)
+		seekStartPostHash = startPost.PostHash
 		skipFirstEntry = true
-	} else if startTstampNanos != 0 {
-		seekStartKey = GlobalStateKeyForTstampPostHash(startTstampNanos, nil)
 	} else {
 		// If we can't find a valid start post, we just use the prefix. GlobalStateSeek will
 		// pad the value as necessary.
@@ -557,40 +557,59 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 	//maxKeyLen := 41
 	var postEntries []*lib.PostEntry
 	nextStartKey := seekStartKey
+	nextStartPostHash := seekStartPostHash
 
-	getNumToFetch := func() int {
-		if numToFetch == 0 {
-			return 0
-		}
-		return numToFetch - len(postEntries)
-	}
 	// Iterate over posts in global state until we have at least num to fetch
 	for len(postEntries) < numToFetch {
-		// Get numToFetch - len(postEntries) postHashes from global state.
-		keys, _, err := fes.GlobalStateSeek(nextStartKey /*startPrefix*/, validForPrefix, /*validForPrefix*/
-			maxKeyLen /*maxKeyLen -- ignored since reverse is false*/, getNumToFetch(), true, /*reverse*/
-			false /*fetchValues*/)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("GetPostEntriesForGlobalWhitelist: Getting posts for reader: %v", err)
+		var postHashes []*lib.BlockHash
+		// If we're using an external global state, use the cached post hashes.
+		if fes.Config.GlobalStateAPIUrl != "" {
+			index := 0
+			if nextStartPostHash != nil {
+				for ii := 0; ii < len(fes.GlobalFeedPostHashes); ii++ {
+					if reflect.DeepEqual(*fes.GlobalFeedPostHashes[ii], *nextStartPostHash) {
+						index = ii
+						break
+					}
+				}
+			}
+			postHashes = fes.GlobalFeedPostHashes[index:lib.MinInt(index + numToFetch - len(postEntries), len(fes.GlobalFeedPostHashes))]
+		} else {
+			// Otherwise, we're using this node's global state.
+			var keys [][]byte
+			// Get numToFetch - len(postEntries) postHashes from global state.
+			keys, _, err = fes.GlobalStateSeek(nextStartKey /*startPrefix*/, validForPrefix, /*validForPrefix*/
+				maxKeyLen /*maxKeyLen -- ignored since reverse is false*/, numToFetch - len(postEntries), true, /*reverse*/
+				false /*fetchValues*/)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("GetPostEntriesForGlobalWhitelist: Getting posts for reader: %v", err)
+			}
+			for _, dbKeyBytes := range keys {
+				postHash := &lib.BlockHash{}
+				copy(postHash[:], dbKeyBytes[1+len(maxBigEndianUint64Bytes):][:])
+				postHashes = append(postHashes, postHash)
+			}
 		}
+
 		// If there are no keys left, then there are no more postEntries to get so we exit the loop.
-		if len(keys) == 0 || (len(keys) == 1 && skipFirstEntry) {
+		if len(postHashes) == 0 || (len(postHashes) == 1 && skipFirstEntry) {
 			break
 		}
 
-		for ii, dbKeyBytes := range keys {
+		var lastPost *lib.PostEntry
+		for ii, postHash := range postHashes {
 			// if we have a postHash at which we are starting, we should skip the first one so we don't have it
 			// duplicated in the response.
 			if skipFirstEntry && ii == 0 {
 				continue
 			}
-			// Chop the public key out of the db key.
-			// The dbKeyBytes are: [One Prefix Byte][Uint64 Tstamp Bytes][PostHash]
-			postHash := &lib.BlockHash{}
-			copy(postHash[:], dbKeyBytes[1+len(maxBigEndianUint64Bytes):][:])
 
 			// Get the postEntry from the utxoView.
 			postEntry := utxoView.GetPostEntryForPostHash(postHash)
+
+			if postEntry != nil {
+				lastPost = postEntry
+			}
 
 			if readerPK != nil && postEntry != nil && reflect.DeepEqual(postEntry.PosterPublicKey, readerPK) {
 				// We add the readers posts later so we can skip them here to avoid duplicates.
@@ -606,8 +625,13 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 				postEntries = append(postEntries, postEntry)
 			}
 		}
+		// If there are no post entries and no last post, we don't continue to fetch.
+		if len(postEntries) == 0 && lastPost == nil {
+			break
+		}
 		// Next time through the loop, start at the last key we retrieved
-		nextStartKey = keys[len(keys)-1]
+		nextStartKey = GlobalStateKeyForTstampPostHash(lastPost.TimestampNanos, lastPost.PostHash)
+		nextStartPostHash = lastPost.PostHash
 		skipFirstEntry = true
 	}
 
@@ -713,19 +737,39 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 	return postEntries, profileEntries, postEntryReaderStates, nil
 }
 
+func (fes *APIServer) GetGlobalFeedPostHashesForLastWeek() (_postHashes []*lib.BlockHash, _err error){
+	minTimestampNanos := uint64(time.Now().UTC().AddDate(0, 0, -7).UnixNano()) // 1 week ago
+
+	seekStartKey := GlobalStateSeekKeyForTstampPostHash(minTimestampNanos)
+
+	validForPrefix := _GlobalStatePrefixTstampNanosPostHash
+	maxBigEndianUint64Bytes := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+	maxKeyLen := 1 + len(maxBigEndianUint64Bytes) + lib.HashSizeBytes
+
+	var postHashes []*lib.BlockHash
+
+	keys, _, err := fes.GlobalStateSeek(seekStartKey /*startPrefix*/, validForPrefix, /*validForPrefix*/
+		maxKeyLen /*maxKeyLen -- ignored since reverse is false*/, 0, false, /*reverse*/
+		false /*fetchValues*/)
+	if err != nil {
+		return nil, err
+	}
+	// We iterate backwards since we want the Posts to be ordered from most recent to least recent.
+	for ii := len(keys) - 1; ii >= 0; ii-- {
+		postHash := &lib.BlockHash{}
+		copy(postHash[:], keys[ii][1+len(maxBigEndianUint64Bytes):][:])
+
+		postHashes = append(postHashes, postHash)
+	}
+	return postHashes, nil
+}
+
 // GetPostsStateless ...
 func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetPostsStatelessRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPostsStateless: Problem parsing request body: %v", err))
-		return
-	}
-
-	// TODO: if we are using an external global state and we want to fetch the global feed, can we just hit
-	// get-posts-stateless on the external node?
-	if fes.Config.GlobalStateAPIUrl != "" && requestData.GetPostsForGlobalWhitelist {
-		// hit external get-posts-stateless and return.
 		return
 	}
 
@@ -785,7 +829,7 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 		postEntries,
 			profileEntryMap,
 			readerStateMap,
-			err = fes.GetPostEntriesForGlobalWhitelist(startPostHash, 0, readerPublicKeyBytes, numToFetch, utxoView, requestData.MediaRequired)
+			err = fes.GetPostEntriesForGlobalWhitelist(startPostHash, readerPublicKeyBytes, numToFetch, utxoView, requestData.MediaRequired)
 		// if we're getting posts for the global whitelist, no comments are returned (they aren't necessary)
 		commentsByPostHash = make(map[lib.BlockHash][]*lib.PostEntry)
 	} else if requestData.GetPostsByDESO || requestData.GetPostsByClout {
