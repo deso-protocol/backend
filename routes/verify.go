@@ -583,8 +583,7 @@ func (fes *APIServer) JumioBegin(ww http.ResponseWriter, req *http.Request) {
 	eventDataMap := make(map[string]interface{})
 	eventDataMap["referralCode"] = requestData.ReferralHashBase58
 	if err = fes.logAmplitudeEvent(requestData.PublicKey, "jumio : begin", eventDataMap); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("JumioBegin: Error logging Jumio Begin in amplitude: %v", err))
-		return
+		glog.Errorf("JumioBegin: Error logging Jumio Begin in amplitude: %v", err)
 	}
 
 	// CustomerInternalReference is Public Key + timestamp
@@ -776,8 +775,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 
 	if req.FormValue("idScanStatus") != "SUCCESS" {
 		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : scan : fail", eventDataMap); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error logging failed scan in amplitude: %v", err))
-			return
+			glog.Errorf("JumioCallback: Error logging failed scan in amplitude: %v", err)
 		}
 		// This means the scan failed. We save that Jumio returned and bail.
 		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
@@ -788,8 +786,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 
 	if len(req.Form["livenessImages"]) == 0 {
 		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : liveness : fail", eventDataMap); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error logging failed scan in amplitude: %v", err))
-			return
+			glog.Errorf("JumioCallback: Error logging failed scan in amplitude: %v", err)
 		}
 		// This means there wasn't a liveness check. We save that Jumio returned and bail.
 		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
@@ -812,8 +809,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	if jumioIdentityVerification.Validity != true || jumioIdentityVerification.Similarity != "MATCH" {
 		// Don't raise an exception, but do not pay this user.
 		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : verification : fail", eventDataMap); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error logging failed verification in amplitude: %v", err))
-			return
+			glog.Errorf("JumioCallback: Error logging failed verification in amplitude: %v", err)
 		}
 		// This means the verification failed. We've logged the payload in global state above, so now we bail.
 		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
@@ -828,8 +824,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	// If it does not return an error, this is a duplicate, so we skip ahead.
 	if val, _ := fes.GlobalStateGet(uniqueJumioKey); val == nil || userMetadata.RedoJumio {
 		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : verified", eventDataMap); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error logging successful verification in amplitude: %v", err))
-			return
+			glog.Errorf("JumioCallback: Error logging successful verification in amplitude: %v", err)
 		}
 		userMetadata, err = fes.JumioVerifiedHandler(userMetadata, jumioTransactionId, publicKeyBytes, utxoView)
 		if err != nil {
@@ -841,8 +836,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 		}
 	} else {
 		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : verified : duplicate", eventDataMap); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error logging duplicate verification in amplitude: %v", err))
-			return
+			glog.Errorf("JumioCallback: Error logging duplicate verification in amplitude: %v", err)
 		}
 	}
 	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
@@ -891,6 +885,15 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			txnHash, err = fes.SendSeedDeSo(publicKeyBytes, desoNanos, false)
 			if err != nil {
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error sending starter DeSo: %v", err)
+			}
+
+			// Log payout to referee in amplitude
+			eventDataMap := make(map[string]interface{})
+			eventDataMap["amountNanos"] = desoNanos
+			eventDataMap["txnHashHex"] = txnHash.String()
+			eventDataMap["referralCode"] = userMetadata.ReferralHashBase58Check
+			if err = fes.logAmplitudeEvent(lib.PkToString(publicKeyBytes, fes.Params), "referral : payout : referee", eventDataMap); err != nil {
+				glog.Errorf("JumioVerifiedhandler: Error logging payout to referee in amplitude: %v", err)
 			}
 
 			// Save transaction hash hex in user metadata.
@@ -956,6 +959,17 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			referrerTxnHash, err = fes.SendSeedDeSo(referrerPublicKeyBytes, referrerDeSoNanos, false)
 			if err != nil {
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error sending DESO to referrer: %v", err)
+			}
+			// Log payout to referee in amplitude
+			eventDataMap := make(map[string]interface{})
+			eventDataMap["amountNanos"] = referrerDeSoNanos
+			eventDataMap["txnHashHex"] = referrerTxnHash.String()
+			eventDataMap["referralCode"] = userMetadata.ReferralHashBase58Check
+			eventDataMap["refereePublicKey"] = lib.PkToString(publicKeyBytes, fes.Params)
+			eventDataMap["totalReferrals"] = referralInfo.TotalReferrals
+			eventDataMap["totalReferrerPayoutNanos"] = referralInfo.TotalReferrerDeSoNanos
+			if err = fes.logAmplitudeEvent(lib.PkToString(referrerPublicKeyBytes, fes.Params), "referral : payout : referrer", eventDataMap); err != nil {
+				glog.Errorf("JumioVerifiedhandler: Error logging payout to referrer in amplitude: %v", err)
 			}
 			// Set the referrer deso txn hash.
 			userMetadata.ReferrerDeSoTxnHash = referrerTxnHash.String()
