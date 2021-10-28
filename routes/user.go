@@ -2265,7 +2265,7 @@ func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredO
 		return !filteredOutCategories["follow"]
 	} else if txnMeta.TxnType == "LIKE" {
 		return !filteredOutCategories["like"]
-	} else if txnMeta.TxnType == "NFT" || txnMeta.TxnType == "ACCEPT_NFT_BID" {
+	} else if txnMeta.TxnType == "NFT" || txnMeta.TxnType == "NFT_BID" || txnMeta.TxnType == "ACCEPT_NFT_BID" {
 		return !filteredOutCategories["nft"]
 	}
 	// If the transaction type doesn't fall into any of the previous steps, we don't want it
