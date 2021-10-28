@@ -643,7 +643,7 @@ func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *h
 	}
 
 	// Force a refresh of the Verified Username map.
-	fes.SetVerifiedUsernameMapResponse(utxoView)
+	fes.SetVerifiedUsernameMap()
 
 	// Return a success message
 	res := AdminGrantVerificationBadgeResponse{
@@ -751,7 +751,7 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 	}
 
 	// Force a refresh of the Verified Username map.
-	fes.SetVerifiedUsernameMapResponse(utxoView)
+	fes.SetVerifiedUsernameMap()
 
 	// Return a success message
 	res := AdminRemoveVerificationBadgeResponse{

@@ -227,7 +227,7 @@ const (
 	RoutePathAdminGetTutorialCreators    = "/api/v0/admin/get-tutorial-creators"
 
 	// expose_global_state.go
-	RoutePathGetVerifiedUsernameMap   = "/api/v0/get-verified-username-map"
+	RoutePathGetVerifiedUsernames     = "/api/v0/get-verified-usernames"
 	RoutePathGetBlacklistedPublicKeys = "/api/v0/get-blacklisted-public-keys"
 	RoutePathGetGraylistedPublicKeys  = "/api/v0/get-graylisted-public-keys"
 	RoutePathGetGlobalFeed            = "/api/v0/get-global-feed"
@@ -306,11 +306,27 @@ type APIServer struct {
 	ExemptPublicKeyMap map[string]interface{}
 
 	// Global State cache
+
+	// VerifiedUsernameToPKIDMap is a map of lowercase usernames to PKIDs representing the current state of
+	// verifications this node is recognizing.
 	VerifiedUsernameToPKIDMap map[string]*lib.PKID
+	// BlacklistedPKIDMap is a map of PKID to a byte slice representing the PKID of a user as the key and the current
+	// blacklist state of that user as the key. If a PKID is not present in this map, then the user is NOT blacklisted.
 	BlacklistedPKIDMap        map[lib.PKID][]byte
+	// BlacklistedResponseMap is a map of PKIDs converted to base58-encoded string to a byte slice. This is computed
+	// from the BlacklistedPKIDMap above and is a JSON-encodable version of that map. This map is only used when
+	// responding to requests for this node's blacklist. A JSON-encoded response is easier for any language to digest
+	// than a gob-encoded one.
 	BlacklistedResponseMap    map[string][]byte
+	// GraylistedPKIDMap is a map of PKID to a byte slice representing the PKID of a user as the key and the current
+	// graylist state of that user as the key. If a PKID is not present in this map, then the user is NOT graylisted.
 	GraylistedPKIDMap         map[lib.PKID][]byte
+	// GraylistedResponseMap is a map of PKIDs converted to base58-encoded string to a byte slice. This is computed
+	// from the GraylistedPKIDMap above and is a JSON-encodable version of that map. This map is only used when
+	// responding to requests for this node's graylist. A JSON-encoded response is easier for any language to digest
+	// than a gob-encoded one.
 	GraylistedResponseMap     map[string][]byte
+	// GlobalFeedPostHashes is a slice of BlockHashes representing the state of posts on the global feed on this node.
 	GlobalFeedPostHashes      []*lib.BlockHash
 
 	// Signals that the frontend server is in a stopped state
@@ -1418,8 +1434,8 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		{
 			"GetVerifiedUsernameMap",
 			[]string{"GET"},
-			RoutePathGetVerifiedUsernameMap,
-			fes.GetVerifiedUsernameMap,
+			RoutePathGetVerifiedUsernames,
+			fes.GetVerifiedUsernames,
 			PublicAccess,
 		},
 		{
@@ -1522,7 +1538,7 @@ var publicRoutes = map[string]interface{}{
 	RoutePathGetVideoStatus: nil,
 	RoutePathGetReferralInfoForReferralHash: nil,
 	RoutePathGetReferralInfoForUser: nil,
-	RoutePathGetVerifiedUsernameMap: nil,
+	RoutePathGetVerifiedUsernames: nil,
 	RoutePathGetBlacklistedPublicKeys: nil,
 	RoutePathGetGraylistedPublicKeys: nil,
 	RoutePathGetGlobalFeed: nil,
@@ -1899,16 +1915,16 @@ func (fes *APIServer) SetGlobalStateCache() {
 		glog.Errorf("SetGlobalStateCache: problem with GetAugmentedUniversalView: %v", err)
 		return
 	}
-	fes.SetVerifiedUsernameMapResponse(utxoView)
+	fes.SetVerifiedUsernameMap()
 	fes.SetBlacklistedPKIDMap(utxoView)
 	fes.SetGraylistedPKIDMap(utxoView)
 	fes.SetGlobalFeedPostHashes()
 }
 
-func (fes *APIServer) SetVerifiedUsernameMapResponse(utxoView *lib.UtxoView) {
-	verifiedPKIDMap, err := fes.GetVerifiedUsernameMapResponse(utxoView)
+func (fes *APIServer) SetVerifiedUsernameMap() {
+	verifiedPKIDMap, err := fes.GetVerifiedUsernameMap()
 	if err != nil {
-		glog.Errorf("SetVerifiedUsernameMapResponse: Error getting verified username map: %v", err)
+		glog.Errorf("SetVerifiedUsernameMap: Error getting verified username map: %v", err)
 	} else {
 		fes.VerifiedUsernameToPKIDMap = verifiedPKIDMap
 	}
@@ -1920,6 +1936,9 @@ func (fes *APIServer) SetBlacklistedPKIDMap(utxoView *lib.UtxoView) {
 		glog.Errorf("SetBlacklistedPKIDMap: Error getting blacklist: %v", err)
 	} else {
 		fes.BlacklistedPKIDMap = blacklistMap
+		// We keep a JSON-encodable version of the blacklist map ready to send to nodes that wish to connect to this
+		// node's global state. Sending a JSON-encoded version is preferable over a gob-encoded one so that any
+		// language can easily decode the response.
 		fes.BlacklistedResponseMap = fes.makePKIDMapJSONEncodable(blacklistMap)
 	}
 }
@@ -1930,6 +1949,9 @@ func (fes *APIServer) SetGraylistedPKIDMap(utxoView *lib.UtxoView) {
 		glog.Errorf("SetGraylistedPKIDMap: Error getting graylist: %v", err)
 	} else {
 		fes.GraylistedPKIDMap = graylistMap
+		// We keep a JSON-encodable version of the graylist map ready to send to nodes that wish to connect to this
+		// node's global state. Sending a JSON-encoded version is preferable over a gob-encoded one so that any
+		// language can easily decode the response.
 		fes.GraylistedResponseMap = fes.makePKIDMapJSONEncodable(graylistMap)
 	}
 }
@@ -1943,7 +1965,9 @@ func (fes *APIServer) SetGlobalFeedPostHashes() {
 	}
 }
 
-// makeMapJSONEncodable converts a map that has PKID keys into Base58-encoded strings.
+// makePKIDMapJSONEncodable converts a map that has PKID keys into Base58-encoded strings.
+// Using gob-encoding when sending responses would make using this API difficult to interact with when using any
+// language other than go.
 func (fes *APIServer) makePKIDMapJSONEncodable(restrictedKeysMap map[lib.PKID][]byte) map[string][]byte {
 	outputMap := make(map[string][]byte)
 	for k, v := range restrictedKeysMap {
