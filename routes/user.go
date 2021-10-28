@@ -2253,7 +2253,7 @@ func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredO
 		return true
 	}
 
-	if txnMeta.TxnType == lib.TxnStringBasicTransfer || txnMeta.TxnType == lib.TxnStringCreatorCoinTransfer {
+	if txnMeta.TxnType == lib.TxnTypeBasicTransfer.String() || txnMeta.TxnType == lib.TxnTypeCreatorCoinTransfer.String() {
 		if txnMeta.BasicTransferTxindexMetadata != nil && txnMeta.BasicTransferTxindexMetadata.DiamondLevel > 0 {
 			return !filteredOutCategories["diamond"]
 		} else if txnMeta.CreatorCoinTransferTxindexMetadata != nil && txnMeta.CreatorCoinTransferTxindexMetadata.DiamondLevel > 0 {
@@ -2261,15 +2261,15 @@ func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredO
 		} else {
 			return !filteredOutCategories["transfer"]
 		}
-	} else if txnMeta.TxnType == lib.TxnStringCreatorCoin {
+	} else if txnMeta.TxnType == lib.TxnTypeCreatorCoin.String() {
 		return !filteredOutCategories["transfer"]
-	} else if txnMeta.TxnType == lib.TxnStringSubmitPost {
+	} else if txnMeta.TxnType == lib.TxnTypeSubmitPost.String() {
 		return !filteredOutCategories["post"]
-	} else if txnMeta.TxnType == lib.TxnStringFollow {
+	} else if txnMeta.TxnType == lib.TxnTypeFollow.String() {
 		return !filteredOutCategories["follow"]
-	} else if txnMeta.TxnType == lib.TxnStringLike {
+	} else if txnMeta.TxnType == lib.TxnTypeLike.String() {
 		return !filteredOutCategories["like"]
-	} else if txnMeta.TxnType == lib.TxnStringNFTBid || txnMeta.TxnType == lib.TxnStringAcceptNFTBid {
+	} else if txnMeta.TxnType == lib.TxnTypeNFTBid.String() || txnMeta.TxnType == lib.TxnTypeAcceptNFTBid.String() {
 		return !filteredOutCategories["nft"]
 	}
 	// If the transaction type doesn't fall into any of the previous steps, we don't want it
