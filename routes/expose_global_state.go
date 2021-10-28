@@ -10,9 +10,9 @@ import (
 	"sort"
 )
 
-// GetVerifiedUsernameMap returns the VerifiedUsernameToPKID map if global state is exposed.
-func (fes *APIServer) GetVerifiedUsernameMap(ww http.ResponseWriter, req *http.Request) {
-	fes.WriteGlobalStateDataToResponse(fes.VerifiedUsernameToPKIDMap, "GetVerifiedUsernameMap", ww)
+// GetVerifiedUsernames returns the VerifiedUsernameToPKID map if global state is exposed.
+func (fes *APIServer) GetVerifiedUsernames(ww http.ResponseWriter, req *http.Request) {
+	fes.WriteGlobalStateDataToResponse(fes.VerifiedUsernameToPKIDMap, "GetVerifiedUsernames", ww)
 }
 
 // GetBlacklistedPublicKeys returns a map of PKID (as Base58 encoded string) to Blacklist state bytes if global state
@@ -48,7 +48,7 @@ func (fes *APIServer) WriteGlobalStateDataToResponse(data interface{}, functionN
 // the configured GlobalStateAPIUrl and merges it with this node's global state.
 // Note that it is not possible to remove a verification from a user who has been granted verification on the node
 // configured at the GlobalStateAPIUrl.
-func (fes *APIServer) GetVerifiedUsernameMapResponse() (
+func (fes *APIServer) GetVerifiedUsernameMap() (
 	_verifiedUsernameToPKID map[string]*lib.PKID, _err error,
 ){
 	verifiedUsernameMap := make(map[string]*lib.PKID)
@@ -57,14 +57,14 @@ func (fes *APIServer) GetVerifiedUsernameMapResponse() (
 	if fes.Config.GlobalStateAPIUrl != "" {
 		// Get the bytes.
 		var mapBytes []byte
-		mapBytes, err = fes.FetchFromExternalGlobalState(RoutePathGetVerifiedUsernameMap)
+		mapBytes, err = fes.FetchFromExternalGlobalState(RoutePathGetVerifiedUsernames)
 		if err != nil {
-			return  nil, fmt.Errorf("GetVerifiedUsernameMapResponse: Error fetching map from external global state: %v", err)
+			return  nil, fmt.Errorf("GetVerifiedUsernameMap: Error fetching map from external global state: %v", err)
 		}
 		// Decode the response into the appropriate struct.
 		decoder := json.NewDecoder(bytes.NewReader(mapBytes))
 		if err = decoder.Decode(&verifiedUsernameMap); err != nil {
-			return  nil, fmt.Errorf("GetVerifiedUsernameMapResponse: Error decoding bytes: %v", err)
+			return  nil, fmt.Errorf("GetVerifiedUsernameMap: Error decoding bytes: %v", err)
 		}
 	}
 	verifiedUsernameMapLocal := make(map[string]*lib.PKID)
@@ -73,7 +73,7 @@ func (fes *APIServer) GetVerifiedUsernameMapResponse() (
 	// cache.
 	verifiedUsernameMapLocal, err = fes.GetVerifiedUsernameToPKIDMapFromGlobalState()
 	if err != nil {
-		return  nil, fmt.Errorf("GetVerifiedUsernameMapResponse: Error getting verified username map %v", err)
+		return  nil, fmt.Errorf("GetVerifiedUsernameMap: Error getting verified username map %v", err)
 	}
 
 	for username, pkid := range verifiedUsernameMapLocal {
