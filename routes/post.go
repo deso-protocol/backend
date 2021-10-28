@@ -550,19 +550,22 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 	var postEntries []*lib.PostEntry
 	nextStartPostHash := seekStartPostHash
 
+	index := 0
 	// Iterate over posts in global state until we have at least num to fetch
 	for len(postEntries) < numToFetch {
 		// Fetch the posts from the cached GlobalFeedPostEntries slice.
-		index := 0
 		if nextStartPostHash != nil {
-			for ii := 0; ii < len(fes.GlobalFeedPostEntries); ii++ {
+			for ii := index; ii < len(fes.GlobalFeedPostEntries); ii++ {
 				if reflect.DeepEqual(*fes.GlobalFeedPostEntries[ii].PostHash, *nextStartPostHash) {
 					index = ii
 					break
 				}
 			}
 		}
-		newPostEntries := fes.GlobalFeedPostEntries[index:lib.MinInt(index + numToFetch - len(postEntries), len(fes.GlobalFeedPostEntries))]
+		endIndex := lib.MinInt(index + numToFetch - len(postEntries), len(fes.GlobalFeedPostHashes))
+		// At the next iteration, we can start looking endIndex for the post hash we need.
+		newPostEntries := fes.GlobalFeedPostEntries[index:endIndex]
+		index = endIndex - 1
 
 		// If there are no keys left, then there are no more postEntries to get so we exit the loop.
 		if len(newPostEntries) == 0 || (len(newPostEntries) == 1 && skipFirstEntry) {

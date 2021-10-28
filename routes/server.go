@@ -326,8 +326,11 @@ type APIServer struct {
 	// responding to requests for this node's graylist. A JSON-encoded response is easier for any language to digest
 	// than a gob-encoded one.
 	GraylistedResponseMap     map[string][]byte
-	// GlobalFeedPostHashes is a slice of BlockHashes representing the state of posts on the global feed on this node.
+	// GlobalFeedPostHashes is a slice of BlockHashes representing an ordered state of post hashes on the global feed on
+	// this node.
 	GlobalFeedPostHashes      []*lib.BlockHash
+	// GlobalFeedPostEntries is a slice of PostEntries representing an ordered state of PostEntries on the global feed
+	// on this node. It is computed from the GlobalFeedPostHashes above.
 	GlobalFeedPostEntries     []*lib.PostEntry
 
 	// Signals that the frontend server is in a stopped state
@@ -1895,13 +1898,13 @@ func (fes *APIServer) getBalanceForSeed(seedPhrase string) (uint64, error) {
 	return currentBalanceNanos, nil
 }
 
-// StartGlobalStateMonitoring begins monitoring Verified, Blacklisted, and Graylisted users.
+// StartGlobalStateMonitoring begins monitoring Verified, Blacklisted, and Graylisted users and Global Feed Posts
 func (fes *APIServer) StartGlobalStateMonitoring() {
 	go func() {
 	out:
 		for {
 			select {
-			case <-time.After(10 * time.Second):
+			case <-time.After(1 * time.Minute):
 				fes.SetGlobalStateCache()
 			case <-fes.quit:
 				break out
