@@ -554,26 +554,28 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 	validForPrefix := _GlobalStatePrefixTstampNanosPostHash
 	maxBigEndianUint64Bytes := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
 	maxKeyLen := 1 + len(maxBigEndianUint64Bytes) + lib.HashSizeBytes
-	//maxKeyLen := 41
 	var postEntries []*lib.PostEntry
 	nextStartKey := seekStartKey
 	nextStartPostHash := seekStartPostHash
 
+	index := 0
 	// Iterate over posts in global state until we have at least num to fetch
 	for len(postEntries) < numToFetch {
 		var postHashes []*lib.BlockHash
 		// If we're using an external global state, use the cached post hashes.
 		if fes.Config.GlobalStateAPIUrl != "" {
-			index := 0
 			if nextStartPostHash != nil {
-				for ii := 0; ii < len(fes.GlobalFeedPostHashes); ii++ {
+				for ii := index; ii < len(fes.GlobalFeedPostHashes); ii++ {
 					if reflect.DeepEqual(*fes.GlobalFeedPostHashes[ii], *nextStartPostHash) {
 						index = ii
 						break
 					}
 				}
 			}
-			postHashes = fes.GlobalFeedPostHashes[index:lib.MinInt(index + numToFetch - len(postEntries), len(fes.GlobalFeedPostHashes))]
+			endIndex := lib.MinInt(index + numToFetch - len(postEntries), len(fes.GlobalFeedPostHashes))
+			postHashes = fes.GlobalFeedPostHashes[index:endIndex]
+			// At the next iteration, we can start looking endIndex for the post hash we need.
+			index = endIndex - 1
 		} else {
 			// Otherwise, we're using this node's global state.
 			var keys [][]byte

@@ -1894,13 +1894,13 @@ func (fes *APIServer) getBalanceForSeed(seedPhrase string) (uint64, error) {
 	return currentBalanceNanos, nil
 }
 
-// StartGlobalStateMonitoring begins monitoring Verified, Blacklisted, and Graylisted users.
+// StartGlobalStateMonitoring begins monitoring Verified, Blacklisted, and Graylisted users and Global Feed Posts
 func (fes *APIServer) StartGlobalStateMonitoring() {
 	go func() {
 	out:
 		for {
 			select {
-			case <-time.After(10 * time.Second):
+			case <-time.After(1 * time.Minute):
 				fes.SetGlobalStateCache()
 			case <-fes.quit:
 				break out
