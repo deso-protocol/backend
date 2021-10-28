@@ -335,8 +335,9 @@ func (fes *APIServer) AdminUpdateReferralHash(ww http.ResponseWriter, req *http.
 }
 
 type ReferralInfoResponse struct {
-	IsActive bool
-	Info     ReferralInfo
+	IsActive      bool
+	Info          ReferralInfo
+	ReferredUsers []ProfileEntryResponse
 }
 
 type SimpleReferralInfoResponse struct {
@@ -356,7 +357,7 @@ type AdminGetAllReferralInfoForUserResponse struct {
 	ReferralInfoResponses []ReferralInfoResponse `safeForLogging:"true"`
 }
 
-func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte,
+func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeReferredUsers bool,
 ) (_referralInfoResponses []ReferralInfoResponse, _err error) {
 
 	// Get the PKID for the pub key passed in.
@@ -407,10 +408,49 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte,
 			}
 		}
 
+		referredUsers := []ProfileEntryResponse{}
+		if includeReferredUsers {
+			// Look up all of the users referred by this referral hash.
+			refereeSeekKey := GlobalStateSeekKeyForPKIDReferralHashRefereePKIDs(
+				referrerPKID.PKID, referralHashBytes)
+			refereeKeys, _, err := fes.GlobalStateSeek(refereeSeekKey, refereeSeekKey, 0, 0, false, false)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"getReferralInfoResponsesForPubKey: Failed to get referees (%s): %v",
+					referralHash, err)
+			}
+			// Get the map of verified usernames.
+			verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+			if err != nil {
+				return nil, fmt.Errorf("GetProfiles: Error fetching verifiedMap: %v", err)
+			}
+			// Now we chop the RefereePKIDs out of the keys and look up their profiles.
+			// The key consists of: Prefix, ReferralPKID, ReferralHash, RefereePKID.
+			refereePKIDStartIdx := 1 + btcec.PubKeyBytesLenCompressed + 8
+			for _, keyBytes := range refereeKeys {
+				refereePKIDBytes := keyBytes[refereePKIDStartIdx:]
+				refereePKID := &lib.PKID{}
+				copy(refereePKID[:], refereePKIDBytes)
+
+				profileEntry := utxoView.GetProfileEntryForPKID(refereePKID)
+				if profileEntry != nil {
+					profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+					referredUsers = append(referredUsers, *profileEntryResponse)
+				} else {
+					// This is an anon profile, so we just populate the pub key and call it good.
+					profileEntryResponse := ProfileEntryResponse{}
+					profileEntryResponse.PublicKeyBase58Check =
+						lib.PkToString(lib.PKIDToPublicKey(refereePKID), fes.Params)
+					referredUsers = append(referredUsers, profileEntryResponse)
+				}
+			}
+		}
+
 		// Construct the referral info response and append it to our list.
 		referralInfoResponse := ReferralInfoResponse{
-			IsActive: isActive,
-			Info:     referralInfo,
+			IsActive:      isActive,
+			Info:          referralInfo,
+			ReferredUsers: referredUsers,
 		}
 		referralInfoResponses = append(referralInfoResponses, referralInfoResponse)
 
@@ -463,7 +503,7 @@ func (fes *APIServer) AdminGetAllReferralInfoForUser(ww http.ResponseWriter, req
 	}
 
 	// Get the referral link info structs.
-	referralInfoResponses, err := fes.getReferralInfoResponsesForPubKey(userPublicKeyBytes)
+	referralInfoResponses, err := fes.getReferralInfoResponsesForPubKey(userPublicKeyBytes, true /*includeReferredUsers*/)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetAllReferralInfoForUser: Problem putting new referral hash and info: %v", err))
 		return
@@ -601,10 +641,6 @@ func (fes *APIServer) AdminDownloadReferralCSV(ww http.ResponseWriter, req *http
 			"AdminDownloadReferralCSV: Problem encoding response as JSON: %v", err))
 		return
 	}
-}
-
-func GetCSVColumnNum(string) {
-
 }
 
 func (fes *APIServer) updateOrCreateReferralInfoFromCSVRow(row []string) (_err error) {
@@ -767,6 +803,141 @@ func (fes *APIServer) AdminUploadReferralCSV(ww http.ResponseWriter, req *http.R
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"AdminUploadReferralCSV: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+func RefereeCSVHeaders() (_headers []string) {
+	// Note that we limit counts to 25 so that we don't have to fetch as much data.
+	return []string{
+		"ReferralHashBase58", "ReferrerPKIDBase58Check", "ReferrerUsername",
+		"RefereePKIDBase58Check", "RefereeUsername", "RefereeNumPosts (1000 max)",
+		"RefereeNumLikes", "RefereeNumDiamonds", "RefereeFirstPostDate (1000th post if max)",
+	}
+}
+
+type AdminDownloadRefereeCSVRequest struct{}
+
+type AdminDownloadRefereeCSVResponse struct {
+	CSVRows [][]string
+}
+
+func (fes *APIServer) AdminDownloadRefereeCSV(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminDownloadRefereeCSVRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AdminDownloadRefereeCSV: Problem parsing request body: %v", err))
+		return
+	}
+
+	// We create a list of rows that are constructed into a CSV on the frontend.
+	csvRows := [][]string{RefereeCSVHeaders()}
+
+	// Get all of the referee logs.
+	keysFound, _, err := fes.GlobalStateSeek(
+		_GlobalStatePrefixPKIDReferralHashRefereePKID,
+		_GlobalStatePrefixPKIDReferralHashRefereePKID,
+		0, 0, false /*reverse*/, false /*fetchValue*/)
+	if err != nil {
+		_AddInternalServerError(
+			ww, fmt.Sprintf("AdminDownloadRefereeCSV: problem getting referee logs: %v", err))
+	}
+
+	// Grab a utxoView in preparation of fetching copious amounts of data.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminDownloadRefereeCSV: Problem fetching utxoView: %v", err))
+		return
+	}
+
+	// Indexes to chop up the referee keys with.
+	referrerPKIDStartIdx := 1
+	referralHashStartIdx := referrerPKIDStartIdx + btcec.PubKeyBytesLenCompressed
+	refereePKIDStartIdx := referralHashStartIdx + 8
+
+	for _, keyBytes := range keysFound {
+		referralHashBytes := keyBytes[referralHashStartIdx:refereePKIDStartIdx]
+
+		// Chop the referrerPKID out of the key.
+		referrerPKIDBytes := keyBytes[referrerPKIDStartIdx:referralHashStartIdx]
+		referrerPKID := &lib.PKID{}
+		copy(referrerPKID[:], referrerPKIDBytes)
+
+		// Chop the refereePKID out of the key.
+		refereePKIDBytes := keyBytes[refereePKIDStartIdx:]
+		refereePKID := &lib.PKID{}
+		copy(refereePKID[:], refereePKIDBytes)
+
+		// Gab the referrer and referee PKIDs.
+		referrerProfileEntry := utxoView.GetProfileEntryForPKID(referrerPKID)
+		refereeProfileEntry := utxoView.GetProfileEntryForPKID(refereePKID)
+
+		// Extract the username strings safely.
+		referrerUsernameStr := ""
+		if referrerProfileEntry != nil {
+			referrerUsernameStr = string(referrerProfileEntry.Username)
+		}
+		refereeUsernameStr := ""
+		if refereeProfileEntry != nil {
+			refereeUsernameStr = string(refereeProfileEntry.Username)
+		}
+
+		// Grab a list of posts for this user, up to 1000.
+		//
+		// RPH-FIXME: Because the existing core GetPostsPaginatedForPublicKey only iterates
+		// backwards we can't actually get the timestamp of the referee's first post if they
+		// have a lot of posts (e.g. @huntsauce level of posts). Leaving as is for now since
+		// it is not critical.
+		refereePostsLen := int64(-1)
+		refereePostEntries, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(
+			refereePKID[:], nil, 1000, false)
+		if err == nil {
+			refereePostsLen = int64(len(refereePostEntries))
+		}
+
+		// Grab a list of post hashes liked by this user.
+		refereeLikesLen := int64(-1)
+		refereeLikedPostHashes, err := lib.DbGetPostHashesYouLike(utxoView.Handle, refereePKID[:])
+		if err == nil {
+			refereeLikesLen = int64(len(refereeLikedPostHashes))
+		}
+
+		// Grab the PKIDs diamonded by the referee.
+		refereeDiamondsLen := int64(-1)
+		refereeDiamondedPKIDs, err := lib.DbGetPKIDsThatDiamondedYouMap(
+			utxoView.Handle, refereePKID, true /*fetchYouDiamonded*/)
+		if err == nil {
+			refereeDiamondsLen = int64(len(refereeDiamondedPKIDs))
+		}
+
+		// Assemble the row.
+		nextRow := []string{}
+		nextRow = append(nextRow, string(referralHashBytes))
+		nextRow = append(nextRow, lib.PkToString(lib.PKIDToPublicKey(referrerPKID), fes.Params))
+		nextRow = append(nextRow, referrerUsernameStr)
+		nextRow = append(nextRow, lib.PkToString(lib.PKIDToPublicKey(refereePKID), fes.Params))
+		nextRow = append(nextRow, refereeUsernameStr)
+		nextRow = append(nextRow, strconv.FormatInt(refereePostsLen, 10))
+		nextRow = append(nextRow, strconv.FormatInt(refereeLikesLen, 10))
+		nextRow = append(nextRow, strconv.FormatInt(refereeDiamondsLen, 10))
+		if refereePostsLen > 0 {
+			oldestRefereePost := refereePostEntries[len(refereePostEntries)-1]
+			nextRow = append(nextRow, time.Unix(0, int64(oldestRefereePost.TimestampNanos)).String())
+		} else {
+			nextRow = append(nextRow, "")
+		}
+
+		csvRows = append(csvRows, nextRow)
+	}
+
+	// If we made it this far we were successful, return without error.
+	res := AdminDownloadRefereeCSVResponse{
+		CSVRows: csvRows,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AdminDownloadRefereeCSV: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
