@@ -2091,7 +2091,9 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 				Metadata: txnMeta,
 				Index:    int64(lib.DecodeUint32(currentIndexBytes)),
 			}
-			dbTxnMetadataFound = append(dbTxnMetadataFound, res)
+			if NotificationTxnShouldBeIncluded(res.Metadata, &filteredOutCategories) {
+				dbTxnMetadataFound = append(dbTxnMetadataFound, res)
+			}
 		}
 
 		// If we've found enough transactions then break.
@@ -2217,7 +2219,7 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 	finalTxnMetadataList := []*TransactionMetadataResponse{}
 	if request.FetchStartIndex >= 0 {
 		for _, txnMeta := range combinedMempoolDBTxnMetadata {
-			if txnMeta.Index <= request.FetchStartIndex && NotificationTxnShouldBeIncluded(txnMeta.Metadata, &filteredOutCategories) {
+			if txnMeta.Index <= request.FetchStartIndex {
 				finalTxnMetadataList = append(finalTxnMetadataList, txnMeta)
 			}
 
@@ -2229,11 +2231,7 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 		// In this case, no start index is set and so we just return NumToFetch
 		// txns from the combined list starting at the beginning, which holds the
 		// latest txns.
-		for _, txnMeta := range combinedMempoolDBTxnMetadata {
-			if NotificationTxnShouldBeIncluded(txnMeta.Metadata, &filteredOutCategories) {
-				finalTxnMetadataList = append(finalTxnMetadataList, txnMeta)
-			}
-		}
+		finalTxnMetadataList = combinedMempoolDBTxnMetadata
 		if len(finalTxnMetadataList) > int(request.NumToFetch) {
 			finalTxnMetadataList = finalTxnMetadataList[:request.NumToFetch]
 		}
