@@ -131,6 +131,7 @@ const (
 	// tutorial.go
 	RoutePathGetTutorialCreators = "/api/v0/get-tutorial-creators"
 	RoutePathStartOrSkipTutorial = "/api/v0/start-or-skip-tutorial"
+	RoutePathUpdateTutorialStatus = "/api/v0/update-tutorial-status"
 
 	// eth.go
 	RoutePathSubmitETHTx       = "/api/v0/submit-eth-tx"
@@ -213,6 +214,7 @@ const (
 	RoutePathAdminUpdateReferralHash        = "/api/v0/admin/update-referral-hash"
 	RoutePathAdminUploadReferralCSV         = "/api/v0/admin/upload-referral-csv"
 	RoutePathAdminDownloadReferralCSV       = "/api/v0/admin/download-referral-csv"
+	RoutePathAdminDownloadRefereeCSV        = "/api/v0/admin/download-referee-csv"
 
 	// referrals.go
 	RoutePathGetReferralInfoForUser         = "/api/v0/get-referral-info-for-user"
@@ -896,6 +898,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetTutorialCreators,
 			PublicAccess,
 		},
+		{
+			"UpdateTutorialStatus",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateTutorialStatus,
+			fes.UpdateTutorialStatus,
+			PublicAccess,
+		},
 
 		// ETH Routes
 		{
@@ -1187,6 +1196,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminDownloadReferralCSV,
 			fes.AdminDownloadReferralCSV,
+			SuperAdminAccess,
+		},
+		{
+			"AdminDownloadReferralCSV",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminDownloadRefereeCSV,
+			fes.AdminDownloadRefereeCSV,
 			SuperAdminAccess,
 		},
 		{

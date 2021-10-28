@@ -3,10 +3,11 @@ package routes
 import (
 	"bytes"
 	"encoding/gob"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io"
 	"net/http"
@@ -888,7 +889,9 @@ type AdminGetUserAdminDataResponse struct {
 	Email       string
 
 	// Referral Code
-	ReferralHashBase58Check string
+	ReferralHashBase58Check            string
+	JumioStarterDeSoTxnHashBase58Check string
+	ReferrerDeSoTxnHashBase58Check     string
 }
 
 // Get the audit logs for a particular public key and their associated metadata
@@ -1038,26 +1041,54 @@ func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Re
 	phoneNumber := userMetadata.PhoneNumber
 	email := userMetadata.Email
 
+	var jumioStarterDeSoTxnHashBase58Check string
+	if userMetadata.JumioStarterDeSoTxnHashHex != "" {
+		jumioStarterDeSoTxnHashBase58Check, err = fes.HashHexToBase58Check(userMetadata.JumioStarterDeSoTxnHashHex)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem converting JumioStarterDeSoTxnHashHex to base58check: %v", err))
+			return
+		}
+	}
+
+	var referrerDeSoTxnHashBase58Check string
+	if userMetadata.ReferrerDeSoTxnHash != "" {
+		referrerDeSoTxnHashBase58Check, err = fes.HashHexToBase58Check(userMetadata.ReferrerDeSoTxnHash)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem converting ReferrerDeSoTxnHash to base58check: %v", err))
+			return
+		}
+	}
+
 	res := AdminGetUserAdminDataResponse{
-		Username:                      username,
-		IsVerified:                    isVerified,
-		LastVerifierPublicKey:         lastVerifierPublicKey,
-		LastVerifyRemoverPublicKey:    lastVerifyRemoverPublicKey,
-		IsWhitelisted:                 isWhitelisted,
-		LastWhitelisterPublicKey:      lastWhitelisterPublicKey,
-		LastWhitelistRemoverPublicKey: lastWhitelistRemoverPublicKey,
-		IsGraylisted:                  isGraylisted,
-		LastGraylisterPublicKey:       lastGraylisterPublicKey,
-		LastGraylistRemoverPublicKey:  lastGraylistRemoverPublicKey,
-		IsBlacklisted:                 isBlacklisted,
-		LastBlacklisterPublicKey:      lastBlacklisterPublicKey,
-		LastBlacklistRemoverPublicKey: lastBlacklistRemoverPublicKey,
-		PhoneNumber:                   phoneNumber,
-		Email:                         email,
-		ReferralHashBase58Check:       userMetadata.ReferralHashBase58Check,
+		Username:                           username,
+		IsVerified:                         isVerified,
+		LastVerifierPublicKey:              lastVerifierPublicKey,
+		LastVerifyRemoverPublicKey:         lastVerifyRemoverPublicKey,
+		IsWhitelisted:                      isWhitelisted,
+		LastWhitelisterPublicKey:           lastWhitelisterPublicKey,
+		LastWhitelistRemoverPublicKey:      lastWhitelistRemoverPublicKey,
+		IsGraylisted:                       isGraylisted,
+		LastGraylisterPublicKey:            lastGraylisterPublicKey,
+		LastGraylistRemoverPublicKey:       lastGraylistRemoverPublicKey,
+		IsBlacklisted:                      isBlacklisted,
+		LastBlacklisterPublicKey:           lastBlacklisterPublicKey,
+		LastBlacklistRemoverPublicKey:      lastBlacklistRemoverPublicKey,
+		PhoneNumber:                        phoneNumber,
+		Email:                              email,
+		ReferralHashBase58Check:            userMetadata.ReferralHashBase58Check,
+		JumioStarterDeSoTxnHashBase58Check: jumioStarterDeSoTxnHashBase58Check,
+		ReferrerDeSoTxnHashBase58Check:     referrerDeSoTxnHashBase58Check,
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+func (fes *APIServer) HashHexToBase58Check(hashHex string) (base58Check string, _err error){
+	hashBytes, err := hex.DecodeString(hashHex)
+	if err != nil {
+		return "", fmt.Errorf("AdminGetUserMetadata: Problem decoding JumioStarterDeSoTxnHashHex: %v", err)
+	}
+	return lib.PkToString(hashBytes, fes.Params), nil
 }
