@@ -2186,7 +2186,13 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 				if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
 					continue
 				}
-				mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
+
+				// Skip transactions when notification should not be included based on filter
+				if !NotificationTxnShouldBeIncluded(txnMeta, &filteredOutCategories) {
+					continue
+				}
+
+					mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
 					Metadata: txnMeta,
 					Index:    currentIndex,
 				})
