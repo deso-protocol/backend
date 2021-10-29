@@ -2540,6 +2540,10 @@ func (fes *APIServer) DeletePII(ww http.ResponseWriter, rr *http.Request) {
 		return
 	}
 
+	if err = fes.logAmplitudeEvent(requestData.PublicKeyBase58Check, "delete : pii", make(map[string]interface{})); err != nil {
+		glog.Errorf("DeletePII: Error logging Delete PII event in amplitude: %v", err)
+	}
+
 	// Decode Public key
 	var publicKeyBytes []byte
 	if requestData.PublicKeyBase58Check != "" {
