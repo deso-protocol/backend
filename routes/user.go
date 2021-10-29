@@ -1072,7 +1072,7 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 
 	// Return an error if we failed to find a profile entry
 	if profileEntry == nil {
-		if (!requestData.NoErrorOnMissing) {
+		if !requestData.NoErrorOnMissing {
 			_AddNotFoundError(ww, fmt.Sprintf("GetSingleProfile: could not find profile for username or public key: %v, %v", requestData.Username, requestData.PublicKeyBase58Check))
 		}
 		return
@@ -2186,6 +2186,12 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 				if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
 					continue
 				}
+
+				// Skip transactions when notification should not be included based on filter
+				if !NotificationTxnShouldBeIncluded(txnMeta, &filteredOutCategories) {
+					continue
+				}
+
 				mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
 					Metadata: txnMeta,
 					Index:    currentIndex,
@@ -2582,16 +2588,16 @@ type GetUserDerivedKeysRequest struct {
 // UserDerivedKey ...
 type UserDerivedKey struct {
 	// This is the public key of the owner.
-	OwnerPublicKeyBase58Check   string `safeForLogging:"true"`
+	OwnerPublicKeyBase58Check string `safeForLogging:"true"`
 
 	// This is the derived public key.
 	DerivedPublicKeyBase58Check string `safeForLogging:"true"`
 
 	// This is the expiration date of the derived key.
-	ExpirationBlock             uint64 `safeForLogging:"true"`
+	ExpirationBlock uint64 `safeForLogging:"true"`
 
 	// This is the current state of the derived key.
-	IsValid                     bool `safeForLogging:"true"`
+	IsValid bool `safeForLogging:"true"`
 }
 
 // GetUserDerivedKeysResponse ...
