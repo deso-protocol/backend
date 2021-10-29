@@ -1542,6 +1542,7 @@ var publicRoutes = map[string]interface{}{
 	RoutePathGetBlacklistedPublicKeys: nil,
 	RoutePathGetGraylistedPublicKeys: nil,
 	RoutePathGetGlobalFeed: nil,
+	RoutePathDeletePII: nil,
 }
 
 // AddHeaders ...
