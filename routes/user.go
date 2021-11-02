@@ -1913,9 +1913,9 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		}
 
 		postEntryResponse.ProfileEntryResponse = profileEntryResponses[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]
-		if postEntryResponse.ProfileEntryResponse == nil {
-			return
-		}
+		//if postEntryResponse.ProfileEntryResponse == nil {
+		//	return
+		//}
 
 		postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPK, postEntry)
 
