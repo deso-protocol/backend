@@ -61,21 +61,22 @@ const (
 	RoutePathGetTransactionSpending   = "/api/v0/get-transaction-spending"
 
 	// user.go
-	RoutePathGetUsersStateless        = "/api/v0/get-users-stateless"
-	RoutePathDeleteIdentities         = "/api/v0/delete-identities"
-	RoutePathGetProfiles              = "/api/v0/get-profiles"
-	RoutePathGetSingleProfile         = "/api/v0/get-single-profile"
-	RoutePathGetSingleProfilePicture  = "/api/v0/get-single-profile-picture"
-	RoutePathGetHodlersForPublicKey   = "/api/v0/get-hodlers-for-public-key"
-	RoutePathGetDiamondsForPublicKey  = "/api/v0/get-diamonds-for-public-key"
-	RoutePathGetFollowsStateless      = "/api/v0/get-follows-stateless"
-	RoutePathGetUserGlobalMetadata    = "/api/v0/get-user-global-metadata"
-	RoutePathUpdateUserGlobalMetadata = "/api/v0/update-user-global-metadata"
-	RoutePathGetNotifications         = "/api/v0/get-notifications"
-	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
-	RoutePathIsFollowingPublicKey     = "/api/v0/is-following-public-key"
-	RoutePathIsHodlingPublicKey       = "/api/v0/is-hodling-public-key"
-	RoutePathGetUserDerivedKeys       = "/api/v0/get-user-derived-keys"
+	RoutePathGetUsersStateless           = "/api/v0/get-users-stateless"
+	RoutePathDeleteIdentities            = "/api/v0/delete-identities"
+	RoutePathGetProfiles                 = "/api/v0/get-profiles"
+	RoutePathGetSingleProfile            = "/api/v0/get-single-profile"
+	RoutePathGetSingleProfilePicture     = "/api/v0/get-single-profile-picture"
+	RoutePathGetHodlersForPublicKey      = "/api/v0/get-hodlers-for-public-key"
+	RoutePathGetDiamondsForPublicKey     = "/api/v0/get-diamonds-for-public-key"
+	RoutePathGetFollowsStateless         = "/api/v0/get-follows-stateless"
+	RoutePathGetUserGlobalMetadata       = "/api/v0/get-user-global-metadata"
+	RoutePathUpdateUserGlobalMetadata    = "/api/v0/update-user-global-metadata"
+	RoutePathGetNotifications            = "/api/v0/get-notifications"
+	RoutePathGetUnreadNotificationsCount = "/api/v0/get-unread-notifications-count"
+	RoutePathBlockPublicKey              = "/api/v0/block-public-key"
+	RoutePathIsFollowingPublicKey        = "/api/v0/is-following-public-key"
+	RoutePathIsHodlingPublicKey          = "/api/v0/is-hodling-public-key"
+	RoutePathGetUserDerivedKeys          = "/api/v0/get-user-derived-keys"
 
 	// post.go
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
@@ -129,8 +130,8 @@ const (
 	RoutePathGetJumioStatusForPublicKey        = "/api/v0/get-jumio-status-for-public-key"
 
 	// tutorial.go
-	RoutePathGetTutorialCreators = "/api/v0/get-tutorial-creators"
-	RoutePathStartOrSkipTutorial = "/api/v0/start-or-skip-tutorial"
+	RoutePathGetTutorialCreators  = "/api/v0/get-tutorial-creators"
+	RoutePathStartOrSkipTutorial  = "/api/v0/start-or-skip-tutorial"
 	RoutePathUpdateTutorialStatus = "/api/v0/update-tutorial-status"
 
 	// eth.go
@@ -761,6 +762,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetNotifications,
 			fes.GetNotifications,
+			PublicAccess,
+		},
+		{
+			"GetUnreadNotificationsCount",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetUnreadNotificationsCount,
+			fes.GetNotificationsCount,
+			PublicAccess,
+		},
+		{
+			"ResetNotifications",
+			[]string{"POST", "OPTIONS"},
+			"/api/v0/reset-unread-notifications-count",
+			fes.ResetNotificationsCount,
 			PublicAccess,
 		},
 		{
