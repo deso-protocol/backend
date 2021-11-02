@@ -772,13 +772,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
-			"ResetNotifications",
-			[]string{"POST", "OPTIONS"},
-			"/api/v0/reset-unread-notifications-count",
-			fes.ResetNotificationsCount,
-			PublicAccess,
-		},
-		{
 			"GetAppState",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetAppState,

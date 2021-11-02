@@ -1826,32 +1826,6 @@ type GetNotificationsCountResponse struct {
 	NotificationsCount uint64
 }
 
-func (fes *APIServer) ResetNotificationsCount(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := GetNotificationsCountRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetNotificationsCount: Problem parsing request body: %v", err))
-		return
-	}
-
-	userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.PublicKeyBase58Check)
-
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetNotificationsCount: Error getting user metadata from global state: %v", err))
-		return
-	}
-
-	userMetadata.LatestUnreadNotificationIndex = 0
-	userMetadata.UnreadNotifications = 0
-	userMetadata.NotificationLastSeenIndex = 0
-
-	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminResetTutorialStatus: Error putting user metadata in global state: %v", err))
-		return
-	}
-}
-
 func (fes *APIServer) GetNotificationsCount(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetNotificationsCountRequest{}
