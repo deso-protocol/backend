@@ -1933,17 +1933,22 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		if postMetadata != nil {
 			addPostForHash(postMetadata.PostHashBeingModifiedHex, userPublicKeyBytes)
 			addPostForHash(postMetadata.ParentPostHashHex, userPublicKeyBytes)
-		} else if likeMetadata != nil {
+		}
+		if likeMetadata != nil {
 			addPostForHash(likeMetadata.PostHashHex, userPublicKeyBytes)
-		} else if transferCreatorCoinMetadata != nil {
+		}
+		if transferCreatorCoinMetadata != nil {
 			if transferCreatorCoinMetadata.PostHashHex != "" {
 				addPostForHash(transferCreatorCoinMetadata.PostHashHex, userPublicKeyBytes)
 			}
-		} else if nftBidMetadata != nil {
+		}
+		if nftBidMetadata != nil {
 			addPostForHash(nftBidMetadata.NFTPostHashHex, userPublicKeyBytes)
-		} else if acceptNFTBidMetadata != nil {
+		}
+		if acceptNFTBidMetadata != nil {
 			addPostForHash(acceptNFTBidMetadata.NFTPostHashHex, userPublicKeyBytes)
-		} else if basicTransferMetadata != nil {
+		}
+		if basicTransferMetadata != nil {
 			txnOutputs := txnMeta.Metadata.TxnOutputs
 			for _, output := range txnOutputs {
 				txnMeta.TxnOutputResponses = append(
