@@ -1033,29 +1033,32 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 
 	// Go from most recent to least recent
 	// TODO: Support pagination for mempool transactions
-	for _, poolTx := range poolTxns {
-		txnMeta := poolTx.TxMeta
+	// Tack on mempool transactions if LastPublicKeyTransactionIndex is not specified
+	if transactionInfoRequest.LastPublicKeyTransactionIndex <= 0 {
+		for _, poolTx := range poolTxns {
+			txnMeta := poolTx.TxMeta
 
-		isRelevantTxn := false
-		// Iterate over the affected public keys to see if any of them hit the one we're looking for.
-		for _, affectedPks := range txnMeta.AffectedPublicKeys {
-			if affectedPks.PublicKeyBase58Check == transactionInfoRequest.PublicKeyBase58Check {
-				isRelevantTxn = true
-				break
+			isRelevantTxn := false
+			// Iterate over the affected public keys to see if any of them hit the one we're looking for.
+			for _, affectedPks := range txnMeta.AffectedPublicKeys {
+				if affectedPks.PublicKeyBase58Check == transactionInfoRequest.PublicKeyBase58Check {
+					isRelevantTxn = true
+					break
+				}
 			}
-		}
 
-		// Skip irrelevant transactions
-		if !isRelevantTxn {
-			continue
-		}
+			// Skip irrelevant transactions
+			if !isRelevantTxn {
+				continue
+			}
 
-		// Finally, add the transaction to our list if it's relevant
-		if transactionInfoRequest.IDsOnly {
-			txRes := &TransactionResponse{TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params)}
-			res.Transactions = append(res.Transactions, txRes)
-		} else {
-			res.Transactions = append(res.Transactions, APITransactionToResponse(poolTx.Tx, txnMeta, fes.Params))
+			// Finally, add the transaction to our list if it's relevant
+			if transactionInfoRequest.IDsOnly {
+				txRes := &TransactionResponse{TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params)}
+				res.Transactions = append(res.Transactions, txRes)
+			} else {
+				res.Transactions = append(res.Transactions, APITransactionToResponse(poolTx.Tx, txnMeta, fes.Params))
+			}
 		}
 	}
 
