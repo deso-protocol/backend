@@ -517,10 +517,13 @@ func APITransactionToResponse(
 
 	// Remove UtxoOps from the response because it's massive and usually useless
 	// We do some funky pointer stuff here so that we don't change the original object
-	txnMetaResponse := *txnMeta
-	basicMetadata := *txnMeta.BasicTransferTxindexMetadata
-	basicMetadata.UtxoOps = nil
-	txnMetaResponse.BasicTransferTxindexMetadata = &basicMetadata
+	var txnMetaResponse lib.TransactionMetadata
+	if txnMeta != nil {
+		txnMetaResponse = *txnMeta
+		basicMetadata := *txnMeta.BasicTransferTxindexMetadata
+		basicMetadata.UtxoOps = nil
+		txnMetaResponse.BasicTransferTxindexMetadata = &basicMetadata
+	}
 
 	txnBytes, _ := txnn.ToBytes(false /*preSignature*/)
 	ret := &TransactionResponse{
