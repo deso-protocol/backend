@@ -1798,29 +1798,11 @@ func (fes *APIServer) UpdateUserGlobalMetadata(ww http.ResponseWriter, req *http
 	}
 }
 
-type GetNotificationsRequest struct {
-	// This is the index of the notification we want to start our paginated lookup at. We
-	// will fetch up to "NumToFetch" notifications after it, ordered by index.  If no
-	// index is provided we will return the most recent posts.
-	PublicKeyBase58Check string
-	FetchStartIndex      int64
-	NumToFetch           int64
-	// This defines notifications that should be filtered OUT of the response
-	// If a field is missing from this struct, it should be included in the response
-	// Accepted values are like, diamond, follow, transfer, nft, post
-	FilteredOutNotificationCategories map[string]bool
-}
-
 type GetNotificationsCountRequest struct {
 	PublicKeyBase58Check string
 }
 
 
-type GetNotificationsResponse struct {
-	Notifications       []*TransactionMetadataResponse
-	ProfilesByPublicKey map[string]*ProfileEntryResponse
-	PostsByHash         map[string]*PostEntryResponse
-}
 
 type GetNotificationsCountResponse struct {
 	NotificationsCount uint64
@@ -1876,7 +1858,7 @@ func (fes *APIServer) GetNotificationsCount(ww http.ResponseWriter, req *http.Re
 	}
 
 	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminResetTutorialStatus: Error putting user metadata in global state: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetNotificationsCount: Error putting user metadata in global state: %v", err))
 		return
 	}
 
@@ -1886,11 +1868,29 @@ func (fes *APIServer) GetNotificationsCount(ww http.ResponseWriter, req *http.Re
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetNotifications: Problem encoding response as JSON: %v", err))
+			"GetNotificationsCount: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
 
+type GetNotificationsRequest struct {
+	// This is the index of the notification we want to start our paginated lookup at. We
+	// will fetch up to "NumToFetch" notifications after it, ordered by index.  If no
+	// index is provided we will return the most recent posts.
+	PublicKeyBase58Check string
+	FetchStartIndex      int64
+	NumToFetch           int64
+	// This defines notifications that should be filtered OUT of the response
+	// If a field is missing from this struct, it should be included in the response
+	// Accepted values are like, diamond, follow, transfer, nft, post
+	FilteredOutNotificationCategories map[string]bool
+}
+
+type GetNotificationsResponse struct {
+	Notifications       []*TransactionMetadataResponse
+	ProfilesByPublicKey map[string]*ProfileEntryResponse
+	PostsByHash         map[string]*PostEntryResponse
+}
 
 func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
