@@ -2195,7 +2195,7 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 	return dbTxnMetadataFound, nil
 }
 
-func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest, blockedPubKeys map[string]struct{}, utxoView *lib.UtxoView) ([]*TransactionMetadataResponse, error) {
+func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest, blockedPubKeys map[string]struct{}, utxoView *lib.UtxoView, iterateReverse bool) ([]*TransactionMetadataResponse, error) {
 	filteredOutCategories := request.FilteredOutNotificationCategories
 
 	pkBytes, _, err := lib.Base58CheckDecode(request.PublicKeyBase58Check)
@@ -2214,7 +2214,7 @@ func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest,
 	// than what we have in the db then it means we need to augment our list with
 	// txns from the mempool.
 	combinedMempoolDBTxnMetadata := []*TransactionMetadataResponse{}
-	if request.FetchStartIndex < 0 || request.FetchStartIndex >= NextIndex {
+	if !iterateReverse || (request.FetchStartIndex < 0 || request.FetchStartIndex >= NextIndex) {
 		// At this point we should have zero or more TransactionMetadata objects from
 		// the database that could trigger a notification for the user.
 		//
@@ -2267,7 +2267,7 @@ func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest,
 				}
 
 				// Only include transactions that occur on or after the start index, if defined
-				if request.FetchStartIndex < 0 || request.FetchStartIndex >= currentIndex {
+				if request.FetchStartIndex < 0 || (request.FetchStartIndex >= currentIndex && iterateReverse) || (request.FetchStartIndex <= currentIndex && !iterateReverse)  {
 					mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
 						Metadata: txnMeta,
 						Index:    currentIndex,
@@ -2338,7 +2338,7 @@ func (fes *APIServer) _getNotificationsCount(request *GetNotificationsRequest) (
 	}
 
 	// Get notifications from the db
-	mempoolTxnMetadataFound, err := fes._getMempoolNotifications(request, blockedPubKeys, utxoView)
+	mempoolTxnMetadataFound, err := fes._getMempoolNotifications(request, blockedPubKeys, utxoView, false)
 	if err != nil {
 		return 0, 0, fmt.Errorf("Error getting DB Notifications: %v", err)
 	}
@@ -2384,7 +2384,7 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 		return nil, nil, fmt.Errorf("Error getting DB Notifications: %v", err)
 	}
 
-	mempoolTxnMetadataFound, err := fes._getMempoolNotifications(request, blockedPubKeys, utxoView)
+	mempoolTxnMetadataFound, err := fes._getMempoolNotifications(request, blockedPubKeys, utxoView, true)
 	if err != nil {
 		return nil, nil, fmt.Errorf("Error getting mempool Notifications: %v", err)
 	}
