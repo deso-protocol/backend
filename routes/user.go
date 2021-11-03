@@ -2055,17 +2055,17 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		lastSeenIndex := finalTxnMetadataList[0].Index
 		if lastSeenIndex > userMetadata.NotificationLastSeenIndex {
 			userMetadata.NotificationLastSeenIndex = lastSeenIndex
-			// Update user metadata with new unread notification count.
-			userMetadata.UnreadNotifications = 0
-			// Save the new latest unread notification index, so that notifications aren't scanned twice. Only do this when new notifications are added.
-			userMetadata.LatestUnreadNotificationIndex = lastSeenIndex
-			// Place the update metadata into the global state
-			err = fes.putUserMetadataInGlobalState(userMetadata)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf(
-					"GetNotifications: Problem putting updated user metadata: %v", err))
-				return
-			}
+		}
+		// Update user metadata with new unread notification count.
+		userMetadata.UnreadNotifications = 0
+		// Save the new latest unread notification index, so that notifications aren't scanned twice.
+		userMetadata.LatestUnreadNotificationIndex = lastSeenIndex
+		// Place the update metadata into the global state
+		err = fes.putUserMetadataInGlobalState(userMetadata)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"GetNotifications: Problem putting updated user metadata: %v", err))
+			return
 		}
 	}
 
