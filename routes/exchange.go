@@ -1327,45 +1327,16 @@ func (fes *APIServer) _augmentAndProcessTransactionWithSubsidyWithKey(
 // that are "RemovedEverywhere."
 //
 // NOTE: If a readerPK is passed, it will always be returned in the new map.
-func (fes *APIServer) FilterOutRestrictedPubKeysFromMap(profilePubKeyMap map[lib.PkMapKey][]byte, readerPK []byte, moderationType string,
+func (fes *APIServer) FilterOutRestrictedPubKeysFromMap(profilePubKeyMap map[lib.PkMapKey][]byte, readerPK []byte, moderationType string, utxoView *lib.UtxoView,
 ) (_filteredPubKeyMap map[lib.PkMapKey][]byte, _err error) {
 
-	// Convert the pub keys into graylist and blacklist db keys
-	graylistKeys := [][]byte{}
-	blacklistKeys := [][]byte{}
-	pkMapKeys := []lib.PkMapKey{}
-	for profilePubKey := range profilePubKeyMap {
-		graylistKeys = append(graylistKeys, GlobalStateKeyForGraylistedProfile(profilePubKey[:]))
-		blacklistKeys = append(blacklistKeys, GlobalStateKeyForBlacklistedProfile(profilePubKey[:]))
-		pkMapKeys = append(pkMapKeys, profilePubKey)
-	}
-
-	usersGraylistState, err := fes.GlobalStateBatchGet(graylistKeys)
-	if err != nil {
-		return nil, errors.Wrapf(err, "FilterOutRestrictedPubKeysFromList: Problem getting graylist: ")
-	}
-
-	// Sanity check that batch get worked properly.
-	if len(usersGraylistState) != len(profilePubKeyMap) {
-		return nil, errors.New("FilterOutRestrictedPubKeysFromList: usersGraylistState length mismatch.")
-	}
-
-	usersBlacklistState, err := fes.GlobalStateBatchGet(blacklistKeys)
-	if err != nil {
-		return nil, errors.Wrapf(err, "FilterOutRestrictedPubKeysFromList: Problem getting blacklist: ")
-	}
-
-	// Sanity check that batch get worked properly.
-	if len(usersBlacklistState) != len(profilePubKeyMap) {
-		return nil, errors.New("FilterOutRestrictedPubKeysFromList: usersBlacklistState length mismatch.")
-	}
-
 	filteredPubKeyMap := make(map[lib.PkMapKey][]byte)
-	for ii, pkMapKey := range pkMapKeys {
+	for pkMapKey, publicKey := range profilePubKeyMap {
+		pkid := utxoView.GetPKIDForPublicKey(publicKey).PKID
 		// If the key is restricted based on the current moderation type and the pkMapKey does not equal that of the currentPoster,
 		// we can filter out this public key.  We need to check the currentPoster's PK to support hiding comments from
 		// greylisted users (moderationType = "leaderboard") but still support getting posts from greylisted users.
-		if lib.IsRestrictedPubKey(usersGraylistState[ii], usersBlacklistState[ii], moderationType) {
+		if lib.IsRestrictedPubKey(fes.GetGraylistState(pkid), fes.GetBlacklistState(pkid), moderationType) {
 			continue
 		} else {
 			// If a public key does isn't restricted, add it to the map.
@@ -1384,38 +1355,12 @@ func (fes *APIServer) FilterOutRestrictedPubKeysFromMap(profilePubKeyMap map[lib
 // Accepts a list of profile public keys and returns a subset of those keys based on
 // the moderationType specified.  Passing an empty string will only filter out profiles
 // that are "RemovedEverywhere."
-func (fes *APIServer) FilterOutRestrictedPubKeysFromList(profilePubKeys [][]byte, readerPK []byte, moderationType string) (_filteredPubKeys [][]byte, _err error) {
-	// Convert the pub keys into graylist and blacklist db keys
-	graylistKeys := [][]byte{}
-	blacklistKeys := [][]byte{}
-	for _, profilePubKey := range profilePubKeys {
-		graylistKeys = append(graylistKeys, GlobalStateKeyForGraylistedProfile(profilePubKey))
-		blacklistKeys = append(blacklistKeys, GlobalStateKeyForBlacklistedProfile(profilePubKey))
-	}
-
-	usersGraylistState, err := fes.GlobalStateBatchGet(graylistKeys)
-	if err != nil {
-		return nil, errors.Wrapf(err, "FilterOutRestrictedPubKeysFromList: Problem getting graylist: ")
-	}
-
-	// Sanity check that batch get worked properly.
-	if len(usersGraylistState) != len(profilePubKeys) {
-		return nil, errors.New("FilterOutRestrictedPubKeysFromList: usersGraylistState length mismatch.")
-	}
-
-	usersBlacklistState, err := fes.GlobalStateBatchGet(blacklistKeys)
-	if err != nil {
-		return nil, errors.Wrapf(err, "FilterOutRestrictedPubKeysFromList: Problem getting blacklist: ")
-	}
-
-	// Sanity check that batch get worked properly.
-	if len(usersBlacklistState) != len(profilePubKeys) {
-		return nil, errors.New("FilterOutRestrictedPubKeysFromList: usersBlacklistState length mismatch.")
-	}
+func (fes *APIServer) FilterOutRestrictedPubKeysFromList(profilePubKeys [][]byte, readerPK []byte, moderationType string, utxoView *lib.UtxoView) (_filteredPubKeys [][]byte, _err error) {
 
 	filteredPubKeys := [][]byte{}
-	for ii, profilePubKey := range profilePubKeys {
-		if lib.IsRestrictedPubKey(usersGraylistState[ii], usersBlacklistState[ii], moderationType) {
+	for _, profilePubKey := range profilePubKeys {
+		pkid := utxoView.GetPKIDForPublicKey(profilePubKey).PKID
+		if lib.IsRestrictedPubKey(fes.GetGraylistState(pkid), fes.GetBlacklistState(pkid), moderationType) {
 			// Always let the reader access their content.
 			if reflect.DeepEqual(readerPK, profilePubKey) {
 				filteredPubKeys = append(filteredPubKeys, profilePubKey)
@@ -1488,7 +1433,7 @@ func (fes *APIServer) GetProfilesByCoinValue(
 		}
 
 		// Filter based on moderation level.
-		unrestrictedPubKeys, err := fes.FilterOutRestrictedPubKeysFromList(dbProfilePubKeys, readerPK, moderationType)
+		unrestrictedPubKeys, err := fes.FilterOutRestrictedPubKeysFromList(dbProfilePubKeys, readerPK, moderationType, bav)
 		if err != nil {
 			return nil, nil, nil, errors.Wrapf(err, "GetAllProfiles: Problem filtering dbProfilePubKeys: ")
 		}
@@ -1574,7 +1519,7 @@ func (fes *APIServer) GetProfilesByCoinValue(
 	for _, profileEntry := range bav.ProfilePKIDToProfileEntry {
 		viewPubKeys = append(viewPubKeys, profileEntry.PublicKey)
 	}
-	filteredViewPubKeys, err := fes.FilterOutRestrictedPubKeysFromList(viewPubKeys, readerPK, moderationType)
+	filteredViewPubKeys, err := fes.FilterOutRestrictedPubKeysFromList(viewPubKeys, readerPK, moderationType, bav)
 	if err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "GetAllProfiles: Problem filtering restricted profiles: ")
 	}
@@ -1622,7 +1567,7 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 	}
 
 	// Filter out any restricted pub keys.
-	filteredPubKeysMap, err := fes.FilterOutRestrictedPubKeysFromMap(followedPubKeysMap, publicKey, "")
+	filteredPubKeysMap, err := fes.FilterOutRestrictedPubKeysFromMap(followedPubKeysMap, publicKey, "", bav)
 	if err != nil {
 		return nil, errors.Wrapf(err, "GetPostsForFollowFeedForPublicKey: Problem filtering out restricted public keys: ")
 	}
@@ -1746,7 +1691,7 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 		}
 
 		// Filter restricted public keys out of the posts.
-		filteredPostEntryPubKeyMap, err := fes.FilterOutRestrictedPubKeysFromMap(postEntryPubKeyMap, readerPK, "leaderboard")
+		filteredPostEntryPubKeyMap, err := fes.FilterOutRestrictedPubKeysFromMap(postEntryPubKeyMap, readerPK, "leaderboard", bav)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "GetAllProfiles: Problem filtering restricted profiles from map: ")
 		}

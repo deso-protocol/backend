@@ -223,7 +223,7 @@ func (fes *APIServer) TxnFeeMapToResponse(skipProfileEntryResponses bool) map[st
 				if !exists {
 					profileEntry := utxoView.GetProfileEntryForPKID(pkid.PKID)
 					if profileEntry != nil {
-						profileEntryResponse = _profileEntryToResponse(profileEntry, fes.Params, nil, utxoView)
+						profileEntryResponse = fes._profileEntryToResponse(profileEntry, utxoView)
 					}
 					profileEntryResponseMap[pkid.PKID] = profileEntryResponse
 				}
@@ -350,7 +350,7 @@ func (fes *APIServer) AdminGetExemptPublicKeys(ww http.ResponseWriter, req *http
 		profileEntry := utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
 		var profileEntryResponse *ProfileEntryResponse
 		if profileEntry != nil {
-			profileEntryResponse = _profileEntryToResponse(profileEntry, fes.Params, nil, utxoView)
+			profileEntryResponse = fes._profileEntryToResponse(profileEntry, utxoView)
 		}
 		exemptPublicKeyMap[publicKeyBase58Check] = profileEntryResponse
 	}

@@ -170,14 +170,8 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgDeSoTxn, re
 		return errors.Errorf("Problem obtaining post entry response: %v", err)
 	}
 
-	// attach a ProfileEntry to the PostEntryResponse
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		return err
-	}
-
 	profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
-	postEntryResponse.ProfileEntryResponse = _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+	postEntryResponse.ProfileEntryResponse = fes._profileEntryToResponse(profileEntry, utxoView)
 
 	// attach everything to the response
 	response.PostEntryResponse = postEntryResponse

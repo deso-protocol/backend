@@ -76,6 +76,7 @@ const (
 	RoutePathIsFollowingPublicKey     = "/api/v0/is-following-public-key"
 	RoutePathIsHodlingPublicKey       = "/api/v0/is-hodling-public-key"
 	RoutePathGetUserDerivedKeys       = "/api/v0/get-user-derived-keys"
+	RoutePathDeletePII                = "/api/v0/delete-pii"
 
 	// post.go
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
@@ -224,6 +225,12 @@ const (
 	RoutePathAdminUpdateTutorialCreators = "/api/v0/admin/update-tutorial-creators"
 	RoutePathAdminResetTutorialStatus    = "/api/v0/admin/reset-tutorial-status"
 	RoutePathAdminGetTutorialCreators    = "/api/v0/admin/get-tutorial-creators"
+
+	// expose_global_state.go
+	RoutePathGetVerifiedUsernames     = "/api/v0/get-verified-usernames"
+	RoutePathGetBlacklistedPublicKeys = "/api/v0/get-blacklisted-public-keys"
+	RoutePathGetGraylistedPublicKeys  = "/api/v0/get-graylisted-public-keys"
+	RoutePathGetGlobalFeed            = "/api/v0/get-global-feed"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -298,6 +305,30 @@ type APIServer struct {
 	// Map of public keys that are exempt from node fees
 	ExemptPublicKeyMap map[string]interface{}
 
+	// Global State cache
+
+	// VerifiedUsernameToPKIDMap is a map of lowercase usernames to PKIDs representing the current state of
+	// verifications this node is recognizing.
+	VerifiedUsernameToPKIDMap map[string]*lib.PKID
+	// BlacklistedPKIDMap is a map of PKID to a byte slice representing the PKID of a user as the key and the current
+	// blacklist state of that user as the key. If a PKID is not present in this map, then the user is NOT blacklisted.
+	BlacklistedPKIDMap        map[lib.PKID][]byte
+	// BlacklistedResponseMap is a map of PKIDs converted to base58-encoded string to a byte slice. This is computed
+	// from the BlacklistedPKIDMap above and is a JSON-encodable version of that map. This map is only used when
+	// responding to requests for this node's blacklist. A JSON-encoded response is easier for any language to digest
+	// than a gob-encoded one.
+	BlacklistedResponseMap    map[string][]byte
+	// GraylistedPKIDMap is a map of PKID to a byte slice representing the PKID of a user as the key and the current
+	// graylist state of that user as the key. If a PKID is not present in this map, then the user is NOT graylisted.
+	GraylistedPKIDMap         map[lib.PKID][]byte
+	// GraylistedResponseMap is a map of PKIDs converted to base58-encoded string to a byte slice. This is computed
+	// from the GraylistedPKIDMap above and is a JSON-encodable version of that map. This map is only used when
+	// responding to requests for this node's graylist. A JSON-encoded response is easier for any language to digest
+	// than a gob-encoded one.
+	GraylistedResponseMap     map[string][]byte
+	// GlobalFeedPostHashes is a slice of BlockHashes representing the state of posts on the global feed on this node.
+	GlobalFeedPostHashes      []*lib.BlockHash
+
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
 }
@@ -370,6 +401,10 @@ func NewAPIServer(
 	if fes.Config.RunHotFeedRoutine {
 		fes.StartHotFeedRoutine()
 	}
+
+	fes.SetGlobalStateCache()
+	// Kick off Global State Monitoring to set up cache of Verified Username, Blacklist, and Graylist.
+	fes.StartGlobalStateMonitoring()
 
 	return fes, nil
 }
@@ -845,6 +880,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetUserDerivedKeys,
 			fes.GetUserDerivedKeys,
+			PublicAccess,
+		},
+		{
+			"DeletePII",
+			[]string{"POST", "OPTIONS"},
+			RoutePathDeletePII,
+			fes.DeletePII,
 			PublicAccess,
 		},
 		// Jumio Routes
@@ -1389,6 +1431,34 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.WyreWalletOrderSubscription,
 			PublicAccess,
 		},
+		{
+			"GetVerifiedUsernameMap",
+			[]string{"GET"},
+			RoutePathGetVerifiedUsernames,
+			fes.GetVerifiedUsernames,
+			PublicAccess,
+		},
+		{
+			"GetBlacklistedPublicKeys",
+			[]string{"GET"},
+			RoutePathGetBlacklistedPublicKeys,
+			fes.GetBlacklistedPublicKeys,
+			PublicAccess,
+		},
+		{
+			"GetGraylistedPublicKeys",
+			[]string{"GET"},
+			RoutePathGetGraylistedPublicKeys,
+			fes.GetGraylistedPublicKeys,
+			PublicAccess,
+		},
+		{
+			"GetGlobalFeed",
+			[]string{"GET"},
+			RoutePathGetGlobalFeed,
+			fes.GetGlobalFeed,
+			PublicAccess,
+		},
 	}
 
 	router := muxtrace.NewRouter().StrictSlash(true)
@@ -1462,6 +1532,19 @@ func Logger(inner http.Handler, name string) http.Handler {
 	})
 }
 
+var publicRoutes = map[string]interface{}{
+	RoutePathGetJumioStatusForPublicKey: nil,
+	RoutePathUploadVideo: nil,
+	RoutePathGetVideoStatus: nil,
+	RoutePathGetReferralInfoForReferralHash: nil,
+	RoutePathGetReferralInfoForUser: nil,
+	RoutePathGetVerifiedUsernames: nil,
+	RoutePathGetBlacklistedPublicKeys: nil,
+	RoutePathGetGraylistedPublicKeys: nil,
+	RoutePathGetGlobalFeed: nil,
+	RoutePathDeletePII: nil,
+}
+
 // AddHeaders ...
 func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1510,8 +1593,8 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 		if r.RequestURI == RoutePathUploadImage && strings.HasPrefix(contentType, "multipart/form-data") {
 			match = true
 			actualOrigin = "*"
-		} else if r.RequestURI == RoutePathGetJumioStatusForPublicKey || r.RequestURI == RoutePathUploadVideo || r.RequestURI == RoutePathGetVideoStatus {
-			// We set the headers for all requests to GetJumioStatusForPublicKey, UploadVideo, and GetVideoStatus.
+		} else if _, exists := publicRoutes[r.RequestURI]; exists {
+			// We set the headers for all requests to public routes.
 			// This allows third-party frontends to access this endpoint
 			match = true
 			actualOrigin = "*"
@@ -1810,4 +1893,86 @@ func (fes *APIServer) getBalanceForSeed(seedPhrase string) (uint64, error) {
 		return 0, fmt.Errorf("GetBalanceForSeed: Error getting balance: %v", err)
 	}
 	return currentBalanceNanos, nil
+}
+
+// StartGlobalStateMonitoring begins monitoring Verified, Blacklisted, and Graylisted users and Global Feed Posts
+func (fes *APIServer) StartGlobalStateMonitoring() {
+	go func() {
+	out:
+		for {
+			select {
+			case <-time.After(1 * time.Minute):
+				fes.SetGlobalStateCache()
+			case <-fes.quit:
+				break out
+			}
+		}
+	}()
+}
+
+func (fes *APIServer) SetGlobalStateCache() {
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		glog.Errorf("SetGlobalStateCache: problem with GetAugmentedUniversalView: %v", err)
+		return
+	}
+	fes.SetVerifiedUsernameMap()
+	fes.SetBlacklistedPKIDMap(utxoView)
+	fes.SetGraylistedPKIDMap(utxoView)
+	fes.SetGlobalFeedPostHashes()
+}
+
+func (fes *APIServer) SetVerifiedUsernameMap() {
+	verifiedPKIDMap, err := fes.GetVerifiedUsernameMap()
+	if err != nil {
+		glog.Errorf("SetVerifiedUsernameMap: Error getting verified username map: %v", err)
+	} else {
+		fes.VerifiedUsernameToPKIDMap = verifiedPKIDMap
+	}
+}
+
+func (fes *APIServer) SetBlacklistedPKIDMap(utxoView *lib.UtxoView) {
+	blacklistMap, err := fes.GetBlacklist(utxoView)
+	if err != nil {
+		glog.Errorf("SetBlacklistedPKIDMap: Error getting blacklist: %v", err)
+	} else {
+		fes.BlacklistedPKIDMap = blacklistMap
+		// We keep a JSON-encodable version of the blacklist map ready to send to nodes that wish to connect to this
+		// node's global state. Sending a JSON-encoded version is preferable over a gob-encoded one so that any
+		// language can easily decode the response.
+		fes.BlacklistedResponseMap = fes.makePKIDMapJSONEncodable(blacklistMap)
+	}
+}
+
+func (fes *APIServer) SetGraylistedPKIDMap(utxoView *lib.UtxoView) {
+	graylistMap, err := fes.GetGraylist(utxoView)
+	if err != nil {
+		glog.Errorf("SetGraylistedPKIDMap: Error getting graylist: %v", err)
+	} else {
+		fes.GraylistedPKIDMap = graylistMap
+		// We keep a JSON-encodable version of the graylist map ready to send to nodes that wish to connect to this
+		// node's global state. Sending a JSON-encoded version is preferable over a gob-encoded one so that any
+		// language can easily decode the response.
+		fes.GraylistedResponseMap = fes.makePKIDMapJSONEncodable(graylistMap)
+	}
+}
+
+func (fes *APIServer) SetGlobalFeedPostHashes() {
+	postHashes, err := fes.GetGlobalFeedCache()
+	if err != nil {
+		glog.Errorf("SetGlobalFeedPostHashes: Error getting global feed post hashes: %v", err)
+	} else {
+		fes.GlobalFeedPostHashes = postHashes
+	}
+}
+
+// makePKIDMapJSONEncodable converts a map that has PKID keys into Base58-encoded strings.
+// Using gob-encoding when sending responses would make using this API difficult to interact with when using any
+// language other than go.
+func (fes *APIServer) makePKIDMapJSONEncodable(restrictedKeysMap map[lib.PKID][]byte) map[string][]byte {
+	outputMap := make(map[string][]byte)
+	for k, v := range restrictedKeysMap {
+		outputMap[lib.PkToString(k.ToBytes(), fes.Params)] = v
+	}
+	return outputMap
 }
