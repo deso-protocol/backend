@@ -581,15 +581,6 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 
 			if readerPK != nil && postEntry != nil && reflect.DeepEqual(postEntry.PosterPublicKey, readerPK) {
 				// We add the readers posts later so we can skip them here to avoid duplicates.
-				continue
-			}
-
-			// mediaRequired set to determine if we only want posts that include media and ignore posts without
-			if mediaRequired && postEntry != nil && !postEntry.HasMedia() {
-				continue
-			}
-
-			if postEntry != nil {
 				postEntries = append(postEntries, postEntry)
 			}
 		}
@@ -603,7 +594,6 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 		nextStartPostHash = lastPostEntry.PostHash
 		skipFirstEntry = true
 	}
-
 	// If we don't have any postEntries at this point, bail.
 	profileEntries := make(map[lib.PkMapKey]*lib.ProfileEntry)
 	postEntryReaderStates := make(map[lib.BlockHash]*lib.PostEntryReaderState)

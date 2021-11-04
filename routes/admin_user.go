@@ -148,6 +148,8 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 	userPKIDEntry := utxoView.GetPKIDForPublicKey(userPublicKeyBytes)
 	profileEntry := utxoView.GetProfileEntryForPKID(userPKIDEntry.PKID)
 
+	// NOTE: for now, if pointing to a different global state, this will not be merged with the black/graylist from
+	// the external source. This is a planned future enhancements.
 	// Now that we have a userMetadata object, update it based on the request.
 	if requestData.IsBlacklistUpdate {
 		userMetadata.RemoveEverywhere = requestData.RemoveEverywhere

@@ -48,6 +48,7 @@ func (fes *APIServer) WriteGlobalStateDataToResponse(data interface{}, functionN
 // the configured GlobalStateAPIUrl and merges it with this node's global state.
 // Note that it is not possible to remove a verification from a user who has been granted verification on the node
 // configured at the GlobalStateAPIUrl.
+
 func (fes *APIServer) GetVerifiedUsernameMap() (
 	_verifiedUsernameToPKID map[string]*lib.PKID, _err error,
 ){
@@ -120,6 +121,7 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, utxoView *lib.UtxoV
 			return nil, fmt.Errorf("GetRestrictedPublicKeys: Error decoding bytes: %v", err)
 		}
 		// Iterate over the restricted public key map to convert string to PKIDs and create a filteredPublicKeys slice.
+
 		for k, v := range stringifiedPKIDsMap {
 			var publicKeyBytes []byte
 			publicKeyBytes, _, err = lib.Base58CheckDecode(k)
@@ -131,6 +133,7 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, utxoView *lib.UtxoV
 		}
 	}
 	// Now, get  we're using our own global state. Seek global state for all restricted public keys of this type.
+
 	publicKeys, states, err := fes.GlobalStateSeek(
 		prefix,
 		prefix, /*validForPrefix*/

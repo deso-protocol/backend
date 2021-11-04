@@ -517,10 +517,13 @@ func APITransactionToResponse(
 
 	// Remove UtxoOps from the response because it's massive and usually useless
 	// We do some funky pointer stuff here so that we don't change the original object
-	txnMetaResponse := *txnMeta
-	basicMetadata := *txnMeta.BasicTransferTxindexMetadata
-	basicMetadata.UtxoOps = nil
-	txnMetaResponse.BasicTransferTxindexMetadata = &basicMetadata
+	var txnMetaResponse lib.TransactionMetadata
+	if txnMeta != nil {
+		txnMetaResponse = *txnMeta
+		basicMetadata := *txnMeta.BasicTransferTxindexMetadata
+		basicMetadata.UtxoOps = nil
+		txnMetaResponse.BasicTransferTxindexMetadata = &basicMetadata
+	}
 
 	txnBytes, _ := txnn.ToBytes(false /*preSignature*/)
 	ret := &TransactionResponse{
@@ -887,8 +890,12 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		// Parse the passed-in txID
 		txIDBytes, _, err := lib.Base58CheckDecode(transactionInfoRequest.TransactionIDBase58Check)
 		if err != nil {
-			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem parsing TransactionID: %v", err))
-			return
+			// If not base58 try hex decode
+			txIDBytes, err = hex.DecodeString(transactionInfoRequest.TransactionIDBase58Check)
+			if err != nil {
+				APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem parsing TransactionID: %v", err))
+				return
+			}
 		}
 		if len(txIDBytes) != 32 {
 			APIAddError(ww, fmt.Sprintf("APITransactionInfo: TransactionID byte length is %d but should be 32", len(txIDBytes)))
@@ -980,7 +987,9 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		copy(txID[:], txIDBytes)
 
 		if transactionInfoRequest.IDsOnly {
-			res.Transactions = append(res.Transactions, &TransactionResponse{TransactionIDBase58Check: txID.String()})
+			res.Transactions = append(res.Transactions, &TransactionResponse{
+				TransactionIDBase58Check: lib.PkToString(txIDBytes[:], fes.Params),
+			})
 		} else {
 			// In this case we need to look up the full transaction and convert it into a proper transaction response.
 			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txID)

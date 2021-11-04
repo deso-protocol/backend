@@ -1927,7 +1927,6 @@ func (fes *APIServer) SetGlobalStateCache() {
 	fes.SetGlobalFeedPostHashes(utxoView)
 }
 
-
 func (fes *APIServer) SetVerifiedUsernameMap() {
 	verifiedPKIDMap, err := fes.GetVerifiedUsernameMap()
 	if err != nil {
@@ -1965,6 +1964,7 @@ func (fes *APIServer) SetGraylistedPKIDMap(utxoView *lib.UtxoView) {
 
 func (fes *APIServer) SetGlobalFeedPostHashes(utxoView *lib.UtxoView) {
 	postHashes, postEntries, err := fes.GetGlobalFeedCache(utxoView)
+
 	if err != nil {
 		glog.Errorf("SetGlobalFeedPostHashes: Error getting global feed post hashes: %v", err)
 	} else {

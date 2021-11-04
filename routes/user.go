@@ -1023,7 +1023,7 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 
 	// Return an error if we failed to find a profile entry
 	if profileEntry == nil {
-		if (!requestData.NoErrorOnMissing) {
+		if !requestData.NoErrorOnMissing {
 			_AddNotFoundError(ww, fmt.Sprintf("GetSingleProfile: could not find profile for username or public key: %v, %v", requestData.Username, requestData.PublicKeyBase58Check))
 		}
 		return
@@ -1712,6 +1712,10 @@ type GetNotificationsRequest struct {
 	PublicKeyBase58Check string
 	FetchStartIndex      int64
 	NumToFetch           int64
+	// This defines notifications that should be filtered OUT of the response
+	// If a field is missing from this struct, it should be included in the response
+	// Accepted values are like, diamond, follow, transfer, nft, post
+	FilteredOutNotificationCategories map[string]bool
 }
 
 type GetNotificationsResponse struct {
@@ -1791,7 +1795,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	// heavy lifting.
 	postEntryResponses := make(map[string]*PostEntryResponse)
 
-	addPostForHash := func(postHashHex string, readerPK []byte) {
+	addPostForHash := func(postHashHex string, readerPK []byte, profileEntryRequired bool) {
 		postHashBytes, err := hex.DecodeString(postHashHex)
 		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
 			return
@@ -1809,7 +1813,8 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		}
 
 		postEntryResponse.ProfileEntryResponse = profileEntryResponses[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]
-		if postEntryResponse.ProfileEntryResponse == nil {
+		// Filter out responses if profile entry is missing and is required
+		if postEntryResponse.ProfileEntryResponse == nil && profileEntryRequired {
 			return
 		}
 
@@ -1827,18 +1832,18 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		basicTransferMetadata := txnMeta.Metadata.BasicTransferTxindexMetadata
 
 		if postMetadata != nil {
-			addPostForHash(postMetadata.PostHashBeingModifiedHex, userPublicKeyBytes)
-			addPostForHash(postMetadata.ParentPostHashHex, userPublicKeyBytes)
+			addPostForHash(postMetadata.PostHashBeingModifiedHex, userPublicKeyBytes, true)
+			addPostForHash(postMetadata.ParentPostHashHex, userPublicKeyBytes, true)
 		} else if likeMetadata != nil {
-			addPostForHash(likeMetadata.PostHashHex, userPublicKeyBytes)
+			addPostForHash(likeMetadata.PostHashHex, userPublicKeyBytes, true)
 		} else if transferCreatorCoinMetadata != nil {
 			if transferCreatorCoinMetadata.PostHashHex != "" {
-				addPostForHash(transferCreatorCoinMetadata.PostHashHex, userPublicKeyBytes)
+				addPostForHash(transferCreatorCoinMetadata.PostHashHex, userPublicKeyBytes, true)
 			}
 		} else if nftBidMetadata != nil {
-			addPostForHash(nftBidMetadata.NFTPostHashHex, userPublicKeyBytes)
+			addPostForHash(nftBidMetadata.NFTPostHashHex, userPublicKeyBytes, false)
 		} else if acceptNFTBidMetadata != nil {
-			addPostForHash(acceptNFTBidMetadata.NFTPostHashHex, userPublicKeyBytes)
+			addPostForHash(acceptNFTBidMetadata.NFTPostHashHex, userPublicKeyBytes, false)
 		} else if basicTransferMetadata != nil {
 			txnOutputs := txnMeta.Metadata.TxnOutputs
 			for _, output := range txnOutputs {
@@ -1850,7 +1855,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 					})
 			}
 			if basicTransferMetadata.PostHashHex != "" {
-				addPostForHash(basicTransferMetadata.PostHashHex, userPublicKeyBytes)
+				addPostForHash(basicTransferMetadata.PostHashHex, userPublicKeyBytes, true)
 			}
 		}
 	}
@@ -1910,6 +1915,8 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 				"is nil. This error occurs when --txindex was not passed to the program " +
 				"on startup")
 	}
+
+	filteredOutCategories := request.FilteredOutNotificationCategories
 
 	pkBytes, _, err := lib.Base58CheckDecode(request.PublicKeyBase58Check)
 	if err != nil {
@@ -1989,7 +1996,9 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 				Metadata: txnMeta,
 				Index:    int64(lib.DecodeUint32(currentIndexBytes)),
 			}
-			dbTxnMetadataFound = append(dbTxnMetadataFound, res)
+			if NotificationTxnShouldBeIncluded(res.Metadata, &filteredOutCategories) {
+				dbTxnMetadataFound = append(dbTxnMetadataFound, res)
+			}
 		}
 
 		// If we've found enough transactions then break.
@@ -2078,6 +2087,12 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 				if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
 					continue
 				}
+
+				// Skip transactions when notification should not be included based on filter
+				if !NotificationTxnShouldBeIncluded(txnMeta, &filteredOutCategories) {
+					continue
+				}
+
 				mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
 					Metadata: txnMeta,
 					Index:    currentIndex,
@@ -2134,6 +2149,38 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 	}
 
 	return finalTxnMetadataList, utxoView, nil
+}
+
+// Determine if a transaction should be included in the notifications response based on filters
+func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredOutCategoriesPointer *map[string]bool) bool {
+	filteredOutCategories := *filteredOutCategoriesPointer
+
+	// If filteredOutCategory map isn't defined in the request, everything should be included
+	if filteredOutCategories == nil || len(filteredOutCategories) == 0 {
+		return true
+	}
+
+	if txnMeta.TxnType == lib.TxnTypeBasicTransfer.String() || txnMeta.TxnType == lib.TxnTypeCreatorCoinTransfer.String() {
+		if txnMeta.BasicTransferTxindexMetadata != nil && txnMeta.BasicTransferTxindexMetadata.DiamondLevel > 0 {
+			return !filteredOutCategories["diamond"]
+		} else if txnMeta.CreatorCoinTransferTxindexMetadata != nil && txnMeta.CreatorCoinTransferTxindexMetadata.DiamondLevel > 0 {
+			return !filteredOutCategories["diamond"]
+		} else {
+			return !filteredOutCategories["transfer"]
+		}
+	} else if txnMeta.TxnType == lib.TxnTypeCreatorCoin.String() {
+		return !filteredOutCategories["transfer"]
+	} else if txnMeta.TxnType == lib.TxnTypeSubmitPost.String() {
+		return !filteredOutCategories["post"]
+	} else if txnMeta.TxnType == lib.TxnTypeFollow.String() {
+		return !filteredOutCategories["follow"]
+	} else if txnMeta.TxnType == lib.TxnTypeLike.String() {
+		return !filteredOutCategories["like"]
+	} else if txnMeta.TxnType == lib.TxnTypeNFTBid.String() || txnMeta.TxnType == lib.TxnTypeAcceptNFTBid.String() {
+		return !filteredOutCategories["nft"]
+	}
+	// If the transaction type doesn't fall into any of the previous steps, we don't want it
+	return false
 }
 
 func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Check string, utxoView *lib.UtxoView) bool {
@@ -2440,16 +2487,16 @@ type GetUserDerivedKeysRequest struct {
 // UserDerivedKey ...
 type UserDerivedKey struct {
 	// This is the public key of the owner.
-	OwnerPublicKeyBase58Check   string `safeForLogging:"true"`
+	OwnerPublicKeyBase58Check string `safeForLogging:"true"`
 
 	// This is the derived public key.
 	DerivedPublicKeyBase58Check string `safeForLogging:"true"`
 
 	// This is the expiration date of the derived key.
-	ExpirationBlock             uint64 `safeForLogging:"true"`
+	ExpirationBlock uint64 `safeForLogging:"true"`
 
 	// This is the current state of the derived key.
-	IsValid                     bool `safeForLogging:"true"`
+	IsValid bool `safeForLogging:"true"`
 }
 
 // GetUserDerivedKeysResponse ...
