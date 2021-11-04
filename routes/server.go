@@ -73,6 +73,7 @@ const (
 	RoutePathUpdateUserGlobalMetadata    = "/api/v0/update-user-global-metadata"
 	RoutePathGetNotifications            = "/api/v0/get-notifications"
 	RoutePathGetUnreadNotificationsCount = "/api/v0/get-unread-notifications-count"
+	RoutePathSetNotificationMetadata     = "/api/v0/set-notification-metadata"
 	RoutePathBlockPublicKey              = "/api/v0/block-public-key"
 	RoutePathIsFollowingPublicKey        = "/api/v0/is-following-public-key"
 	RoutePathIsHodlingPublicKey          = "/api/v0/is-hodling-public-key"
@@ -769,6 +770,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetUnreadNotificationsCount,
 			fes.GetNotificationsCount,
+			PublicAccess,
+		},
+		{
+			"SetNotificationMetadata",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSetNotificationMetadata,
+			fes.SetNotificationMetadata,
 			PublicAccess,
 		},
 		{

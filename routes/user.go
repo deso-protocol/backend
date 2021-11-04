@@ -1802,10 +1802,11 @@ type GetNotificationsCountRequest struct {
 	PublicKeyBase58Check string
 }
 
-
-
 type GetNotificationsCountResponse struct {
 	NotificationsCount uint64
+	LastUnreadNotificationIndex uint64
+	// Whether new unread notifications were added and the user metadata should be updated
+	UpdateMetadata bool
 }
 
 func (fes *APIServer) GetNotificationsCount(ww http.ResponseWriter, req *http.Request) {
@@ -1832,7 +1833,6 @@ func (fes *APIServer) GetNotificationsCount(ww http.ResponseWriter, req *http.Re
 		fetchStartIndex = userMetadata.NotificationLastSeenIndex + 1
 	}
 
-
 	notificationsRequestData := GetNotificationsRequest{
 		PublicKeyBase58Check: requestData.PublicKeyBase58Check,
 		// Only count the notifications that haven't previously been iterated over
@@ -1849,21 +1849,19 @@ func (fes *APIServer) GetNotificationsCount(ww http.ResponseWriter, req *http.Re
 	}
 
 	notificationsCount := newNotificationsCount + userMetadata.UnreadNotifications
+	notificationStartIndex := userMetadata.LatestUnreadNotificationIndex
+	updateMetadata := false
 
-	// Update user metadata with new unread notification count.
-	userMetadata.UnreadNotifications = notificationsCount
 	// Save the new latest unread notification index, so that notifications aren't scanned twice. Only do this when new notifications are added.
 	if newNotificationsCount > 0 {
-		userMetadata.LatestUnreadNotificationIndex = newNotificationsStartIndex
-	}
-
-	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetNotificationsCount: Error putting user metadata in global state: %v", err))
-		return
+		notificationStartIndex = newNotificationsStartIndex
+		updateMetadata = true
 	}
 
 	res := &GetNotificationsCountResponse{
 		NotificationsCount: notificationsCount,
+		LastUnreadNotificationIndex: uint64(notificationStartIndex),
+		UpdateMetadata: updateMetadata,
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
@@ -1890,6 +1888,7 @@ type GetNotificationsResponse struct {
 	Notifications       []*TransactionMetadataResponse
 	ProfilesByPublicKey map[string]*ProfileEntryResponse
 	PostsByHash         map[string]*PostEntryResponse
+	LastSeenIndex       int64
 }
 
 func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request) {
@@ -2034,39 +2033,11 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		}
 	}
 
-	// save the most recent notification into global state so we know
-	// if we have any unread notifications later
-	//
-	// only try to update the index if we're requesting the first page of results
-	// and we have at least one notification
+	var lastSeenIndex int64
 	if requestData.FetchStartIndex < 0 && len(finalTxnMetadataList) > 0 {
-		// global state does not have good support for concurrency. if someone
-		// else fetches this user's data and writes at the same time we could
-		// overwrite each other. there's a task in jira to investigate concurrency
-		// issues with global state.
-		userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"GetNotifications: Problem getting metadata from global state: %v", err))
-			return
-		}
-
-		// only update the index if it's greater than the current index we have stored
-		lastSeenIndex := finalTxnMetadataList[0].Index
-		if lastSeenIndex > userMetadata.NotificationLastSeenIndex {
-			userMetadata.NotificationLastSeenIndex = lastSeenIndex
-		}
-		// Update user metadata with new unread notification count.
-		userMetadata.UnreadNotifications = 0
-		// Save the new latest unread notification index, so that notifications aren't scanned twice.
-		userMetadata.LatestUnreadNotificationIndex = lastSeenIndex
-		// Place the update metadata into the global state
-		err = fes.putUserMetadataInGlobalState(userMetadata)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"GetNotifications: Problem putting updated user metadata: %v", err))
-			return
-		}
+		lastSeenIndex = finalTxnMetadataList[0].Index
+	} else {
+		lastSeenIndex = -1
 	}
 
 	// At this point, we should have all the profiles and all the notifications
@@ -2075,10 +2046,82 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		Notifications:       finalTxnMetadataList,
 		ProfilesByPublicKey: profileEntryResponses,
 		PostsByHash:         postEntryResponses,
+		LastSeenIndex:       lastSeenIndex,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetNotifications: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type SetNotificationMetadataRequest struct {
+	PublicKeyBase58Check string
+	// The last notification index the user has seen
+	LastSeenIndex int64
+	// The last notification index that has been scanned
+	LastUnreadNotificationIndex int64
+	// The total count of unread notifications
+	UnreadNotifications int64
+	// JWT token
+	JWT string
+}
+
+func (fes *APIServer) SetNotificationMetadata(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := SetNotificationMetadataRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"SetNotificationMetadata: Problem parsing request body: %v", err))
+		return
+	}
+	var userPublicKeyBytes []byte
+	var err error
+	userPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+	if err != nil || len(userPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"SetNotificationMetadata: Problem decoding updater public key %s: %v",
+			requestData.PublicKeyBase58Check, err))
+		return
+	}
+
+	// Validate the JWT is legit.
+	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SetNotificationMetadata: Error validating JWT: %v", err))
+		return
+	}
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("SetNotificationMetadata: Invalid token: %v", err))
+		return
+	}
+
+	// global state does not have good support for concurrency. if someone
+	// else fetches this user's data and writes at the same time we could
+	// overwrite each other. there's a task in jira to investigate concurrency
+	// issues with global state.
+	userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"SetNotificationMetadata: Problem getting metadata from global state: %v", err))
+		return
+	}
+
+	lastSeenIndex := requestData.LastSeenIndex
+
+	// only update the index if it's greater than the current index we have stored
+	if lastSeenIndex > userMetadata.NotificationLastSeenIndex && lastSeenIndex > 0 {
+		userMetadata.NotificationLastSeenIndex = lastSeenIndex
+	}
+	// Update user metadata with new unread notification count.
+	userMetadata.UnreadNotifications = uint64(requestData.UnreadNotifications)
+	// Save the new latest unread notification index, so that notifications aren't scanned twice.
+	userMetadata.LatestUnreadNotificationIndex = requestData.LastUnreadNotificationIndex
+	// Place the update metadata into the global state
+	err = fes.putUserMetadataInGlobalState(userMetadata)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"SetNotificationMetadata: Problem putting updated user metadata: %v", err))
 		return
 	}
 }
@@ -2123,7 +2166,7 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 
 		for ii, txIDBytes := range valsFound {
 			currentIndexTest := int64(lib.DecodeUint32(keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]))
-			fmt.Printf("%v", currentIndexTest);
+			fmt.Printf("%v", currentIndexTest)
 			txID := &lib.BlockHash{}
 			copy(txID[:], txIDBytes)
 
@@ -2185,9 +2228,9 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 		// update the startPrefix to place it right after the index of the last key.
 		var nextPagePrefixIdx uint32
 		if iterateReverse {
-			nextPagePrefixIdx = uint32(lastKeyIndex-1)
+			nextPagePrefixIdx = uint32(lastKeyIndex - 1)
 		} else {
-			nextPagePrefixIdx = uint32(lastKeyIndex+1)
+			nextPagePrefixIdx = uint32(lastKeyIndex + 1)
 		}
 		startPrefix = lib.DbTxindexPublicKeyIndexToTxnKey(
 			pkBytes, nextPagePrefixIdx)
@@ -2267,7 +2310,7 @@ func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest,
 				}
 
 				// Only include transactions that occur on or after the start index, if defined
-				if request.FetchStartIndex < 0 || (request.FetchStartIndex >= currentIndex && iterateReverse) || (request.FetchStartIndex <= currentIndex && !iterateReverse)  {
+				if request.FetchStartIndex < 0 || (request.FetchStartIndex >= currentIndex && iterateReverse) || (request.FetchStartIndex <= currentIndex && !iterateReverse) {
 					mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
 						Metadata: txnMeta,
 						Index:    currentIndex,
@@ -2334,7 +2377,7 @@ func (fes *APIServer) _getNotificationsCount(request *GetNotificationsRequest) (
 	}
 	if dbTxnMetadataFound != nil && len(dbTxnMetadataFound) > 0 {
 		notificationsCount += uint64(len(dbTxnMetadataFound))
-		nextNotificationStartIndex = dbTxnMetadataFound[len(dbTxnMetadataFound) - 1].Index
+		nextNotificationStartIndex = dbTxnMetadataFound[len(dbTxnMetadataFound)-1].Index
 	}
 
 	// Get notifications from the db
