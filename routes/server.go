@@ -1920,7 +1920,6 @@ func (fes *APIServer) SetGlobalStateCache() {
 		glog.Errorf("SetGlobalStateCache: problem with GetAugmentedUniversalView: %v", err)
 		return
 	}
-
 	fes.SetVerifiedUsernameMap()
 	fes.SetBlacklistedPKIDMap(utxoView)
 	fes.SetGraylistedPKIDMap(utxoView)
