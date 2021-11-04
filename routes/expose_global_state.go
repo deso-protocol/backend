@@ -121,7 +121,6 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, utxoView *lib.UtxoV
 			return nil, fmt.Errorf("GetRestrictedPublicKeys: Error decoding bytes: %v", err)
 		}
 		// Iterate over the restricted public key map to convert string to PKIDs and create a filteredPublicKeys slice.
-
 		for k, v := range stringifiedPKIDsMap {
 			var publicKeyBytes []byte
 			publicKeyBytes, _, err = lib.Base58CheckDecode(k)
@@ -133,7 +132,6 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, utxoView *lib.UtxoV
 		}
 	}
 	// Now, get  we're using our own global state. Seek global state for all restricted public keys of this type.
-
 	publicKeys, states, err := fes.GlobalStateSeek(
 		prefix,
 		prefix, /*validForPrefix*/
