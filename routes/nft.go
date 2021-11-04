@@ -19,6 +19,7 @@ type NFTEntryResponse struct {
 	SerialNumber               uint64                `safeForLogging:"true"`
 	IsForSale                  bool                  `safeForLogging:"true"`
 	IsPending                  bool                  `safeForLogging:"true"`
+	IsBuyNow                   bool                  `safeForLogging:"true"`
 	MinBidAmountNanos          uint64                `safeForLogging:"true"`
 	LastAcceptedBidAmountNanos uint64                `safeForLogging:"true"`
 
@@ -64,6 +65,7 @@ type CreateNFTRequest struct {
 	HasUnlockable                  bool   `safeForLogging:"true"`
 	IsForSale                      bool   `safeForLogging:"true"`
 	MinBidAmountNanos              int    `safeForLogging:"true"`
+	IsBuyNow                       bool   `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
@@ -171,6 +173,7 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		nftFee,
 		uint64(requestData.NFTRoyaltyToCreatorBasisPoints),
 		uint64(requestData.NFTRoyaltyToCoinBasisPoints),
+		requestData.IsBuyNow,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Problem creating transaction: %v", err))
@@ -205,6 +208,7 @@ type UpdateNFTRequest struct {
 	SerialNumber                int    `safeForLogging:"true"`
 	IsForSale                   bool   `safeForLogging:"true"`
 	MinBidAmountNanos           int    `safeForLogging:"true"`
+	IsBuyNow                    bool   `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
@@ -306,6 +310,7 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 		uint64(requestData.SerialNumber),
 		requestData.IsForSale,
 		uint64(requestData.MinBidAmountNanos),
+		requestData.IsBuyNow,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateNFT: Problem creating transaction: %v", err))
@@ -1303,6 +1308,7 @@ func (fes *APIServer) _nftEntryToResponse(nftEntry *lib.NFTEntry, postEntryRespo
 		SerialNumber:              nftEntry.SerialNumber,
 		IsForSale:                 nftEntry.IsForSale,
 		IsPending:                 nftEntry.IsPending,
+		IsBuyNow:                  nftEntry.IsBuyNow,
 		MinBidAmountNanos:         nftEntry.MinBidAmountNanos,
 
 		HighestBidAmountNanos: highBid,
