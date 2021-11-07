@@ -345,6 +345,11 @@ type UserMetadata struct {
 
 	// Txn hash in which the referrer was paid
 	ReferrerDeSoTxnHash string
+
+	// The number of unread notifications stored in the db.
+	UnreadNotifications uint64
+	// The most recently scanned notification transaction index in the database. Stored in order to prevent unnecessary re-scanning.
+	LatestUnreadNotificationIndex int64
 }
 
 type TutorialStatus string

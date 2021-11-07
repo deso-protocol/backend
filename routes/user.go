@@ -1705,6 +1705,79 @@ func (fes *APIServer) UpdateUserGlobalMetadata(ww http.ResponseWriter, req *http
 	}
 }
 
+type GetNotificationsCountRequest struct {
+	PublicKeyBase58Check string
+}
+
+type GetNotificationsCountResponse struct {
+	NotificationsCount uint64
+	LastUnreadNotificationIndex uint64
+	// Whether new unread notifications were added and the user metadata should be updated
+	UpdateMetadata bool
+}
+
+func (fes *APIServer) GetNotificationsCount(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetNotificationsCountRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetNotificationsCount: Problem parsing request body: %v", err))
+		return
+	}
+
+	userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.PublicKeyBase58Check)
+
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNotificationsCount: Error getting user metadata from global state: %v", err))
+		return
+	}
+
+	var fetchStartIndex int64
+
+	if userMetadata.LatestUnreadNotificationIndex > 0 {
+		fetchStartIndex = userMetadata.LatestUnreadNotificationIndex + 1
+	} else if userMetadata.NotificationLastSeenIndex > 0 {
+		fetchStartIndex = userMetadata.NotificationLastSeenIndex + 1
+	}
+
+	notificationsRequestData := GetNotificationsRequest{
+		PublicKeyBase58Check: requestData.PublicKeyBase58Check,
+		// Only count the notifications that haven't previously been iterated over
+		FetchStartIndex: fetchStartIndex,
+		// If notifications are > 100, we show a "99+" message on the front end.
+		NumToFetch: 100,
+	}
+
+	newNotificationsCount, newNotificationsStartIndex, err := fes._getNotificationsCount(&notificationsRequestData)
+
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNotificationsCount: Error getting notifications: %v", err))
+		return
+	}
+
+	notificationsCount := newNotificationsCount + userMetadata.UnreadNotifications
+	notificationStartIndex := userMetadata.LatestUnreadNotificationIndex
+	updateMetadata := false
+
+	// Save the new latest unread notification index, so that notifications aren't scanned twice. Only do this when new notifications are added.
+	if newNotificationsCount > 0 {
+		notificationStartIndex = newNotificationsStartIndex
+		updateMetadata = true
+	}
+
+	res := &GetNotificationsCountResponse{
+		NotificationsCount: notificationsCount,
+		LastUnreadNotificationIndex: uint64(notificationStartIndex),
+		UpdateMetadata: updateMetadata,
+	}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetNotificationsCount: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
 type GetNotificationsRequest struct {
 	// This is the index of the notification we want to start our paginated lookup at. We
 	// will fetch up to "NumToFetch" notifications after it, ordered by index.  If no
@@ -1722,6 +1795,7 @@ type GetNotificationsResponse struct {
 	Notifications       []*TransactionMetadataResponse
 	ProfilesByPublicKey map[string]*ProfileEntryResponse
 	PostsByHash         map[string]*PostEntryResponse
+	LastSeenIndex       int64
 }
 
 func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request) {
@@ -1860,36 +1934,11 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		}
 	}
 
-	// save the most recent notification into global state so we know
-	// if we have any unread notifications later
-	//
-	// only try to update the index if we're requesting the first page of results
-	// and we have at least one notification
+	var lastSeenIndex int64
 	if requestData.FetchStartIndex < 0 && len(finalTxnMetadataList) > 0 {
-		// global state does not have good support for concurrency. if someone
-		// else fetches this user's data and writes at the same time we could
-		// overwrite each other. there's a task in jira to investigate concurrency
-		// issues with global state.
-		userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"GetNotifications: Problem getting metadata from global state: %v", err))
-			return
-		}
-
-		// only update the index if it's greater than the current index we have stored
-		lastSeenIndex := finalTxnMetadataList[0].Index
-		if lastSeenIndex > userMetadata.NotificationLastSeenIndex {
-			userMetadata.NotificationLastSeenIndex = lastSeenIndex
-
-			// Place the update metadata into the global state
-			err = fes.putUserMetadataInGlobalState(userMetadata)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf(
-					"GetNotifications: Problem putting updated user metadata: %v", err))
-				return
-			}
-		}
+		lastSeenIndex = finalTxnMetadataList[0].Index
+	} else {
+		lastSeenIndex = -1
 	}
 
 	// At this point, we should have all the profiles and all the notifications
@@ -1898,6 +1947,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		Notifications:       finalTxnMetadataList,
 		ProfilesByPublicKey: profileEntryResponses,
 		PostsByHash:         postEntryResponses,
+		LastSeenIndex:       lastSeenIndex,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
@@ -1906,36 +1956,86 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	}
 }
 
-func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*TransactionMetadataResponse, *lib.UtxoView, error) {
-	// If the TxIndex flag was not passed to this node then we can't compute
-	// notifications.
-	if fes.TXIndex == nil {
-		return nil, nil, errors.Errorf(
-			"GetNotifications: Cannot be called when TXIndexChain " +
-				"is nil. This error occurs when --txindex was not passed to the program " +
-				"on startup")
+type SetNotificationMetadataRequest struct {
+	PublicKeyBase58Check string
+	// The last notification index the user has seen
+	LastSeenIndex int64
+	// The last notification index that has been scanned
+	LastUnreadNotificationIndex int64
+	// The total count of unread notifications
+	UnreadNotifications int64
+	// JWT token
+	JWT string
+}
+
+func (fes *APIServer) SetNotificationMetadata(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := SetNotificationMetadataRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"SetNotificationMetadata: Problem parsing request body: %v", err))
+		return
+	}
+	var userPublicKeyBytes []byte
+	var err error
+	userPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+	if err != nil || len(userPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"SetNotificationMetadata: Problem decoding updater public key %s: %v",
+			requestData.PublicKeyBase58Check, err))
+		return
 	}
 
+	// Validate the JWT is legit.
+	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SetNotificationMetadata: Error validating JWT: %v", err))
+		return
+	}
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("SetNotificationMetadata: Invalid token: %v", err))
+		return
+	}
+
+	// global state does not have good support for concurrency. if someone
+	// else fetches this user's data and writes at the same time we could
+	// overwrite each other. there's a task in jira to investigate concurrency
+	// issues with global state.
+	userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"SetNotificationMetadata: Problem getting metadata from global state: %v", err))
+		return
+	}
+
+	lastSeenIndex := requestData.LastSeenIndex
+
+	// only update the index if it's greater than the current index we have stored
+	if lastSeenIndex > userMetadata.NotificationLastSeenIndex && lastSeenIndex > 0 {
+		userMetadata.NotificationLastSeenIndex = lastSeenIndex
+	}
+	// Update user metadata with new unread notification count.
+	userMetadata.UnreadNotifications = uint64(requestData.UnreadNotifications)
+	// Save the new latest unread notification index, so that notifications aren't scanned twice.
+	userMetadata.LatestUnreadNotificationIndex = requestData.LastUnreadNotificationIndex
+	// Place the update metadata into the global state
+	err = fes.putUserMetadataInGlobalState(userMetadata)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"SetNotificationMetadata: Problem putting updated user metadata: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, blockedPubKeys map[string]struct{}, utxoView *lib.UtxoView, iterateReverse bool) ([]*TransactionMetadataResponse, error) {
 	filteredOutCategories := request.FilteredOutNotificationCategories
 
 	pkBytes, _, err := lib.Base58CheckDecode(request.PublicKeyBase58Check)
 	if err != nil {
-		return nil, nil, errors.Errorf("GetNotifications: Problem parsing public key: %v", err)
+		return nil, errors.Errorf("GetNotifications: Problem parsing public key: %v", err)
 	}
 
-	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(pkBytes)
-	if err != nil {
-		return nil, nil, errors.Errorf("GetNotifications: Error getting blocked public keys for user: %v", err)
-	}
-
-	// A valid mempool object is used to compute the TransactionMetadata for the mempool
-	// and to allow for things like: filtering notifications for a hidden post.
-	utxoView, err := fes.mempool.GetAugmentedUniversalView()
-	if err != nil {
-		return nil, nil, errors.Errorf("GetNotifications: Problem getting view: %v", err)
-	}
-
-	// Iterate backward over the database to find as many keys as we can.
+	// Iterate over the database to find as many keys as we can.
 	//
 	// Start by constructing the validForPrefix. It's just the public key.
 	validForPrefix := lib.DbTxindexPublicKeyPrefix(pkBytes)
@@ -1958,14 +2058,16 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 	for {
 		keysFound, valsFound, err := lib.DBGetPaginatedKeysAndValuesForPrefix(
 			fes.TXIndex.TXIndexChain.DB(), startPrefix, validForPrefix,
-			maxKeyLen, int(request.NumToFetch), true, /*reverse*/
+			maxKeyLen, int(request.NumToFetch), iterateReverse, /*reverse*/
 			true /*fetchValues*/)
 		if err != nil {
-			return nil, nil, errors.Errorf(
+			return nil, errors.Errorf(
 				"GetNotifications: Error fetching paginated TransactionMetadata for notifications: %v", err)
 		}
 
 		for ii, txIDBytes := range valsFound {
+			currentIndexTest := int64(lib.DecodeUint32(keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]))
+			fmt.Printf("%v", currentIndexTest)
 			txID := &lib.BlockHash{}
 			copy(txID[:], txIDBytes)
 
@@ -2025,23 +2127,38 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 		// If we get here it means that we don't have enough transactions yet *and*
 		// there are more keys to seek. It also means that the lastKeyIndex > 0. So
 		// update the startPrefix to place it right after the index of the last key.
+		var nextPagePrefixIdx uint32
+		if iterateReverse {
+			nextPagePrefixIdx = uint32(lastKeyIndex - 1)
+		} else {
+			nextPagePrefixIdx = uint32(lastKeyIndex + 1)
+		}
 		startPrefix = lib.DbTxindexPublicKeyIndexToTxnKey(
-			pkBytes, uint32(lastKeyIndex-1))
+			pkBytes, nextPagePrefixIdx)
 	}
+	return dbTxnMetadataFound, nil
+}
 
+func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest, blockedPubKeys map[string]struct{}, utxoView *lib.UtxoView, iterateReverse bool) ([]*TransactionMetadataResponse, error) {
+	filteredOutCategories := request.FilteredOutNotificationCategories
+
+	pkBytes, _, err := lib.Base58CheckDecode(request.PublicKeyBase58Check)
+	if err != nil {
+		return nil, errors.Errorf("GetMempoolNotifications: Problem parsing public key: %v", err)
+	}
 	// Get the NextIndex from the db. This will be used to determine whether
 	// or not it's appropriate to fetch txns from the mempool. It will also be
 	// used to assign consistent index values to memppool txns.
 	NextIndexVal := lib.DbGetTxindexNextIndexForPublicKey(fes.TXIndex.TXIndexChain.DB(), pkBytes)
 	if NextIndexVal == nil {
-		return nil, nil, fmt.Errorf("Unable to get next index for public key: %v", request.PublicKeyBase58Check)
+		return nil, fmt.Errorf("Unable to get next index for public key: %v", request.PublicKeyBase58Check)
 	}
 	NextIndex := int64(*NextIndexVal)
 	// If the FetchStartIndex is unset *or* if it's set to a value that is larger
 	// than what we have in the db then it means we need to augment our list with
 	// txns from the mempool.
 	combinedMempoolDBTxnMetadata := []*TransactionMetadataResponse{}
-	if request.FetchStartIndex < 0 || request.FetchStartIndex >= NextIndex {
+	if !iterateReverse || (request.FetchStartIndex < 0 || request.FetchStartIndex >= NextIndex) {
 		// At this point we should have zero or more TransactionMetadata objects from
 		// the database that could trigger a notification for the user.
 		//
@@ -2054,7 +2171,7 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 		// in the mempool by public key and only look up transactions that are relevant to this public key.
 		poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
 		if err != nil {
-			return nil, nil, errors.Errorf("APITransactionInfo: Error getting txns from mempool: %v", err)
+			return nil, errors.Errorf("APITransactionInfo: Error getting txns from mempool: %v", err)
 		}
 
 		mempoolTxnMetadata := []*TransactionMetadataResponse{}
@@ -2093,10 +2210,13 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 					continue
 				}
 
-				mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
-					Metadata: txnMeta,
-					Index:    currentIndex,
-				})
+				// Only include transactions that occur on or after the start index, if defined
+				if request.FetchStartIndex < 0 || (request.FetchStartIndex >= currentIndex && iterateReverse) || (request.FetchStartIndex <= currentIndex && !iterateReverse) {
+					mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
+						Metadata: txnMeta,
+						Index:    currentIndex,
+					})
+				}
 			}
 
 			// TODO: Commenting this out for now because it causes incorrect behavior
@@ -2117,13 +2237,108 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 			combinedMempoolDBTxnMetadata = append(combinedMempoolDBTxnMetadata, currentMempoolTxnMetadata)
 		}
 	}
+	return combinedMempoolDBTxnMetadata, nil
+}
+
+// Return the number of unread notifications, and the last index scanned
+func (fes *APIServer) _getNotificationsCount(request *GetNotificationsRequest) (uint64, int64, error) {
+	// If the TxIndex flag was not passed to this node then we can't compute
+	// notifications.
+	if fes.TXIndex == nil {
+		return 0, 0, errors.Errorf(
+			"GetNotifications: Cannot be called when TXIndexChain " +
+				"is nil. This error occurs when --txindex was not passed to the program " +
+				"on startup")
+	}
+
+	pkBytes, _, err := lib.Base58CheckDecode(request.PublicKeyBase58Check)
+	if err != nil {
+		return 0, 0, errors.Errorf("GetNotifications: Problem parsing public key: %v", err)
+	}
+
+	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(pkBytes)
+	if err != nil {
+		return 0, 0, errors.Errorf("GetNotifications: Error getting blocked public keys for user: %v", err)
+	}
+
+	// A valid mempool object is used to compute the TransactionMetadata for the mempool
+	// and to allow for things like: filtering notifications for a hidden post.
+	utxoView, err := fes.mempool.GetAugmentedUniversalView()
+	if err != nil {
+		return 0, 0, errors.Errorf("GetNotifications: Problem getting view: %v", err)
+	}
+
+	var notificationsCount uint64 = 0
+	var nextNotificationStartIndex int64 = -1
+
+	// Get notifications from the db
+	dbTxnMetadataFound, err := fes._getDBNotifications(request, blockedPubKeys, utxoView, false)
+	if err != nil {
+		return 0, 0, fmt.Errorf("Error getting DB Notifications: %v", err)
+	}
+	if dbTxnMetadataFound != nil && len(dbTxnMetadataFound) > 0 {
+		notificationsCount += uint64(len(dbTxnMetadataFound))
+		nextNotificationStartIndex = dbTxnMetadataFound[len(dbTxnMetadataFound)-1].Index
+	}
+
+	// Get notifications from the db
+	mempoolTxnMetadataFound, err := fes._getMempoolNotifications(request, blockedPubKeys, utxoView, false)
+	if err != nil {
+		return 0, 0, fmt.Errorf("Error getting DB Notifications: %v", err)
+	}
+
+	if mempoolTxnMetadataFound != nil && len(mempoolTxnMetadataFound) > 0 {
+		notificationsCount += uint64(len(mempoolTxnMetadataFound))
+		nextNotificationStartIndex = mempoolTxnMetadataFound[0].Index
+	}
+
+	return notificationsCount, nextNotificationStartIndex, nil
+}
+
+func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*TransactionMetadataResponse, *lib.UtxoView, error) {
+	// If the TxIndex flag was not passed to this node then we can't compute
+	// notifications.
+	if fes.TXIndex == nil {
+		return nil, nil, errors.Errorf(
+			"GetNotifications: Cannot be called when TXIndexChain " +
+				"is nil. This error occurs when --txindex was not passed to the program " +
+				"on startup")
+	}
+
+	pkBytes, _, err := lib.Base58CheckDecode(request.PublicKeyBase58Check)
+	if err != nil {
+		return nil, nil, errors.Errorf("GetNotifications: Problem parsing public key: %v", err)
+	}
+
+	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(pkBytes)
+	if err != nil {
+		return nil, nil, errors.Errorf("GetNotifications: Error getting blocked public keys for user: %v", err)
+	}
+
+	// A valid mempool object is used to compute the TransactionMetadata for the mempool
+	// and to allow for things like: filtering notifications for a hidden post.
+	utxoView, err := fes.mempool.GetAugmentedUniversalView()
+	if err != nil {
+		return nil, nil, errors.Errorf("GetNotifications: Problem getting view: %v", err)
+	}
+
+	// Get notifications from the db
+	dbTxnMetadataFound, err := fes._getDBNotifications(request, blockedPubKeys, utxoView, true)
+	if err != nil {
+		return nil, nil, fmt.Errorf("Error getting DB Notifications: %v", err)
+	}
+
+	mempoolTxnMetadataFound, err := fes._getMempoolNotifications(request, blockedPubKeys, utxoView, true)
+	if err != nil {
+		return nil, nil, fmt.Errorf("Error getting mempool Notifications: %v", err)
+	}
 
 	// At this point, the combinedMempoolDBTxnMetadata either contains the latest transactions
 	// from the mempool *or* it's empty. The latter occurs when the FetchStartIndex
 	// is set to a value below the smallest index of any transaction in the mempool.
 	// In either case, appending the transactions we found in the db is the correct
 	// thing to do.
-	combinedMempoolDBTxnMetadata = append(combinedMempoolDBTxnMetadata, dbTxnMetadataFound...)
+	combinedMempoolDBTxnMetadata := append(mempoolTxnMetadataFound, dbTxnMetadataFound...)
 
 	// If a start index was set, then only consider transactions whose indes is <=
 	// this start index. This loop also enforces the final NumToFetch constraint.

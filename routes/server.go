@@ -60,7 +60,6 @@ const (
 	RoutePathAppendExtraData          = "/api/v0/append-extra-data"
 	RoutePathGetTransactionSpending   = "/api/v0/get-transaction-spending"
 
-	// user.go
 	RoutePathGetUsersStateless        = "/api/v0/get-users-stateless"
 	RoutePathDeleteIdentities         = "/api/v0/delete-identities"
 	RoutePathGetProfiles              = "/api/v0/get-profiles"
@@ -72,6 +71,8 @@ const (
 	RoutePathGetUserGlobalMetadata    = "/api/v0/get-user-global-metadata"
 	RoutePathUpdateUserGlobalMetadata = "/api/v0/update-user-global-metadata"
 	RoutePathGetNotifications         = "/api/v0/get-notifications"
+  RoutePathGetUnreadNotificationsCount = "/api/v0/get-unread-notifications-count"
+	RoutePathSetNotificationMetadata     = "/api/v0/set-notification-metadata"
 	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
 	RoutePathIsFollowingPublicKey     = "/api/v0/is-following-public-key"
 	RoutePathIsHodlingPublicKey       = "/api/v0/is-hodling-public-key"
@@ -130,8 +131,8 @@ const (
 	RoutePathGetJumioStatusForPublicKey        = "/api/v0/get-jumio-status-for-public-key"
 
 	// tutorial.go
-	RoutePathGetTutorialCreators = "/api/v0/get-tutorial-creators"
-	RoutePathStartOrSkipTutorial = "/api/v0/start-or-skip-tutorial"
+	RoutePathGetTutorialCreators  = "/api/v0/get-tutorial-creators"
+	RoutePathStartOrSkipTutorial  = "/api/v0/start-or-skip-tutorial"
 	RoutePathUpdateTutorialStatus = "/api/v0/update-tutorial-status"
 
 	// eth.go
@@ -796,6 +797,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetNotifications,
 			fes.GetNotifications,
+			PublicAccess,
+		},
+		{
+			"GetUnreadNotificationsCount",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetUnreadNotificationsCount,
+			fes.GetNotificationsCount,
+			PublicAccess,
+		},
+		{
+			"SetNotificationMetadata",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSetNotificationMetadata,
+			fes.SetNotificationMetadata,
 			PublicAccess,
 		},
 		{
