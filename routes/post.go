@@ -138,8 +138,7 @@ func (fes *APIServer) _getRepostPostEntryResponse(postEntry *lib.PostEntry, addG
 			profileEntry := utxoView.GetProfileEntryForPublicKey(repostedPostEntry.PosterPublicKey)
 			if profileEntry != nil {
 				// Convert it to a response since that sanitizes the inputs.
-				verifiedMap, _ := fes.GetVerifiedUsernameToPKIDMap()
-				profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+				profileEntryResponse := fes._profileEntryToResponse(profileEntry, utxoView)
 				repostedPostEntryResponse.ProfileEntryResponse = profileEntryResponse
 			}
 			repostedPostEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPK, repostedPostEntry)
@@ -388,7 +387,7 @@ func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
 	}
 
 	// Filter restricted public keys out of the posts.
-	filteredPostEntryPubKeyMap, err := fes.FilterOutRestrictedPubKeysFromMap(postEntryPubKeyMap, readerPK, "leaderboard")
+	filteredPostEntryPubKeyMap, err := fes.FilterOutRestrictedPubKeysFromMap(postEntryPubKeyMap, readerPK, "leaderboard", utxoView)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "GetPostsByDESO: Problem filtering restricted profiles from map: ")
 	}
@@ -507,7 +506,7 @@ func (fes *APIServer) GetPostEntriesByTimePaginated(
 }
 
 func (fes *APIServer) _getCommentResponse(
-	commentEntry *lib.PostEntry, profileEntryMap map[lib.PkMapKey]*lib.ProfileEntry, addGlobalFeedBool bool, verifiedMap map[string]*lib.PKID, utxoView *lib.UtxoView, readerPK []byte) (
+	commentEntry *lib.PostEntry, profileEntryMap map[lib.PkMapKey]*lib.ProfileEntry, addGlobalFeedBool bool, utxoView *lib.UtxoView, readerPK []byte) (
 	*PostEntryResponse, error) {
 	commentResponse, err := fes._postEntryToResponse(commentEntry, addGlobalFeedBool, fes.Params, utxoView, readerPK, 2)
 	if err != nil {
@@ -515,7 +514,7 @@ func (fes *APIServer) _getCommentResponse(
 	}
 
 	profileEntryFound := profileEntryMap[lib.MakePkMapKey(commentEntry.PosterPublicKey)]
-	commentResponse.ProfileEntryResponse = _profileEntryToResponse(profileEntryFound, fes.Params, verifiedMap, utxoView)
+	commentResponse.ProfileEntryResponse = fes._profileEntryToResponse(profileEntryFound, utxoView)
 
 	return commentResponse, nil
 }
@@ -539,9 +538,11 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 	}
 
 	var seekStartKey []byte
+	var seekStartPostHash *lib.BlockHash
 	skipFirstEntry := false
 	if startPost != nil {
 		seekStartKey = GlobalStateKeyForTstampPostHash(startPost.TimestampNanos, startPost.PostHash)
+		seekStartPostHash = startPost.PostHash
 		skipFirstEntry = true
 	} else {
 		// If we can't find a valid start post, we just use the prefix. GlobalStateSeek will
@@ -553,37 +554,64 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 	validForPrefix := _GlobalStatePrefixTstampNanosPostHash
 	maxBigEndianUint64Bytes := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
 	maxKeyLen := 1 + len(maxBigEndianUint64Bytes) + lib.HashSizeBytes
-	//maxKeyLen := 41
 	var postEntries []*lib.PostEntry
 	nextStartKey := seekStartKey
+	nextStartPostHash := seekStartPostHash
 
+	index := 0
 	// Iterate over posts in global state until we have at least num to fetch
 	for len(postEntries) < numToFetch {
-		// Get numToFetch - len(postEntries) postHashes from global state.
-		keys, _, err := fes.GlobalStateSeek(nextStartKey /*startPrefix*/, validForPrefix, /*validForPrefix*/
-			maxKeyLen /*maxKeyLen -- ignored since reverse is false*/, numToFetch-len(postEntries), true, /*reverse*/
-			false /*fetchValues*/)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("GetPostEntriesForGlobalWhitelist: Getting posts for reader: %v", err)
+		var postHashes []*lib.BlockHash
+		// If we're using an external global state, use the cached post hashes.
+		if fes.Config.GlobalStateAPIUrl != "" {
+			if nextStartPostHash != nil {
+				for ii := index; ii < len(fes.GlobalFeedPostHashes); ii++ {
+					if reflect.DeepEqual(*fes.GlobalFeedPostHashes[ii], *nextStartPostHash) {
+						index = ii
+						break
+					}
+				}
+			}
+			endIndex := lib.MinInt(index + numToFetch - len(postEntries), len(fes.GlobalFeedPostHashes))
+			postHashes = fes.GlobalFeedPostHashes[index:endIndex]
+			// At the next iteration, we can start looking endIndex for the post hash we need.
+			index = endIndex - 1
+		} else {
+			// Otherwise, we're using this node's global state.
+			var keys [][]byte
+			// Get numToFetch - len(postEntries) postHashes from global state.
+			keys, _, err = fes.GlobalStateSeek(nextStartKey /*startPrefix*/, validForPrefix, /*validForPrefix*/
+				maxKeyLen /*maxKeyLen -- ignored since reverse is false*/, numToFetch - len(postEntries), true, /*reverse*/
+				false /*fetchValues*/)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("GetPostEntriesForGlobalWhitelist: Getting posts for reader: %v", err)
+			}
+			for _, dbKeyBytes := range keys {
+				postHash := &lib.BlockHash{}
+				copy(postHash[:], dbKeyBytes[1+len(maxBigEndianUint64Bytes):][:])
+				postHashes = append(postHashes, postHash)
+			}
 		}
+
 		// If there are no keys left, then there are no more postEntries to get so we exit the loop.
-		if len(keys) == 0 || (len(keys) == 1 && skipFirstEntry) {
+		if len(postHashes) == 0 || (len(postHashes) == 1 && skipFirstEntry) {
 			break
 		}
 
-		for ii, dbKeyBytes := range keys {
+		var lastPost *lib.PostEntry
+		for ii, postHash := range postHashes {
 			// if we have a postHash at which we are starting, we should skip the first one so we don't have it
 			// duplicated in the response.
 			if skipFirstEntry && ii == 0 {
 				continue
 			}
-			// Chop the public key out of the db key.
-			// The dbKeyBytes are: [One Prefix Byte][Uint64 Tstamp Bytes][PostHash]
-			postHash := &lib.BlockHash{}
-			copy(postHash[:], dbKeyBytes[1+len(maxBigEndianUint64Bytes):][:])
 
 			// Get the postEntry from the utxoView.
 			postEntry := utxoView.GetPostEntryForPostHash(postHash)
+
+			if postEntry != nil {
+				lastPost = postEntry
+			}
 
 			if readerPK != nil && postEntry != nil && reflect.DeepEqual(postEntry.PosterPublicKey, readerPK) {
 				// We add the readers posts later so we can skip them here to avoid duplicates.
@@ -599,8 +627,13 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 				postEntries = append(postEntries, postEntry)
 			}
 		}
+		// If there are no post entries and no last post, we don't continue to fetch.
+		if len(postEntries) == 0 && lastPost == nil {
+			break
+		}
 		// Next time through the loop, start at the last key we retrieved
-		nextStartKey = keys[len(keys)-1]
+		nextStartKey = GlobalStateKeyForTstampPostHash(lastPost.TimestampNanos, lastPost.PostHash)
+		nextStartPostHash = lastPost.PostHash
 		skipFirstEntry = true
 	}
 
@@ -706,6 +739,33 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 	return postEntries, profileEntries, postEntryReaderStates, nil
 }
 
+func (fes *APIServer) GetGlobalFeedPostHashesForLastWeek() (_postHashes []*lib.BlockHash, _err error){
+	minTimestampNanos := uint64(time.Now().UTC().AddDate(0, 0, -7).UnixNano()) // 1 week ago
+
+	seekStartKey := GlobalStateSeekKeyForTstampPostHash(minTimestampNanos)
+
+	validForPrefix := _GlobalStatePrefixTstampNanosPostHash
+	maxBigEndianUint64Bytes := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+	maxKeyLen := 1 + len(maxBigEndianUint64Bytes) + lib.HashSizeBytes
+
+	var postHashes []*lib.BlockHash
+
+	keys, _, err := fes.GlobalStateSeek(seekStartKey /*startPrefix*/, validForPrefix, /*validForPrefix*/
+		maxKeyLen /*maxKeyLen -- ignored since reverse is false*/, 0, false, /*reverse*/
+		false /*fetchValues*/)
+	if err != nil {
+		return nil, err
+	}
+	// We iterate backwards since we want the Posts to be ordered from most recent to least recent.
+	for ii := len(keys) - 1; ii >= 0; ii-- {
+		postHash := &lib.BlockHash{}
+		copy(postHash[:], keys[ii][1+len(maxBigEndianUint64Bytes):][:])
+
+		postHashes = append(postHashes, postHash)
+	}
+	return postHashes, nil
+}
+
 // GetPostsStateless ...
 func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
@@ -791,13 +851,6 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	// Grab verified username map pointer
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("GetPostsStateless: Error fetching verifiedMap: %v", err))
-		return
-	}
-
 	// Get a utxoView.
 	utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
@@ -822,12 +875,12 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 				continue
 			}
 			profileEntryFound := profileEntryMap[lib.MakePkMapKey(postEntry.PosterPublicKey)]
-			postEntryResponse.ProfileEntryResponse = _profileEntryToResponse(
-				profileEntryFound, fes.Params, verifiedMap, utxoView)
+			postEntryResponse.ProfileEntryResponse = fes._profileEntryToResponse(
+				profileEntryFound, utxoView)
 			commentsFound := commentsByPostHash[*postEntry.PostHash]
 			for _, commentEntry := range commentsFound {
 				if _, ok = blockedPubKeys[lib.PkToString(commentEntry.PosterPublicKey, fes.Params)]; !ok {
-					commentResponse, err := fes._getCommentResponse(commentEntry, profileEntryMap, requestData.AddGlobalFeedBool, verifiedMap, utxoView, readerPublicKeyBytes)
+					commentResponse, err := fes._getCommentResponse(commentEntry, profileEntryMap, requestData.AddGlobalFeedBool, utxoView, readerPublicKeyBytes)
 					if fes._shouldSkipCommentResponse(commentResponse, err) {
 						continue
 					}
@@ -836,7 +889,7 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 					if requestData.FetchSubcomments {
 						subcommentsFound := commentsByPostHash[*commentEntry.PostHash]
 						for _, subCommentEntry := range subcommentsFound {
-							subcommentResponse, err := fes._getCommentResponse(subCommentEntry, profileEntryMap, requestData.AddGlobalFeedBool, verifiedMap, utxoView, readerPublicKeyBytes)
+							subcommentResponse, err := fes._getCommentResponse(subCommentEntry, profileEntryMap, requestData.AddGlobalFeedBool, utxoView, readerPublicKeyBytes)
 							if fes._shouldSkipCommentResponse(subcommentResponse, err) {
 								continue
 							}
@@ -1030,7 +1083,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 
 	// Filter out restricted PosterPublicKeys.
 	filteredProfilePubKeyMap, err := fes.FilterOutRestrictedPubKeysFromMap(
-		profilePubKeyMap, readerPublicKeyBytes, "leaderboard" /*moderationType*/)
+		profilePubKeyMap, readerPublicKeyBytes, "leaderboard" /*moderationType*/, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error filtering out restricted profiles: %v", err))
 		return
@@ -1076,13 +1129,6 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Grab verified username map pointer
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("GetSinglePost: Error fetching verifiedMap: %v", err))
-		return
-	}
-
 	// Get the profile entry for all PosterPublicKeys that passed our filter.
 	pubKeyToProfileEntryResponseMap := make(map[lib.PkMapKey]*ProfileEntryResponse)
 	for _, pubKeyBytes := range filteredProfilePubKeyMap {
@@ -1091,7 +1137,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 			continue
 		} else {
 			pubKeyToProfileEntryResponseMap[lib.MakePkMapKey(pubKeyBytes)] =
-				_profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+				fes._profileEntryToResponse(profileEntry, utxoView)
 		}
 	}
 
@@ -1491,14 +1537,6 @@ func (fes *APIServer) GetDiamondedPosts(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	// Grab verified username map pointer so we can verify the profiles.
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetDiamondedPosts: Error fetching verifiedMap: %v", err))
-		return
-	}
-
 	totalDiamondsGiven := uint64(0)
 	var diamondedPosts []*PostEntryResponse
 	for _, diamondEntry := range diamondEntries {
@@ -1528,7 +1566,7 @@ func (fes *APIServer) GetDiamondedPosts(ww http.ResponseWriter, req *http.Reques
 					_AddBadRequestError(ww, fmt.Sprintf("GetDiamondedPosts: Problem converting parent post entry to response: %v", err))
 				}
 				parentProfileEntry := utxoView.GetProfileEntryForPublicKey(parentPostEntry.PosterPublicKey)
-				parentPostEntryResponse.ProfileEntryResponse = _profileEntryToResponse(parentProfileEntry, fes.Params, verifiedMap, utxoView)
+				parentPostEntryResponse.ProfileEntryResponse = fes._profileEntryToResponse(parentProfileEntry, utxoView)
 				postEntryResponse.ParentPosts = []*PostEntryResponse{parentPostEntryResponse}
 			}
 			diamondedPosts = append(diamondedPosts, postEntryResponse)
@@ -1567,8 +1605,8 @@ func (fes *APIServer) GetDiamondedPosts(ww http.ResponseWriter, req *http.Reques
 	res := &GetPostsDiamondedBySenderForReceiverResponse{
 		DiamondedPosts:               diamondedPosts,
 		TotalDiamondsGiven:           totalDiamondsGiven,
-		ReceiverProfileEntryResponse: _profileEntryToResponse(receiverProfileEntry, fes.Params, verifiedMap, utxoView),
-		SenderProfileEntryResponse:   _profileEntryToResponse(senderProfileEntry, fes.Params, verifiedMap, utxoView),
+		ReceiverProfileEntryResponse: fes._profileEntryToResponse(receiverProfileEntry, utxoView),
+		SenderProfileEntryResponse:   fes._profileEntryToResponse(senderProfileEntry, utxoView),
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDiamondedPosts: Problem encoding response as JSON: %v", err))
@@ -1637,19 +1675,12 @@ func (fes *APIServer) GetLikesForPost(ww http.ResponseWriter, req *http.Request)
 
 	var filteredPkMap map[lib.PkMapKey][]byte
 	if addReaderPublicKey := utxoView.GetLikedByReader(readerPublicKeyBytes, postHash); addReaderPublicKey {
-		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, readerPublicKeyBytes, "leaderboard" /*moderationType*/)
+		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, readerPublicKeyBytes, "leaderboard" /*moderationType*/, utxoView)
 	} else {
-		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, nil, "leaderboard" /*moderationType*/)
+		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, nil, "leaderboard" /*moderationType*/, utxoView)
 	}
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetLikesForPost: Error filtering out restricted profiles: %v", err))
-		return
-	}
-
-	// Grab verified username map pointer for constructing profile entry responses.
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("GetLikesForPost: Error fetching verifiedMap: %v", err))
 		return
 	}
 
@@ -1660,7 +1691,7 @@ func (fes *APIServer) GetLikesForPost(ww http.ResponseWriter, req *http.Request)
 		if profileEntry == nil {
 			continue
 		}
-		profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+		profileEntryResponse := fes._profileEntryToResponse(profileEntry, utxoView)
 		likers = append(likers, profileEntryResponse)
 	}
 
@@ -1763,7 +1794,7 @@ func (fes *APIServer) GetDiamondsForPost(ww http.ResponseWriter, req *http.Reque
 			pkMapToFilter[pkMapKey] = profileEntry.PublicKey
 		}
 	}
-	filteredPkMap, err := fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, readerPublicKeyBytes, "leaderboard" /*moderationType*/)
+	filteredPkMap, err := fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, readerPublicKeyBytes, "leaderboard" /*moderationType*/, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDiamondsForPost: Error filtering out restricted profiles: %v", err))
 		return
@@ -1817,19 +1848,12 @@ func (fes *APIServer) GetDiamondsForPost(ww http.ResponseWriter, req *http.Reque
 		diamondSendersPage = diamondSenders[requestData.Offset:maxIdx]
 	}
 
-	// Grab verified username map pointer for constructing profile entry responses.
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("GetDiamondsForPost: Error fetching verifiedMap: %v", err))
-		return
-	}
-
 	// Convert final page of diamondSenders to a list of diamondSender responses.
 	diamondSenderResponses := []*DiamondSenderResponse{}
 	for _, diamondSender := range diamondSendersPage {
 		diamondSenderPKID := utxoView.GetPKIDForPublicKey(diamondSender.PublicKey)
 		diamondSenderResponse := &DiamondSenderResponse{
-			DiamondSenderProfile: _profileEntryToResponse(diamondSender, fes.Params, verifiedMap, utxoView),
+			DiamondSenderProfile: fes._profileEntryToResponse(diamondSender, utxoView),
 			DiamondLevel:         pkidToDiamondLevel[*diamondSenderPKID.PKID],
 		}
 		diamondSenderResponses = append(diamondSenderResponses, diamondSenderResponse)
@@ -1906,19 +1930,12 @@ func (fes *APIServer) GetRepostsForPost(ww http.ResponseWriter, req *http.Reques
 	var filteredPkMap map[lib.PkMapKey][]byte
 	if _, addReaderPublicKey := utxoView.GetRepostPostEntryStateForReader(readerPublicKeyBytes, postHash); addReaderPublicKey {
 		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(
-			pkMapToFilter, readerPublicKeyBytes, "leaderboard" /*moderationType*/)
+			pkMapToFilter, readerPublicKeyBytes, "leaderboard" /*moderationType*/, utxoView)
 	} else {
-		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, nil, "leaderboard" /*moderationType*/)
+		filteredPkMap, err = fes.FilterOutRestrictedPubKeysFromMap(pkMapToFilter, nil, "leaderboard" /*moderationType*/, utxoView)
 	}
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetRepostsForPost: Error filtering out restricted profiles: %v", err))
-		return
-	}
-
-	// Grab verified username map pointer for constructing profile entry responses.
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("GetRepostsForPost: Error fetching verifiedMap: %v", err))
 		return
 	}
 
@@ -1929,7 +1946,7 @@ func (fes *APIServer) GetRepostsForPost(ww http.ResponseWriter, req *http.Reques
 		if profileEntry == nil {
 			continue
 		}
-		profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+		profileEntryResponse := fes._profileEntryToResponse(profileEntry, utxoView)
 		reposters = append(reposters, profileEntryResponse)
 	}
 
@@ -2024,16 +2041,9 @@ func (fes *APIServer) GetQuoteRepostsForPost(ww http.ResponseWriter, req *http.R
 
 	// Filter out any restricted profiles.
 	filteredPubKeys, err := fes.FilterOutRestrictedPubKeysFromList(
-		quoteReposterPubKeys, readerPublicKeyBytes, "leaderboard" /*moderationType*/)
+		quoteReposterPubKeys, readerPublicKeyBytes, "leaderboard" /*moderationType*/, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetQuoteRepostsForPost: Error filtering out restricted profiles: %v", err))
-		return
-	}
-
-	// Grab verified username map pointer for constructing profile entry responses.
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("GetQuoteRepostsForPost: Error fetching verifiedMap: %v", err))
 		return
 	}
 
@@ -2048,7 +2058,7 @@ func (fes *APIServer) GetQuoteRepostsForPost(ww http.ResponseWriter, req *http.R
 
 		// Now that we have a non-nil profile, fetch the post and make the PostEntryResponse.
 		repostPostEntries := quoteReposterPubKeyToPosts[lib.MakePkMapKey(filteredPubKey)]
-		profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+		profileEntryResponse := fes._profileEntryToResponse(profileEntry, utxoView)
 		for _, repostPostEntry := range repostPostEntries {
 			repostPostEntryResponse, err := fes._postEntryToResponse(
 				repostPostEntry, false, fes.Params, utxoView, readerPublicKeyBytes, 2)

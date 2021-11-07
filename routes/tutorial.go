@@ -111,18 +111,13 @@ func (fes *APIServer) GetTutorialCreatorsByFR(ww http.ResponseWriter, req *http.
 		_AddBadRequestError(ww, fmt.Sprintf("GetTutorialCreators: Error getting utxoView: %v", err))
 		return
 	}
-	// Grab verified username map pointer
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetTutorialCreators: Problem fetching verifiedMap: %v", err))
-		return
-	}
-	upAndComingProfileEntryResponses, err := fes.GetFeaturedCreators(utxoView, requestData.ResponseLimit, upAndComingSeekKey, verifiedMap, disregardFR)
+
+	upAndComingProfileEntryResponses, err := fes.GetFeaturedCreators(utxoView, requestData.ResponseLimit, upAndComingSeekKey, disregardFR)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTutorialCreators: Problem getting up and coming tutorial creators: %v", err))
 		return
 	}
-	wellKnownProfileEntryResponses, err := fes.GetFeaturedCreators(utxoView, requestData.ResponseLimit, wellKnownSeekKey, verifiedMap, disregardFR)
+	wellKnownProfileEntryResponses, err := fes.GetFeaturedCreators(utxoView, requestData.ResponseLimit, wellKnownSeekKey, disregardFR)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTutorialCreators: Problem getting well known tutorial creators: %v", err))
 		return
@@ -145,7 +140,7 @@ func ShuffleKeys(records *[][]byte) {
 	})
 }
 
-func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit int, seekKey []byte, verifiedMap map[string]*lib.PKID, disregardFR bool) (_profileEntryResponses []ProfileEntryResponse, _err error) {
+func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit int, seekKey []byte, disregardFR bool) (_profileEntryResponses []ProfileEntryResponse, _err error) {
 	maxKeyLen := 1 + btcec.PubKeyBytesLenCompressed
 	keys, _, err := fes.GlobalStateSeek(
 		seekKey,
@@ -179,7 +174,7 @@ func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit 
 
 		// Only add creator if FR is 10% or less
 		if profileEntry != nil && (profileEntry.CoinEntry.CreatorBasisPoints <= 10*100 || disregardFR) {
-			profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+			profileEntryResponse := fes._profileEntryToResponse(profileEntry, utxoView)
 			profileEntryResponses = append(profileEntryResponses, *profileEntryResponse)
 		}
 		ii++

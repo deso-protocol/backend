@@ -636,12 +636,6 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 		_AddBadRequestError(ww, fmt.Sprintf("HandleHotFeedPageRequest: Error getting utxoView: %v", err))
 		return
 	}
-	// Grab verified username map pointer.
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("HandleHotFeedPageRequest: Problem fetching verifiedMap: %v", err))
-		return
-	}
 
 	// Make the lists of posts a user has already seen into a map.
 	seenPostsMap := make(map[string][]byte)
@@ -678,8 +672,8 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 		}
 
 		profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
-		postEntryResponse.ProfileEntryResponse = _profileEntryToResponse(
-			profileEntry, fes.Params, verifiedMap, utxoView)
+		postEntryResponse.ProfileEntryResponse = fes._profileEntryToResponse(
+			profileEntry, utxoView)
 		postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(
 			readerPublicKeyBytes, postEntry)
 		postEntryResponse.HotnessScore = hotFeedEntry.HotnessScore
@@ -713,8 +707,8 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 					profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
 					postEntryResponse, err := fes._postEntryToResponse(
 						postEntry, true, fes.Params, utxoView, readerPublicKeyBytes, 1)
-					postEntryResponse.ProfileEntryResponse = _profileEntryToResponse(
-						profileEntry, fes.Params, verifiedMap, utxoView)
+					postEntryResponse.ProfileEntryResponse = fes._profileEntryToResponse(
+						profileEntry, utxoView)
 					postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(
 						readerPublicKeyBytes, postEntry)
 					if err != nil {

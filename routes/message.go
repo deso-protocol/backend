@@ -70,13 +70,6 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			err, "getMessagesStateless: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
 	}
 
-	// Grab verified username map pointer
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		return nil, nil, nil, 0, errors.Wrapf(
-			err, "getMessagesStateless: Error fetching verifiedMap: %v", err)
-	}
-
 	// Go through all the MessageEntries and create a MessageEntryResponse for each one.
 	// Sort the MessageEntries by their timestamp.
 	//
@@ -290,7 +283,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 				publicKeyInPaginatedSet[otherPartyPublicKeyBase58Check] = true
 
 				// We now know the other user's messages are set to be returned for the first time.
-				otherProfileEntry := _profileEntryToResponse(utxoView.GetProfileEntryForPublicKey(otherPartyPublicKeyBytes), fes.Params, verifiedMap, utxoView)
+				otherProfileEntry := fes._profileEntryToResponse(utxoView.GetProfileEntryForPublicKey(otherPartyPublicKeyBytes), utxoView)
 				publicKeyToProfileEntry[otherPartyPublicKeyBase58Check] = otherProfileEntry
 
 				contactEntry := &MessageContactResponse{
