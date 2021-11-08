@@ -1601,11 +1601,14 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 			}
 		}
 
+		// Note Content-Type header contains the media type, as well as some additional directives based on media type
+		// (such as boundary for multipart media types and charset to indicate string encoding).
 		contentType := r.Header.Get("Content-Type")
+		mediaType := strings.SplitN(contentType, ";", 2)[0]
 
 		invalidPostRequest := false
 		// upload-image endpoint is the only one allowed to use multipart/form-data
-		if r.RequestURI == RoutePathUploadImage && strings.HasPrefix(contentType, "multipart/form-data") {
+		if r.RequestURI == RoutePathUploadImage && mediaType == "multipart/form-data" {
 			match = true
 			actualOrigin = "*"
 		} else if _, exists := publicRoutes[r.RequestURI]; exists {
@@ -1613,7 +1616,7 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 			// This allows third-party frontends to access this endpoint
 			match = true
 			actualOrigin = "*"
-		} else if r.Method == "POST" && contentType != "application/json" && r.RequestURI != RoutePathJumioCallback {
+		} else if r.Method == "POST" && mediaType != "application/json" && r.RequestURI != RoutePathJumioCallback {
 			invalidPostRequest = true
 		}
 
