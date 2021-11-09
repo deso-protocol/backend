@@ -345,6 +345,11 @@ type UserMetadata struct {
 
 	// Txn hash in which the referrer was paid
 	ReferrerDeSoTxnHash string
+
+	// The number of unread notifications stored in the db.
+	UnreadNotifications uint64
+	// The most recently scanned notification transaction index in the database. Stored in order to prevent unnecessary re-scanning.
+	LatestUnreadNotificationIndex int64
 }
 
 type TutorialStatus string
@@ -375,6 +380,9 @@ type PhoneNumberMetadata struct {
 
 	// if true, when the public key associated with this metadata tries to create a profile, we will comp their fee.
 	ShouldCompProfileCreation bool
+
+	// True if user deleted PII. Since users can
+	PublicKeyDeleted bool
 }
 
 type WyreWalletOrderMetadata struct {
@@ -512,6 +520,13 @@ func GlobalStateKeyForTstampPostHash(tstampNanos uint64, postHash *lib.BlockHash
 	key := append([]byte{}, _GlobalStatePrefixTstampNanosPostHash...)
 	key = append(key, lib.EncodeUint64(tstampNanos)...)
 	key = append(key, postHash[:]...)
+	return key
+}
+
+func GlobalStateSeekKeyForTstampPostHash(tstampNanos uint64) []byte {
+	// Make a copy to avoid multiple calls to this function re-using the same slice.
+	key := append([]byte{}, _GlobalStatePrefixTstampNanosPostHash...)
+	key = append(key, lib.EncodeUint64(tstampNanos)...)
 	return key
 }
 

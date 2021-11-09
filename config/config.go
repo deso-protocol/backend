@@ -75,6 +75,10 @@ type Config struct {
 	// Video Upload
 	CloudflareStreamToken string
 	CloudflareAccountId   string
+
+	// Global State
+	ExposeGlobalState bool
+	GlobalStateAPIUrl string
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -166,5 +170,8 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.CloudflareStreamToken = viper.GetString("cloudflare-stream-token")
 	config.CloudflareAccountId = viper.GetString("cloudflare-account-id")
 
+	// Global State
+	config.ExposeGlobalState = viper.GetBool("expose-global-state")
+	config.GlobalStateAPIUrl = viper.GetString("global-state-api-url")
 	return &config
 }

@@ -419,11 +419,6 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeR
 					"getReferralInfoResponsesForPubKey: Failed to get referees (%s): %v",
 					referralHash, err)
 			}
-			// Get the map of verified usernames.
-			verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-			if err != nil {
-				return nil, fmt.Errorf("GetProfiles: Error fetching verifiedMap: %v", err)
-			}
 			// Now we chop the RefereePKIDs out of the keys and look up their profiles.
 			// The key consists of: Prefix, ReferralPKID, ReferralHash, RefereePKID.
 			refereePKIDStartIdx := 1 + btcec.PubKeyBytesLenCompressed + 8
@@ -434,7 +429,7 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeR
 
 				profileEntry := utxoView.GetProfileEntryForPKID(refereePKID)
 				if profileEntry != nil {
-					profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+					profileEntryResponse := fes._profileEntryToResponse(profileEntry, utxoView)
 					referredUsers = append(referredUsers, *profileEntryResponse)
 				} else {
 					// This is an anon profile, so we just populate the pub key and call it good.

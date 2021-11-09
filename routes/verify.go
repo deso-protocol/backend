@@ -202,6 +202,10 @@ func (fes *APIServer) validatePhoneNumberNotAlreadyInUse(phoneNumber string, use
 		}
 	}
 
+	if phoneNumberMetadata.PublicKeyDeleted {
+		return errors.Wrap(fmt.Errorf("validatePhoneNumberNotAlreadyInUse: Phone number already in use"), "")
+	}
+
 	return nil
 }
 
