@@ -2410,6 +2410,11 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 	publicKeyIsAffected := false
 	for _, affectedObj := range txnMeta.AffectedPublicKeys {
 		if affectedObj.PublicKeyBase58Check == publicKeyBase58Check {
+			// We don't want to send notifications if a user received an output as a result of a fee on a
+			// non-Basic Transfer transaction.
+			if affectedObj.Metadata == "BasicTransferOutput" && txnMeta.TxnType != string(lib.TxnStringBasicTransfer) {
+				continue
+			}
 			publicKeyIsAffected = true
 			break
 		}
