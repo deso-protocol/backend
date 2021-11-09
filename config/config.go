@@ -37,6 +37,9 @@ type Config struct {
 	AdminPublicKeys           []string
 	SuperAdminPublicKeys      []string
 
+	// Analytics
+	AmplitudeKey string
+
 	// Images
 	GCPCredentialsPath string
 	GCPBucketName      string
@@ -115,6 +118,9 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.SecureHeaderAllowHosts = viper.GetStringSlice("secure-header-allow-hosts")
 	config.AdminPublicKeys = viper.GetStringSlice("admin-public-keys")
 	config.SuperAdminPublicKeys = viper.GetStringSlice("super-admin-public-keys")
+
+	// Analytics
+	config.AmplitudeKey = viper.GetString("amplitude-key")
 
 	// Images
 	config.GCPCredentialsPath = viper.GetString("gcp-credentials-path")
