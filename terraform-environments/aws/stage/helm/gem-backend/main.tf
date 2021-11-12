@@ -6,8 +6,8 @@ locals {
   namespace         = "app-stage"
   fullnameOverride  = "gem-backend"
   replica_count     = 1
-  docker_repository = "067550988196.dkr.ecr.us-east-1.amazonaws.com/backend"
-  docker_tag        = "v1.2.2.2"
+  docker_repository = "283278994941.dkr.ecr.us-east-1.amazonaws.com/backend"
+  docker_tag        = "main"
   requests_memory   = "32Gi"
 
   tags = {
@@ -24,6 +24,10 @@ terraform {
     aws = {
       source  = "hashicorp/aws"
       version = ">= 3.37.0"
+    }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = ">= 2.4.0"
     }
     random = {
       source = "hashicorp/random"
@@ -75,6 +79,13 @@ provider "helm" {
   }
 }
 
+resource "aws_sqs_queue" "transactions-input" {
+  name                      = "transactions-input"
+  delay_seconds             = 0
+  max_message_size          = 2048
+  message_retention_seconds = 86400
+}
+
 # Helm values file templating
 data "template_file" "helm_values" {
   template = file("${path.module}/helm_values.yaml")
@@ -92,7 +103,7 @@ data "template_file" "helm_values" {
     pg_port           = "foo" # data.terraform_remote_state.rds.outputs.pg_port
     pg_username       = "foo" # data.terraform_remote_state.rds.outputs.pg_username
     pg_password       = var.pg_password
-    sqs_uri           = var.sqs_uri
+    sqs_uri           = aws_sqs_queue.transactions-input.url
   }
 }
 
