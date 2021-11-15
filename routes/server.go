@@ -60,24 +60,25 @@ const (
 	RoutePathAppendExtraData          = "/api/v0/append-extra-data"
 	RoutePathGetTransactionSpending   = "/api/v0/get-transaction-spending"
 
-	RoutePathGetUsersStateless        = "/api/v0/get-users-stateless"
-	RoutePathDeleteIdentities         = "/api/v0/delete-identities"
-	RoutePathGetProfiles              = "/api/v0/get-profiles"
-	RoutePathGetSingleProfile         = "/api/v0/get-single-profile"
-	RoutePathGetSingleProfilePicture  = "/api/v0/get-single-profile-picture"
-	RoutePathGetHodlersForPublicKey   = "/api/v0/get-hodlers-for-public-key"
-	RoutePathGetDiamondsForPublicKey  = "/api/v0/get-diamonds-for-public-key"
-	RoutePathGetFollowsStateless      = "/api/v0/get-follows-stateless"
-	RoutePathGetUserGlobalMetadata    = "/api/v0/get-user-global-metadata"
-	RoutePathUpdateUserGlobalMetadata = "/api/v0/update-user-global-metadata"
-	RoutePathGetNotifications         = "/api/v0/get-notifications"
-  RoutePathGetUnreadNotificationsCount = "/api/v0/get-unread-notifications-count"
+	RoutePathGetUsersStateless           = "/api/v0/get-users-stateless"
+	RoutePathDeleteIdentities            = "/api/v0/delete-identities"
+	RoutePathGetProfiles                 = "/api/v0/get-profiles"
+	RoutePathGetSingleProfile            = "/api/v0/get-single-profile"
+	RoutePathGetSingleProfilePicture     = "/api/v0/get-single-profile-picture"
+	RoutePathGetHodlersForPublicKey      = "/api/v0/get-hodlers-for-public-key"
+	RoutePathGetDiamondsForPublicKey     = "/api/v0/get-diamonds-for-public-key"
+	RoutePathGetFollowsStateless         = "/api/v0/get-follows-stateless"
+	RoutePathGetUserGlobalMetadata       = "/api/v0/get-user-global-metadata"
+	RoutePathUpdateUserGlobalMetadata    = "/api/v0/update-user-global-metadata"
+	RoutePathGetNotifications            = "/api/v0/get-notifications"
+    RoutePathGetUnreadNotificationsCount = "/api/v0/get-unread-notifications-count"
 	RoutePathSetNotificationMetadata     = "/api/v0/set-notification-metadata"
-	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
-	RoutePathIsFollowingPublicKey     = "/api/v0/is-following-public-key"
-	RoutePathIsHodlingPublicKey       = "/api/v0/is-hodling-public-key"
-	RoutePathGetUserDerivedKeys       = "/api/v0/get-user-derived-keys"
-	RoutePathDeletePII                = "/api/v0/delete-pii"
+	RoutePathBlockPublicKey              = "/api/v0/block-public-key"
+	RoutePathIsFollowingPublicKey        = "/api/v0/is-following-public-key"
+	RoutePathIsHodlingPublicKey          = "/api/v0/is-hodling-public-key"
+	RoutePathGetUserDerivedKeys          = "/api/v0/get-user-derived-keys"
+	RoutePathDeletePII                   = "/api/v0/delete-pii"
+	RoutePathGetUserMetadata             = "/api/v0/get-user-metadata"
 
 	// post.go
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
@@ -383,7 +384,12 @@ func NewAPIServer(
 		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
 		quit:                   make(chan struct{}),
 	}
-
+	// We only add RoutePathUpdateProfile to the list of public routes if this node exposes its global state and
+	// compensates profile creation. This route needs to be public in order to support compensating profile creation
+	// on third party nodes for users who have verified their phone number or verified through jumio on this node.
+	if fes.Config.ExposeGlobalState && fes.Config.CompProfileCreation {
+		publicRoutes[RoutePathUpdateProfile] = nil
+	}
 	fes.StartSeedBalancesMonitoring()
 
 	// Call this once upon starting server to ensure we have a good initial value
@@ -902,6 +908,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathDeletePII,
 			fes.DeletePII,
+			PublicAccess,
+		},
+		{
+			"GetUserMetadata",
+			[]string{"GET"},
+			RoutePathGetUserMetadata + "/{publicKeyBase58Check:[0-9a-zA-Z]{54,55}}",
+			fes.GetUserMetadata,
 			PublicAccess,
 		},
 		// Jumio Routes
@@ -1558,6 +1571,7 @@ var publicRoutes = map[string]interface{}{
 	RoutePathGetGraylistedPublicKeys: nil,
 	RoutePathGetGlobalFeed: nil,
 	RoutePathDeletePII: nil,
+	RoutePathGetUserMetadata: nil,
 }
 
 // AddHeaders ...
