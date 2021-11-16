@@ -60,24 +60,24 @@ const (
 	RoutePathAppendExtraData          = "/api/v0/append-extra-data"
 	RoutePathGetTransactionSpending   = "/api/v0/get-transaction-spending"
 
-	RoutePathGetUsersStateless        = "/api/v0/get-users-stateless"
-	RoutePathDeleteIdentities         = "/api/v0/delete-identities"
-	RoutePathGetProfiles              = "/api/v0/get-profiles"
-	RoutePathGetSingleProfile         = "/api/v0/get-single-profile"
-	RoutePathGetSingleProfilePicture  = "/api/v0/get-single-profile-picture"
-	RoutePathGetHodlersForPublicKey   = "/api/v0/get-hodlers-for-public-key"
-	RoutePathGetDiamondsForPublicKey  = "/api/v0/get-diamonds-for-public-key"
-	RoutePathGetFollowsStateless      = "/api/v0/get-follows-stateless"
-	RoutePathGetUserGlobalMetadata    = "/api/v0/get-user-global-metadata"
-	RoutePathUpdateUserGlobalMetadata = "/api/v0/update-user-global-metadata"
-	RoutePathGetNotifications         = "/api/v0/get-notifications"
+	RoutePathGetUsersStateless           = "/api/v0/get-users-stateless"
+	RoutePathDeleteIdentities            = "/api/v0/delete-identities"
+	RoutePathGetProfiles                 = "/api/v0/get-profiles"
+	RoutePathGetSingleProfile            = "/api/v0/get-single-profile"
+	RoutePathGetSingleProfilePicture     = "/api/v0/get-single-profile-picture"
+	RoutePathGetHodlersForPublicKey      = "/api/v0/get-hodlers-for-public-key"
+	RoutePathGetDiamondsForPublicKey     = "/api/v0/get-diamonds-for-public-key"
+	RoutePathGetFollowsStateless         = "/api/v0/get-follows-stateless"
+	RoutePathGetUserGlobalMetadata       = "/api/v0/get-user-global-metadata"
+	RoutePathUpdateUserGlobalMetadata    = "/api/v0/update-user-global-metadata"
+	RoutePathGetNotifications            = "/api/v0/get-notifications"
 	RoutePathGetUnreadNotificationsCount = "/api/v0/get-unread-notifications-count"
 	RoutePathSetNotificationMetadata     = "/api/v0/set-notification-metadata"
-	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
-	RoutePathIsFollowingPublicKey     = "/api/v0/is-following-public-key"
-	RoutePathIsHodlingPublicKey       = "/api/v0/is-hodling-public-key"
-	RoutePathGetUserDerivedKeys       = "/api/v0/get-user-derived-keys"
-	RoutePathDeletePII                = "/api/v0/delete-pii"
+	RoutePathBlockPublicKey              = "/api/v0/block-public-key"
+	RoutePathIsFollowingPublicKey        = "/api/v0/is-following-public-key"
+	RoutePathIsHodlingPublicKey          = "/api/v0/is-hodling-public-key"
+	RoutePathGetUserDerivedKeys          = "/api/v0/get-user-derived-keys"
+	RoutePathDeletePII                   = "/api/v0/delete-pii"
 
 	// post.go
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
@@ -313,22 +313,22 @@ type APIServer struct {
 	VerifiedUsernameToPKIDMap map[string]*lib.PKID
 	// BlacklistedPKIDMap is a map of PKID to a byte slice representing the PKID of a user as the key and the current
 	// blacklist state of that user as the key. If a PKID is not present in this map, then the user is NOT blacklisted.
-	BlacklistedPKIDMap        map[lib.PKID][]byte
+	BlacklistedPKIDMap map[lib.PKID][]byte
 	// BlacklistedResponseMap is a map of PKIDs converted to base58-encoded string to a byte slice. This is computed
 	// from the BlacklistedPKIDMap above and is a JSON-encodable version of that map. This map is only used when
 	// responding to requests for this node's blacklist. A JSON-encoded response is easier for any language to digest
 	// than a gob-encoded one.
-	BlacklistedResponseMap    map[string][]byte
+	BlacklistedResponseMap map[string][]byte
 	// GraylistedPKIDMap is a map of PKID to a byte slice representing the PKID of a user as the key and the current
 	// graylist state of that user as the key. If a PKID is not present in this map, then the user is NOT graylisted.
-	GraylistedPKIDMap         map[lib.PKID][]byte
+	GraylistedPKIDMap map[lib.PKID][]byte
 	// GraylistedResponseMap is a map of PKIDs converted to base58-encoded string to a byte slice. This is computed
 	// from the GraylistedPKIDMap above and is a JSON-encodable version of that map. This map is only used when
 	// responding to requests for this node's graylist. A JSON-encoded response is easier for any language to digest
 	// than a gob-encoded one.
-	GraylistedResponseMap     map[string][]byte
+	GraylistedResponseMap map[string][]byte
 	// GlobalFeedPostHashes is a slice of BlockHashes representing the state of posts on the global feed on this node.
-	GlobalFeedPostHashes      []*lib.BlockHash
+	GlobalFeedPostHashes []*lib.BlockHash
 
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
@@ -1548,15 +1548,15 @@ func Logger(inner http.Handler, name string) http.Handler {
 }
 
 var publicRoutes = map[string]interface{}{
-	RoutePathGetJumioStatusForPublicKey: nil,
-	RoutePathUploadVideo: nil,
+	RoutePathGetJumioStatusForPublicKey:     nil,
+	RoutePathUploadVideo:                    nil,
 	RoutePathGetReferralInfoForReferralHash: nil,
-	RoutePathGetReferralInfoForUser: nil,
-	RoutePathGetVerifiedUsernames: nil,
-	RoutePathGetBlacklistedPublicKeys: nil,
-	RoutePathGetGraylistedPublicKeys: nil,
-	RoutePathGetGlobalFeed: nil,
-	RoutePathDeletePII: nil,
+	RoutePathGetReferralInfoForUser:         nil,
+	RoutePathGetVerifiedUsernames:           nil,
+	RoutePathGetBlacklistedPublicKeys:       nil,
+	RoutePathGetGraylistedPublicKeys:        nil,
+	RoutePathGetGlobalFeed:                  nil,
+	RoutePathDeletePII:                      nil,
 }
 
 // AddHeaders ...
@@ -1668,6 +1668,13 @@ type AdminRequest struct {
 // CheckSecret ...
 func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel AccessLevel) http.Handler {
 	return http.HandlerFunc(func(ww http.ResponseWriter, req *http.Request) {
+		// If the only entry is a "*" we exit immediately
+		if (len(fes.Config.AdminPublicKeys) == 1 && fes.Config.AdminPublicKeys[0] == "*") ||
+			(len(fes.Config.SuperAdminPublicKeys) == 1 && fes.Config.SuperAdminPublicKeys[0] == "*") {
+			inner.ServeHTTP(ww, req)
+			return
+		}
+
 		requestData := AdminRequest{}
 
 		if req.Body == nil {
@@ -1708,7 +1715,7 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel Access
 		// If this a regular admin endpoint, we iterate through all the admin public keys.
 		if AccessLevel == AdminAccess {
 			for _, adminPubKey := range fes.Config.AdminPublicKeys {
-				if adminPubKey == requestData.AdminPublicKey || adminPubKey == "*" {
+				if adminPubKey == requestData.AdminPublicKey {
 					// We found a match, serve the request
 					inner.ServeHTTP(ww, req)
 					return
@@ -1718,7 +1725,7 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel Access
 
 		// We also check super admins, as they have a superset of capabilities.
 		for _, superAdminPubKey := range fes.Config.SuperAdminPublicKeys {
-			if superAdminPubKey == requestData.AdminPublicKey || superAdminPubKey == "*" {
+			if superAdminPubKey == requestData.AdminPublicKey {
 				// We found a match, serve the request
 				inner.ServeHTTP(ww, req)
 				return
