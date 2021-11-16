@@ -71,7 +71,7 @@ const (
 	RoutePathGetUserGlobalMetadata    = "/api/v0/get-user-global-metadata"
 	RoutePathUpdateUserGlobalMetadata = "/api/v0/update-user-global-metadata"
 	RoutePathGetNotifications         = "/api/v0/get-notifications"
-  RoutePathGetUnreadNotificationsCount = "/api/v0/get-unread-notifications-count"
+	RoutePathGetUnreadNotificationsCount = "/api/v0/get-unread-notifications-count"
 	RoutePathSetNotificationMetadata     = "/api/v0/set-notification-metadata"
 	RoutePathBlockPublicKey           = "/api/v0/block-public-key"
 	RoutePathIsFollowingPublicKey     = "/api/v0/is-following-public-key"
@@ -1550,7 +1550,6 @@ func Logger(inner http.Handler, name string) http.Handler {
 var publicRoutes = map[string]interface{}{
 	RoutePathGetJumioStatusForPublicKey: nil,
 	RoutePathUploadVideo: nil,
-	RoutePathGetVideoStatus: nil,
 	RoutePathGetReferralInfoForReferralHash: nil,
 	RoutePathGetReferralInfoForUser: nil,
 	RoutePathGetVerifiedUsernames: nil,
@@ -1614,6 +1613,10 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 		} else if _, exists := publicRoutes[r.RequestURI]; exists {
 			// We set the headers for all requests to public routes.
 			// This allows third-party frontends to access this endpoint
+			match = true
+			actualOrigin = "*"
+		} else if strings.HasPrefix(r.RequestURI, RoutePathGetVideoStatus) {
+			// We don't match the get video status path exactly since there is a variable param. Check for the prefix.
 			match = true
 			actualOrigin = "*"
 		} else if r.Method == "POST" && mediaType != "application/json" && r.RequestURI != RoutePathJumioCallback {
