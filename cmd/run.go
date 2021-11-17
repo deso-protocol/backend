@@ -1,14 +1,15 @@
 package cmd
 
 import (
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/deso-protocol/backend/config"
 	coreCmd "github.com/deso-protocol/core/cmd"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/golang/glog"
 )
@@ -86,6 +87,11 @@ func init() {
 		"When a remote node is being used to set/fetch global state, a secret "+
 			"is also required to restrict access.")
 
+	// Hot Feed
+	runCmd.PersistentFlags().Bool("run-hot-feed-routine", false,
+		"If set, runs a go routine that accumulates 'hotness' scores for posts  in the "+
+			"last 24hrs.  This can be used to serve a 'hot' feed.")
+
 	// Web Security
 	runCmd.PersistentFlags().StringSlice("access-control-allow-origins", []string{"*"},
 		"Accepts a comma-separated lists of origin domains that will be allowed as the "+
@@ -114,11 +120,11 @@ func init() {
 	// Admin
 	runCmd.PersistentFlags().StringSlice("admin-public-keys", []string{},
 		"A list of public keys which gives users access to the admin panel. "+
-			"If no keys are specified anyone can access the admin panel. You can add a space "+
+			"If '*' is specified as a key, anyone can access the admin panel. You can add a space "+
 			"and a comment after every public key and leave a note about who the public key belongs to.")
 	runCmd.PersistentFlags().StringSlice("super-admin-public-keys", []string{},
 		"A list of public keys which gives users access to the super admin panel. "+
-			"If no keys are specified anyone can access the super admin panel. You can add a space "+
+			"If '*' is specified as a key, anyone can access the super admin panel. You can add a space "+
 			"and a comment after every public key and leave a note about who the public key belongs to.")
 
 	// Wyre
@@ -129,6 +135,7 @@ func init() {
 	runCmd.PersistentFlags().String("buy-deso-btc-address", "", "BTC Address for all Wyre Wallet Orders and 'Buy With BTC' purchases")
 	runCmd.PersistentFlags().String("buy-deso-seed", "", "Seed phrase from which DeSo will be sent for orders placed through Wyre and 'Buy With BTC' purchases")
 	runCmd.PersistentFlags().String("buy-deso-eth-address", "", "ETH Address for all 'Buy With ETH' purchases")
+	runCmd.PersistentFlags().String("infura-project-id", "", "Project ID for Infura requests")
 
 	// Email
 	runCmd.PersistentFlags().String("sendgrid-api-key", "", "Sendgrid API key")
@@ -141,6 +148,14 @@ func init() {
 	// Jumio
 	runCmd.PersistentFlags().String("jumio-token", "", "Jumio Token")
 	runCmd.PersistentFlags().String("jumio-secret", "", "Jumio Secret Key")
+
+	// Video Upload
+	runCmd.PersistentFlags().String("cloudflare-stream-token", "", "API Token with Edit access to Cloudflare's stream service")
+	runCmd.PersistentFlags().String("cloudflare-account-id", "", "Cloudflare Account ID")
+
+	// Global State
+	runCmd.PersistentFlags().Bool("expose-global-state", false, "Expose global state data to all origins")
+	runCmd.PersistentFlags().String("global-state-api-url", "", "URL to use to fetch global state data. Only used if expose-global-state is false. If not provided, use own global state.")
 
 	runCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
 		viper.BindPFlag(flag.Name, flag)

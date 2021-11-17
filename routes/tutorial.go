@@ -8,12 +8,20 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/deso-protocol/core/lib"
 )
 
 type GetTutorialCreatorsRequest struct {
 	ResponseLimit int
+}
+
+type UpdateTutorialStatusRequest struct {
+	PublicKeyBase58Check string
+	TutorialStatus                      TutorialStatus
+	CreatorPurchasedInTutorialPublicKey string
+	ClearCreatorCoinPurchasedInTutorial bool
+	JWT string
 }
 
 type GetTutorialCreatorResponse struct {
@@ -23,6 +31,68 @@ type GetTutorialCreatorResponse struct {
 
 func (fes *APIServer) GetTutorialCreators(ww http.ResponseWriter, req *http.Request) {
 	fes.GetTutorialCreatorsByFR(ww, req, false)
+}
+
+func (fes *APIServer) UpdateTutorialStatus(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := UpdateTutorialStatusRequest{}
+
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminResetTutorialStatus: Problem parsing request body: %v", err))
+		return
+	}
+	// Validate the JWT is legit.
+	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetReferralInfoForUser: Error validating JWT: %v", err))
+		return
+	}
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("GetReferralInfoForUser: Invalid token: %v", err))
+		return
+	}
+
+	// Get a view
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateTutorialStatus: Error getting utxoView: %v", err))
+		return
+	}
+
+	userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.PublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateTutorialStatus: Error getting user metadata from global state: %v", err))
+		return
+	}
+
+	if userMetadata.TutorialStatus != requestData.TutorialStatus {
+		userMetadata.TutorialStatus = requestData.TutorialStatus
+		// We need to set this to false once the user completes the tutorial, so any actions aren't blocked
+		if (requestData.TutorialStatus == COMPLETE) {
+			userMetadata.MustCompleteTutorial = false
+		}
+		// If a user is skipping the buy step, we need to set this to 0
+		if (requestData.ClearCreatorCoinPurchasedInTutorial) {
+			userMetadata.CreatorCoinsPurchasedInTutorial = 0
+		}
+		if (requestData.CreatorPurchasedInTutorialPublicKey != "") {
+			CreatorPurchasedInTutorialPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.CreatorPurchasedInTutorialPublicKey)
+			if err != nil || len(CreatorPurchasedInTutorialPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+				_AddBadRequestError(ww, fmt.Sprintf("UpdateTutorialStatus: Failed to decode public key bytes"))
+				return
+			}
+			pkid := utxoView.GetPKIDForPublicKey(CreatorPurchasedInTutorialPublicKeyBytes)
+			if pkid == nil {
+				_AddBadRequestError(ww, fmt.Sprintf("UpdateTutorialStatus: No PKID found for public key: %v", requestData.CreatorPurchasedInTutorialPublicKey))
+				return
+			}
+			userMetadata.CreatorPurchasedInTutorialPKID = pkid.PKID
+		}
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminResetTutorialStatus: Error putting user metadata in global state: %v", err))
+			return
+		}
+	}
 }
 
 func (fes *APIServer) GetTutorialCreatorsByFR(ww http.ResponseWriter, req *http.Request, disregardFR bool) {
@@ -41,18 +111,13 @@ func (fes *APIServer) GetTutorialCreatorsByFR(ww http.ResponseWriter, req *http.
 		_AddBadRequestError(ww, fmt.Sprintf("GetTutorialCreators: Error getting utxoView: %v", err))
 		return
 	}
-	// Grab verified username map pointer
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetTutorialCreators: Problem fetching verifiedMap: %v", err))
-		return
-	}
-	upAndComingProfileEntryResponses, err := fes.GetFeaturedCreators(utxoView, requestData.ResponseLimit, upAndComingSeekKey, verifiedMap, disregardFR)
+
+	upAndComingProfileEntryResponses, err := fes.GetFeaturedCreators(utxoView, requestData.ResponseLimit, upAndComingSeekKey, disregardFR)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTutorialCreators: Problem getting up and coming tutorial creators: %v", err))
 		return
 	}
-	wellKnownProfileEntryResponses, err := fes.GetFeaturedCreators(utxoView, requestData.ResponseLimit, wellKnownSeekKey, verifiedMap, disregardFR)
+	wellKnownProfileEntryResponses, err := fes.GetFeaturedCreators(utxoView, requestData.ResponseLimit, wellKnownSeekKey, disregardFR)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTutorialCreators: Problem getting well known tutorial creators: %v", err))
 		return
@@ -75,7 +140,7 @@ func ShuffleKeys(records *[][]byte) {
 	})
 }
 
-func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit int, seekKey []byte, verifiedMap map[string]*lib.PKID, disregardFR bool) (_profileEntryResponses []ProfileEntryResponse, _err error) {
+func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit int, seekKey []byte, disregardFR bool) (_profileEntryResponses []ProfileEntryResponse, _err error) {
 	maxKeyLen := 1 + btcec.PubKeyBytesLenCompressed
 	keys, _, err := fes.GlobalStateSeek(
 		seekKey,
@@ -109,7 +174,7 @@ func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit 
 
 		// Only add creator if FR is 10% or less
 		if profileEntry != nil && (profileEntry.CoinEntry.CreatorBasisPoints <= 10*100 || disregardFR) {
-			profileEntryResponse := _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+			profileEntryResponse := fes._profileEntryToResponse(profileEntry, utxoView)
 			profileEntryResponses = append(profileEntryResponses, *profileEntryResponse)
 		}
 		ii++

@@ -73,6 +73,10 @@ func (fes *APIServer) GetUSDCentsToDeSoReserveExchangeRateFromGlobalState() (uin
 	if err != nil {
 		return 0, fmt.Errorf("Problem getting deso to usd exchange rate from global state: %v", err)
 	}
+	// If there was no value found, this node has not set the Fee Basis points yet so we return 0.
+	if val == nil {
+		return 0, nil
+	}
 	usdCentsPerDeSo, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {
 		return 0, fmt.Errorf("Problem reading bytes from global state: %v", err)
@@ -140,6 +144,10 @@ func (fes *APIServer) GetBuyDeSoFeeBasisPointsResponseFromGlobalState() (uint64,
 	val, err := fes.GlobalStateGet(GlobalStateKeyForBuyDeSoFeeBasisPoints())
 	if err != nil {
 		return 0, fmt.Errorf("Problem getting buy deso premium basis points from global state: %v", err)
+	}
+	// If there was no value found, this node has not set the Fee Basis points yet so we return 0.
+	if val == nil {
+		return 0, nil
 	}
 	feeBasisPoints, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {

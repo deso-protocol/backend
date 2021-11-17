@@ -2,10 +2,11 @@ package config
 
 import (
 	"fmt"
-	coreCmd "github.com/deso-protocol/core/cmd"
-	"github.com/spf13/viper"
 	"strconv"
 	"strings"
+
+	coreCmd "github.com/deso-protocol/core/cmd"
+	"github.com/spf13/viper"
 )
 
 type Config struct {
@@ -13,8 +14,8 @@ type Config struct {
 	APIPort uint16
 
 	// Onboarding
-	StarterDeSoSeed   string
-	StarterDeSoNanos  uint64
+	StarterDESOSeed       string
+	StarterDESONanos      uint64
 	StarterPrefixNanosMap map[string]uint64
 	TwilioAccountSID      string
 	TwilioAuthToken       string
@@ -26,6 +27,9 @@ type Config struct {
 	GlobalStateRemoteNode   string
 	GlobalStateRemoteSecret string
 
+	// Hot Feed
+	RunHotFeedRoutine bool
+
 	// Web Security
 	AccessControlAllowOrigins []string
 	SecureHeaderDevelopment   bool
@@ -33,28 +37,22 @@ type Config struct {
 	AdminPublicKeys           []string
 	SuperAdminPublicKeys      []string
 
-	// Analytics + Profiling
-	AmplitudeKey    string
-	AmplitudeDomain string
-	DatadogProfiler bool
-
-	// User Interface
-	SupportEmail           string
-	ShowProcessingSpinners bool
+	// Analytics
+	AmplitudeKey string
 
 	// Images
 	GCPCredentialsPath string
 	GCPBucketName      string
 
 	// Wyre
-	WyreUrl               string
-	WyreAccountId         string
-	WyreApiKey            string
-	WyreSecretKey         string
-	BuyDeSoBTCAddress string
-	BuyDeSoETHAddress string
-	BuyDeSoSeed       string
-
+	WyreUrl           string
+	WyreAccountId     string
+	WyreApiKey        string
+	WyreSecretKey     string
+	BuyDESOBTCAddress string
+	BuyDESOETHAddress string
+	BuyDESOSeed       string
+	InfuraProjectID   string
 
 	// Emails
 	SendgridApiKey         string
@@ -67,6 +65,14 @@ type Config struct {
 	// Jumio
 	JumioToken  string
 	JumioSecret string
+
+	// Video Upload
+	CloudflareStreamToken string
+	CloudflareAccountId   string
+
+	// Global State
+	ExposeGlobalState bool
+	GlobalStateAPIUrl string
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -79,8 +85,8 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	}
 
 	// Onboarding
-	config.StarterDeSoSeed = viper.GetString("starter-deso-seed")
-	config.StarterDeSoNanos = viper.GetUint64("starter-deso-nanos")
+	config.StarterDESOSeed = viper.GetString("starter-deso-seed")
+	config.StarterDESONanos = viper.GetUint64("starter-deso-nanos")
 	starterPrefixNanosMap := viper.GetString("starter-prefix-nanos-map")
 	if len(starterPrefixNanosMap) > 0 {
 		config.StarterPrefixNanosMap = make(map[string]uint64)
@@ -103,6 +109,9 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.GlobalStateRemoteNode = viper.GetString("global-state-remote-node")
 	config.GlobalStateRemoteSecret = viper.GetString("global-state-remote-secret")
 
+	// Hot Feed
+	config.RunHotFeedRoutine = viper.GetBool("run-hot-feed-routine")
+
 	// Web Security
 	config.AccessControlAllowOrigins = viper.GetStringSlice("access-control-allow-origins")
 	config.SecureHeaderDevelopment = viper.GetBool("secure-header-development")
@@ -110,13 +119,8 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.AdminPublicKeys = viper.GetStringSlice("admin-public-keys")
 	config.SuperAdminPublicKeys = viper.GetStringSlice("super-admin-public-keys")
 
-	// Analytics + Profiling
+	// Analytics
 	config.AmplitudeKey = viper.GetString("amplitude-key")
-	config.AmplitudeDomain = viper.GetString("amplitude-domain")
-
-	// User Interface
-	config.SupportEmail = viper.GetString("support-email")
-	config.ShowProcessingSpinners = viper.GetBool("show-processing-spinners")
 
 	// Images
 	config.GCPCredentialsPath = viper.GetString("gcp-credentials-path")
@@ -129,14 +133,15 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.WyreSecretKey = viper.GetString("wyre-secret-key")
 
 	// BTC address to send all Bitcoin received from Wyre purchases and "Buy With BTC" purchases.
-	config.BuyDeSoBTCAddress = viper.GetString("buy-deso-btc-address")
+	config.BuyDESOBTCAddress = viper.GetString("buy-deso-btc-address")
 
 	// ETH address to send all ETH received from "Buy With ETH" purchases.
-	config.BuyDeSoETHAddress = viper.GetString("buy-deso-eth-address")
+	config.BuyDESOETHAddress = viper.GetString("buy-deso-eth-address")
+	// Project ID for Infura requests
+	config.InfuraProjectID = viper.GetString("infura-project-id")
 
-	// Seed from which DeSo will be sent for orders placed through Wyre and "Buy With BTC" purchases"
-	config.BuyDeSoSeed = viper.GetString("buy-deso-seed")
-
+	// Seed from which DeSo will be sent for orders placed through Wyre and "Buy With BTC" purchases
+	config.BuyDESOSeed = viper.GetString("buy-deso-seed")
 
 	// Email
 	config.SendgridApiKey = viper.GetString("sendgrid-api-key")
@@ -150,5 +155,12 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.JumioToken = viper.GetString("jumio-token")
 	config.JumioSecret = viper.GetString("jumio-secret")
 
+	// Video Upload
+	config.CloudflareStreamToken = viper.GetString("cloudflare-stream-token")
+	config.CloudflareAccountId = viper.GetString("cloudflare-account-id")
+
+	// Global State
+	config.ExposeGlobalState = viper.GetBool("expose-global-state")
+	config.GlobalStateAPIUrl = viper.GetString("global-state-api-url")
 	return &config
 }

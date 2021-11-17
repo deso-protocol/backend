@@ -70,13 +70,6 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			err, "getMessagesStateless: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
 	}
 
-	// Grab verified username map pointer
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		return nil, nil, nil, 0, errors.Wrapf(
-			err, "getMessagesStateless: Error fetching verifiedMap: %v", err)
-	}
-
 	// Go through all the MessageEntries and create a MessageEntryResponse for each one.
 	// Sort the MessageEntries by their timestamp.
 	//
@@ -290,7 +283,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 				publicKeyInPaginatedSet[otherPartyPublicKeyBase58Check] = true
 
 				// We now know the other user's messages are set to be returned for the first time.
-				otherProfileEntry := _profileEntryToResponse(utxoView.GetProfileEntryForPublicKey(otherPartyPublicKeyBytes), fes.Params, verifiedMap, utxoView)
+				otherProfileEntry := fes._profileEntryToResponse(utxoView.GetProfileEntryForPublicKey(otherPartyPublicKeyBytes), utxoView)
 				publicKeyToProfileEntry[otherPartyPublicKeyBase58Check] = otherProfileEntry
 
 				contactEntry := &MessageContactResponse{
@@ -466,6 +459,9 @@ type SendMessageStatelessRequest struct {
 	MessageText                   string
 	EncryptedMessageText          string
 	MinFeeRateNanosPerKB          uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
 // SendMessageStatelessResponse ...
@@ -497,6 +493,13 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypePrivateMessage, senderPkBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	// Decode the recipient's public key.
 	recipientPkBytes, _, err := lib.Base58CheckDecode(requestData.RecipientPublicKeyBase58Check)
 	if err != nil {
@@ -511,7 +514,7 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 		senderPkBytes, recipientPkBytes,
 		requestData.MessageText, requestData.EncryptedMessageText,
 		tstamp,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem creating transaction: %v", err))
 		return
