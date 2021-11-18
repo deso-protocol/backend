@@ -73,7 +73,7 @@ ingress:
     - path: /api
       servicePort: http2
   hosts:
-    - api.dev.yourgem.app
+    - api.stage.yourgem.app
   tls: []
   #  - secretName: chart-example-tls
   #    hosts:
