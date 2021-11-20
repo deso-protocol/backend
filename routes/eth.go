@@ -228,7 +228,7 @@ func (fes *APIServer) CalculateNanosPurchasedFromWei(value string) (_nanosPurcha
 	// Fetch buy DESO basis points fee
 	feeBasisPoints, err := fes.GetBuyDeSoFeeBasisPointsResponseFromGlobalState()
 	if err != nil {
-		return 0, errors.New(fmt.Sprintf("Error getting buy fee basis points: %v", err))
+		return 0, errors.New(fmt.Sprintf("Error getting buy fee basis points"))
 	}
 
 	// Calculate nanos purchased
