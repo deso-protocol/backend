@@ -314,22 +314,22 @@ type APIServer struct {
 	VerifiedUsernameToPKIDMap map[string]*lib.PKID
 	// BlacklistedPKIDMap is a map of PKID to a byte slice representing the PKID of a user as the key and the current
 	// blacklist state of that user as the key. If a PKID is not present in this map, then the user is NOT blacklisted.
-	BlacklistedPKIDMap        map[lib.PKID][]byte
+	BlacklistedPKIDMap map[lib.PKID][]byte
 	// BlacklistedResponseMap is a map of PKIDs converted to base58-encoded string to a byte slice. This is computed
 	// from the BlacklistedPKIDMap above and is a JSON-encodable version of that map. This map is only used when
 	// responding to requests for this node's blacklist. A JSON-encoded response is easier for any language to digest
 	// than a gob-encoded one.
-	BlacklistedResponseMap    map[string][]byte
+	BlacklistedResponseMap map[string][]byte
 	// GraylistedPKIDMap is a map of PKID to a byte slice representing the PKID of a user as the key and the current
 	// graylist state of that user as the key. If a PKID is not present in this map, then the user is NOT graylisted.
-	GraylistedPKIDMap         map[lib.PKID][]byte
+	GraylistedPKIDMap map[lib.PKID][]byte
 	// GraylistedResponseMap is a map of PKIDs converted to base58-encoded string to a byte slice. This is computed
 	// from the GraylistedPKIDMap above and is a JSON-encodable version of that map. This map is only used when
 	// responding to requests for this node's graylist. A JSON-encoded response is easier for any language to digest
 	// than a gob-encoded one.
-	GraylistedResponseMap     map[string][]byte
+	GraylistedResponseMap map[string][]byte
 	// GlobalFeedPostHashes is a slice of BlockHashes representing the state of posts on the global feed on this node.
-	GlobalFeedPostHashes      []*lib.BlockHash
+	GlobalFeedPostHashes []*lib.BlockHash
 
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
@@ -1561,9 +1561,8 @@ func Logger(inner http.Handler, name string) http.Handler {
 }
 
 var publicRoutes = map[string]interface{}{
-	RoutePathGetJumioStatusForPublicKey: nil,
-	RoutePathUploadVideo: nil,
-	RoutePathGetVideoStatus: nil,
+	RoutePathGetJumioStatusForPublicKey:     nil,
+	RoutePathUploadVideo:                    nil,
 	RoutePathGetReferralInfoForReferralHash: nil,
 	RoutePathGetReferralInfoForUser: nil,
 	RoutePathGetVerifiedUsernames: nil,
@@ -1572,6 +1571,7 @@ var publicRoutes = map[string]interface{}{
 	RoutePathGetGlobalFeed: nil,
 	RoutePathDeletePII: nil,
 	RoutePathGetUserMetadata: nil,
+
 }
 
 // AddHeaders ...
@@ -1630,6 +1630,11 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 			// This allows third-party frontends to access this endpoint
 			match = true
 			actualOrigin = "*"
+		} else if strings.HasPrefix(r.RequestURI, RoutePathGetVideoStatus) || strings.HasPrefix(r.RequestURI, RoutePathGetUserMetadata) {
+			// We don't match the RoutePathGetVideoStatus and RoutePathGetUserMetadata paths exactly since there is a
+			// variable param. Check for the prefix instead.
+			match = true
+			actualOrigin = "*"
 		} else if r.Method == "POST" && mediaType != "application/json" && r.RequestURI != RoutePathJumioCallback {
 			invalidPostRequest = true
 		}
@@ -1679,6 +1684,13 @@ type AdminRequest struct {
 // CheckSecret ...
 func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel AccessLevel) http.Handler {
 	return http.HandlerFunc(func(ww http.ResponseWriter, req *http.Request) {
+		// If the only entry is a "*" we exit immediately
+		if (len(fes.Config.AdminPublicKeys) == 1 && fes.Config.AdminPublicKeys[0] == "*") ||
+			(len(fes.Config.SuperAdminPublicKeys) == 1 && fes.Config.SuperAdminPublicKeys[0] == "*") {
+			inner.ServeHTTP(ww, req)
+			return
+		}
+
 		requestData := AdminRequest{}
 
 		if req.Body == nil {
@@ -1719,7 +1731,7 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel Access
 		// If this a regular admin endpoint, we iterate through all the admin public keys.
 		if AccessLevel == AdminAccess {
 			for _, adminPubKey := range fes.Config.AdminPublicKeys {
-				if adminPubKey == requestData.AdminPublicKey || adminPubKey == "*" {
+				if adminPubKey == requestData.AdminPublicKey {
 					// We found a match, serve the request
 					inner.ServeHTTP(ww, req)
 					return
@@ -1729,7 +1741,7 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel Access
 
 		// We also check super admins, as they have a superset of capabilities.
 		for _, superAdminPubKey := range fes.Config.SuperAdminPublicKeys {
-			if superAdminPubKey == requestData.AdminPublicKey || superAdminPubKey == "*" {
+			if superAdminPubKey == requestData.AdminPublicKey {
 				// We found a match, serve the request
 				inner.ServeHTTP(ww, req)
 				return
