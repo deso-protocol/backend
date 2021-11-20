@@ -846,6 +846,8 @@ func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) u
 func (fes *APIServer) GetNanosFromETH(eth *big.Float, feeBasisPoints uint64) uint64 {
 	usdCentsPerETH := big.NewFloat(float64(fes.UsdCentsPerETHExchangeRate))
 	usdCentsETH := big.NewFloat(0).Mul(eth, usdCentsPerETH)
+	// This number should always fit into a float64 so we shouldn't have a problem
+	// with overflow.
 	usdCentsFloat, _ := usdCentsETH.Float64()
 
 	return fes.GetNanosFromUSDCents(usdCentsFloat, feeBasisPoints)
