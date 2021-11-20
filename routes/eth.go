@@ -13,7 +13,6 @@ import (
 	"io/ioutil"
 	"math/big"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -233,16 +232,15 @@ func (fes *APIServer) CalculateNanosPurchasedFromWei(value string) (_nanosPurcha
 	}
 
 	// Calculate nanos purchased
-	var weiSent uint64
 	// Strip the 0x prefix from the value attribute and parse hex string to uint64
 	hexValueString := strings.Replace(value, "0x", "", -1)
-	weiSent, err = strconv.ParseUint(hexValueString, 16, 64)
-	if err != nil {
+	weiSentBigint, success := big.NewInt(0).SetString(hexValueString, 16)
+	if !success {
 		return 0, errors.New(fmt.Sprintf("Failed to convert wei hex to uint64: %v", err))
 	}
 
 	// Use big number math to convert wei to eth and then compute DESO nanos purchased.
-	totalWei := big.NewFloat(0).SetInt64(int64(weiSent))
+	totalWei := big.NewFloat(0).SetInt(weiSentBigint)
 	totalEth := big.NewFloat(0).Quo(totalWei, big.NewFloat(1e18))
 	return fes.GetNanosFromETH(totalEth, feeBasisPoints), nil
 }
