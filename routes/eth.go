@@ -228,7 +228,7 @@ func (fes *APIServer) CalculateNanosPurchasedFromWei(value string) (_nanosPurcha
 	// Fetch buy DESO basis points fee
 	feeBasisPoints, err := fes.GetBuyDeSoFeeBasisPointsResponseFromGlobalState()
 	if err != nil {
-		return 0, errors.New(fmt.Sprintf("Error getting buy fee basis points"))
+		return 0, errors.New(fmt.Sprintf("Error getting buy fee basis points: %v", err))
 	}
 
 	// Calculate nanos purchased
@@ -236,7 +236,7 @@ func (fes *APIServer) CalculateNanosPurchasedFromWei(value string) (_nanosPurcha
 	hexValueString := strings.Replace(value, "0x", "", -1)
 	weiSentBigint, success := big.NewInt(0).SetString(hexValueString, 16)
 	if !success {
-		return 0, errors.New(fmt.Sprintf("Failed to convert wei hex to uint64: %v", err))
+		return 0, errors.New(fmt.Sprintf("Failed to convert wei hex to uint64"))
 	}
 
 	// Use big number math to convert wei to eth and then compute DESO nanos purchased.
