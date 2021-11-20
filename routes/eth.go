@@ -82,6 +82,7 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Unable to calculate nanos purchasd from eth tx: %v", err))
+		return
 	}
 
 	var balanceInsufficient bool
@@ -192,6 +193,9 @@ func (fes *APIServer) finishETHTx(ethTxIn *InfuraTx, ethTxLog *ETHTxLog) (desoTx
 	}
 
 	nanosPurchased, err := fes.CalculateNanosPurchasedFromWei(ethTx.Value)
+	if err != nil {
+		return nil, errors.New(fmt.Sprintf("finishETHTx: Error calculating NanosPurchasedFromWei: %v", err))
+	}
 
 	var balanceInsufficient bool
 	balanceInsufficient, err = fes.ExceedsDeSoBalance(nanosPurchased, fes.Config.BuyDESOSeed)
