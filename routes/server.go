@@ -78,6 +78,7 @@ const (
 	RoutePathIsHodlingPublicKey          = "/api/v0/is-hodling-public-key"
 	RoutePathGetUserDerivedKeys          = "/api/v0/get-user-derived-keys"
 	RoutePathDeletePII                   = "/api/v0/delete-pii"
+	RoutePathGetUserMetadata             = "/api/v0/get-user-metadata"
 
 	// post.go
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
@@ -383,7 +384,12 @@ func NewAPIServer(
 		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
 		quit:                   make(chan struct{}),
 	}
-
+	// We only add RoutePathUpdateProfile to the list of public routes if this node exposes its global state and
+	// compensates profile creation. This route needs to be public in order to support compensating profile creation
+	// on third party nodes for users who have verified their phone number or verified through jumio on this node.
+	if fes.Config.ExposeGlobalState && fes.Config.CompProfileCreation {
+		publicRoutes[RoutePathUpdateProfile] = nil
+	}
 	fes.StartSeedBalancesMonitoring()
 
 	// Call this once upon starting server to ensure we have a good initial value
@@ -902,6 +908,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathDeletePII,
 			fes.DeletePII,
+			PublicAccess,
+		},
+		{
+			"GetUserMetadata",
+			[]string{"GET"},
+			RoutePathGetUserMetadata + "/{publicKeyBase58Check:[0-9a-zA-Z]{54,55}}",
+			fes.GetUserMetadata,
 			PublicAccess,
 		},
 		// Jumio Routes
@@ -1551,12 +1564,14 @@ var publicRoutes = map[string]interface{}{
 	RoutePathGetJumioStatusForPublicKey:     nil,
 	RoutePathUploadVideo:                    nil,
 	RoutePathGetReferralInfoForReferralHash: nil,
-	RoutePathGetReferralInfoForUser:         nil,
-	RoutePathGetVerifiedUsernames:           nil,
-	RoutePathGetBlacklistedPublicKeys:       nil,
-	RoutePathGetGraylistedPublicKeys:        nil,
-	RoutePathGetGlobalFeed:                  nil,
-	RoutePathDeletePII:                      nil,
+	RoutePathGetReferralInfoForUser: nil,
+	RoutePathGetVerifiedUsernames: nil,
+	RoutePathGetBlacklistedPublicKeys: nil,
+	RoutePathGetGraylistedPublicKeys: nil,
+	RoutePathGetGlobalFeed: nil,
+	RoutePathDeletePII: nil,
+	RoutePathGetUserMetadata: nil,
+
 }
 
 // AddHeaders ...
@@ -1615,8 +1630,9 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 			// This allows third-party frontends to access this endpoint
 			match = true
 			actualOrigin = "*"
-		} else if strings.HasPrefix(r.RequestURI, RoutePathGetVideoStatus) {
-			// We don't match the get video status path exactly since there is a variable param. Check for the prefix.
+		} else if strings.HasPrefix(r.RequestURI, RoutePathGetVideoStatus) || strings.HasPrefix(r.RequestURI, RoutePathGetUserMetadata) {
+			// We don't match the RoutePathGetVideoStatus and RoutePathGetUserMetadata paths exactly since there is a
+			// variable param. Check for the prefix instead.
 			match = true
 			actualOrigin = "*"
 		} else if r.Method == "POST" && mediaType != "application/json" && r.RequestURI != RoutePathJumioCallback {
