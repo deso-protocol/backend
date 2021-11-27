@@ -2177,6 +2177,9 @@ type AuthorizeDerivedKeyRequest struct {
 	// The intended operation on the derived key.
 	DeleteKey bool `safeForLogging:"true"`
 
+	// If we intend to sign this transaction with a derived key.
+	DerivedKeySignature bool `safeForLogging:"true"`
+
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
 
@@ -2253,6 +2256,7 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		requestData.ExpirationBlock,
 		accessSignature,
 		requestData.DeleteKey,
+		requestData.DerivedKeySignature,
 		// Standard transaction fields
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
