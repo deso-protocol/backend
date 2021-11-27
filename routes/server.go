@@ -60,6 +60,7 @@ const (
 	RoutePathAppendExtraData          = "/api/v0/append-extra-data"
 	RoutePathGetTransactionSpending   = "/api/v0/get-transaction-spending"
 
+	// user.go
 	RoutePathGetUsersStateless           = "/api/v0/get-users-stateless"
 	RoutePathDeleteIdentities            = "/api/v0/delete-identities"
 	RoutePathGetProfiles                 = "/api/v0/get-profiles"

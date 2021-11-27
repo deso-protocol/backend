@@ -132,10 +132,10 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 	}
 
 
-	// Wait up to 10 minutes
+	// Wait up to 20 minutes
 	// TODO: Long running requests are bad. Replace this with polling (or websockets etc)
 	var ethTx *InfuraTx
-	for i := 0; i < 60; i++ {
+	for i := 0; i < 120; i++ {
 		// Check if the transaction was mined every 10 seconds
 		time.Sleep(10 * time.Second)
 
