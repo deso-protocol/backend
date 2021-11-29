@@ -305,6 +305,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Compute a default fee rate.
+	globalParams := utxoView.GlobalParamsEntry
 	defaultFeeRateNanosPerKB := fes.MinFeeRateNanosPerKB
 	if globalParams != nil && globalParams.MinimumNetworkFeeNanosPerKB > 0 {
 		defaultFeeRateNanosPerKB = globalParams.MinimumNetworkFeeNanosPerKB
@@ -316,7 +317,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		IsTestnet:                           fes.Params.NetworkType == lib.NetworkType_TESTNET,
 		HasTwilioAPIKey:                     fes.Twilio != nil,
 		HasStarterDeSoSeed:                  fes.Config.StarterDESOSeed != "",
-		CreateProfileFeeNanos:               utxoView.GlobalParamsEntry.CreateProfileFeeNanos,
+		CreateProfileFeeNanos:               globalParams.CreateProfileFeeNanos,
 		CompProfileCreation:                 fes.Config.CompProfileCreation,
 		DiamondLevelMap:                     lib.GetDeSoNanosDiamondLevelMapAtBlockHeight(int64(fes.blockchain.BlockTip().Height)),
 		HasWyreIntegration:                  fes.IsConfiguredForWyre(),
