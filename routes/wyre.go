@@ -134,8 +134,14 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 	referenceId := wyreWalletOrderWebhookRequest.ReferenceId
 	referenceIdSplit := strings.Split(referenceId, ":")
 	if len(referenceIdSplit) != 2 {
-		glog.Errorf("WyreWalletOrderSubscription: Invalid ReferenceId: %v", referenceId)
-		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: Invalid ReferenceId: %v", referenceId))
+		orderJSON, err := json.Marshal(wyreWalletOrderWebhookRequest)
+		if err != nil {
+			glog.Errorf("WyreWalletOrderSubscription: Invalid ReferenceId: %v, Error marshaling JSON request body: %v", referenceId, err)
+			_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: Invalid ReferenceId: %v, Error marshaling JSON request body: %v", referenceId, err))
+			return
+		}
+		glog.Errorf("WyreWalletOrderSubscription: Invalid ReferenceId: %v, request body: %v", referenceId, string(orderJSON))
+		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: Invalid ReferenceId: %v, requestBody: %v", referenceId, string(orderJSON)))
 		return
 	}
 	publicKey := referenceIdSplit[0]
