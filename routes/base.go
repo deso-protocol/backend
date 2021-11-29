@@ -262,13 +262,9 @@ type GetAppStateRequest struct {
 }
 
 type GetAppStateResponse struct {
-	AmplitudeKey                        string
-	AmplitudeDomain                     string
 	MinSatoshisBurnedForProfileCreation uint64
 	BlockHeight                         uint32
 	IsTestnet                           bool
-	SupportEmail                        string
-	ShowProcessingSpinners              bool
 
 	HasStarterDeSoSeed    bool
 	HasTwilioAPIKey       bool
@@ -286,6 +282,8 @@ type GetAppStateResponse struct {
 
 	// Address to which we want to send ETH when used to buy DESO
 	BuyETHAddress string
+
+	Nodes map[uint64]lib.DeSoNode
 
 	USDCentsPerBitCloutExchangeRate uint64 // Deprecated
 	JumioBitCloutNanos              uint64 // Deprecated
@@ -308,13 +306,9 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	res := &GetAppStateResponse{
-		AmplitudeKey:                        fes.Config.AmplitudeKey,
-		AmplitudeDomain:                     fes.Config.AmplitudeDomain,
-		ShowProcessingSpinners:              fes.Config.ShowProcessingSpinners,
 		MinSatoshisBurnedForProfileCreation: fes.Config.MinSatoshisForProfile,
 		BlockHeight:                         fes.backendServer.GetBlockchain().BlockTip().Height,
 		IsTestnet:                           fes.Params.NetworkType == lib.NetworkType_TESTNET,
-		SupportEmail:                        fes.Config.SupportEmail,
 		HasTwilioAPIKey:                     fes.Twilio != nil,
 		HasStarterDeSoSeed:                  fes.Config.StarterDESOSeed != "",
 		CreateProfileFeeNanos:               utxoView.GlobalParamsEntry.CreateProfileFeeNanos,
@@ -327,6 +321,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		JumioDeSoNanos:                      fes.GetJumioDeSoNanos(),
 		TransactionFeeMap:                   fes.TxnFeeMapToResponse(true),
 		BuyETHAddress:                       fes.Config.BuyDESOETHAddress,
+		Nodes:                               lib.NODES,
 
 		// Deprecated
 		USDCentsPerBitCloutExchangeRate: fes.GetExchangeDeSoPrice(),

@@ -846,6 +846,8 @@ func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) u
 func (fes *APIServer) GetNanosFromETH(eth *big.Float, feeBasisPoints uint64) uint64 {
 	usdCentsPerETH := big.NewFloat(float64(fes.UsdCentsPerETHExchangeRate))
 	usdCentsETH := big.NewFloat(0).Mul(eth, usdCentsPerETH)
+	// This number should always fit into a float64 so we shouldn't have a problem
+	// with overflow.
 	usdCentsFloat, _ := usdCentsETH.Float64()
 
 	return fes.GetNanosFromUSDCents(usdCentsFloat, feeBasisPoints)
@@ -2177,6 +2179,9 @@ type AuthorizeDerivedKeyRequest struct {
 	// The intended operation on the derived key.
 	DeleteKey bool `safeForLogging:"true"`
 
+	// If we intend to sign this transaction with a derived key.
+	DerivedKeySignature bool `safeForLogging:"true"`
+
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
 
@@ -2253,6 +2258,7 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		requestData.ExpirationBlock,
 		accessSignature,
 		requestData.DeleteKey,
+		requestData.DerivedKeySignature,
 		// Standard transaction fields
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {

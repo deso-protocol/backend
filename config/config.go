@@ -37,14 +37,8 @@ type Config struct {
 	AdminPublicKeys           []string
 	SuperAdminPublicKeys      []string
 
-	// Analytics + Profiling
-	AmplitudeKey    string
-	AmplitudeDomain string
-	DatadogProfiler bool
-
-	// User Interface
-	SupportEmail           string
-	ShowProcessingSpinners bool
+	// Analytics
+	AmplitudeKey string
 
 	// Images
 	GCPCredentialsPath string
@@ -125,13 +119,8 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.AdminPublicKeys = viper.GetStringSlice("admin-public-keys")
 	config.SuperAdminPublicKeys = viper.GetStringSlice("super-admin-public-keys")
 
-	// Analytics + Profiling
+	// Analytics
 	config.AmplitudeKey = viper.GetString("amplitude-key")
-	config.AmplitudeDomain = viper.GetString("amplitude-domain")
-
-	// User Interface
-	config.SupportEmail = viper.GetString("support-email")
-	config.ShowProcessingSpinners = viper.GetBool("show-processing-spinners")
 
 	// Images
 	config.GCPCredentialsPath = viper.GetString("gcp-credentials-path")
