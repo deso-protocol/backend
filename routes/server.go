@@ -1571,7 +1571,7 @@ var publicRoutes = map[string]interface{}{
 	RoutePathGetGlobalFeed: nil,
 	RoutePathDeletePII: nil,
 	RoutePathGetUserMetadata: nil,
-
+	RoutePathSubmitTransaction: nil,
 }
 
 // AddHeaders ...
