@@ -384,12 +384,7 @@ func NewAPIServer(
 		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
 		quit:                   make(chan struct{}),
 	}
-	// We only add RoutePathUpdateProfile to the list of public routes if this node exposes its global state and
-	// compensates profile creation. This route needs to be public in order to support compensating profile creation
-	// on third party nodes for users who have verified their phone number or verified through jumio on this node.
-	if fes.Config.ExposeGlobalState && fes.Config.CompProfileCreation {
-		publicRoutes[RoutePathUpdateProfile] = nil
-	}
+
 	fes.StartSeedBalancesMonitoring()
 
 	// Call this once upon starting server to ensure we have a good initial value
@@ -1572,6 +1567,7 @@ var publicRoutes = map[string]interface{}{
 	RoutePathDeletePII: nil,
 	RoutePathGetUserMetadata: nil,
 	RoutePathSubmitTransaction: nil,
+	RoutePathUpdateProfile: nil,
 }
 
 // AddHeaders ...
