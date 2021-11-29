@@ -133,6 +133,11 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 	}
 	referenceId := wyreWalletOrderWebhookRequest.ReferenceId
 	referenceIdSplit := strings.Split(referenceId, ":")
+	if len(referenceIdSplit) != 2 {
+		glog.Errorf("WyreWalletOrderSubscription: Invalid ReferenceId: %v", referenceId)
+		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: Invalid ReferenceId: %v", referenceId))
+		return
+	}
 	publicKey := referenceIdSplit[0]
 	if err := fes.logAmplitudeEvent(publicKey, fmt.Sprintf("wyre : buy : subscription : %v", strings.ToLower(wyreWalletOrderWebhookRequest.OrderStatus)), structs.Map(wyreWalletOrderWebhookRequest)); err != nil {
 		glog.Errorf("WyreWalletOrderSubscription: Error logging payload to amplitude: %v", err)
