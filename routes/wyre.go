@@ -451,7 +451,7 @@ func (fes *APIServer) GetWyreWalletOrderReservation(ww http.ResponseWriter, req 
 		Amount:            fmt.Sprintf("%f", wyreWalletOrderReservationRequest.SourceAmount),
 		LockFields:        []string{"dest", "destCurrency"},
 		RedirectUrl:       fmt.Sprintf("https://%v/buy-deso", req.Host),
-		ReferenceId:       fmt.Sprintf("%v:%v", wyreWalletOrderReservationRequest.ReferenceId, currentTime),
+		ReferenceId:       fmt.Sprintf("%v:%v", referenceId, currentTime),
 	}
 
 	payload, err := json.Marshal(body)
