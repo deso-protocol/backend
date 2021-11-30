@@ -250,12 +250,13 @@ type UpdateProfileRequest struct {
 
 // UpdateProfileResponse ...
 type UpdateProfileResponse struct {
-	TotalInputNanos   uint64
-	ChangeAmountNanos uint64
-	FeeNanos          uint64
-	Transaction       *lib.MsgDeSoTxn
-	TransactionHex    string
-	TxnHashHex        string
+	TotalInputNanos               uint64
+	ChangeAmountNanos             uint64
+	FeeNanos                      uint64
+	Transaction                   *lib.MsgDeSoTxn
+	TransactionHex                string
+	TxnHashHex                    string
+	CompProfileCreationTxnHashHex string
 }
 
 // UpdateProfile ...
@@ -387,10 +388,15 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	additionalFees, err := fes.CompProfileCreation(profilePublicKey, userMetadata, utxoView)
+	additionalFees, compProfileCreationTxnHash, err := fes.CompProfileCreation(profilePublicKey, userMetadata, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, err.Error())
 		return
+	}
+
+	var compProfileCreationTxnHashHex string
+	if compProfileCreationTxnHash != nil {
+		compProfileCreationTxnHashHex = compProfileCreationTxnHash.String()
 	}
 
 	// Try and create the UpdateProfile txn for the user.
@@ -427,25 +433,26 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 
 	// Return all the data associated with the transaction in the response
 	res := UpdateProfileResponse{
-		TotalInputNanos:   totalInput,
-		ChangeAmountNanos: changeAmount,
-		FeeNanos:          fees,
-		Transaction:       txn,
-		TransactionHex:    hex.EncodeToString(txnBytes),
-		TxnHashHex:        txn.Hash().String(),
+		TotalInputNanos:               totalInput,
+		ChangeAmountNanos:             changeAmount,
+		FeeNanos:                      fees,
+		Transaction:                   txn,
+		TransactionHex:                hex.EncodeToString(txnBytes),
+		TxnHashHex:                    txn.Hash().String(),
+		CompProfileCreationTxnHashHex: compProfileCreationTxnHashHex,
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendMessage: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
 
-func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata *UserMetadata, utxoView *lib.UtxoView) (_additionalFee uint64, _err error) {
+func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata *UserMetadata, utxoView *lib.UtxoView) (_additionalFee uint64, _txnHash *lib.BlockHash, _err error) {
 	// Determine if this is a profile creation request and if we need to comp the user for creating the profile.
 	existingProfileEntry := utxoView.GetProfileEntryForPublicKey(profilePublicKey)
 	// If we are updating an existing profile, there is no fee and we do not comp anything.
 	if existingProfileEntry != nil {
-		return 0, nil
+		return 0, nil, nil
 	}
 	// Additional fee is set to the create profile fee when we are creating a profile
 	additionalFees := utxoView.GlobalParamsEntry.CreateProfileFeeNanos
@@ -453,12 +460,12 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	// Only comp create profile fee if frontend server has both twilio and starter deso seed configured and the user
 	// has verified their profile.
 	if !fes.Config.CompProfileCreation || fes.Config.StarterDESOSeed == "" || fes.Twilio == nil || (userMetadata.PhoneNumber == "" && !userMetadata.JumioVerified) {
-		return additionalFees, nil
+		return additionalFees, nil, nil
 	}
 	var currentBalanceNanos uint64
 	currentBalanceNanos, err := GetBalanceForPublicKeyUsingUtxoView(profilePublicKey, utxoView)
 	if err != nil {
-		return 0, errors.Wrap(fmt.Errorf("UpdateProfile: error getting current balance: %v", err), "")
+		return 0, nil, errors.Wrap(fmt.Errorf("UpdateProfile: error getting current balance: %v", err), "")
 	}
 	createProfileFeeNanos := utxoView.GlobalParamsEntry.CreateProfileFeeNanos
 
@@ -469,18 +476,18 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	if userMetadata.PhoneNumber != "" && !userMetadata.JumioVerified {
 		phoneNumberMetadata, err = fes.getPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
 		if err != nil {
-			return 0, errors.Wrap(fmt.Errorf("UpdateProfile: error getting phone number metadata for public key %v: %v", profilePublicKey, err), "")
+			return 0, nil, errors.Wrap(fmt.Errorf("UpdateProfile: error getting phone number metadata for public key %v: %v", profilePublicKey, err), "")
 		}
 		if phoneNumberMetadata == nil {
-			return 0, errors.Wrap(fmt.Errorf("UpdateProfile: no phone number metadata for phone number %v", userMetadata.PhoneNumber), "")
+			return 0, nil, errors.Wrap(fmt.Errorf("UpdateProfile: no phone number metadata for phone number %v", userMetadata.PhoneNumber), "")
 		}
 		if !phoneNumberMetadata.ShouldCompProfileCreation || currentBalanceNanos > createProfileFeeNanos {
-			return additionalFees, nil
+			return additionalFees, nil, nil
 		}
 	} else {
 		// User has been Jumio verified but should comp profile creation is false, just return
 		if !userMetadata.JumioShouldCompProfileCreation {
-			return additionalFees, nil
+			return additionalFees, nil, nil
 		}
 	}
 
@@ -498,29 +505,29 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	compAmount := createProfileFeeNanos - (minStarterDESONanos / 2)
 	// If the user won't have enough deso to cover the fee, this is an error.
 	if currentBalanceNanos+compAmount < createProfileFeeNanos {
-		return 0, errors.Wrap(fmt.Errorf("Creating a profile requires DeSo.  Please purchase some to create a profile."), "")
+		return 0, nil, errors.Wrap(fmt.Errorf("Creating a profile requires DeSo.  Please purchase some to create a profile."), "")
 	}
 	// Set should comp to false so we don't continually comp a public key.  PhoneNumberMetadata is only non-nil if
 	// a user verified their phone number but is not jumio verified.
 	if phoneNumberMetadata != nil {
 		phoneNumberMetadata.ShouldCompProfileCreation = false
 		if err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata); err != nil {
-			return 0, errors.Wrap(fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for phone number metadata: %v", err), "")
+			return 0, nil, errors.Wrap(fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for phone number metadata: %v", err), "")
 		}
 	} else {
 		// Set JumioShouldCompProfileCreation to false so we don't continue to comp profile creation.
 		userMetadata.JumioShouldCompProfileCreation = false
 		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
-			return 0, errors.Wrap(fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for jumio user metadata: %v", err), "")
+			return 0, nil, errors.Wrap(fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for jumio user metadata: %v", err), "")
 		}
 	}
 
 	// Send the comp amount to the public key
-	_, err = fes.SendSeedDeSo(profilePublicKey, compAmount, false)
+	txnHash, err := fes.SendSeedDeSo(profilePublicKey, compAmount, false)
 	if err != nil {
-		return 0, errors.Wrap(fmt.Errorf("UpdateProfile: error comping create profile fee: %v", err), "")
+		return 0, nil, errors.Wrap(fmt.Errorf("UpdateProfile: error comping create profile fee: %v", err), "")
 	}
-	return additionalFees, nil
+	return additionalFees, txnHash, nil
 }
 
 func GetBalanceForPublicKeyUsingUtxoView(
