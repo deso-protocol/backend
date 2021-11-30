@@ -429,6 +429,17 @@ func (fes *APIServer) GetWyreWalletOrderReservation(ww http.ResponseWriter, req 
 		_AddBadRequestError(ww, fmt.Sprintf("GetWyreWalletOrderReservation: Error parsing request body: %v", err))
 		return
 	}
+
+	referenceId := wyreWalletOrderReservationRequest.ReferenceId
+
+	// Decode the referenceId as a public key.
+	if publicKeyBytes, _, err := lib.Base58CheckDecode(referenceId); err != nil || len(publicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetWyreWalletOrderReservation: Problem decoding ReferenceId as public key %s: %v",
+			referenceId, err))
+		return
+	}
+
 	currentTime := uint64(time.Now().UnixNano())
 	// Make and marshal the payload
 	body := WyreWalletOrderReservationPayload{
