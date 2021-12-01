@@ -1567,6 +1567,7 @@ var publicRoutes = map[string]interface{}{
 	RoutePathDeletePII: nil,
 	RoutePathGetUserMetadata: nil,
 	RoutePathSubmitTransaction: nil,
+	RoutePathGetTxn: nil,
 	RoutePathUpdateProfile: nil,
 }
 
