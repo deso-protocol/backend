@@ -157,6 +157,9 @@ func init() {
 	runCmd.PersistentFlags().Bool("expose-global-state", false, "Expose global state data to all origins")
 	runCmd.PersistentFlags().String("global-state-api-url", "", "URL to use to fetch global state data. Only used if expose-global-state is false. If not provided, use own global state.")
 
+	// Hyper Sync
+	runCmd.PersistentFlags().Bool("hyper-sync", true, "Use hyper sync protocol for faster block syncing")
+
 	runCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
 		viper.BindPFlag(flag.Name, flag)
 	})
