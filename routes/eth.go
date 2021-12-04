@@ -154,7 +154,7 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 			break
 		}
 	}
-	// The transaction has mined so we finish by validating the transaction again and paying the user.
+	// The transaction has mined or we've waited for 10 minutes so we finish by validating the transaction and paying the user.
 	desoTxHash, err := fes.finishETHTx(ethTx, ethTxLog)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed: %v", err))
@@ -171,24 +171,17 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
-// 1. Validate the transaction mined
+// 1. Validate the transaction mined and sends money to the correct address
 // 2. Calculate the nanos to send
 // 3. Send the nanos
 // 4. Record the successful send
-func (fes *APIServer) finishETHTx(ethTxIn *InfuraTx, ethTxLog *ETHTxLog) (desoTxHash *lib.BlockHash, _err error) {
-	ethTx, err := fes.GetETHTransactionByHash(ethTxIn.Hash)
-	if err != nil  {
-		return nil, errors.New(fmt.Sprintf("Failed to get eth transaction: %v", err))
-	}
-
-	// Ensure the transaction mined
-	if ethTx.BlockNumber == nil {
+func (fes *APIServer) finishETHTx(ethTx *InfuraTx, ethTxLog *ETHTxLog) (desoTxHash *lib.BlockHash, _err error) {
+	if ethTx == nil || ethTx.BlockNumber == nil {
 		return nil, errors.New("Transaction failed to mine")
 	}
 
-	if err = fes.validateETHDepositAddress(*ethTx.To); err != nil {
+	if err := fes.validateETHDepositAddress(*ethTx.To); err != nil {
 		return nil, errors.New(fmt.Sprintf("Error validating Infura ETH Tx: %v", err))
-
 	}
 
 	nanosPurchased, err := fes.CalculateNanosPurchasedFromWei(ethTx.Value)
