@@ -119,7 +119,7 @@ const (
 	// message.go
 	RoutePathSendMessageStateless    = "/api/v0/send-message-stateless"
 	RoutePathGetMessagesStateless    = "/api/v0/get-messages-stateless"
-	RoutePathMarkContactMessagesRead = "/api/v0/mark-contact-messages-readdEnt"
+	RoutePathMarkContactMessagesRead = "/api/v0/mark-contact-messages-read"
 	RoutePathMarkAllMessagesRead     = "/api/v0/mark-all-messages-read"
 
 	// verify.go
@@ -1567,16 +1567,16 @@ var publicRoutes = map[string]interface{}{
 	RoutePathGetJumioStatusForPublicKey:     nil,
 	RoutePathUploadVideo:                    nil,
 	RoutePathGetReferralInfoForReferralHash: nil,
-	RoutePathGetReferralInfoForUser: nil,
-	RoutePathGetVerifiedUsernames: nil,
-	RoutePathGetBlacklistedPublicKeys: nil,
-	RoutePathGetGraylistedPublicKeys: nil,
-	RoutePathGetGlobalFeed: nil,
-	RoutePathDeletePII: nil,
-	RoutePathGetUserMetadata: nil,
-	RoutePathSubmitTransaction: nil,
-	RoutePathGetTxn: nil,
-	RoutePathUpdateProfile: nil,
+	RoutePathGetReferralInfoForUser:         nil,
+	RoutePathGetVerifiedUsernames:           nil,
+	RoutePathGetBlacklistedPublicKeys:       nil,
+	RoutePathGetGraylistedPublicKeys:        nil,
+	RoutePathGetGlobalFeed:                  nil,
+	RoutePathDeletePII:                      nil,
+	RoutePathGetUserMetadata:                nil,
+	RoutePathSubmitTransaction:              nil,
+	RoutePathGetTxn:                         nil,
+	RoutePathUpdateProfile:                  nil,
 }
 
 // AddHeaders ...
