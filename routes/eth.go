@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/mitchellh/mapstructure"
@@ -95,7 +96,6 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-
 	// Parse the public key
 	pkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 	if err != nil {
@@ -131,7 +131,6 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-
 	// Wait up to 10 minutes
 	// TODO: Long running requests are bad. Replace this with polling (or websockets etc)
 	var ethTx *InfuraTx
@@ -140,7 +139,7 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		time.Sleep(10 * time.Second)
 
 		ethTx, err = fes.GetETHTransactionByHash(hash)
-		if err != nil  {
+		if err != nil {
 			glog.Errorf("GetETHTransactionByHash: %v", err)
 			continue
 		}
@@ -176,7 +175,13 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 // 3. Send the nanos
 // 4. Record the successful send
 func (fes *APIServer) finishETHTx(ethTx *InfuraTx, ethTxLog *ETHTxLog) (desoTxHash *lib.BlockHash, _err error) {
-	if ethTx == nil || ethTx.BlockNumber == nil {
+	if ethTx == nil {
+		return nil, errors.New("ETHTx provided is nil")
+	}
+
+	glog.Info("finishETHTx - ETH tx provided: ", spew.Sdump(ethTx))
+
+	if ethTx.BlockNumber == nil {
 		return nil, errors.New("Transaction failed to mine")
 	}
 
@@ -317,30 +322,30 @@ type InfuraRequest struct {
 }
 
 type InfuraResponse struct {
-	Id      uint64 `json:"id"`
-	JSONRPC string `json:"jsonrpc"`
+	Id      uint64      `json:"id"`
+	JSONRPC string      `json:"jsonrpc"`
 	Result  interface{} `json:"result"`
 	Error   struct {
-		Code float64 `json:"code"`
-		Message string `json:"message"`
-	}`json:"error"`
+		Code    float64 `json:"code"`
+		Message string  `json:"message"`
+	} `json:"error"`
 }
 
 type InfuraTx struct {
 	BlockHash        *string `json:"blockHash"`
 	BlockNumber      *string `json:"blockNumber"`
-	From             string `json:"from"`
-	Gas              string `json:"gas"`
-	GasPrice         string `json:"gasPrice"`
-	Hash             string `json:"hash"`
-	Input            string `json:"input"`
-	Nonce            string `json:"nonce"`
+	From             string  `json:"from"`
+	Gas              string  `json:"gas"`
+	GasPrice         string  `json:"gasPrice"`
+	Hash             string  `json:"hash"`
+	Input            string  `json:"input"`
+	Nonce            string  `json:"nonce"`
 	To               *string `json:"to"`
 	TransactionIndex *string `json:"transactionIndex"`
-	Value            string `json:"value"`
-	V                string `json:"v"`
-	R                string `json:"r"`
-	S                string `json:"s"`
+	Value            string  `json:"value"`
+	V                string  `json:"v"`
+	R                string  `json:"r"`
+	S                string  `json:"s"`
 }
 
 type QueryETHRPCRequest struct {
