@@ -10,7 +10,6 @@ COPY backend/go.mod backend/
 COPY backend/go.sum backend/
 COPY core/go.mod core/
 COPY core/go.sum core/
-COPY core/third_party/ core/third_party/
 
 WORKDIR /deso/src/backend
 
