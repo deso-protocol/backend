@@ -283,6 +283,8 @@ type GetAppStateResponse struct {
 	// Address to which we want to send ETH when used to buy DESO
 	BuyETHAddress string
 
+	Nodes map[uint64]lib.DeSoNode
+
 	USDCentsPerBitCloutExchangeRate uint64 // Deprecated
 	JumioBitCloutNanos              uint64 // Deprecated
 }
@@ -319,6 +321,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		JumioDeSoNanos:                      fes.GetJumioDeSoNanos(),
 		TransactionFeeMap:                   fes.TxnFeeMapToResponse(true),
 		BuyETHAddress:                       fes.Config.BuyDESOETHAddress,
+		Nodes:                               lib.NODES,
 
 		// Deprecated
 		USDCentsPerBitCloutExchangeRate: fes.GetExchangeDeSoPrice(),

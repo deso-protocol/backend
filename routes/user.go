@@ -415,6 +415,82 @@ func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, utx
 	return hodlYouMap, nil
 }
 
+type GetUserMetadataRequest struct {
+	PublicKeyBase58Check string
+}
+
+type GetUserMetadataResponse struct {
+
+	HasPhoneNumber bool
+	CanCreateProfile bool
+	BlockedPubKeys map[string]struct{}
+	HasEmail bool
+	EmailVerified bool
+	// JumioFinishedTime = Time user completed flow in Jumio
+	JumioFinishedTime uint64
+	// JumioVerified = user was verified from Jumio flow
+	JumioVerified    bool
+	// JumioReturned = jumio webhook called
+	JumioReturned    bool
+}
+
+// GetUserMetadata ...
+func (fes *APIServer) GetUserMetadata(ww http.ResponseWriter, req *http.Request) {
+	if !fes.Config.ExposeGlobalState {
+		_AddNotFoundError(ww, fmt.Sprintf("Global state not exposed"))
+		return
+	}
+	vars := mux.Vars(req)
+	publicKeyBase58Check, publicKeyBase58CheckExists := vars["publicKeyBase58Check"]
+	if !publicKeyBase58CheckExists {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: Missing public key base 58 check"))
+		return
+	}
+
+	// Decode the public key into bytes.
+	publicKeyBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: error decoding public key: %v", err))
+		return
+	}
+
+	userMetadata, err := fes.getUserMetadataFromGlobalStateByPublicKeyBytes(publicKeyBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: error getting user metadata from global state: %v", err))
+		return
+	}
+
+	res := GetUserMetadataResponse{}
+	res.HasPhoneNumber = userMetadata.PhoneNumber != ""
+	res.HasEmail = userMetadata.Email != ""
+	res.EmailVerified = userMetadata.EmailVerified
+	res.JumioVerified = userMetadata.JumioVerified
+	res.JumioReturned = userMetadata.JumioReturned
+	res.JumioFinishedTime = userMetadata.JumioFinishedTime
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: error getting utxoview: %v", err))
+		return
+	}
+	if res.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: error getting CanCreateProfile: %v", err))
+		return
+	}
+
+	// Get map of public keys user has blocked
+	if res.BlockedPubKeys, err = fes.GetBlockedPubKeysForUser(publicKeyBytes); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: error getting blocked public keys: %v", err))
+		return
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: Problem encoding response as JSON: %v", err))
+		return
+	}
+
+}
+
 type DeleteIdentityRequest struct{}
 
 type DeleteIdentityResponse struct{}
