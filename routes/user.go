@@ -1979,7 +1979,6 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		transferCreatorCoinMetadata := txnMeta.Metadata.CreatorCoinTransferTxindexMetadata
 		nftBidMetadata := txnMeta.Metadata.NFTBidTxindexMetadata
 		acceptNFTBidMetadata := txnMeta.Metadata.AcceptNFTBidTxindexMetadata
-		nftTransferMetadata := txnMeta.Metadata.NFTTransferTxindexMetadata
 		basicTransferMetadata := txnMeta.Metadata.BasicTransferTxindexMetadata
 
 		if postMetadata != nil {
@@ -1995,8 +1994,6 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 			addPostForHash(nftBidMetadata.NFTPostHashHex, userPublicKeyBytes, false)
 		} else if acceptNFTBidMetadata != nil {
 			addPostForHash(acceptNFTBidMetadata.NFTPostHashHex, userPublicKeyBytes, false)
-		} else if nftTransferMetadata != nil {
-			addPostForHash(nftTransferMetadata.NFTPostHashHex, userPublicKeyBytes, false)
 		} else if basicTransferMetadata != nil {
 			txnOutputs := txnMeta.Metadata.TxnOutputs
 			for _, output := range txnOutputs {
@@ -2470,7 +2467,7 @@ func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredO
 		return !filteredOutCategories["follow"]
 	} else if txnMeta.TxnType == lib.TxnTypeLike.String() {
 		return !filteredOutCategories["like"]
-	} else if txnMeta.TxnType == lib.TxnTypeNFTBid.String() || txnMeta.TxnType == lib.TxnTypeAcceptNFTBid.String() || txnMeta.TxnType == lib.TxnTypeNFTTransfer.String() {
+	} else if txnMeta.TxnType == lib.TxnTypeNFTBid.String() || txnMeta.TxnType == lib.TxnTypeAcceptNFTBid.String() {
 		return !filteredOutCategories["nft"]
 	}
 	// If the transaction type doesn't fall into any of the previous steps, we don't want it
@@ -2539,9 +2536,6 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 		return true
 	} else if txnMeta.AcceptNFTBidTxindexMetadata != nil {
 		// Someone accepted your bid for an NFT
-		return true
-	} else if txnMeta.NFTTransferTxindexMetadata != nil {
-		// Someone transferred you an NFT
 		return true
 	} else if txnMeta.TxnType == lib.TxnTypeBasicTransfer.String() {
 		// Someone paid you
