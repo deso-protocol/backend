@@ -111,7 +111,7 @@ func (bb *RemoteMiner) SubmitWinningHeader(
 
 	// Log
 	if !res.IsMainChain {
-		glog.Debugf("Submitted block, but it's not on the main chain: isMainChain: %v, isOrphan: %v", res.IsMainChain, res.IsOrphan)
+		glog.V(1).Infof("Submitted block, but it's not on the main chain: isMainChain: %v, isOrphan: %v", res.IsMainChain, res.IsOrphan)
 	} else {
 		hash, _ := header.Hash()
 		glog.Infof("========== Successfully mined a block on the main chain! Height: %v, Hash: %v ==========", header.Height, hash)
@@ -121,7 +121,7 @@ func (bb *RemoteMiner) SubmitWinningHeader(
 	if err := bb.RefreshBlockTemplates(); err != nil {
 		glog.Errorf("Error refreshing block templates: %v", err)
 	}
-	glog.Debugf("Successfully refreshed block templates after SubmitWinningHeader")
+	glog.V(1).Infof("Successfully refreshed block templates after SubmitWinningHeader")
 
 	return nil
 }
@@ -214,7 +214,7 @@ func (ss *SingleThread) Loop() {
 		// Hash on it
 		timeBefore := time.Now()
 		bestHash, bestNonce, err := lib.FindLowestHash(hdr, uint64(ss.IterationsPerCycle))
-		glog.Tracef("Time per iteration: %v", time.Since(timeBefore))
+		glog.V(2).Infof("Time per iteration: %v", time.Since(timeBefore))
 		if err != nil {
 			// If there's an error log it and break out.
 			glog.Errorf("Error while mining: %v", err)
@@ -256,7 +256,7 @@ func (bb *RemoteMiner) Start() {
 		if err := bb.RefreshBlockTemplates(); err != nil {
 			glog.Errorf("Error refreshing block templates: %v", err)
 		}
-		glog.Debugf("Successfully refreshed block templates")
+		glog.V(1).Infof("Successfully refreshed block templates")
 		time.Sleep(time.Duration(bb.TemplateRefreshIntervalSeconds) * time.Second)
 	}
 }

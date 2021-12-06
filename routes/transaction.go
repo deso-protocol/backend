@@ -635,7 +635,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		}
 
 		burnAmountSatoshis = totalInput - int64(txFee)
-		glog.Tracef("ExchangeBitcoinStateless: Getting ready to burn %d Satoshis", burnAmountSatoshis)
+		glog.V(2).Infof("ExchangeBitcoinStateless: Getting ready to burn %d Satoshis", burnAmountSatoshis)
 	}
 
 	// Prevent the user from creating a burn transaction with a dust output since
