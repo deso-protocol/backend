@@ -1545,7 +1545,7 @@ func Logger(inner http.Handler, name string) http.Handler {
 
 		inner.ServeHTTP(w, r)
 
-		glog.Tracef(
+		glog.V(2).Infof(
 			"%s\t%s\t%s\t%s",
 			r.Method,
 			r.RequestURI,
@@ -1559,16 +1559,16 @@ var publicRoutes = map[string]interface{}{
 	RoutePathGetJumioStatusForPublicKey:     nil,
 	RoutePathUploadVideo:                    nil,
 	RoutePathGetReferralInfoForReferralHash: nil,
-	RoutePathGetReferralInfoForUser: nil,
-	RoutePathGetVerifiedUsernames: nil,
-	RoutePathGetBlacklistedPublicKeys: nil,
-	RoutePathGetGraylistedPublicKeys: nil,
-	RoutePathGetGlobalFeed: nil,
-	RoutePathDeletePII: nil,
-	RoutePathGetUserMetadata: nil,
-	RoutePathSubmitTransaction: nil,
-	RoutePathGetTxn: nil,
-	RoutePathUpdateProfile: nil,
+	RoutePathGetReferralInfoForUser:         nil,
+	RoutePathGetVerifiedUsernames:           nil,
+	RoutePathGetBlacklistedPublicKeys:       nil,
+	RoutePathGetGraylistedPublicKeys:        nil,
+	RoutePathGetGlobalFeed:                  nil,
+	RoutePathDeletePII:                      nil,
+	RoutePathGetUserMetadata:                nil,
+	RoutePathSubmitTransaction:              nil,
+	RoutePathGetTxn:                         nil,
+	RoutePathUpdateProfile:                  nil,
 }
 
 // AddHeaders ...
