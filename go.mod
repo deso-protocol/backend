@@ -4,23 +4,18 @@ go 1.16
 
 replace github.com/deso-protocol/core => ../core/
 
-replace github.com/golang/glog => ../core/third_party/github.com/golang/glog
-
-replace github.com/laser/go-merkle-tree => ../core/third_party/github.com/laser/go-merkle-tree
-
-replace github.com/sasha-s/go-deadlock => ../core/third_party/github.com/sasha-s/go-deadlock
-
 require (
 	cloud.google.com/go/storage v1.15.0
 	github.com/btcsuite/btcd v0.21.0-beta
 	github.com/btcsuite/btcutil v1.0.2
 	github.com/davecgh/go-spew v1.1.1
 	github.com/deso-protocol/core v0.0.0-00010101000000-000000000000
+	github.com/deso-protocol/go-deadlock v1.0.0
 	github.com/dgraph-io/badger/v3 v3.2103.0
 	github.com/fatih/structs v1.1.0
 	github.com/gofrs/uuid v4.0.0+incompatible // indirect
 	github.com/golang-jwt/jwt/v4 v4.1.0
-	github.com/golang/glog v0.0.0-20210429001901-424d2337a529
+	github.com/golang/glog v1.0.0
 	github.com/gorilla/mux v1.8.0
 	github.com/h2non/bimg v1.1.5
 	github.com/kevinburke/go-types v0.0.0-20210723172823-2deba1f80ba7 // indirect
@@ -31,7 +26,6 @@ require (
 	github.com/montanaflynn/stats v0.0.0-20171201202039-1bf9dbcd8cbe
 	github.com/nyaruka/phonenumbers v1.0.69
 	github.com/pkg/errors v0.9.1
-	github.com/sasha-s/go-deadlock v0.2.0
 	github.com/sendgrid/rest v2.6.4+incompatible // indirect
 	github.com/sendgrid/sendgrid-go v3.10.0+incompatible
 	github.com/spf13/cobra v1.1.3

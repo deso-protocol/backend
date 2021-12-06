@@ -12,7 +12,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/sasha-s/go-deadlock"
+	"github.com/deso-protocol/go-deadlock"
 
 	"github.com/golang/glog"
 )
@@ -131,7 +131,7 @@ func (bb *RemoteMiner) RefreshBlockTemplates() error {
 	getBlockTemplateRequest := &routes.GetBlockTemplateRequest{
 		PublicKeyBase58Check: bb.PublicKeyBase58Check,
 		NumHeaders:           bb.NumThreads,
-		HeaderVersion: 		  lib.CurrentHeaderVersion,
+		HeaderVersion:        lib.CurrentHeaderVersion,
 	}
 	jsonRequest, err := json.Marshal(getBlockTemplateRequest)
 	if err != nil {
