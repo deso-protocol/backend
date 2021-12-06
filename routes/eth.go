@@ -182,7 +182,7 @@ func (fes *APIServer) finishETHTx(ethTx *InfuraTx, ethTxLog *ETHTxLog) (desoTxHa
 	glog.Info("finishETHTx - ETH tx provided: ", spew.Sdump(ethTx))
 
 	if ethTx.BlockNumber == nil {
-		return nil, errors.New("Transaction failed to mine")
+		return nil, errors.New(fmt.Sprintf("Transaction failed to mine: %v", ethTx.Hash))
 	}
 
 	if err := fes.validateETHDepositAddress(*ethTx.To); err != nil {
