@@ -17,11 +17,11 @@ type GetTutorialCreatorsRequest struct {
 }
 
 type UpdateTutorialStatusRequest struct {
-	PublicKeyBase58Check string
+	PublicKeyBase58Check                string
 	TutorialStatus                      TutorialStatus
 	CreatorPurchasedInTutorialPublicKey string
 	ClearCreatorCoinPurchasedInTutorial bool
-	JWT string
+	JWT                                 string
 }
 
 type GetTutorialCreatorResponse struct {
@@ -68,14 +68,14 @@ func (fes *APIServer) UpdateTutorialStatus(ww http.ResponseWriter, req *http.Req
 	if userMetadata.TutorialStatus != requestData.TutorialStatus {
 		userMetadata.TutorialStatus = requestData.TutorialStatus
 		// We need to set this to false once the user completes the tutorial, so any actions aren't blocked
-		if (requestData.TutorialStatus == COMPLETE) {
+		if requestData.TutorialStatus == COMPLETE {
 			userMetadata.MustCompleteTutorial = false
 		}
 		// If a user is skipping the buy step, we need to set this to 0
-		if (requestData.ClearCreatorCoinPurchasedInTutorial) {
+		if requestData.ClearCreatorCoinPurchasedInTutorial {
 			userMetadata.CreatorCoinsPurchasedInTutorial = 0
 		}
-		if (requestData.CreatorPurchasedInTutorialPublicKey != "") {
+		if requestData.CreatorPurchasedInTutorialPublicKey != "" {
 			CreatorPurchasedInTutorialPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.CreatorPurchasedInTutorialPublicKey)
 			if err != nil || len(CreatorPurchasedInTutorialPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
 				_AddBadRequestError(ww, fmt.Sprintf("UpdateTutorialStatus: Failed to decode public key bytes"))
