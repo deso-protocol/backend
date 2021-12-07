@@ -572,7 +572,7 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 					}
 				}
 			}
-			endIndex := lib.MinInt(index + numToFetch - len(postEntries), len(fes.GlobalFeedPostHashes))
+			endIndex := lib.MinInt(index+numToFetch-len(postEntries), len(fes.GlobalFeedPostHashes))
 			postHashes = fes.GlobalFeedPostHashes[index:endIndex]
 			// At the next iteration, we can start looking endIndex for the post hash we need.
 			index = endIndex - 1
@@ -581,7 +581,7 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 			var keys [][]byte
 			// Get numToFetch - len(postEntries) postHashes from global state.
 			keys, _, err = fes.GlobalStateSeek(nextStartKey /*startPrefix*/, validForPrefix, /*validForPrefix*/
-				maxKeyLen /*maxKeyLen -- ignored since reverse is false*/, numToFetch - len(postEntries), true, /*reverse*/
+				maxKeyLen /*maxKeyLen -- ignored since reverse is false*/, numToFetch-len(postEntries), true, /*reverse*/
 				false /*fetchValues*/)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("GetPostEntriesForGlobalWhitelist: Getting posts for reader: %v", err)
@@ -739,7 +739,7 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 	return postEntries, profileEntries, postEntryReaderStates, nil
 }
 
-func (fes *APIServer) GetGlobalFeedPostHashesForLastWeek() (_postHashes []*lib.BlockHash, _err error){
+func (fes *APIServer) GetGlobalFeedPostHashesForLastWeek() (_postHashes []*lib.BlockHash, _err error) {
 	minTimestampNanos := uint64(time.Now().UTC().AddDate(0, 0, -7).UnixNano()) // 1 week ago
 
 	seekStartKey := GlobalStateSeekKeyForTstampPostHash(minTimestampNanos)
@@ -1523,11 +1523,14 @@ func (fes *APIServer) GetDiamondedPosts(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	// Decode the reader public key.
-	readerPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetDiamondedPosts: Problem decoding reader public key: %v", err))
-		return
+	var readerPublicKeyBytes []byte
+	if requestData.ReaderPublicKeyBase58Check != "" {
+		// Decode the reader public key.
+		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetDiamondedPosts: Problem decoding reader public key: %v", err))
+			return
+		}
 	}
 
 	// Get the DiamondEntries for this receiver-sender pair of public keys.
