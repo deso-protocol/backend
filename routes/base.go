@@ -278,6 +278,7 @@ type GetAppStateResponse struct {
 	USDCentsPerDeSoExchangeRate uint64
 	JumioDeSoNanos              uint64
 
+	DefaultFeeRateNanosPerKB uint64
 	TransactionFeeMap map[string][]TransactionFee
 
 	// Address to which we want to send ETH when used to buy DESO
@@ -305,13 +306,20 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Compute a default fee rate.
+	globalParams := utxoView.GlobalParamsEntry
+	defaultFeeRateNanosPerKB := fes.MinFeeRateNanosPerKB
+	if globalParams != nil && globalParams.MinimumNetworkFeeNanosPerKB > 0 {
+		defaultFeeRateNanosPerKB = globalParams.MinimumNetworkFeeNanosPerKB
+	}
+	
 	res := &GetAppStateResponse{
 		MinSatoshisBurnedForProfileCreation: fes.Config.MinSatoshisForProfile,
 		BlockHeight:                         fes.backendServer.GetBlockchain().BlockTip().Height,
 		IsTestnet:                           fes.Params.NetworkType == lib.NetworkType_TESTNET,
 		HasTwilioAPIKey:                     fes.Twilio != nil,
 		HasStarterDeSoSeed:                  fes.Config.StarterDESOSeed != "",
-		CreateProfileFeeNanos:               utxoView.GlobalParamsEntry.CreateProfileFeeNanos,
+		CreateProfileFeeNanos:               globalParams.CreateProfileFeeNanos,
 		CompProfileCreation:                 fes.Config.CompProfileCreation,
 		DiamondLevelMap:                     lib.GetDeSoNanosDiamondLevelMapAtBlockHeight(int64(fes.blockchain.BlockTip().Height)),
 		HasWyreIntegration:                  fes.IsConfiguredForWyre(),
@@ -319,6 +327,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		BuyWithETH:                          fes.IsConfiguredForETH(),
 		USDCentsPerDeSoExchangeRate:         fes.GetExchangeDeSoPrice(),
 		JumioDeSoNanos:                      fes.GetJumioDeSoNanos(),
+		DefaultFeeRateNanosPerKB: 			 defaultFeeRateNanosPerKB,
 		TransactionFeeMap:                   fes.TxnFeeMapToResponse(true),
 		BuyETHAddress:                       fes.Config.BuyDESOETHAddress,
 		Nodes:                               lib.NODES,
