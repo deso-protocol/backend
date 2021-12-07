@@ -277,6 +277,7 @@ type GetAppStateResponse struct {
 
 	USDCentsPerDeSoExchangeRate uint64
 	JumioDeSoNanos              uint64
+	MinFeeRateNanosPerKb        uint64
 
 	TransactionFeeMap map[string][]TransactionFee
 
@@ -322,6 +323,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		TransactionFeeMap:                   fes.TxnFeeMapToResponse(true),
 		BuyETHAddress:                       fes.Config.BuyDESOETHAddress,
 		Nodes:                               lib.NODES,
+		MinFeeRateNanosPerKb:                fes.MinFeeRateNanosPerKB,
 
 		// Deprecated
 		USDCentsPerBitCloutExchangeRate: fes.GetExchangeDeSoPrice(),
