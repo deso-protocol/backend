@@ -388,8 +388,9 @@ func NewAPIServer(
 		PublicKeyBase58Prefix:     publicKeyBase58Prefix,
 		// We consider last trade prices from the last hour when determining the current price of DeSo.
 		// This helps prevents attacks that attempt to purchase $DESO at below market value.
-		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
-		quit:                   make(chan struct{}),
+		LastTradePriceLookback:       uint64(time.Hour.Nanoseconds()),
+		AllCountryLevelSignUpBonuses: make(map[string]CountrySignUpBonusResponse),
+		quit:                         make(chan struct{}),
 	}
 
 	fes.StartSeedBalancesMonitoring()
