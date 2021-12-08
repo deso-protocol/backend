@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"reflect"
 	"sort"
@@ -832,7 +831,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	limit := transactionInfoRequest.Limit
 	if limit <= 0 {
 		// Legacy support for unpaginated requests
-		limit = math.MaxUint64
+		limit = 1000
 	}
 
 	// IsMempool means we should just return all of the transactions that are currently in the mempool.
