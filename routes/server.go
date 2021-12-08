@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	fmt "fmt"
+	"github.com/deso-protocol/backend/utils"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -207,9 +208,12 @@ const (
 	RoutePathAdminUpdateNFTDrop = "/api/v0/admin/update-nft-drop"
 
 	// admin_jumio.go
-	RoutePathAdminResetJumioForPublicKey = "/api/v0/admin/reset-jumio-for-public-key"
-	RoutePathAdminUpdateJumioDeSo        = "/api/v0/admin/update-jumio-deso"
-	RoutePathAdminJumioCallback          = "/api/v0/admin/jumio-callback"
+	RoutePathAdminResetJumioForPublicKey          = "/api/v0/admin/reset-jumio-for-public-key"
+	RoutePathAdminUpdateJumioDeSo                 = "/api/v0/admin/update-jumio-deso"
+	RoutePathAdminUpdateJumioUSDCents             = "/api/v0/admin/update-jumio-usd-cents"
+	RoutePathAdminJumioCallback                   = "/api/v0/admin/jumio-callback"
+	RoutePathAdminUpdateJumioCountrySignUpBonus   = "/api/v0/admin/update-jumio-country-sign-up-bonus"
+	RoutePathAdminGetAllCountryLevelSignUpBonuses = "/api/v0/admin/get-all-country-level-sign-up-bonuses"
 
 	// admin_referrals.go
 	RoutePathAdminCreateReferralHash        = "/api/v0/admin/create-referral-hash"
@@ -330,6 +334,9 @@ type APIServer struct {
 	GraylistedResponseMap map[string][]byte
 	// GlobalFeedPostHashes is a slice of BlockHashes representing the state of posts on the global feed on this node.
 	GlobalFeedPostHashes []*lib.BlockHash
+
+	// map of country name to sign up bonus data
+	AllCountryLevelSignUpBonuses map[string]CountrySignUpBonusResponse
 
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
@@ -1215,6 +1222,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			SuperAdminAccess,
 		},
 		{
+			"AdminUpdateJumioUSDCents",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateJumioUSDCents,
+			fes.AdminUpdateJumioUSDCents,
+			SuperAdminAccess,
+		},
+		{
 			"AdminTestSignTransactionWithDerivedKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathTestSignTransactionWithDerivedKey,
@@ -1227,6 +1241,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			RoutePathAdminJumioCallback,
 			fes.AdminJumioCallback,
 			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateJumioCountrySignUpBonus",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateJumioCountrySignUpBonus,
+			fes.AdminUpdateJumioCountrySignUpBonus,
+			SuperAdminAccess,
+		},
+		{
+			"AdminGetAllCountryLevelSignUpBonuses",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetAllCountryLevelSignUpBonuses,
+			fes.AdminGetAllCountryLevelSignUpBonuses,
+			AdminAccess,
 		},
 		{
 			"AdminCreateReferralHash",
@@ -1961,6 +1989,7 @@ func (fes *APIServer) SetGlobalStateCache() {
 	fes.SetBlacklistedPKIDMap(utxoView)
 	fes.SetGraylistedPKIDMap(utxoView)
 	fes.SetGlobalFeedPostHashes()
+	fes.SetAllCountrySignUpBonusMetadata()
 }
 
 func (fes *APIServer) SetVerifiedUsernameMap() {
@@ -2004,6 +2033,40 @@ func (fes *APIServer) SetGlobalFeedPostHashes() {
 		glog.Errorf("SetGlobalFeedPostHashes: Error getting global feed post hashes: %v", err)
 	} else {
 		fes.GlobalFeedPostHashes = postHashes
+	}
+}
+
+type CountrySignUpBonusResponse struct {
+	CountryLevelSignUpBonus CountryLevelSignUpBonus
+	CountryCodeDetails      utils.CountryCodeDetails
+}
+
+func (fes *APIServer) SetAllCountrySignUpBonusMetadata() {
+	for countryCode, countryDetails := range utils.CountryCodes {
+		signUpBonus, err := fes.GetJumioCountrySignUpBonus(countryCode)
+		if err != nil {
+			glog.Errorf("SetAllCountrySignUpBonusMetadata: %v", err)
+			// If there was an error, look up the current value in the map and use that.
+			fes.GetSingleCountrySignUpBonus(countryCode)
+		}
+		fes.SetSingleCountrySignUpBonus(countryDetails, signUpBonus)
+	}
+}
+
+func (fes *APIServer) SetSingleCountrySignUpBonus(countryDetails utils.CountryCodeDetails,
+	signUpBonus CountryLevelSignUpBonus) {
+	fes.AllCountryLevelSignUpBonuses[countryDetails.Name] = CountrySignUpBonusResponse{
+		CountryLevelSignUpBonus: signUpBonus,
+		CountryCodeDetails:      countryDetails,
+	}
+}
+
+func (fes *APIServer) GetSingleCountrySignUpBonus(countryCode string) CountryLevelSignUpBonus {
+	countryCodeDetails := utils.CountryCodes[countryCode]
+	if countrySignUpBonusResponse, exists := fes.AllCountryLevelSignUpBonuses[countryCodeDetails.Name]; !exists {
+		return fes.GetDefaultJumioCountrySignUpBonus()
+	} else {
+		return countrySignUpBonusResponse.CountryLevelSignUpBonus
 	}
 }
 

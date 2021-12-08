@@ -1,8 +1,11 @@
 package routes
 
 import (
+	"bytes"
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/backend/utils"
 	"github.com/deso-protocol/core/lib"
 	"io"
 	"net/http"
@@ -11,7 +14,7 @@ import (
 type AdminResetJumioRequest struct {
 	PublicKeyBase58Check string
 	Username             string
-	JWT       string
+	JWT                  string
 }
 
 func (fes *APIServer) AdminResetJumioForPublicKey(ww http.ResponseWriter, req *http.Request) {
@@ -99,7 +102,7 @@ func (fes *APIServer) AdminResetJumioForPublicKey(ww http.ResponseWriter, req *h
 }
 
 type AdminUpdateJumioDeSoRequest struct {
-	JWT string
+	JWT       string
 	DeSoNanos uint64
 }
 
@@ -131,6 +134,41 @@ func (fes *APIServer) AdminUpdateJumioDeSo(ww http.ResponseWriter, req *http.Req
 	}
 }
 
+type AdminUpdateJumioUSDCentsRequest struct {
+	JWT      string
+	USDCents uint64
+}
+
+type AdminUpdateJumioUSDCentsResponse struct {
+	USDCents uint64
+}
+
+func (fes *APIServer) AdminUpdateJumioUSDCents(ww http.ResponseWriter, req *http.Request) {
+	//_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioDeSo: deprecated"))
+	//return
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminUpdateJumioUSDCentsRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioDeSo: Problem parsing request body: %v", err))
+		return
+	}
+
+	if err := fes.GlobalStatePut(
+		GlobalStateKeyForJumioUSDCents(),
+		lib.UintToBuf(requestData.USDCents)); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioDeSo: Problem putting premium basis points in global state: %v", err))
+		return
+	}
+
+	res := AdminUpdateJumioUSDCentsResponse{
+		USDCents: requestData.USDCents,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioDeSo: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
 type AdminSetJumioVerifiedRequest struct {
 	PublicKeyBase58Check string
 	Username             string
@@ -140,6 +178,7 @@ type AdminJumioCallback struct {
 	PublicKeyBase58Check string
 	Username             string
 }
+
 // AdminJumioCallback Note: this endpoint is mainly for testing purposes.
 func (fes *APIServer) AdminJumioCallback(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
@@ -190,7 +229,7 @@ func (fes *APIServer) AdminJumioCallback(ww http.ResponseWriter, req *http.Reque
 		return
 	}
 	userMetadata.JumioReturned = true
-	userMetadata, err = fes.JumioVerifiedHandler(userMetadata, "admin-jumio-call", publicKeyBytes, utxoView)
+	userMetadata, err = fes.JumioVerifiedHandler(userMetadata, "admin-jumio-call", "", publicKeyBytes, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminJumioCallback: Error in JumioVerifiedHandler: %v", err))
 		return
@@ -198,6 +237,65 @@ func (fes *APIServer) AdminJumioCallback(ww http.ResponseWriter, req *http.Reque
 
 	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminJumioCallback: Error updating user metadata in global state: %v", err))
+		return
+	}
+}
+
+type AdminUpdateJumioCountrySignUpBonusRequest struct {
+	CountryCode             string
+	CountryLevelSignUpBonus CountryLevelSignUpBonus
+}
+
+// AdminUpdateJumioCountrySignUpBonus allows admins to adjust the configuration of sign up bonuses at a country level
+func (fes *APIServer) AdminUpdateJumioCountrySignUpBonus(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminUpdateJumioCountrySignUpBonusRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioCountrySignUpBonusMetadata: "+
+			"Problem parsing request body: %v", err))
+		return
+	}
+	var countryCodeDetails utils.CountryCodeDetails
+	var exists bool
+	// Validate the country code
+	if countryCodeDetails, exists = utils.CountryCodes[requestData.CountryCode]; !exists {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioCountrySignUpBonus: "+
+			"invalid country code: %v", requestData.CountryCode))
+		return
+	}
+
+	// Encode the updated entry and stick it in the database.
+	countryCodeSignUpBonusMetadataBuf := bytes.NewBuffer([]byte{})
+	if err := gob.NewEncoder(countryCodeSignUpBonusMetadataBuf).Encode(
+		requestData.CountryLevelSignUpBonus); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioCountrySignUpBonus: "+
+			"error encoding country level sign up bonus metadata: %v", err))
+		return
+	}
+
+	// Update global state
+	key := GlobalStateKeyForCountryCodeToCountrySignUpBonus(requestData.CountryCode)
+	if err := fes.GlobalStatePut(key, countryCodeSignUpBonusMetadataBuf.Bytes()); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioCountrySignUpBonus: "+
+			"error putting country level sign up bonus metadata in global state: %v", err))
+		return
+	}
+	// Update the map
+	fes.SetSingleCountrySignUpBonus(countryCodeDetails, requestData.CountryLevelSignUpBonus)
+}
+
+type GetAllCountryLevelSignUpBonusResponse struct {
+	SignUpBonusMetadata        map[string]CountrySignUpBonusResponse
+	DefaultSignUpBonusMetadata CountryLevelSignUpBonus
+}
+
+func (fes *APIServer) AdminGetAllCountryLevelSignUpBonuses(ww http.ResponseWriter, req *http.Request) {
+	res := GetAllCountryLevelSignUpBonusResponse{
+		SignUpBonusMetadata:        fes.AllCountryLevelSignUpBonuses,
+		DefaultSignUpBonusMetadata: fes.GetDefaultJumioCountrySignUpBonus(),
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllCountryLevelSignUpBonuses: Encode failed: %v", err))
 		return
 	}
 }

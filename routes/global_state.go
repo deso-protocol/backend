@@ -147,8 +147,11 @@ var (
 
 	_GlobalStatePrefixCountryIDDocumentTypeSubTypeDocumentNumber = []byte{19}
 
-	// Jumio DeSoNanos
+	// Jumio DeSoNanos -- Deprecated!
 	_GlobalStatePrefixJumioDeSoNanos = []byte{21}
+
+	// Jumio USD Cents
+	_GlobalStatePrefixJumioUSDCents = []byte{39}
 
 	// Tutorial featured well-known creators
 	_GlobalStateKeyWellKnownTutorialCreators = []byte{22}
@@ -197,12 +200,15 @@ var (
 	// <prefix, OperationTimestampNanos, PKID> -> <HotFeedPKIDMultiplierOp>
 	_GlobalStatePrefixForHotFeedPKIDMultiplierOps = []byte{36}
 
+	// This key is used to manage sign up bonus configurations for a country
+	_GlobalStatePrefixForCountryCodeToCountrySignUpBonus = []byte{37}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
 
-	// NEXT_TAG: 38
+	// NEXT_TAG: 40
 )
 
 type HotFeedApprovedPostOp struct {
@@ -362,7 +368,7 @@ const (
 	INVEST_OTHERS_SELL TutorialStatus = "InvestInOthersSellComplete"
 	CREATE_PROFILE     TutorialStatus = "TutorialCreateProfileComplete"
 	INVEST_SELF        TutorialStatus = "InvestInYourselfComplete"
-	FOLLOW_CREATORS	   TutorialStatus = "FollowCreatorsComplete"
+	FOLLOW_CREATORS    TutorialStatus = "FollowCreatorsComplete"
 	DIAMOND            TutorialStatus = "GiveADiamondComplete"
 	COMPLETE           TutorialStatus = "TutorialComplete"
 )
@@ -397,6 +403,13 @@ type WyreWalletOrderMetadata struct {
 
 	// BlockHash of the transaction for sending the DeSo
 	BasicTransferTxnBlockHash *lib.BlockHash
+}
+
+type CountryLevelSignUpBonus struct {
+	AllowCustomReferralAmount      bool
+	ReferralAmountOverrideUSDCents uint64
+	AllowCustomKickbackAmount      bool
+	KickbackAmountOverrideUSDCents uint64
 }
 
 func GlobalStateKeyForNFTDropEntry(dropNumber uint64) []byte {
@@ -646,6 +659,11 @@ func GlobalStateKeyForJumioDeSoNanos() []byte {
 	return prefixCopy
 }
 
+func GlobalStateKeyForJumioUSDCents() []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixJumioUSDCents...)
+	return prefixCopy
+}
+
 func GlobalStateKeyWellKnownTutorialCreators(pkid *lib.PKID) []byte {
 	prefixCopy := append([]byte{}, _GlobalStateKeyWellKnownTutorialCreators...)
 	key := append(prefixCopy, pkid[:]...)
@@ -673,6 +691,12 @@ func GlobalStateKeyTransactionFeeOutputsFromTxnType(txnType lib.TxnType) []byte 
 func GlobalStateKeyExemptPublicKey(publicKey []byte) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixExemptPublicKeys...)
 	key := append(prefixCopy, publicKey[:]...)
+	return key
+}
+
+func GlobalStateKeyForCountryCodeToCountrySignUpBonus(countryCode string) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixForCountryCodeToCountrySignUpBonus...)
+	key := append(prefixCopy, []byte(strings.ToLower(countryCode))...)
 	return key
 }
 
