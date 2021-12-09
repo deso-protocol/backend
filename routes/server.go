@@ -94,20 +94,21 @@ const (
 	RoutePathGetHotFeed = "/api/v0/get-hot-feed"
 
 	// nft.go
-	RoutePathCreateNFT                = "/api/v0/create-nft"
-	RoutePathUpdateNFT                = "/api/v0/update-nft"
-	RoutePathGetNFTsForUser           = "/api/v0/get-nfts-for-user"
-	RoutePathGetNFTBidsForUser        = "/api/v0/get-nft-bids-for-user"
-	RoutePathCreateNFTBid             = "/api/v0/create-nft-bid"
-	RoutePathAcceptNFTBid             = "/api/v0/accept-nft-bid"
-	RoutePathGetNFTBidsForNFTPost     = "/api/v0/get-nft-bids-for-nft-post"
-	RoutePathGetNFTShowcase           = "/api/v0/get-nft-showcase"
-	RoutePathGetNextNFTShowcase       = "/api/v0/get-next-nft-showcase"
-	RoutePathGetNFTCollectionSummary  = "/api/v0/get-nft-collection-summary"
-	RoutePathGetNFTEntriesForPostHash = "/api/v0/get-nft-entries-for-nft-post"
-	RoutePathTransferNFT              = "/api/v0/transfer-nft"
-	RoutePathAcceptNFTTransfer        = "/api/v0/accept-nft-transfer"
-	RoutePathBurnNFT                  = "/api/v0/burn-nft"
+	RoutePathCreateNFT                 = "/api/v0/create-nft"
+	RoutePathUpdateNFT                 = "/api/v0/update-nft"
+	RoutePathGetNFTsForUser            = "/api/v0/get-nfts-for-user"
+	RoutePathGetNFTBidsForUser         = "/api/v0/get-nft-bids-for-user"
+	RoutePathCreateNFTBid              = "/api/v0/create-nft-bid"
+	RoutePathAcceptNFTBid              = "/api/v0/accept-nft-bid"
+	RoutePathGetNFTBidsForNFTPost      = "/api/v0/get-nft-bids-for-nft-post"
+	RoutePathGetNFTShowcase            = "/api/v0/get-nft-showcase"
+	RoutePathGetNextNFTShowcase        = "/api/v0/get-next-nft-showcase"
+	RoutePathGetNFTCollectionSummary   = "/api/v0/get-nft-collection-summary"
+	RoutePathGetNFTEntriesForPostHash  = "/api/v0/get-nft-entries-for-nft-post"
+	RoutePathGetNFTsCreatedByPublicKey = "/api/v0/get-nfts-created-by-public-key"
+	RoutePathTransferNFT               = "/api/v0/transfer-nft"
+	RoutePathAcceptNFTTransfer         = "/api/v0/accept-nft-transfer"
+	RoutePathBurnNFT                   = "/api/v0/burn-nft"
 
 	// media.go
 	RoutePathUploadImage      = "/api/v0/upload-image"
@@ -721,6 +722,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetNFTEntriesForPostHash,
 			fes.GetNFTEntriesForPostHash,
+			PublicAccess,
+		},
+		{
+			"GetNFTsCreatedByPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTsCreatedByPublicKey,
+			fes.GetNFTsCreatedByPublicKey,
 			PublicAccess,
 		},
 		{

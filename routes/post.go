@@ -1317,7 +1317,7 @@ type GetPostsForPublicKeyResponse struct {
 	LastPostHashHex string               `safeForLogging:"true"`
 }
 
-// GetPostsForPublicKey... Get paginated posts for a public key or username.
+// GetPostsForPublicKey gets paginated posts for a public key or username.
 func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetPostsForPublicKeyRequest{}
@@ -1373,7 +1373,7 @@ func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Req
 	}
 
 	// Get Posts Ordered by time.
-	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash, requestData.NumToFetch, requestData.MediaRequired)
+	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash, requestData.NumToFetch, requestData.MediaRequired, false)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPostsForPublicKey: Problem getting paginated posts: %v", err))
 		return
