@@ -420,18 +420,17 @@ type GetUserMetadataRequest struct {
 }
 
 type GetUserMetadataResponse struct {
-
-	HasPhoneNumber bool
+	HasPhoneNumber   bool
 	CanCreateProfile bool
-	BlockedPubKeys map[string]struct{}
-	HasEmail bool
-	EmailVerified bool
+	BlockedPubKeys   map[string]struct{}
+	HasEmail         bool
+	EmailVerified    bool
 	// JumioFinishedTime = Time user completed flow in Jumio
 	JumioFinishedTime uint64
 	// JumioVerified = user was verified from Jumio flow
-	JumioVerified    bool
+	JumioVerified bool
 	// JumioReturned = jumio webhook called
-	JumioReturned    bool
+	JumioReturned bool
 }
 
 // GetUserMetadata ...
@@ -1786,7 +1785,7 @@ type GetNotificationsCountRequest struct {
 }
 
 type GetNotificationsCountResponse struct {
-	NotificationsCount uint64
+	NotificationsCount          uint64
 	LastUnreadNotificationIndex uint64
 	// Whether new unread notifications were added and the user metadata should be updated
 	UpdateMetadata bool
@@ -1842,9 +1841,9 @@ func (fes *APIServer) GetNotificationsCount(ww http.ResponseWriter, req *http.Re
 	}
 
 	res := &GetNotificationsCountResponse{
-		NotificationsCount: notificationsCount,
+		NotificationsCount:          notificationsCount,
 		LastUnreadNotificationIndex: uint64(notificationStartIndex),
-		UpdateMetadata: updateMetadata,
+		UpdateMetadata:              updateMetadata,
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
@@ -2145,7 +2144,6 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 		}
 
 		for ii, txIDBytes := range valsFound {
-			currentIndexTest := int64(lib.DecodeUint32(keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]))
 			txID := &lib.BlockHash{}
 			copy(txID[:], txIDBytes)
 
