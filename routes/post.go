@@ -236,7 +236,7 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 	if addGlobalFeedBool {
 		inGlobalFeed := false
 		dbKey := GlobalStateKeyForTstampPostHash(postEntry.TimestampNanos, postEntry.PostHash)
-		globalStateVal, err := fes.GlobalStateGet(dbKey)
+		globalStateVal, err := fes.GlobalState.Get(dbKey)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"_postEntryToResponse: Error fetching from global state: %v", err)
@@ -545,7 +545,7 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 		seekStartPostHash = startPost.PostHash
 		skipFirstEntry = true
 	} else {
-		// If we can't find a valid start post, we just use the prefix. GlobalStateSeek will
+		// If we can't find a valid start post, we just use the prefix. Seek will
 		// pad the value as necessary.
 		seekStartKey = _GlobalStatePrefixTstampNanosPostHash
 	}
@@ -580,7 +580,7 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 			// Otherwise, we're using this node's global state.
 			var keys [][]byte
 			// Get numToFetch - len(postEntries) postHashes from global state.
-			keys, _, err = fes.GlobalStateSeek(nextStartKey /*startPrefix*/, validForPrefix, /*validForPrefix*/
+			keys, _, err = fes.GlobalState.Seek(nextStartKey /*startPrefix*/, validForPrefix, /*validForPrefix*/
 				maxKeyLen /*maxKeyLen -- ignored since reverse is false*/, numToFetch-len(postEntries), true, /*reverse*/
 				false /*fetchValues*/)
 			if err != nil {
@@ -696,7 +696,7 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 			// Get all pinned posts and prepend them to the list of postEntries
 			pinnedStartKey := _GlobalStatePrefixTstampNanosPinnedPostHash
 			// todo: how many posts can we really pin?
-			keys, _, err := fes.GlobalStateSeek(pinnedStartKey, pinnedStartKey, maxKeyLen, 10, true, false)
+			keys, _, err := fes.GlobalState.Seek(pinnedStartKey, pinnedStartKey, maxKeyLen, 10, true, false)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("GetPostEntriesForWhitelist: Getting pinned posts: %v", err)
 			}
@@ -750,7 +750,7 @@ func (fes *APIServer) GetGlobalFeedPostHashesForLastWeek() (_postHashes []*lib.B
 
 	var postHashes []*lib.BlockHash
 
-	keys, _, err := fes.GlobalStateSeek(seekStartKey /*startPrefix*/, validForPrefix, /*validForPrefix*/
+	keys, _, err := fes.GlobalState.Seek(seekStartKey /*startPrefix*/, validForPrefix, /*validForPrefix*/
 		maxKeyLen /*maxKeyLen -- ignored since reverse is false*/, 0, false, /*reverse*/
 		false /*fetchValues*/)
 	if err != nil {
@@ -1098,7 +1098,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		currentPosterUserMetadataKey := append([]byte{}, _GlobalStatePrefixPublicKeyToUserMetadata...)
 		currentPosterUserMetadataKey = append(currentPosterUserMetadataKey, postEntry.PosterPublicKey...)
 		var currentPosterUserMetadataBytes []byte
-		currentPosterUserMetadataBytes, err = fes.GlobalStateGet(currentPosterUserMetadataKey)
+		currentPosterUserMetadataBytes, err = fes.GlobalState.Get(currentPosterUserMetadataKey)
 		if err != nil {
 			_AddBadRequestError(ww,
 				fmt.Sprintf("GetSinglePost: Problem getting currentPoster uset metadata from global state: %v", err))

@@ -45,7 +45,7 @@ func (fes *APIServer) putReferralHashWithInfo(
 	// Encode the updated entry and stick it in the database.
 	referralInfoDataBuf := bytes.NewBuffer([]byte{})
 	gob.NewEncoder(referralInfoDataBuf).Encode(referralInfo)
-	err := fes.GlobalStatePut(dbKey, referralInfoDataBuf.Bytes())
+	err := fes.GlobalState.Put(dbKey, referralInfoDataBuf.Bytes())
 	if err != nil {
 		return errors.Wrap(fmt.Errorf(
 			"putReferralHashWithInfo: Problem putting updated referralInfo: %v", err), "")
@@ -62,7 +62,7 @@ func (fes *APIServer) getInfoForReferralHashBase58(
 	dbKey := GlobalStateKeyForReferralHashToReferralInfo(referralHashBytes)
 
 	// Get the entry and decode the bytes.
-	referralInfoBytes, err := fes.GlobalStateGet(dbKey)
+	referralInfoBytes, err := fes.GlobalState.Get(dbKey)
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf(
 			"getInfoForReferralHash: Problem putting updated referralInfo: %v", err), "")
@@ -88,7 +88,7 @@ func (fes *APIServer) getReferralHashStatus(pkid *lib.PKID, referralHashBase58 s
 
 	dbKey := GlobalStateKeyForPKIDReferralHashToIsActive(pkid, referralHashBytes)
 
-	val, err := fes.GlobalStateGet(dbKey)
+	val, err := fes.GlobalState.Get(dbKey)
 	if err != nil {
 		return false
 	}
@@ -103,7 +103,7 @@ func (fes *APIServer) setReferralHashStatusForPKID(
 	dbKey := GlobalStateKeyForPKIDReferralHashToIsActive(pkid, referralHashBytes)
 
 	// Encode the updated entry and stick it in the database.
-	err := fes.GlobalStatePut(dbKey, []byte{lib.BoolToByte(isActive)})
+	err := fes.GlobalState.Put(dbKey, []byte{lib.BoolToByte(isActive)})
 	if err != nil {
 		return errors.Wrap(fmt.Errorf(
 			"putReferralHashWithInfo: Problem putting updated referralInfo: %v", err), "")
@@ -373,7 +373,7 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeR
 
 	// Build a key to seek all of the referral hashes for this PKID.
 	dbSeekKey := GlobalStateSeekKeyForPKIDReferralHashes(referrerPKID.PKID)
-	keysFound, valsFound, err := fes.GlobalStateSeek(
+	keysFound, valsFound, err := fes.GlobalState.Seek(
 		dbSeekKey, dbSeekKey, 0, 0, false /*reverse*/, true /*fetchValue*/)
 
 	referralHashStartIndex := 1 + len(referrerPKID.PKID)
@@ -392,7 +392,7 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeR
 
 		// Look up and decode the referral info for the hash.
 		dbKey := GlobalStateKeyForReferralHashToReferralInfo(referralHashBytes)
-		referralInfoBytes, err := fes.GlobalStateGet(dbKey)
+		referralInfoBytes, err := fes.GlobalState.Get(dbKey)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"fes.getReferralInfoResponsesForPubKey: error getting referral info (%s): %v",
@@ -413,7 +413,7 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeR
 			// Look up all of the users referred by this referral hash.
 			refereeSeekKey := GlobalStateSeekKeyForPKIDReferralHashRefereePKIDs(
 				referrerPKID.PKID, referralHashBytes)
-			refereeKeys, _, err := fes.GlobalStateSeek(refereeSeekKey, refereeSeekKey, 0, 0, false, false)
+			refereeKeys, _, err := fes.GlobalState.Seek(refereeSeekKey, refereeSeekKey, 0, 0, false, false)
 			if err != nil {
 				return nil, fmt.Errorf(
 					"getReferralInfoResponsesForPubKey: Failed to get referees (%s): %v",
@@ -518,7 +518,7 @@ func (fes *APIServer) getAllReferralInfos() (
 	_referralInfos []ReferralInfo, _err error) {
 
 	dbSeekKey := _GlobalStatePrefixReferralHashToReferralInfo
-	_, valsFound, err := fes.GlobalStateSeek(
+	_, valsFound, err := fes.GlobalState.Seek(
 		dbSeekKey, dbSeekKey, 0, 0, false /*reverse*/, true /*fetchValue*/)
 
 	var referralInfos []ReferralInfo
@@ -610,7 +610,7 @@ func (fes *APIServer) AdminDownloadReferralCSV(ww http.ResponseWriter, req *http
 		activeStatusKeys = append(activeStatusKeys, activeStatusKey)
 	}
 
-	statusVals, err := fes.GlobalStateBatchGet(activeStatusKeys)
+	statusVals, err := fes.GlobalState.BatchGet(activeStatusKeys)
 	if err != nil {
 		_AddInternalServerError(
 			ww, fmt.Sprintf("AdminDownloadReferralCSV: problem getting referralInfo status: %v", err))
@@ -830,7 +830,7 @@ func (fes *APIServer) AdminDownloadRefereeCSV(ww http.ResponseWriter, req *http.
 	csvRows := [][]string{RefereeCSVHeaders()}
 
 	// Get all of the referee logs.
-	keysFound, _, err := fes.GlobalStateSeek(
+	keysFound, _, err := fes.GlobalState.Seek(
 		_GlobalStatePrefixPKIDReferralHashRefereePKID,
 		_GlobalStatePrefixPKIDReferralHashRefereePKID,
 		0, 0, false /*reverse*/, false /*fetchValue*/)

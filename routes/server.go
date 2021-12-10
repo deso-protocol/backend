@@ -258,7 +258,7 @@ type APIServer struct {
 	// a remote node is set-- not both. When a remote node is set, global state
 	// is set and fetched from that node. Otherwise, it is set/fetched from the
 	// db. This makes it easy to run a local node in development.
-	GlobalStateDB *badger.DB
+	GlobalState *GlobalState
 
 	// Optional, may be empty. Used for Twilio integration
 	Twilio *twilio.Client
@@ -356,7 +356,13 @@ func NewAPIServer(
 	blockCypherAPIKey string,
 ) (*APIServer, error) {
 
-	if globalStateDB == nil && config.GlobalStateRemoteNode == "" {
+	globalState := &GlobalState{
+		GlobalStateRemoteSecret: config.GlobalStateRemoteSecret,
+		GlobalStateRemoteNode:   config.GlobalStateRemoteNode,
+		GlobalStateDB:           globalStateDB,
+	}
+
+	if globalStateDB == nil && globalState.GlobalStateRemoteNode == "" {
 		return nil, fmt.Errorf(
 			"NewAPIServer: Error: A globalStateDB or a globalStateRemoteNode is required")
 	}
@@ -375,9 +381,9 @@ func NewAPIServer(
 		TXIndex:                   txIndex,
 		Params:                    params,
 		Config:                    config,
-		GlobalStateDB:             globalStateDB,
 		Twilio:                    twilio,
 		BlockCypherAPIKey:         blockCypherAPIKey,
+		GlobalState:               globalState,
 		LastTradeDeSoPriceHistory: []LastTradePriceHistoryItem{},
 		PublicKeyBase58Prefix:     publicKeyBase58Prefix,
 		// We consider last trade prices from the last hour when determining the current price of DeSo.
@@ -1505,7 +1511,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 	// We serve multiple groups of routes from this endpoint.
 	fullRouteList := append([]Route{}, FrontendRoutes...)
 	fullRouteList = append(fullRouteList, fes.APIRoutes()...)
-	fullRouteList = append(fullRouteList, fes.GlobalStateRoutes()...)
+	fullRouteList = append(fullRouteList, fes.GlobalState.GlobalStateRoutes()...)
 
 	for _, route := range fullRouteList {
 		var handler http.Handler
