@@ -36,31 +36,31 @@ type GlobalState struct {
 func (gs *GlobalState) GlobalStateRoutes() []Route {
 	var GlobalStateRoutes = []Route{
 		{
-			"GlobalStatePutRemote",
+			"PutRemote",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGlobalStatePutRemote,
-			gs.GlobalStatePutRemote,
+			gs.PutRemote,
 			AdminAccess, // CheckSecret
 		},
 		{
-			"GlobalStateGetRemote",
+			"GetRemote",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGlobalStateGetRemote,
-			gs.GlobalStateGetRemote,
+			gs.GetRemote,
 			AdminAccess, // CheckSecret
 		},
 		{
-			"GlobalStateBatchGetRemote",
+			"BatchGetRemote",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGlobalStateBatchGetRemote,
-			gs.GlobalStateBatchGetRemote,
+			gs.BatchGetRemote,
 			AdminAccess, // CheckSecret
 		},
 		{
-			"GlobalStateDeleteRemote",
+			"DeleteRemote",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGlobalStateDeleteRemote,
-			gs.GlobalStateDeleteRemote,
+			gs.DeleteRemote,
 			AdminAccess, // CheckSecret
 		},
 		{
@@ -682,48 +682,48 @@ func GlobalStateKeyExemptPublicKey(publicKey []byte) []byte {
 	return key
 }
 
-type GlobalStatePutRemoteRequest struct {
+type PutRemoteRequest struct {
 	Key   []byte
 	Value []byte
 }
 
-type GlobalStatePutRemoteResponse struct {
+type PutRemoteResponse struct {
 }
 
-func (gs *GlobalState) GlobalStatePutRemote(ww http.ResponseWriter, rr *http.Request) {
+func (gs *GlobalState) PutRemote(ww http.ResponseWriter, rr *http.Request) {
 	// Parse the request.
 	decoder := json.NewDecoder(io.LimitReader(rr.Body, MaxRequestBodySizeBytes))
-	requestData := GlobalStatePutRemoteRequest{}
+	requestData := PutRemoteRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GlobalStatePutRemote: Problem parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("PutRemote: Problem parsing request body: %v", err))
 		return
 	}
 
 	// Call the put function. Note that this may also proxy to another node.
-	if err := gs.GlobalStatePut(requestData.Key, requestData.Value); err != nil {
+	if err := gs.Put(requestData.Key, requestData.Value); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"GlobalStatePutRemote: Error processing GlobalStatePut: %v", err))
+			"PutRemote: Error processing Put: %v", err))
 		return
 	}
 
 	// Return
-	res := GlobalStatePutRemoteResponse{}
+	res := PutRemoteResponse{}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GlobalStatePutRemote: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("PutRemote: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
 
-func (gs *GlobalState) CreateGlobalStatePutRequest(key []byte, value []byte) (
+func (gs *GlobalState) CreatePutRequest(key []byte, value []byte) (
 	_url string, _json_data []byte, _err error) {
 
-	req := GlobalStatePutRemoteRequest{
+	req := PutRemoteRequest{
 		Key:   key,
 		Value: value,
 	}
 	json_data, err := json.Marshal(req)
 	if err != nil {
-		return "", nil, fmt.Errorf("GlobalStatePut: Could not marshal JSON: %v", err)
+		return "", nil, fmt.Errorf("Put: Could not marshal JSON: %v", err)
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
@@ -733,25 +733,25 @@ func (gs *GlobalState) CreateGlobalStatePutRequest(key []byte, value []byte) (
 	return url, json_data, nil
 }
 
-func (gs *GlobalState) GlobalStatePut(key []byte, value []byte) error {
+func (gs *GlobalState) Put(key []byte, value []byte) error {
 	// If we have a remote node then use that node to fulfill this request.
 	if gs.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is hard to exercise in a test.
 
-		url, json_data, err := gs.CreateGlobalStatePutRequest(key, value)
+		url, json_data, err := gs.CreatePutRequest(key, value)
 		if err != nil {
-			return fmt.Errorf("GlobalStatePut: Error constructing request: %v", err)
+			return fmt.Errorf("Put: Error constructing request: %v", err)
 		}
 		res, err := http.Post(
 			url,
 			"application/json", /*contentType*/
 			bytes.NewBuffer(json_data))
 		if err != nil {
-			return fmt.Errorf("GlobalStatePut: Error processing remote request")
+			return fmt.Errorf("Put: Error processing remote request")
 		}
 		res.Body.Close()
 
-		//res := GlobalStatePutRemoteResponse{}
+		//res := PutRemoteResponse{}
 		//json.NewDecoder(resReturned.Body).Decode(&res)
 
 		// No error means nothing to return.
@@ -765,50 +765,50 @@ func (gs *GlobalState) GlobalStatePut(key []byte, value []byte) error {
 	})
 }
 
-type GlobalStateGetRemoteRequest struct {
+type GetRemoteRequest struct {
 	Key []byte
 }
 
-type GlobalStateGetRemoteResponse struct {
+type GetRemoteResponse struct {
 	Value []byte
 }
 
-func (gs *GlobalState) GlobalStateGetRemote(ww http.ResponseWriter, rr *http.Request) {
+func (gs *GlobalState) GetRemote(ww http.ResponseWriter, rr *http.Request) {
 	// Parse the request.
 	decoder := json.NewDecoder(io.LimitReader(rr.Body, MaxRequestBodySizeBytes))
-	requestData := GlobalStateGetRemoteRequest{}
+	requestData := GetRemoteRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GlobalStateGetRemote: Problem parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetRemote: Problem parsing request body: %v", err))
 		return
 	}
 
 	// Call the get function. Note that this may also proxy to another node.
-	val, err := gs.GlobalStateGet(requestData.Key)
+	val, err := gs.Get(requestData.Key)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"GlobalStateGetRemote: Error processing GlobalStateGet: %v", err))
+			"GetRemote: Error processing Get: %v", err))
 		return
 	}
 
 	// Return
-	res := GlobalStateGetRemoteResponse{
+	res := GetRemoteResponse{
 		Value: val,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GlobalStateGetRemote: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetRemote: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
 
-func (gs *GlobalState) CreateGlobalStateGetRequest(key []byte) (
+func (gs *GlobalState) CreateGetRequest(key []byte) (
 	_url string, _json_data []byte, _err error) {
 
-	req := GlobalStateGetRemoteRequest{
+	req := GetRemoteRequest{
 		Key: key,
 	}
 	json_data, err := json.Marshal(req)
 	if err != nil {
-		return "", nil, fmt.Errorf("GlobalStateGet: Could not marshal JSON: %v", err)
+		return "", nil, fmt.Errorf("Get: Could not marshal JSON: %v", err)
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
@@ -818,15 +818,15 @@ func (gs *GlobalState) CreateGlobalStateGetRequest(key []byte) (
 	return url, json_data, nil
 }
 
-func (gs *GlobalState) GlobalStateGet(key []byte) (value []byte, _err error) {
+func (gs *GlobalState) Get(key []byte) (value []byte, _err error) {
 	// If we have a remote node then use that node to fulfill this request.
 	if gs.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
-		url, json_data, err := gs.CreateGlobalStateGetRequest(key)
+		url, json_data, err := gs.CreateGetRequest(key)
 		if err != nil {
 			return nil, fmt.Errorf(
-				"GlobalStateGet: Error constructing request: %v", err)
+				"Get: Error constructing request: %v", err)
 		}
 
 		resReturned, err := http.Post(
@@ -834,10 +834,10 @@ func (gs *GlobalState) GlobalStateGet(key []byte) (value []byte, _err error) {
 			"application/json", /*contentType*/
 			bytes.NewBuffer(json_data))
 		if err != nil {
-			return nil, fmt.Errorf("GlobalStateGet: Error processing remote request")
+			return nil, fmt.Errorf("Get: Error processing remote request")
 		}
 
-		res := GlobalStateGetRemoteResponse{}
+		res := GetRemoteResponse{}
 		json.NewDecoder(resReturned.Body).Decode(&res)
 		resReturned.Body.Close()
 
@@ -860,56 +860,56 @@ func (gs *GlobalState) GlobalStateGet(key []byte) (value []byte, _err error) {
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("GlobalStateGet: Error copying value into new slice: %v", err)
+		return nil, fmt.Errorf("Get: Error copying value into new slice: %v", err)
 	}
 
 	return retValue, nil
 }
 
-type GlobalStateBatchGetRemoteRequest struct {
+type BatchGetRemoteRequest struct {
 	KeyList [][]byte
 }
 
-type GlobalStateBatchGetRemoteResponse struct {
+type BatchGetRemoteResponse struct {
 	ValueList [][]byte
 }
 
-func (gs *GlobalState) GlobalStateBatchGetRemote(ww http.ResponseWriter, rr *http.Request) {
+func (gs *GlobalState) BatchGetRemote(ww http.ResponseWriter, rr *http.Request) {
 	// Parse the request.
 	decoder := json.NewDecoder(io.LimitReader(rr.Body, MaxRequestBodySizeBytes))
-	requestData := GlobalStateBatchGetRemoteRequest{}
+	requestData := BatchGetRemoteRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GlobalStateBatchGetRemote: Problem parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("BatchGetRemote: Problem parsing request body: %v", err))
 		return
 	}
 
 	// Call the get function. Note that this may also proxy to another node.
-	values, err := gs.GlobalStateBatchGet(requestData.KeyList)
+	values, err := gs.BatchGet(requestData.KeyList)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"GlobalStateBatchGetRemote: Error processing GlobalStateBatchGet: %v", err))
+			"BatchGetRemote: Error processing BatchGet: %v", err))
 		return
 	}
 
 	// Return
-	res := GlobalStateBatchGetRemoteResponse{
+	res := BatchGetRemoteResponse{
 		ValueList: values,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GlobalStateBatchGetRemote: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("BatchGetRemote: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
 
-func (gs *GlobalState) CreateGlobalStateBatchGetRequest(keyList [][]byte) (
+func (gs *GlobalState) CreateBatchGetRequest(keyList [][]byte) (
 	_url string, _json_data []byte, _err error) {
 
-	req := GlobalStateBatchGetRemoteRequest{
+	req := BatchGetRemoteRequest{
 		KeyList: keyList,
 	}
 	json_data, err := json.Marshal(req)
 	if err != nil {
-		return "", nil, fmt.Errorf("GlobalStateBatchGet: Could not marshal JSON: %v", err)
+		return "", nil, fmt.Errorf("BatchGet: Could not marshal JSON: %v", err)
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
@@ -919,15 +919,15 @@ func (gs *GlobalState) CreateGlobalStateBatchGetRequest(keyList [][]byte) (
 	return url, json_data, nil
 }
 
-func (gs *GlobalState) GlobalStateBatchGet(keyList [][]byte) (value [][]byte, _err error) {
+func (gs *GlobalState) BatchGet(keyList [][]byte) (value [][]byte, _err error) {
 	// If we have a remote node then use that node to fulfill this request.
 	if gs.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
-		url, json_data, err := gs.CreateGlobalStateBatchGetRequest(keyList)
+		url, json_data, err := gs.CreateBatchGetRequest(keyList)
 		if err != nil {
 			return nil, fmt.Errorf(
-				"GlobalStateBatchGet: Error constructing request: %v", err)
+				"BatchGet: Error constructing request: %v", err)
 		}
 
 		resReturned, err := http.Post(
@@ -935,10 +935,10 @@ func (gs *GlobalState) GlobalStateBatchGet(keyList [][]byte) (value [][]byte, _e
 			"application/json", /*contentType*/
 			bytes.NewBuffer(json_data))
 		if err != nil {
-			return nil, fmt.Errorf("GlobalStateBatchGet: Error processing remote request")
+			return nil, fmt.Errorf("BatchGet: Error processing remote request")
 		}
 
-		res := GlobalStateBatchGetRemoteResponse{}
+		res := BatchGetRemoteResponse{}
 		json.NewDecoder(resReturned.Body).Decode(&res)
 		resReturned.Body.Close()
 
@@ -966,28 +966,28 @@ func (gs *GlobalState) GlobalStateBatchGet(keyList [][]byte) (value [][]byte, _e
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("GlobalStateBatchGet: Error copying value into new slice: %v", err)
+		return nil, fmt.Errorf("BatchGet: Error copying value into new slice: %v", err)
 	}
 
 	return retValueList, nil
 }
 
-type GlobalStateDeleteRemoteRequest struct {
+type DeleteRemoteRequest struct {
 	Key []byte
 }
 
-type GlobalStateDeleteRemoteResponse struct {
+type DeleteRemoteResponse struct {
 }
 
-func (gs *GlobalState) CreateGlobalStateDeleteRequest(key []byte) (
+func (gs *GlobalState) CreateDeleteRequest(key []byte) (
 	_url string, _json_data []byte, _err error) {
 
-	req := GlobalStateDeleteRemoteRequest{
+	req := DeleteRemoteRequest{
 		Key: key,
 	}
 	json_data, err := json.Marshal(req)
 	if err != nil {
-		return "", nil, fmt.Errorf("GlobalStateDelete: Could not marshal JSON: %v", err)
+		return "", nil, fmt.Errorf("Delete: Could not marshal JSON: %v", err)
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
@@ -997,38 +997,38 @@ func (gs *GlobalState) CreateGlobalStateDeleteRequest(key []byte) (
 	return url, json_data, nil
 }
 
-func (gs *GlobalState) GlobalStateDeleteRemote(ww http.ResponseWriter, rr *http.Request) {
+func (gs *GlobalState) DeleteRemote(ww http.ResponseWriter, rr *http.Request) {
 	// Parse the request.
 	decoder := json.NewDecoder(io.LimitReader(rr.Body, MaxRequestBodySizeBytes))
-	requestData := GlobalStateDeleteRemoteRequest{}
+	requestData := DeleteRemoteRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GlobalStateDeleteRemote: Problem parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("DeleteRemote: Problem parsing request body: %v", err))
 		return
 	}
 
 	// Call the Delete function. Note that this may also proxy to another node.
-	if err := gs.GlobalStateDelete(requestData.Key); err != nil {
+	if err := gs.Delete(requestData.Key); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"GlobalStateDeleteRemote: Error processing GlobalStateDelete: %v", err))
+			"DeleteRemote: Error processing Delete: %v", err))
 		return
 	}
 
 	// Return
-	res := GlobalStateDeleteRemoteResponse{}
+	res := DeleteRemoteResponse{}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GlobalStateDeleteRemote: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("DeleteRemote: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
 
-func (gs *GlobalState) GlobalStateDelete(key []byte) error {
+func (gs *GlobalState) Delete(key []byte) error {
 	// If we have a remote node then use that node to fulfill this request.
 	if gs.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
-		url, json_data, err := gs.CreateGlobalStateDeleteRequest(key)
+		url, json_data, err := gs.CreateDeleteRequest(key)
 		if err != nil {
-			return fmt.Errorf("GlobalStateDelete: Could not construct request: %v", err)
+			return fmt.Errorf("Delete: Could not construct request: %v", err)
 		}
 
 		res, err := http.Post(
@@ -1036,11 +1036,11 @@ func (gs *GlobalState) GlobalStateDelete(key []byte) error {
 			"application/json", /*contentType*/
 			bytes.NewBuffer(json_data))
 		if err != nil {
-			return fmt.Errorf("GlobalStateDelete: Error processing remote request")
+			return fmt.Errorf("Delete: Error processing remote request")
 		}
 
 		res.Body.Close()
-		//res := GlobalStateDeleteRemoteResponse{}
+		//res := DeleteRemoteResponse{}
 		//json.NewDecoder(resReturned.Body).Decode(&res)
 
 		// No error means nothing to return.
@@ -1054,7 +1054,7 @@ func (gs *GlobalState) GlobalStateDelete(key []byte) error {
 	})
 }
 
-type GlobalStateSeekRemoteRequest struct {
+type SeekRemoteRequest struct {
 	StartPrefix    []byte
 	ValidForPrefix []byte
 	MaxKeyLen      int
@@ -1062,16 +1062,16 @@ type GlobalStateSeekRemoteRequest struct {
 	Reverse        bool
 	FetchValues    bool
 }
-type GlobalStateSeekRemoteResponse struct {
+type SeekRemoteResponse struct {
 	KeysFound [][]byte
 	ValsFound [][]byte
 }
 
-func (gs *GlobalState) CreateGlobalStateSeekRequest(startPrefix []byte, validForPrefix []byte,
+func (gs *GlobalState) CreateSeekRequest(startPrefix []byte, validForPrefix []byte,
 	maxKeyLen int, numToFetch int, reverse bool, fetchValues bool) (
 	_url string, _json_data []byte, _err error) {
 
-	req := GlobalStateSeekRemoteRequest{
+	req := SeekRemoteRequest{
 		StartPrefix:    startPrefix,
 		ValidForPrefix: validForPrefix,
 		MaxKeyLen:      maxKeyLen,
@@ -1081,7 +1081,7 @@ func (gs *GlobalState) CreateGlobalStateSeekRequest(startPrefix []byte, validFor
 	}
 	json_data, err := json.Marshal(req)
 	if err != nil {
-		return "", nil, fmt.Errorf("GlobalStateSeek: Could not marshal JSON: %v", err)
+		return "", nil, fmt.Errorf("Seek: Could not marshal JSON: %v", err)
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
@@ -1090,17 +1090,18 @@ func (gs *GlobalState) CreateGlobalStateSeekRequest(startPrefix []byte, validFor
 
 	return url, json_data, nil
 }
+
 func (gs *GlobalState) GlobalStateSeekRemote(ww http.ResponseWriter, rr *http.Request) {
 	// Parse the request.
 	decoder := json.NewDecoder(io.LimitReader(rr.Body, MaxRequestBodySizeBytes))
-	requestData := GlobalStateSeekRemoteRequest{}
+	requestData := SeekRemoteRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GlobalStateSeekRemote: Problem parsing request body: %v", err))
 		return
 	}
 
 	// Call the get function. Note that this may also proxy to another node.
-	keys, values, err := gs.GlobalStateSeek(
+	keys, values, err := gs.Seek(
 		requestData.StartPrefix,
 		requestData.ValidForPrefix,
 		requestData.MaxKeyLen,
@@ -1110,12 +1111,12 @@ func (gs *GlobalState) GlobalStateSeekRemote(ww http.ResponseWriter, rr *http.Re
 	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"GlobalStateSeekRemote: Error processing GlobalStateSeek: %v", err))
+			"GlobalStateSeekRemote: Error processing Seek: %v", err))
 		return
 	}
 
 	// Return
-	res := GlobalStateSeekRemoteResponse{
+	res := SeekRemoteResponse{
 		KeysFound: keys,
 		ValsFound: values,
 	}
@@ -1125,7 +1126,7 @@ func (gs *GlobalState) GlobalStateSeekRemote(ww http.ResponseWriter, rr *http.Re
 	}
 }
 
-func (gs *GlobalState) GlobalStateSeek(startPrefix []byte, validForPrefix []byte,
+func (gs *GlobalState) Seek(startPrefix []byte, validForPrefix []byte,
 	maxKeyLen int, numToFetch int, reverse bool, fetchValues bool) (
 	_keysFound [][]byte, _valsFound [][]byte, _err error) {
 
@@ -1133,7 +1134,7 @@ func (gs *GlobalState) GlobalStateSeek(startPrefix []byte, validForPrefix []byte
 	if gs.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
-		url, json_data, err := gs.CreateGlobalStateSeekRequest(
+		url, json_data, err := gs.CreateSeekRequest(
 			startPrefix,
 			validForPrefix,
 			maxKeyLen,
@@ -1142,7 +1143,7 @@ func (gs *GlobalState) GlobalStateSeek(startPrefix []byte, validForPrefix []byte
 			fetchValues)
 		if err != nil {
 			return nil, nil, fmt.Errorf(
-				"GlobalStateSeek: Error constructing request: %v", err)
+				"Seek: Error constructing request: %v", err)
 		}
 
 		resReturned, err := http.Post(
@@ -1150,10 +1151,10 @@ func (gs *GlobalState) GlobalStateSeek(startPrefix []byte, validForPrefix []byte
 			"application/json", /*contentType*/
 			bytes.NewBuffer(json_data))
 		if err != nil {
-			return nil, nil, fmt.Errorf("GlobalStateSeek: Error processing remote request")
+			return nil, nil, fmt.Errorf("Seek: Error processing remote request")
 		}
 
-		res := GlobalStateSeekRemoteResponse{}
+		res := SeekRemoteResponse{}
 		json.NewDecoder(resReturned.Body).Decode(&res)
 		resReturned.Body.Close()
 
@@ -1165,7 +1166,7 @@ func (gs *GlobalState) GlobalStateSeek(startPrefix []byte, validForPrefix []byte
 	retKeys, retVals, err := lib.DBGetPaginatedKeysAndValuesForPrefix(gs.GlobalStateDB, startPrefix,
 		validForPrefix, maxKeyLen, numToFetch, reverse, fetchValues)
 	if err != nil {
-		return nil, nil, fmt.Errorf("GlobalStateSeek: Error getting paginated keys and values: %v", err)
+		return nil, nil, fmt.Errorf("Seek: Error getting paginated keys and values: %v", err)
 	}
 
 	return retKeys, retVals, nil

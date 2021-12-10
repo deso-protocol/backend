@@ -125,7 +125,7 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, filterValue []byte,
 		return pkidMap, nil
 	}
 	// Otherwise, we're using our own global state. Seek global state for all restricted public keys of this type.
-	publicKeys, states, err := fes.GlobalState.GlobalStateSeek(
+	publicKeys, states, err := fes.GlobalState.Seek(
 		prefix,
 		prefix, /*validForPrefix*/
 		0,     /*maxKeyLen -- ignored since reverse is false*/

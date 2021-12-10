@@ -76,7 +76,7 @@ func TestGlobalStateServicePutGetDeleteWithRemoteNode(t *testing.T) {
 		apiServer.router.ServeHTTP(response, request)
 		assert.Equal(200, response.Code, "200 response expected")
 		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
-		res := GlobalStateGetRemoteResponse{}
+		res := GetRemoteResponse{}
 		if err := decoder.Decode(&res); err != nil {
 			require.NoError(err, "Problem decoding response")
 		}
@@ -94,7 +94,7 @@ func TestGlobalStateServicePutGetDeleteWithRemoteNode(t *testing.T) {
 		apiServer.router.ServeHTTP(response, request)
 		assert.Equal(200, response.Code, "200 response expected")
 		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
-		res := GlobalStatePutRemoteResponse{}
+		res := PutRemoteResponse{}
 		if err := decoder.Decode(&res); err != nil {
 			require.NoError(err, "Problem decoding response")
 		}
@@ -110,7 +110,7 @@ func TestGlobalStateServicePutGetDeleteWithRemoteNode(t *testing.T) {
 		apiServer.router.ServeHTTP(response, request)
 		assert.Equal(200, response.Code, "200 response expected")
 		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
-		res := GlobalStateGetRemoteResponse{}
+		res := GetRemoteResponse{}
 		if err := decoder.Decode(&res); err != nil {
 			require.NoError(err, "Problem decoding response")
 		}
@@ -129,7 +129,7 @@ func TestGlobalStateServicePutGetDeleteWithRemoteNode(t *testing.T) {
 		apiServer.router.ServeHTTP(response, request)
 		assert.Equal(200, response.Code, "200 response expected")
 		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
-		res := GlobalStateBatchGetRemoteResponse{}
+		res := BatchGetRemoteResponse{}
 		if err := decoder.Decode(&res); err != nil {
 			require.NoError(err, "Problem decoding response")
 		}
@@ -155,7 +155,7 @@ func TestGlobalStateServicePutGetDeleteWithRemoteNode(t *testing.T) {
 		apiServer.router.ServeHTTP(response, request)
 		assert.Equal(200, response.Code, "200 response expected")
 		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
-		res := GlobalStateDeleteRemoteResponse{}
+		res := DeleteRemoteResponse{}
 		if err := decoder.Decode(&res); err != nil {
 			require.NoError(err, "Problem decoding response")
 		}
@@ -171,7 +171,7 @@ func TestGlobalStateServicePutGetDeleteWithRemoteNode(t *testing.T) {
 		apiServer.router.ServeHTTP(response, request)
 		assert.Equal(200, response.Code, "200 response expected")
 		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
-		res := GlobalStateGetRemoteResponse{}
+		res := GetRemoteResponse{}
 		if err := decoder.Decode(&res); err != nil {
 			require.NoError(err, "Problem decoding response")
 		}
