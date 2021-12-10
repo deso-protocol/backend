@@ -28,7 +28,7 @@ const (
 type GlobalState struct {
 	GlobalStateRemoteNode   string
 	GlobalStateRemoteSecret string
-	GlobalStateDB *badger.DB
+	GlobalStateDB           *badger.DB
 }
 
 // GlobalStateRoutes returns the routes for managing global state.
@@ -368,7 +368,7 @@ const (
 	INVEST_OTHERS_SELL TutorialStatus = "InvestInOthersSellComplete"
 	CREATE_PROFILE     TutorialStatus = "TutorialCreateProfileComplete"
 	INVEST_SELF        TutorialStatus = "InvestInYourselfComplete"
-	FOLLOW_CREATORS	   TutorialStatus = "FollowCreatorsComplete"
+	FOLLOW_CREATORS    TutorialStatus = "FollowCreatorsComplete"
 	DIAMOND            TutorialStatus = "GiveADiamondComplete"
 	COMPLETE           TutorialStatus = "TutorialComplete"
 )

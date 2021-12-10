@@ -358,8 +358,8 @@ func NewAPIServer(
 
 	globalState := &GlobalState{
 		GlobalStateRemoteSecret: config.GlobalStateRemoteSecret,
-		GlobalStateRemoteNode: config.GlobalStateRemoteNode,
-		GlobalStateDB:             globalStateDB,
+		GlobalStateRemoteNode:   config.GlobalStateRemoteNode,
+		GlobalStateDB:           globalStateDB,
 	}
 
 	if globalStateDB == nil && globalState.GlobalStateRemoteNode == "" {
@@ -383,7 +383,7 @@ func NewAPIServer(
 		Config:                    config,
 		Twilio:                    twilio,
 		BlockCypherAPIKey:         blockCypherAPIKey,
-		GlobalState: globalState,
+		GlobalState:               globalState,
 		LastTradeDeSoPriceHistory: []LastTradePriceHistoryItem{},
 		PublicKeyBase58Prefix:     publicKeyBase58Prefix,
 		// We consider last trade prices from the last hour when determining the current price of DeSo.
