@@ -100,7 +100,7 @@ func (fes *APIServer) UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts map[lib
 		startTimestampNanos = fes.LastHotFeedApprovedPostOpProcessedTstampNanos
 	}
 	startPrefix := GlobalStateSeekKeyForHotFeedApprovedPostOps(startTimestampNanos + 1)
-	opKeys, opVals, err := fes.GlobalStateSeek(
+	opKeys, opVals, err := fes.GlobalState.GlobalStateSeek(
 		startPrefix,
 		_GlobalStatePrefixForHotFeedApprovedPostOps, /*validForPrefix*/
 		0,     /*maxKeyLen -- ignored since reverse is false*/
@@ -168,7 +168,7 @@ func (fes *APIServer) UpdateHotFeedPKIDMultipliersMap(
 		startTimestampNanos = fes.LastHotFeedPKIDMultiplierOpProcessedTstampNanos
 	}
 	startPrefix := GlobalStateSeekKeyForHotFeedPKIDMultiplierOps(startTimestampNanos + 1)
-	opKeys, opVals, err := fes.GlobalStateSeek(
+	opKeys, opVals, err := fes.GlobalState.GlobalStateSeek(
 		startPrefix,
 		_GlobalStatePrefixForHotFeedPKIDMultiplierOps, /*validForPrefix*/
 		0,     /*maxKeyLen -- ignored since reverse is false*/
@@ -271,7 +271,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		// The hot feed go routine has not been run yet since constants have not been set.
 		foundNewConstants = true
 		// Set the default constants in GlobalState and then on the server object.
-		err := fes.GlobalStatePut(
+		err := fes.GlobalState.GlobalStatePut(
 			_GlobalStatePrefixForHotFeedInteractionCap,
 			lib.EncodeUint64(DefaultHotFeedInteractionCap),
 		)
@@ -279,7 +279,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 			glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put InteractionCap: %v", err)
 			return nil
 		}
-		err = fes.GlobalStatePut(
+		err = fes.GlobalState.GlobalStatePut(
 			_GlobalStatePrefixForHotFeedTimeDecayBlocks,
 			lib.EncodeUint64(DefaultHotFeedTimeDecayBlocks),
 		)
@@ -444,7 +444,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 func (fes *APIServer) GetHotFeedConstantsFromGlobalState() (
 	_interactionCap uint64, _timeDecayBlocks uint64, _err error,
 ) {
-	interactionCapBytes, err := fes.GlobalStateGet(_GlobalStatePrefixForHotFeedInteractionCap)
+	interactionCapBytes, err := fes.GlobalState.GlobalStateGet(_GlobalStatePrefixForHotFeedInteractionCap)
 	if err != nil {
 		return 0, 0, nil
 	}
@@ -453,7 +453,7 @@ func (fes *APIServer) GetHotFeedConstantsFromGlobalState() (
 		interactionCap = lib.DecodeUint64(interactionCapBytes)
 	}
 
-	timeDecayBlocksBytes, err := fes.GlobalStateGet(_GlobalStatePrefixForHotFeedTimeDecayBlocks)
+	timeDecayBlocksBytes, err := fes.GlobalState.GlobalStateGet(_GlobalStatePrefixForHotFeedTimeDecayBlocks)
 	if err != nil {
 		return 0, 0, nil
 	}
@@ -692,7 +692,7 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 			// Get all pinned posts and prepend them to the list of postEntries
 			pinnedStartKey := _GlobalStatePrefixTstampNanosPinnedPostHash
 			// todo: how many posts can we really pin?
-			keys, _, err := fes.GlobalStateSeek(pinnedStartKey, pinnedStartKey, maxKeyLen, 10, true, false)
+			keys, _, err := fes.GlobalState.GlobalStateSeek(pinnedStartKey, pinnedStartKey, maxKeyLen, 10, true, false)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("HandleHotFeedPageRequest: Getting pinned posts: %v", err))
 			}
@@ -754,7 +754,7 @@ func (fes *APIServer) AdminUpdateHotFeedAlgorithm(ww http.ResponseWriter, req *h
 	}
 
 	if requestData.InteractionCap > 0 {
-		err := fes.GlobalStatePut(
+		err := fes.GlobalState.GlobalStatePut(
 			_GlobalStatePrefixForHotFeedInteractionCap,
 			lib.EncodeUint64(uint64(requestData.InteractionCap)),
 		)
@@ -765,7 +765,7 @@ func (fes *APIServer) AdminUpdateHotFeedAlgorithm(ww http.ResponseWriter, req *h
 	}
 
 	if requestData.TimeDecayBlocks > 0 {
-		err := fes.GlobalStatePut(
+		err := fes.GlobalState.GlobalStatePut(
 			_GlobalStatePrefixForHotFeedTimeDecayBlocks,
 			lib.EncodeUint64(uint64(requestData.TimeDecayBlocks)),
 		)
@@ -858,7 +858,7 @@ func (fes *APIServer) AdminUpdateHotFeedPostMultiplier(ww http.ResponseWriter, r
 	gob.NewEncoder(hotFeedOpDataBuf).Encode(hotFeedOp)
 	opTimestamp := uint64(time.Now().UnixNano())
 	hotFeedOpKey := GlobalStateKeyForHotFeedApprovedPostOp(opTimestamp, postHash)
-	err := fes.GlobalStatePut(hotFeedOpKey, hotFeedOpDataBuf.Bytes())
+	err := fes.GlobalState.GlobalStatePut(hotFeedOpKey, hotFeedOpDataBuf.Bytes())
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateHotFeedPostMultiplier: Problem putting hotFeedOp: %v", err))
 		return
@@ -926,7 +926,7 @@ func (fes *APIServer) AdminUpdateHotFeedUserMultiplier(ww http.ResponseWriter, r
 	gob.NewEncoder(hotFeedOpDataBuf).Encode(hotFeedOp)
 	opTimestamp := uint64(time.Now().UnixNano())
 	hotFeedOpKey := GlobalStateKeyForHotFeedPKIDMultiplierOp(opTimestamp, pkidEntry.PKID)
-	err = fes.GlobalStatePut(hotFeedOpKey, hotFeedOpDataBuf.Bytes())
+	err = fes.GlobalState.GlobalStatePut(hotFeedOpKey, hotFeedOpDataBuf.Bytes())
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateHotFeedUserMultiplier: Problem putting hotFeedOp: %v", err))
 		return

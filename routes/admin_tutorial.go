@@ -58,13 +58,13 @@ func (fes *APIServer) AdminUpdateTutorialCreator(ww http.ResponseWriter, req *ht
 	}
 
 	if requestData.IsRemoval {
-		if err = fes.GlobalStateDelete(key); err != nil {
+		if err = fes.GlobalState.GlobalStateDelete(key); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf(
 				"AdminUpdateTutorialCreator: Error processing GlobalStateDelete: %v", err))
 			return
 		}
 	} else {
-		if err = fes.GlobalStatePut(key, []byte{1}); err != nil {
+		if err = fes.GlobalState.GlobalStatePut(key, []byte{1}); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf(
 				"AdminUpdateTutorialCreator: Error processing GlobalStatePut: %v", err))
 			return

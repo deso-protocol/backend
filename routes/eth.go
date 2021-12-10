@@ -126,7 +126,7 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to encode ETH transaction: %v", err))
 		return
 	}
-	if err = fes.GlobalStatePut(globalStateKey, globalStateVal.Bytes()); err != nil {
+	if err = fes.GlobalState.GlobalStatePut(globalStateKey, globalStateVal.Bytes()); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error processing GlobalStatePut: %v", err))
 		return
 	}
@@ -219,7 +219,7 @@ func (fes *APIServer) finishETHTx(ethTx *InfuraTx, ethTxLog *ETHTxLog) (desoTxHa
 		return nil, errors.New(fmt.Sprintf("Failed to encode ETH transaction: %v", err))
 	}
 
-	if err = fes.GlobalStatePut(globalStateKey, globalStateVal.Bytes()); err != nil {
+	if err = fes.GlobalState.GlobalStatePut(globalStateKey, globalStateVal.Bytes()); err != nil {
 		return nil, errors.New(fmt.Sprintf("Error processing GlobalStatePut: %v", err))
 	}
 
@@ -270,7 +270,7 @@ func (fes *APIServer) AdminProcessETHTx(ww http.ResponseWriter, req *http.Reques
 
 	// Fetch the log data from global state
 	globalStateKey := GlobalStateKeyETHPurchases(requestData.ETHTxHash)
-	globalStateLog, err := fes.GlobalStateGet(globalStateKey)
+	globalStateLog, err := fes.GlobalState.GlobalStateGet(globalStateKey)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Error processing GlobalStateGet: %v", err))
 		return

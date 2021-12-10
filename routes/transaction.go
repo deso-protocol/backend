@@ -212,7 +212,7 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgDeSoTxn, re
 			if postEntriesInLastDay < maxAutoWhitelistPostsPerDay {
 				dbKey := GlobalStateKeyForTstampPostHash(postEntry.TimestampNanos, postHash)
 				// Encode the post entry and stick it in the database.
-				if err = fes.GlobalStatePut(dbKey, []byte{1}); err != nil {
+				if err = fes.GlobalState.GlobalStatePut(dbKey, []byte{1}); err != nil {
 					return errors.Errorf("Problem adding post to global state: %v", err)
 				}
 			}
@@ -1756,13 +1756,13 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: No PKID found for public key: %v", requestData.CreatorPublicKeyBase58Check))
 				return
 			}
-			wellKnownVal, err := fes.GlobalStateGet(GlobalStateKeyWellKnownTutorialCreators(creatorPKID.PKID))
+			wellKnownVal, err := fes.GlobalState.GlobalStateGet(GlobalStateKeyWellKnownTutorialCreators(creatorPKID.PKID))
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Error trying to look up creator in well known index: %v", err))
 				return
 			}
 			if wellKnownVal == nil {
-				upAndComing, err := fes.GlobalStateGet(GlobalStateKeyUpAndComingTutorialCreators(creatorPKID.PKID))
+				upAndComing, err := fes.GlobalState.GlobalStateGet(GlobalStateKeyUpAndComingTutorialCreators(creatorPKID.PKID))
 				if err != nil {
 					_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Error trying to look up creator in up and coming index: %v", err))
 					return

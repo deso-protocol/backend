@@ -2145,7 +2145,6 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 		}
 
 		for ii, txIDBytes := range valsFound {
-			currentIndexTest := int64(lib.DecodeUint32(keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]))
 			txID := &lib.BlockHash{}
 			copy(txID[:], txIDBytes)
 

@@ -25,43 +25,49 @@ const (
 	RoutePathGlobalStateSeekRemote     = "/api/v1/global-state/seek"
 )
 
+type GlobalState struct {
+	GlobalStateRemoteNode   string
+	GlobalStateRemoteSecret string
+	GlobalStateDB *badger.DB
+}
+
 // GlobalStateRoutes returns the routes for managing global state.
 // Note that these routes are generally protected by a shared_secret
-func (fes *APIServer) GlobalStateRoutes() []Route {
+func (gs *GlobalState) GlobalStateRoutes() []Route {
 	var GlobalStateRoutes = []Route{
 		{
 			"GlobalStatePutRemote",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGlobalStatePutRemote,
-			fes.GlobalStatePutRemote,
+			gs.GlobalStatePutRemote,
 			AdminAccess, // CheckSecret
 		},
 		{
 			"GlobalStateGetRemote",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGlobalStateGetRemote,
-			fes.GlobalStateGetRemote,
+			gs.GlobalStateGetRemote,
 			AdminAccess, // CheckSecret
 		},
 		{
 			"GlobalStateBatchGetRemote",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGlobalStateBatchGetRemote,
-			fes.GlobalStateBatchGetRemote,
+			gs.GlobalStateBatchGetRemote,
 			AdminAccess, // CheckSecret
 		},
 		{
 			"GlobalStateDeleteRemote",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGlobalStateDeleteRemote,
-			fes.GlobalStateDeleteRemote,
+			gs.GlobalStateDeleteRemote,
 			AdminAccess, // CheckSecret
 		},
 		{
 			"GlobalStateSeekRemote",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGlobalStateSeekRemote,
-			fes.GlobalStateSeekRemote,
+			gs.GlobalStateSeekRemote,
 			AdminAccess, // CheckSecret
 		},
 	}
@@ -684,7 +690,7 @@ type GlobalStatePutRemoteRequest struct {
 type GlobalStatePutRemoteResponse struct {
 }
 
-func (fes *APIServer) GlobalStatePutRemote(ww http.ResponseWriter, rr *http.Request) {
+func (gs *GlobalState) GlobalStatePutRemote(ww http.ResponseWriter, rr *http.Request) {
 	// Parse the request.
 	decoder := json.NewDecoder(io.LimitReader(rr.Body, MaxRequestBodySizeBytes))
 	requestData := GlobalStatePutRemoteRequest{}
@@ -694,7 +700,7 @@ func (fes *APIServer) GlobalStatePutRemote(ww http.ResponseWriter, rr *http.Requ
 	}
 
 	// Call the put function. Note that this may also proxy to another node.
-	if err := fes.GlobalStatePut(requestData.Key, requestData.Value); err != nil {
+	if err := gs.GlobalStatePut(requestData.Key, requestData.Value); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GlobalStatePutRemote: Error processing GlobalStatePut: %v", err))
 		return
@@ -708,7 +714,7 @@ func (fes *APIServer) GlobalStatePutRemote(ww http.ResponseWriter, rr *http.Requ
 	}
 }
 
-func (fes *APIServer) CreateGlobalStatePutRequest(key []byte, value []byte) (
+func (gs *GlobalState) CreateGlobalStatePutRequest(key []byte, value []byte) (
 	_url string, _json_data []byte, _err error) {
 
 	req := GlobalStatePutRemoteRequest{
@@ -721,18 +727,18 @@ func (fes *APIServer) CreateGlobalStatePutRequest(key []byte, value []byte) (
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
-		fes.Config.GlobalStateRemoteNode, RoutePathGlobalStatePutRemote,
-		GlobalStateSharedSecretParam, fes.Config.GlobalStateRemoteSecret)
+		gs.GlobalStateRemoteNode, RoutePathGlobalStatePutRemote,
+		GlobalStateSharedSecretParam, gs.GlobalStateRemoteSecret)
 
 	return url, json_data, nil
 }
 
-func (fes *APIServer) GlobalStatePut(key []byte, value []byte) error {
+func (gs *GlobalState) GlobalStatePut(key []byte, value []byte) error {
 	// If we have a remote node then use that node to fulfill this request.
-	if fes.Config.GlobalStateRemoteNode != "" {
+	if gs.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is hard to exercise in a test.
 
-		url, json_data, err := fes.CreateGlobalStatePutRequest(key, value)
+		url, json_data, err := gs.CreateGlobalStatePutRequest(key, value)
 		if err != nil {
 			return fmt.Errorf("GlobalStatePut: Error constructing request: %v", err)
 		}
@@ -754,7 +760,7 @@ func (fes *APIServer) GlobalStatePut(key []byte, value []byte) error {
 
 	// If we get here, it means we don't have a remote node so store the
 	// data in our local db.
-	return fes.GlobalStateDB.Update(func(txn *badger.Txn) error {
+	return gs.GlobalStateDB.Update(func(txn *badger.Txn) error {
 		return txn.Set(key, value)
 	})
 }
@@ -767,7 +773,7 @@ type GlobalStateGetRemoteResponse struct {
 	Value []byte
 }
 
-func (fes *APIServer) GlobalStateGetRemote(ww http.ResponseWriter, rr *http.Request) {
+func (gs *GlobalState) GlobalStateGetRemote(ww http.ResponseWriter, rr *http.Request) {
 	// Parse the request.
 	decoder := json.NewDecoder(io.LimitReader(rr.Body, MaxRequestBodySizeBytes))
 	requestData := GlobalStateGetRemoteRequest{}
@@ -777,7 +783,7 @@ func (fes *APIServer) GlobalStateGetRemote(ww http.ResponseWriter, rr *http.Requ
 	}
 
 	// Call the get function. Note that this may also proxy to another node.
-	val, err := fes.GlobalStateGet(requestData.Key)
+	val, err := gs.GlobalStateGet(requestData.Key)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GlobalStateGetRemote: Error processing GlobalStateGet: %v", err))
@@ -794,7 +800,7 @@ func (fes *APIServer) GlobalStateGetRemote(ww http.ResponseWriter, rr *http.Requ
 	}
 }
 
-func (fes *APIServer) CreateGlobalStateGetRequest(key []byte) (
+func (gs *GlobalState) CreateGlobalStateGetRequest(key []byte) (
 	_url string, _json_data []byte, _err error) {
 
 	req := GlobalStateGetRemoteRequest{
@@ -806,18 +812,18 @@ func (fes *APIServer) CreateGlobalStateGetRequest(key []byte) (
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
-		fes.Config.GlobalStateRemoteNode, RoutePathGlobalStateGetRemote,
-		GlobalStateSharedSecretParam, fes.Config.GlobalStateRemoteSecret)
+		gs.GlobalStateRemoteNode, RoutePathGlobalStateGetRemote,
+		GlobalStateSharedSecretParam, gs.GlobalStateRemoteSecret)
 
 	return url, json_data, nil
 }
 
-func (fes *APIServer) GlobalStateGet(key []byte) (value []byte, _err error) {
+func (gs *GlobalState) GlobalStateGet(key []byte) (value []byte, _err error) {
 	// If we have a remote node then use that node to fulfill this request.
-	if fes.Config.GlobalStateRemoteNode != "" {
+	if gs.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
-		url, json_data, err := fes.CreateGlobalStateGetRequest(key)
+		url, json_data, err := gs.CreateGlobalStateGetRequest(key)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"GlobalStateGet: Error constructing request: %v", err)
@@ -841,7 +847,7 @@ func (fes *APIServer) GlobalStateGet(key []byte) (value []byte, _err error) {
 	// If we get here, it means we don't have a remote node so get the
 	// data from our local db.
 	var retValue []byte
-	err := fes.GlobalStateDB.View(func(txn *badger.Txn) error {
+	err := gs.GlobalStateDB.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(key)
 		if err != nil {
 			return nil
@@ -868,7 +874,7 @@ type GlobalStateBatchGetRemoteResponse struct {
 	ValueList [][]byte
 }
 
-func (fes *APIServer) GlobalStateBatchGetRemote(ww http.ResponseWriter, rr *http.Request) {
+func (gs *GlobalState) GlobalStateBatchGetRemote(ww http.ResponseWriter, rr *http.Request) {
 	// Parse the request.
 	decoder := json.NewDecoder(io.LimitReader(rr.Body, MaxRequestBodySizeBytes))
 	requestData := GlobalStateBatchGetRemoteRequest{}
@@ -878,7 +884,7 @@ func (fes *APIServer) GlobalStateBatchGetRemote(ww http.ResponseWriter, rr *http
 	}
 
 	// Call the get function. Note that this may also proxy to another node.
-	values, err := fes.GlobalStateBatchGet(requestData.KeyList)
+	values, err := gs.GlobalStateBatchGet(requestData.KeyList)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GlobalStateBatchGetRemote: Error processing GlobalStateBatchGet: %v", err))
@@ -895,7 +901,7 @@ func (fes *APIServer) GlobalStateBatchGetRemote(ww http.ResponseWriter, rr *http
 	}
 }
 
-func (fes *APIServer) CreateGlobalStateBatchGetRequest(keyList [][]byte) (
+func (gs *GlobalState) CreateGlobalStateBatchGetRequest(keyList [][]byte) (
 	_url string, _json_data []byte, _err error) {
 
 	req := GlobalStateBatchGetRemoteRequest{
@@ -907,18 +913,18 @@ func (fes *APIServer) CreateGlobalStateBatchGetRequest(keyList [][]byte) (
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
-		fes.Config.GlobalStateRemoteNode, RoutePathGlobalStateBatchGetRemote,
-		GlobalStateSharedSecretParam, fes.Config.GlobalStateRemoteSecret)
+		gs.GlobalStateRemoteNode, RoutePathGlobalStateBatchGetRemote,
+		GlobalStateSharedSecretParam, gs.GlobalStateRemoteSecret)
 
 	return url, json_data, nil
 }
 
-func (fes *APIServer) GlobalStateBatchGet(keyList [][]byte) (value [][]byte, _err error) {
+func (gs *GlobalState) GlobalStateBatchGet(keyList [][]byte) (value [][]byte, _err error) {
 	// If we have a remote node then use that node to fulfill this request.
-	if fes.Config.GlobalStateRemoteNode != "" {
+	if gs.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
-		url, json_data, err := fes.CreateGlobalStateBatchGetRequest(keyList)
+		url, json_data, err := gs.CreateGlobalStateBatchGetRequest(keyList)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"GlobalStateBatchGet: Error constructing request: %v", err)
@@ -942,7 +948,7 @@ func (fes *APIServer) GlobalStateBatchGet(keyList [][]byte) (value [][]byte, _er
 	// If we get here, it means we don't have a remote node so get the
 	// data from our local db.
 	var retValueList [][]byte
-	err := fes.GlobalStateDB.View(func(txn *badger.Txn) error {
+	err := gs.GlobalStateDB.View(func(txn *badger.Txn) error {
 		for _, key := range keyList {
 			item, err := txn.Get(key)
 			if err != nil {
@@ -973,7 +979,7 @@ type GlobalStateDeleteRemoteRequest struct {
 type GlobalStateDeleteRemoteResponse struct {
 }
 
-func (fes *APIServer) CreateGlobalStateDeleteRequest(key []byte) (
+func (gs *GlobalState) CreateGlobalStateDeleteRequest(key []byte) (
 	_url string, _json_data []byte, _err error) {
 
 	req := GlobalStateDeleteRemoteRequest{
@@ -985,13 +991,13 @@ func (fes *APIServer) CreateGlobalStateDeleteRequest(key []byte) (
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
-		fes.Config.GlobalStateRemoteNode, RoutePathGlobalStateDeleteRemote,
-		GlobalStateSharedSecretParam, fes.Config.GlobalStateRemoteSecret)
+		gs.GlobalStateRemoteNode, RoutePathGlobalStateDeleteRemote,
+		GlobalStateSharedSecretParam, gs.GlobalStateRemoteSecret)
 
 	return url, json_data, nil
 }
 
-func (fes *APIServer) GlobalStateDeleteRemote(ww http.ResponseWriter, rr *http.Request) {
+func (gs *GlobalState) GlobalStateDeleteRemote(ww http.ResponseWriter, rr *http.Request) {
 	// Parse the request.
 	decoder := json.NewDecoder(io.LimitReader(rr.Body, MaxRequestBodySizeBytes))
 	requestData := GlobalStateDeleteRemoteRequest{}
@@ -1001,7 +1007,7 @@ func (fes *APIServer) GlobalStateDeleteRemote(ww http.ResponseWriter, rr *http.R
 	}
 
 	// Call the Delete function. Note that this may also proxy to another node.
-	if err := fes.GlobalStateDelete(requestData.Key); err != nil {
+	if err := gs.GlobalStateDelete(requestData.Key); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GlobalStateDeleteRemote: Error processing GlobalStateDelete: %v", err))
 		return
@@ -1015,12 +1021,12 @@ func (fes *APIServer) GlobalStateDeleteRemote(ww http.ResponseWriter, rr *http.R
 	}
 }
 
-func (fes *APIServer) GlobalStateDelete(key []byte) error {
+func (gs *GlobalState) GlobalStateDelete(key []byte) error {
 	// If we have a remote node then use that node to fulfill this request.
-	if fes.Config.GlobalStateRemoteNode != "" {
+	if gs.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
-		url, json_data, err := fes.CreateGlobalStateDeleteRequest(key)
+		url, json_data, err := gs.CreateGlobalStateDeleteRequest(key)
 		if err != nil {
 			return fmt.Errorf("GlobalStateDelete: Could not construct request: %v", err)
 		}
@@ -1043,7 +1049,7 @@ func (fes *APIServer) GlobalStateDelete(key []byte) error {
 
 	// If we get here, it means we don't have a remote node so store the
 	// data in our local db.
-	return fes.GlobalStateDB.Update(func(txn *badger.Txn) error {
+	return gs.GlobalStateDB.Update(func(txn *badger.Txn) error {
 		return txn.Delete(key)
 	})
 }
@@ -1061,7 +1067,7 @@ type GlobalStateSeekRemoteResponse struct {
 	ValsFound [][]byte
 }
 
-func (fes *APIServer) CreateGlobalStateSeekRequest(startPrefix []byte, validForPrefix []byte,
+func (gs *GlobalState) CreateGlobalStateSeekRequest(startPrefix []byte, validForPrefix []byte,
 	maxKeyLen int, numToFetch int, reverse bool, fetchValues bool) (
 	_url string, _json_data []byte, _err error) {
 
@@ -1079,12 +1085,12 @@ func (fes *APIServer) CreateGlobalStateSeekRequest(startPrefix []byte, validForP
 	}
 
 	url := fmt.Sprintf("%s%s?%s=%s",
-		fes.Config.GlobalStateRemoteNode, RoutePathGlobalStateSeekRemote,
-		GlobalStateSharedSecretParam, fes.Config.GlobalStateRemoteSecret)
+		gs.GlobalStateRemoteNode, RoutePathGlobalStateSeekRemote,
+		GlobalStateSharedSecretParam, gs.GlobalStateRemoteSecret)
 
 	return url, json_data, nil
 }
-func (fes *APIServer) GlobalStateSeekRemote(ww http.ResponseWriter, rr *http.Request) {
+func (gs *GlobalState) GlobalStateSeekRemote(ww http.ResponseWriter, rr *http.Request) {
 	// Parse the request.
 	decoder := json.NewDecoder(io.LimitReader(rr.Body, MaxRequestBodySizeBytes))
 	requestData := GlobalStateSeekRemoteRequest{}
@@ -1094,7 +1100,7 @@ func (fes *APIServer) GlobalStateSeekRemote(ww http.ResponseWriter, rr *http.Req
 	}
 
 	// Call the get function. Note that this may also proxy to another node.
-	keys, values, err := fes.GlobalStateSeek(
+	keys, values, err := gs.GlobalStateSeek(
 		requestData.StartPrefix,
 		requestData.ValidForPrefix,
 		requestData.MaxKeyLen,
@@ -1119,15 +1125,15 @@ func (fes *APIServer) GlobalStateSeekRemote(ww http.ResponseWriter, rr *http.Req
 	}
 }
 
-func (fes *APIServer) GlobalStateSeek(startPrefix []byte, validForPrefix []byte,
+func (gs *GlobalState) GlobalStateSeek(startPrefix []byte, validForPrefix []byte,
 	maxKeyLen int, numToFetch int, reverse bool, fetchValues bool) (
 	_keysFound [][]byte, _valsFound [][]byte, _err error) {
 
 	// If we have a remote node then use that node to fulfill this request.
-	if fes.Config.GlobalStateRemoteNode != "" {
+	if gs.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
-		url, json_data, err := fes.CreateGlobalStateSeekRequest(
+		url, json_data, err := gs.CreateGlobalStateSeekRequest(
 			startPrefix,
 			validForPrefix,
 			maxKeyLen,
@@ -1156,7 +1162,7 @@ func (fes *APIServer) GlobalStateSeek(startPrefix []byte, validForPrefix []byte,
 
 	// If we get here, it means we don't have a remote node so get the
 	// data from our local db.
-	retKeys, retVals, err := lib.DBGetPaginatedKeysAndValuesForPrefix(fes.GlobalStateDB, startPrefix,
+	retKeys, retVals, err := lib.DBGetPaginatedKeysAndValuesForPrefix(gs.GlobalStateDB, startPrefix,
 		validForPrefix, maxKeyLen, numToFetch, reverse, fetchValues)
 	if err != nil {
 		return nil, nil, fmt.Errorf("GlobalStateSeek: Error getting paginated keys and values: %v", err)
