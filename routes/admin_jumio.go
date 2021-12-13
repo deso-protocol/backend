@@ -144,8 +144,6 @@ type AdminUpdateJumioUSDCentsResponse struct {
 }
 
 func (fes *APIServer) AdminUpdateJumioUSDCents(ww http.ResponseWriter, req *http.Request) {
-	//_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioDeSo: deprecated"))
-	//return
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := AdminUpdateJumioUSDCentsRequest{}
 	if err := decoder.Decode(&requestData); err != nil {

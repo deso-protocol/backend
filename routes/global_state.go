@@ -157,7 +157,7 @@ var (
 	_GlobalStatePrefixJumioDeSoNanos = []byte{21}
 
 	// Jumio USD Cents
-	_GlobalStatePrefixJumioUSDCents = []byte{39}
+	_GlobalStatePrefixJumioUSDCents = []byte{38}
 
 	// Tutorial featured well-known creators
 	_GlobalStateKeyWellKnownTutorialCreators = []byte{22}
@@ -214,7 +214,7 @@ var (
 	// same ID.
 	//
 
-	// NEXT_TAG: 40
+	// NEXT_TAG: 39
 )
 
 type HotFeedApprovedPostOp struct {
@@ -412,9 +412,18 @@ type WyreWalletOrderMetadata struct {
 }
 
 type CountryLevelSignUpBonus struct {
-	AllowCustomReferralAmount      bool
+	// If true, referee amount specified in referral code will be paid to users who sign up with IDs from this country.
+	// If false, ReferralAmountOverrideUSDCents will be paid to users who sign up with IDs from this country.
+	AllowCustomReferralAmount bool
+	// Amount all referees will be paid when signing up from this country if AllowCustomReferralAmount is false.
 	ReferralAmountOverrideUSDCents uint64
-	AllowCustomKickbackAmount      bool
+	// If true, referrer amount specified in referral code will be paid as a kickback to users who gave out referral
+	// code that a user signed up with IDs from this country.
+	// If false, KickbackAmountOverrideUSDCents will be paid as a kickback to referrers when a user signs up with an ID
+	// from this country.
+	AllowCustomKickbackAmount bool
+	// Amount all referrers will be paid when a referee signs up from this country if AllowCustomKickbackAmount is
+	// false.
 	KickbackAmountOverrideUSDCents uint64
 }
 
