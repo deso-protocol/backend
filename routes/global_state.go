@@ -157,7 +157,7 @@ var (
 	_GlobalStatePrefixJumioDeSoNanos = []byte{21}
 
 	// Jumio USD Cents
-	_GlobalStatePrefixJumioUSDCents = []byte{38}
+	_GlobalStatePrefixJumioUSDCents = []byte{39}
 
 	// Tutorial featured well-known creators
 	_GlobalStateKeyWellKnownTutorialCreators = []byte{22}
@@ -207,14 +207,14 @@ var (
 	_GlobalStatePrefixForHotFeedPKIDMultiplierOps = []byte{36}
 
 	// This key is used to manage sign up bonus configurations for a country
-	_GlobalStatePrefixForCountryCodeToCountrySignUpBonus = []byte{37}
+	_GlobalStatePrefixForCountryCodeToCountrySignUpBonus = []byte{38}
 
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
 
-	// NEXT_TAG: 39
+	// NEXT_TAG: 40
 )
 
 type HotFeedApprovedPostOp struct {
