@@ -875,15 +875,19 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// GetDefaultJumioCountrySignUpBonus returns the default sign-up bonus configuration.
 func (fes *APIServer) GetDefaultJumioCountrySignUpBonus() CountryLevelSignUpBonus {
 	return CountryLevelSignUpBonus{
 		AllowCustomKickbackAmount:      false,
-		AllowCustomReferralAmount:      false, // Do we perhaps want this to be true?
+		AllowCustomReferralAmount:      false,
 		ReferralAmountOverrideUSDCents: fes.GetJumioUSDCents(),
 		KickbackAmountOverrideUSDCents: 0,
 	}
 }
 
+// GetJumioCountrySignUpBonus gets the country level sign up bonus configuration for the provided country code.  If
+// there is an error or there is no sign up bonus configuration for a given country, return the default sign-up bonus
+// configuration.
 func (fes *APIServer) GetJumioCountrySignUpBonus(countryCode string) (_signUpBonus CountryLevelSignUpBonus, _err error) {
 	key := GlobalStateKeyForCountryCodeToCountrySignUpBonus(countryCode)
 
@@ -909,6 +913,8 @@ func (fes *APIServer) GetJumioCountrySignUpBonus(countryCode string) (_signUpBon
 	}
 }
 
+// GetRefereeSignUpBonusAmount gets the amount the referee should get a sign-up bonus for verifying with Jumio based on
+// the country of their ID.
 func (fes *APIServer) GetRefereeSignUpBonusAmount(signUpBonus CountryLevelSignUpBonus, referralCodeUSDCents uint64) uint64 {
 	amount := signUpBonus.ReferralAmountOverrideUSDCents
 	if signUpBonus.AllowCustomReferralAmount && referralCodeUSDCents > amount {
@@ -917,6 +923,8 @@ func (fes *APIServer) GetRefereeSignUpBonusAmount(signUpBonus CountryLevelSignUp
 	return fes.GetNanosFromUSDCents(float64(amount), 0)
 }
 
+// GetReferrerSignUpBonusAmount gets the amount the referrer should get as a kickback for referring the user based
+// on the country from which the referee signed up.
 func (fes *APIServer) GetReferrerSignUpBonusAmount(signUpBonus CountryLevelSignUpBonus, referralCodeUSDCents uint64) uint64 {
 	amount := signUpBonus.KickbackAmountOverrideUSDCents
 	if signUpBonus.AllowCustomReferralAmount && referralCodeUSDCents > amount {
@@ -1066,6 +1074,7 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 	return userMetadata, nil
 }
 
+// Get JumioUSDCents returns the default amount a user receives for verifying with Jumio without a referral code.
 func (fes *APIServer) GetJumioUSDCents() uint64 {
 	val, err := fes.GlobalState.Get(GlobalStateKeyForJumioUSDCents())
 	if err != nil {

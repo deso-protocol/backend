@@ -327,7 +327,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		HasJumioIntegration:                 fes.IsConfiguredForJumio(),
 		BuyWithETH:                          fes.IsConfiguredForETH(),
 		USDCentsPerDeSoExchangeRate:         fes.GetExchangeDeSoPrice(),
-		JumioDeSoNanos:                      fes.GetJumioDeSoNanos(),
+		JumioDeSoNanos:                      fes.GetJumioDeSoNanos(), // Deprecated
 		JumioUSDCents:                       fes.GetJumioUSDCents(),
 		DefaultFeeRateNanosPerKB:            defaultFeeRateNanosPerKB,
 		TransactionFeeMap:                   fes.TxnFeeMapToResponse(true),
