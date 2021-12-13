@@ -61,7 +61,6 @@ const (
 	RoutePathGetTransactionSpending   = "/api/v0/get-transaction-spending"
 
 	RoutePathGetUsersStateless           = "/api/v0/get-users-stateless"
-	RoutePathDeleteIdentities            = "/api/v0/delete-identities"
 	RoutePathGetProfiles                 = "/api/v0/get-profiles"
 	RoutePathGetSingleProfile            = "/api/v0/get-single-profile"
 	RoutePathGetSingleProfilePicture     = "/api/v0/get-single-profile-picture"
@@ -518,15 +517,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathSubmitTransaction,
 			fes.SubmitTransaction,
-			PublicAccess,
-		},
-
-		// Temporary route to wipe seedinfo cookies
-		{
-			"DeleteIdentities",
-			[]string{"POST", "OPTIONS"},
-			RoutePathDeleteIdentities,
-			fes.DeleteIdentities,
 			PublicAccess,
 		},
 		// Endpoint to trigger granting a user a verified badge
