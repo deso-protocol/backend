@@ -66,7 +66,7 @@ func (fes *APIServer) AdminSetTransactionFeeForTransactionType(ww http.ResponseW
 	}
 
 	// Put new value in global state
-	if err = fes.GlobalStatePut(GlobalStateKeyTransactionFeeOutputsFromTxnType(txnType), transactionFeeBuf.Bytes()); err != nil {
+	if err = fes.GlobalState.Put(GlobalStateKeyTransactionFeeOutputsFromTxnType(txnType), transactionFeeBuf.Bytes()); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminSetTransactionFeeForTransactionType: Problem putting fee outputs in global state: %v", err))
 		return
 	}
@@ -120,7 +120,7 @@ func (fes *APIServer) AdminSetAllTransactionFees(ww http.ResponseWriter, req *ht
 			return
 		}
 		// Put new value in global state
-		if err = fes.GlobalStatePut(GlobalStateKeyTransactionFeeOutputsFromTxnType(txnType), transactionFeeBuf.Bytes()); err != nil {
+		if err = fes.GlobalState.Put(GlobalStateKeyTransactionFeeOutputsFromTxnType(txnType), transactionFeeBuf.Bytes()); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminSetAllTransactionFees: Problem putting fee outputs in global state: %v", err))
 			return
 		}
@@ -246,7 +246,7 @@ func (fes *APIServer) GetTransactionFeeMapFromGlobalState() map[lib.TxnType][]*l
 	// For each transaction type, get the list of DeSoOutputs we want to add when performing this type of transaction
 	for _, txnType := range lib.AllTxnTypes {
 		// Get the bytes from global state
-		desoOutputBytes, err := fes.GlobalStateGet(GlobalStateKeyTransactionFeeOutputsFromTxnType(txnType))
+		desoOutputBytes, err := fes.GlobalState.Get(GlobalStateKeyTransactionFeeOutputsFromTxnType(txnType))
 		if err != nil {
 			glog.Errorf("Error getting Transaction Fee bytes from global state for transaction type %v (%d): %v - defaulting to no additional fees", txnType.String(), txnType, err)
 			// Default to an empty slice.
@@ -309,14 +309,14 @@ func (fes *APIServer) AdminAddExemptPublicKey(ww http.ResponseWriter, req *http.
 
 	if requestData.IsRemoval {
 		// Delete the key from global state
-		if err = fes.GlobalStateDelete(dbKey); err != nil {
+		if err = fes.GlobalState.Delete(dbKey); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminAddExemptPublicKey: Error deleting key from global state: %v", err))
 			return
 		}
 		delete(fes.ExemptPublicKeyMap, lib.PkToString(publicKeyBytes, fes.Params))
 	} else {
 		// Add the key to global state
-		if err = fes.GlobalStatePut(dbKey, []byte{1}); err != nil {
+		if err = fes.GlobalState.Put(dbKey, []byte{1}); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminAddExemptPublicKey: Error adding key to global state: %v", err))
 			return
 		}
@@ -371,7 +371,7 @@ func (fes *APIServer) GetExemptPublicKeyMapFromGlobalState() map[string]interfac
 	// For each transaction type, get the list of DeSoOutputs we want to add when performing this type of transaction
 	prefix := append([]byte{}, _GlobalStatePrefixExemptPublicKeys...)
 	maxKeyLen := 1 + btcec.PubKeyBytesLenCompressed
-	keys, _, err := fes.GlobalStateSeek(prefix, prefix, maxKeyLen,  300, true, false)
+	keys, _, err := fes.GlobalState.Seek(prefix, prefix, maxKeyLen,  300, true, false)
 	if err != nil {
 		// if we encounter an error, just return an empty map.
 		return exemptPublicKeyMap

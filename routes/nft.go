@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"sort"
 	"time"
 
 	"github.com/deso-protocol/core/lib"
@@ -1799,6 +1800,153 @@ func (fes *APIServer) BurnNFT(ww http.ResponseWriter, req *http.Request) {
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("BurnNFT: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
+
+// GetNFTsCreatedByPublicKeyRequest ...
+type GetNFTsCreatedByPublicKeyRequest struct {
+	// Either PublicKeyBase58Check or Username can be set by the client to specify
+	// which user we're obtaining NFTs for
+	// If both are specified, PublicKeyBase58Check will supercede
+	PublicKeyBase58Check string `safeForLogging:"true"`
+	Username             string `safeForLogging:"true"`
+
+	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
+	// PostHashHex of the last NFT from the previous page
+	LastPostHashHex string `safeForLogging:"true"`
+	// Number of records to fetch
+	NumToFetch    uint64 `safeForLogging:"true"`
+}
+
+type NFTDetails struct {
+	NFTEntryResponses []*NFTEntryResponse
+	NFTCollectionResponse *NFTCollectionResponse
+}
+
+// GetNFTsCreatedByPublicKeyResponse ...
+type GetNFTsCreatedByPublicKeyResponse struct {
+	NFTs            []NFTDetails `safeForLogging:"true"`
+	LastPostHashHex string       `safeForLogging:"true"`
+}
+
+// GetNFTsCreatedByPublicKey gets paginated NFTs for a public key or username.
+func (fes *APIServer) GetNFTsCreatedByPublicKey(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetNFTsCreatedByPublicKeyRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTsCreatedByPublicKey: Error parsing request body: %v", err))
+		return
+	}
+
+	// Get a view
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTsCreatedByPublicKey: Error getting utxoView: %v", err))
+		return
+	}
+
+	// Decode the public key for which we are fetching posts. If a public key is not provided, use the username
+	var publicKeyBytes []byte
+	if requestData.PublicKeyBase58Check != "" {
+		publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetNFTsCreatedByPublicKey: Problem decoding user public key: %v", err))
+			return
+		}
+	} else {
+		username := requestData.Username
+		profileEntry := utxoView.GetProfileEntryForUsername([]byte(username))
+
+		// Return an error if we failed to find a profile entry
+		if profileEntry == nil {
+			_AddNotFoundError(ww, fmt.Sprintf("GetNFTsCreatedByPublicKey: could not find profile for username: %v", username))
+			return
+		}
+		publicKeyBytes = profileEntry.PublicKey
+	}
+	// Decode the reader's public key so we can fetch each post entry's reader state.
+	var readerPk []byte
+	var readerPKID *lib.PKID
+	if requestData.ReaderPublicKeyBase58Check != "" {
+		readerPk, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetNFTsCreatedByPublicKey: Problem decoding reader public key: %v", err))
+			return
+		}
+		readerPKID = utxoView.GetPKIDForPublicKey(readerPk).PKID
+	}
+
+	var startPostHash *lib.BlockHash
+	if requestData.LastPostHashHex != "" {
+		// Get the StartPostHash from the LastPostHashHex
+		startPostHash, err = GetPostHashFromPostHashHex(requestData.LastPostHashHex)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetNFTsCreatedByPublicKey: %v", err))
+			return
+		}
+	}
+
+	// Get Posts Ordered by time.
+	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash, requestData.NumToFetch, false, true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTsCreatedByPublicKey: Problem getting paginated NFTs: %v", err))
+		return
+	}
+
+	sort.Slice(posts, func(ii, jj int) bool {
+		return posts[ii].TimestampNanos > posts[jj].TimestampNanos
+	})
+
+	// GetPostsPaginated returns all posts from the db and mempool, so we need to find the correct section of the
+	// slice to return.
+	if uint64(len(posts)) > requestData.NumToFetch || startPostHash != nil {
+		startIndex := 0
+		if startPostHash != nil {
+			for ii, post := range posts {
+				if reflect.DeepEqual(post.PostHash, startPostHash) {
+					startIndex = ii + 1
+					break
+				}
+			}
+		}
+		posts = posts[startIndex:lib.MinInt(len(posts), startIndex+int(requestData.NumToFetch))]
+	}
+
+	res := GetNFTsCreatedByPublicKeyResponse{
+		NFTs: []NFTDetails{},
+	}
+	// Convert postEntries to postEntryResponses and fetch PostEntryReaderState for each post.
+	for _, post := range posts {
+		var postEntryResponse *PostEntryResponse
+		postEntryResponse, err = fes._postEntryToResponse(post, true, fes.Params, utxoView, readerPk, 2)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetNFTsCreatedByPublicKey: Problem converting post entry to response: %v", err))
+			return
+		}
+		if readerPk != nil {
+			postEntryReaderState := utxoView.GetPostEntryReaderState(readerPk, post)
+			postEntryResponse.PostEntryReaderState = postEntryReaderState
+		}
+		nftEntries := utxoView.GetNFTEntriesForPostHash(post.PostHash)
+		var nftEntryResponses []*NFTEntryResponse
+		for _, nftEntry := range nftEntries {
+			nftEntryResponses = append(nftEntryResponses, fes._nftEntryToResponse(nftEntry, nil, utxoView, false, readerPKID))
+		}
+		res.NFTs = append(res.NFTs, NFTDetails{
+			NFTEntryResponses: nftEntryResponses,
+			NFTCollectionResponse: fes._nftEntryToNFTCollectionResponse(nftEntries[0], post.PosterPublicKey, postEntryResponse, utxoView, readerPKID),
+		})
+	}
+	// Return the last post hash hex in the slice to simplify pagination.
+	var lastPostHashHex string
+	if len(res.NFTs) > 0 {
+		lastPostHashHex = res.NFTs[len(res.NFTs)-1].NFTCollectionResponse.PostEntryResponse.PostHashHex
+	}
+	res.LastPostHashHex = lastPostHashHex
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetNFTsCreatedByPublicKey: Problem serializing object to JSON: %v", err))
 		return
 	}
 }

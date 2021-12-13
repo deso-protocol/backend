@@ -142,7 +142,7 @@ func ShuffleKeys(records *[][]byte) {
 
 func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit int, seekKey []byte, disregardFR bool) (_profileEntryResponses []ProfileEntryResponse, _err error) {
 	maxKeyLen := 1 + btcec.PubKeyBytesLenCompressed
-	keys, _, err := fes.GlobalStateSeek(
+	keys, _, err := fes.GlobalState.Seek(
 		seekKey,
 		seekKey,
 		maxKeyLen,

@@ -155,12 +155,12 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 		userMetadata.RemoveEverywhere = requestData.RemoveEverywhere
 		blacklistKey := GlobalStateKeyForBlacklistedProfile(userPublicKeyBytes)
 		if userMetadata.RemoveEverywhere {
-			err = fes.GlobalStatePut(blacklistKey, lib.IsBlacklisted)
+			err = fes.GlobalState.Put(blacklistKey, lib.IsBlacklisted)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating blacklist: %v", err))
 			}
 		} else {
-			err = fes.GlobalStateDelete(blacklistKey)
+			err = fes.GlobalState.Delete(blacklistKey)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem deleting from blacklist: %v", err))
 				return
@@ -178,13 +178,13 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 		graylistkey := GlobalStateKeyForGraylistedProfile(userPublicKeyBytes)
 		if userMetadata.RemoveFromLeaderboard {
 			// We need to update global state's list of graylisted users.
-			err = fes.GlobalStatePut(graylistkey, lib.IsGraylisted)
+			err = fes.GlobalState.Put(graylistkey, lib.IsGraylisted)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating graylist: %v", err))
 				return
 			}
 		} else {
-			err = fes.GlobalStateDelete(graylistkey)
+			err = fes.GlobalState.Delete(graylistkey)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem deleting from graylist: %v", err))
 				return
@@ -241,10 +241,10 @@ func (fes *APIServer) getUserMetadataUsernameMaps(numToFetch int) (_publicKeyToU
 	_publicKeyToUsername map[string]string, _err error) {
 	// Seek the global state for the user metadata prefix.
 	seekKey := _GlobalStatePrefixPublicKeyToUserMetadata
-	keys, vals, err := fes.GlobalStateSeek(seekKey, seekKey, 0, numToFetch, false, true)
+	keys, vals, err := fes.GlobalState.Seek(seekKey, seekKey, 0, numToFetch, false, true)
 	if err != nil {
 		return nil, nil,
-			errors.Wrapf(err, "getUserMetadataUsernameMaps: problem with GlobalStateSeek")
+			errors.Wrapf(err, "getUserMetadataUsernameMaps: problem with Seek")
 	}
 
 	// Sanity check that we got an appropriate number of keys and values.
@@ -375,7 +375,7 @@ func (fes *APIServer) UpdateUsernameVerificationAuditLog(usernameToVerify string
 	verificationAuditLogs := []VerificationUsernameAuditLog{}
 	// Get the key to look up the current list of audit logs for this username
 	verificationAuditLogKey := GlobalStateKeyForUsernameVerificationAuditLogs(usernameToVerify)
-	verificationAuditLogBytes, err := fes.GlobalStateGet(verificationAuditLogKey)
+	verificationAuditLogBytes, err := fes.GlobalState.Get(verificationAuditLogKey)
 	if err != nil {
 		return errors.Wrap(fmt.Errorf("UpdateUsernameVerificationAuditLog: Failed to log verification to audit log"), "")
 	}
@@ -412,7 +412,7 @@ func (fes *APIServer) UpdateUsernameVerificationAuditLog(usernameToVerify string
 	verificationAuditLogs = append([]VerificationUsernameAuditLog{newVerificationAuditLog}, verificationAuditLogs...)
 	verificationDataBuf := bytes.NewBuffer([]byte{})
 	gob.NewEncoder(verificationDataBuf).Encode(verificationAuditLogs)
-	err = fes.GlobalStatePut(verificationAuditLogKey, verificationDataBuf.Bytes())
+	err = fes.GlobalState.Put(verificationAuditLogKey, verificationDataBuf.Bytes())
 	if err != nil {
 		return errors.Wrap(fmt.Errorf("AdminGrantVerificationBadge: Failed to update verification audit logs"), "")
 	}
@@ -463,7 +463,7 @@ func (fes *APIServer) UpdateFilterAuditLogs(usernameToUpdate string, pkidEntryTo
 		return errors.Wrap(err, "UpdateFilterAuditLogs: Failed to get filter logs")
 	}
 
-	err = fes.GlobalStatePut(filterLogsKey, filterLogsBuf.Bytes())
+	err = fes.GlobalState.Put(filterLogsKey, filterLogsBuf.Bytes())
 	if err != nil {
 		return errors.Wrap(fmt.Errorf("UpdateFilterAuditLogs: Failed to update filter logs"), "")
 	}
@@ -497,7 +497,7 @@ func (fes *APIServer) GetFilterAuditLogs(username string, filterType FilterType)
 	}
 
 	// Fetch the logs from global state
-	filterLogsBytes, err := fes.GlobalStateGet(filterLogsKey)
+	filterLogsBytes, err := fes.GlobalState.Get(filterLogsKey)
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf("GetFilterAuditLogs: Failed to fetch filter audit logs from globalstate"), "")
 	}
@@ -636,7 +636,7 @@ func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *h
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGrantVerificationBadge: failed to encode verified map struct: %v", err))
 		return
 	}
-	err = fes.GlobalStatePut(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
+	err = fes.GlobalState.Put(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
 	if err != nil {
 		_AddBadRequestError(ww, "AdminGrantVerificationBadge: Failed placing new verification map into the database.")
 		return
@@ -744,7 +744,7 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 	if err = gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Failed encoding new verification map: %v", err))
 	}
-	err = fes.GlobalStatePut(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
+	err = fes.GlobalState.Put(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
 	if err != nil {
 		_AddBadRequestError(ww, "AdminRemoveVerificationBadge: Failed placing new verification map into the database.")
 		return
@@ -835,7 +835,7 @@ func (fes *APIServer) AdminGetUsernameVerificationAuditLogs(ww http.ResponseWrit
 	}
 	// Get the verification audit logs from global state.
 	key := GlobalStateKeyForUsernameVerificationAuditLogs(requestData.Username)
-	verificationUsernameAuditLogBytes, err := fes.GlobalStateGet(key)
+	verificationUsernameAuditLogBytes, err := fes.GlobalState.Get(key)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUsernameVerificationAuditLogs: Problem getting audit logs for this username: %v", err))
 		return
@@ -958,7 +958,7 @@ func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Re
 
 		// Get the verification audit logs from global state.
 		key := GlobalStateKeyForUsernameVerificationAuditLogs(string(profileEntry.Username))
-		verificationUsernameAuditLogBytes, err := fes.GlobalStateGet(key)
+		verificationUsernameAuditLogBytes, err := fes.GlobalState.Get(key)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem getting audit logs for this username: %v", err))
 			return
