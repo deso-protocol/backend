@@ -158,6 +158,9 @@ func (fes *APIServer) AdminUpdateJumioUSDCents(ww http.ResponseWriter, req *http
 		return
 	}
 
+	// Update all country level sign up bonus metadata explicitly in case some are using the default amount
+	fes.SetAllCountrySignUpBonusMetadata()
+
 	res := AdminUpdateJumioUSDCentsResponse{
 		USDCents: requestData.USDCents,
 	}
