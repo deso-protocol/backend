@@ -153,7 +153,7 @@ func (fes *APIServer) AdminUpdateJumioUSDCents(ww http.ResponseWriter, req *http
 		return
 	}
 
-	if err := fes.GlobalStatePut(
+	if err := fes.GlobalState.Put(
 		GlobalStateKeyForJumioUSDCents(),
 		lib.UintToBuf(requestData.USDCents)); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioDeSo: Problem putting premium basis points in global state: %v", err))
@@ -177,6 +177,7 @@ type AdminSetJumioVerifiedRequest struct {
 type AdminJumioCallback struct {
 	PublicKeyBase58Check string
 	Username             string
+	CountryAlpha3        string
 }
 
 // AdminJumioCallback Note: this endpoint is mainly for testing purposes.
@@ -228,8 +229,13 @@ func (fes *APIServer) AdminJumioCallback(ww http.ResponseWriter, req *http.Reque
 		_AddBadRequestError(ww, fmt.Sprintf("AdminJumioCallback: User is already JumioVerified"))
 		return
 	}
+
+	if _, exists := utils.CountryCodes[requestData.CountryAlpha3]; requestData.CountryAlpha3 != "" && !exists {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminJumioCallback: Invalid country alpha-3: %s", requestData.CountryAlpha3))
+		return
+	}
 	userMetadata.JumioReturned = true
-	userMetadata, err = fes.JumioVerifiedHandler(userMetadata, "admin-jumio-call", "", publicKeyBytes, utxoView)
+	userMetadata, err = fes.JumioVerifiedHandler(userMetadata, "admin-jumio-call", requestData.CountryAlpha3, publicKeyBytes, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminJumioCallback: Error in JumioVerifiedHandler: %v", err))
 		return
@@ -275,7 +281,7 @@ func (fes *APIServer) AdminUpdateJumioCountrySignUpBonus(ww http.ResponseWriter,
 
 	// Update global state
 	key := GlobalStateKeyForCountryCodeToCountrySignUpBonus(requestData.CountryCode)
-	if err := fes.GlobalStatePut(key, countryCodeSignUpBonusMetadataBuf.Bytes()); err != nil {
+	if err := fes.GlobalState.Put(key, countryCodeSignUpBonusMetadataBuf.Bytes()); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioCountrySignUpBonus: "+
 			"error putting country level sign up bonus metadata in global state: %v", err))
 		return
