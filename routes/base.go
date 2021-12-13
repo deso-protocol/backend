@@ -276,7 +276,7 @@ type GetAppStateResponse struct {
 	BuyWithETH            bool
 
 	USDCentsPerDeSoExchangeRate uint64
-	JumioDeSoNanos              uint64
+	JumioDeSoNanos              uint64 // Deprecated
 	JumioUSDCents               uint64
 
 	DefaultFeeRateNanosPerKB uint64
