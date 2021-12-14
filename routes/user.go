@@ -2946,7 +2946,7 @@ func (fes *APIServer) DeletePII(ww http.ResponseWriter, rr *http.Request) {
 
 // IsUserGraylisted returns true if the user is graylisted based on the current Graylist state.
 func (fes *APIServer) IsUserGraylisted(pkid *lib.PKID) bool {
-	return reflect.DeepEqual(fes.GetGraylistState(pkid), lib.IsGraylisted)
+	return reflect.DeepEqual(fes.GetGraylistState(pkid), IsGraylisted)
 }
 
 // GetGraylistState returns the graylist state bytes based on the current Graylist state.
@@ -2956,7 +2956,7 @@ func (fes *APIServer) GetGraylistState(pkid *lib.PKID) []byte {
 
 // IsUserBlacklisted returns true if the user is blacklisted based on the current Blacklist state.
 func (fes *APIServer) IsUserBlacklisted(pkid *lib.PKID) bool {
-	return reflect.DeepEqual(fes.GetBlacklistState(pkid), lib.IsBlacklisted)
+	return reflect.DeepEqual(fes.GetBlacklistState(pkid), IsBlacklisted)
 }
 
 // GetBlacklistState returns the blacklist state bytes based on the current Blacklist state.

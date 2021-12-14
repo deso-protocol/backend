@@ -155,7 +155,7 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 		userMetadata.RemoveEverywhere = requestData.RemoveEverywhere
 		blacklistKey := GlobalStateKeyForBlacklistedProfile(userPublicKeyBytes)
 		if userMetadata.RemoveEverywhere {
-			err = fes.GlobalState.Put(blacklistKey, lib.IsBlacklisted)
+			err = fes.GlobalState.Put(blacklistKey, IsBlacklisted)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating blacklist: %v", err))
 			}
@@ -178,7 +178,7 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 		graylistkey := GlobalStateKeyForGraylistedProfile(userPublicKeyBytes)
 		if userMetadata.RemoveFromLeaderboard {
 			// We need to update global state's list of graylisted users.
-			err = fes.GlobalState.Put(graylistkey, lib.IsGraylisted)
+			err = fes.GlobalState.Put(graylistkey, IsGraylisted)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating graylist: %v", err))
 				return
@@ -1100,7 +1100,7 @@ func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Re
 	}
 }
 
-func (fes *APIServer) HashHexToBase58Check(hashHex string) (base58Check string, _err error){
+func (fes *APIServer) HashHexToBase58Check(hashHex string) (base58Check string, _err error) {
 	hashBytes, err := hex.DecodeString(hashHex)
 	if err != nil {
 		return "", fmt.Errorf("AdminGetUserMetadata: Problem decoding JumioStarterDeSoTxnHashHex: %v", err)

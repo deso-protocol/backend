@@ -26,6 +26,11 @@ import (
 //
 // We recommend using our Rosetta implementation instead of this API.
 
+var (
+	IsGraylisted  = []byte{1}
+	IsBlacklisted = []byte{1}
+)
+
 const (
 	// RoutePathAPIBase ...
 	RoutePathAPIBase = "/api/v1"
@@ -1338,7 +1343,7 @@ func (fes *APIServer) FilterOutRestrictedPubKeysFromMap(profilePubKeyMap map[lib
 		// If the key is restricted based on the current moderation type and the pkMapKey does not equal that of the currentPoster,
 		// we can filter out this public key.  We need to check the currentPoster's PK to support hiding comments from
 		// greylisted users (moderationType = "leaderboard") but still support getting posts from greylisted users.
-		if lib.IsRestrictedPubKey(fes.GetGraylistState(pkid), fes.GetBlacklistState(pkid), moderationType) {
+		if IsRestrictedPubKey(fes.GetGraylistState(pkid), fes.GetBlacklistState(pkid), moderationType) {
 			continue
 		} else {
 			// If a public key does isn't restricted, add it to the map.
@@ -1362,7 +1367,7 @@ func (fes *APIServer) FilterOutRestrictedPubKeysFromList(profilePubKeys [][]byte
 	filteredPubKeys := [][]byte{}
 	for _, profilePubKey := range profilePubKeys {
 		pkid := utxoView.GetPKIDForPublicKey(profilePubKey).PKID
-		if lib.IsRestrictedPubKey(fes.GetGraylistState(pkid), fes.GetBlacklistState(pkid), moderationType) {
+		if IsRestrictedPubKey(fes.GetGraylistState(pkid), fes.GetBlacklistState(pkid), moderationType) {
 			// Always let the reader access their content.
 			if reflect.DeepEqual(readerPK, profilePubKey) {
 				filteredPubKeys = append(filteredPubKeys, profilePubKey)
@@ -1375,6 +1380,18 @@ func (fes *APIServer) FilterOutRestrictedPubKeysFromList(profilePubKeys [][]byte
 		}
 	}
 	return filteredPubKeys, nil
+}
+
+func IsRestrictedPubKey(userGraylistState []byte, userBlacklistState []byte, moderationType string) bool {
+	if moderationType == "unrestricted" {
+		return false
+	} else if reflect.DeepEqual(userBlacklistState, IsBlacklisted) {
+		return true
+	} else if moderationType == "leaderboard" && reflect.DeepEqual(userGraylistState, IsGraylisted) {
+		return true
+	} else {
+		return false
+	}
 }
 
 //Get the map of public keys this user has blocked.  The _blockedPubKeyMap operates as a hashset to speed up look up time

@@ -81,7 +81,7 @@ func (fes *APIServer) GetVerifiedUsernameMap() (
 func (fes *APIServer) GetBlacklist(utxoView *lib.UtxoView) (
 	_blacklistedPKIDMap map[lib.PKID][]byte, _err error,
 ) {
-	return fes.GetRestrictedPublicKeys(_GlobalStatePrefixPublicKeyToBlacklistState, lib.IsBlacklisted, utxoView, RoutePathGetBlacklistedPublicKeys)
+	return fes.GetRestrictedPublicKeys(_GlobalStatePrefixPublicKeyToBlacklistState, IsBlacklisted, utxoView, RoutePathGetBlacklistedPublicKeys)
 }
 
 // GetGraylist returns both a slice of strings and a map of PKID to []byte representing the current state of graylisted
@@ -89,7 +89,7 @@ func (fes *APIServer) GetBlacklist(utxoView *lib.UtxoView) (
 func (fes *APIServer) GetGraylist(utxoView *lib.UtxoView) (
 	_graylistedPKIDMap map[lib.PKID][]byte, _err error,
 ) {
-	return fes.GetRestrictedPublicKeys(_GlobalStatePrefixPublicKeyToGraylistState, lib.IsGraylisted, utxoView, RoutePathGetGraylistedPublicKeys)
+	return fes.GetRestrictedPublicKeys(_GlobalStatePrefixPublicKeyToGraylistState, IsGraylisted, utxoView, RoutePathGetGraylistedPublicKeys)
 }
 
 // GetRestrictedPublicKeys fetches the blacklisted or graylisted public keys from this node's global state or the configured
