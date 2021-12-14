@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core"
 	"io"
 	"net/http"
 	"strings"
@@ -224,7 +225,7 @@ type HotFeedPKIDMultiplierOp struct {
 // A ReferralInfo struct holds all of the params and stats for a referral link/hash.
 type ReferralInfo struct {
 	ReferralHashBase58     string
-	ReferrerPKID           *lib.PKID
+	ReferrerPKID           *core.PKID
 	ReferrerAmountUSDCents uint64
 	RefereeAmountUSDCents  uint64
 	MaxReferrals           uint64 // If set to zero, there is no cap on referrals.
@@ -250,7 +251,7 @@ type NFTDropEntry struct {
 	IsActive        bool
 	DropNumber      uint64
 	DropTstampNanos uint64
-	NFTHashes       []*lib.BlockHash
+	NFTHashes       []*core.BlockHash
 }
 
 // This struct contains all the metadata associated with a user's public key.
@@ -343,7 +344,7 @@ type UserMetadata struct {
 	IsFeaturedTutorialUpAndComingCreator bool
 
 	TutorialStatus                  TutorialStatus
-	CreatorPurchasedInTutorialPKID  *lib.PKID
+	CreatorPurchasedInTutorialPKID  *core.PKID
 	CreatorCoinsPurchasedInTutorial uint64
 
 	// ReferralHashBase58Check with which user signed up
@@ -402,7 +403,7 @@ type WyreWalletOrderMetadata struct {
 	DeSoPurchasedNanos uint64
 
 	// BlockHash of the transaction for sending the DeSo
-	BasicTransferTxnBlockHash *lib.BlockHash
+	BasicTransferTxnBlockHash *core.BlockHash
 }
 
 func GlobalStateKeyForNFTDropEntry(dropNumber uint64) []byte {
@@ -449,7 +450,7 @@ func GlobalStateKeyForReferralHashToReferralInfo(referralHashBytes []byte) []byt
 }
 
 // Key for getting a pub key's referral hashes and "IsActive" status.
-func GlobalStateKeyForPKIDReferralHashToIsActive(pkid *lib.PKID, referralHashBytes []byte) []byte {
+func GlobalStateKeyForPKIDReferralHashToIsActive(pkid *core.PKID, referralHashBytes []byte) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDReferralHashToIsActive...)
 	key := append(prefixCopy, pkid[:]...)
 	key = append(key, referralHashBytes[:]...)
@@ -464,7 +465,7 @@ func GlobalStateSeekKeyForHotFeedApprovedPostOps(startTimestampNanos uint64) []b
 
 func GlobalStateKeyForHotFeedApprovedPostOp(
 	opTimestampNanos uint64,
-	postHash *lib.BlockHash,
+	postHash *core.BlockHash,
 ) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixForHotFeedApprovedPostOps...)
 	key := append(prefixCopy, lib.EncodeUint64(opTimestampNanos)...)
@@ -480,7 +481,7 @@ func GlobalStateSeekKeyForHotFeedPKIDMultiplierOps(startTimestampNanos uint64) [
 
 func GlobalStateKeyForHotFeedPKIDMultiplierOp(
 	opTimestampNanos uint64,
-	opPKID *lib.PKID,
+	opPKID *core.PKID,
 ) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixForHotFeedPKIDMultiplierOps...)
 	key := append(prefixCopy, lib.EncodeUint64(opTimestampNanos)...)
@@ -489,20 +490,20 @@ func GlobalStateKeyForHotFeedPKIDMultiplierOp(
 }
 
 // Key for seeking the DB for all referral hashes with a specific PKID.
-func GlobalStateSeekKeyForPKIDReferralHashes(pkid *lib.PKID) []byte {
+func GlobalStateSeekKeyForPKIDReferralHashes(pkid *core.PKID) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDReferralHashToIsActive...)
 	key := append(prefixCopy, pkid[:]...)
 	return key
 }
 
-func GlobalStateSeekKeyForPKIDReferralHashRefereePKIDs(pkid *lib.PKID, referralHash []byte) []byte {
+func GlobalStateSeekKeyForPKIDReferralHashRefereePKIDs(pkid *core.PKID, referralHash []byte) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDReferralHashRefereePKID...)
 	key := append(prefixCopy, pkid[:]...)
 	key = append(key, referralHash[:]...)
 	return key
 }
 
-func GlobalStateKeyForPKIDReferralHashRefereePKID(pkid *lib.PKID, referralHash []byte, refereePKID *lib.PKID) []byte {
+func GlobalStateKeyForPKIDReferralHashRefereePKID(pkid *core.PKID, referralHash []byte, refereePKID *core.PKID) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDReferralHashRefereePKID...)
 	key := append(prefixCopy, pkid[:]...)
 	key = append(key, referralHash[:]...)
@@ -511,7 +512,7 @@ func GlobalStateKeyForPKIDReferralHashRefereePKID(pkid *lib.PKID, referralHash [
 }
 
 func GlobalStateKeyForTimestampPKIDReferralHashRefereePKID(
-	tstampNanos uint64, pkid *lib.PKID, referralHash []byte, refereePKID *lib.PKID) []byte {
+	tstampNanos uint64, pkid *core.PKID, referralHash []byte, refereePKID *core.PKID) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixTimestampPKIDReferralHashRefereePKID...)
 	key := append(prefixCopy, lib.EncodeUint64(tstampNanos)...)
 	key = append(key, pkid[:]...)
@@ -521,7 +522,7 @@ func GlobalStateKeyForTimestampPKIDReferralHashRefereePKID(
 }
 
 // Key for accessing a whitelised post in the global feed index.
-func GlobalStateKeyForTstampPostHash(tstampNanos uint64, postHash *lib.BlockHash) []byte {
+func GlobalStateKeyForTstampPostHash(tstampNanos uint64, postHash *core.BlockHash) []byte {
 	// Make a copy to avoid multiple calls to this function re-using the same slice.
 	key := append([]byte{}, _GlobalStatePrefixTstampNanosPostHash...)
 	key = append(key, lib.EncodeUint64(tstampNanos)...)
@@ -537,7 +538,7 @@ func GlobalStateSeekKeyForTstampPostHash(tstampNanos uint64) []byte {
 }
 
 // Key for accessing a pinned post.
-func GlobalStateKeyForTstampPinnedPostHash(tstampNanos uint64, postHash *lib.BlockHash) []byte {
+func GlobalStateKeyForTstampPinnedPostHash(tstampNanos uint64, postHash *core.BlockHash) []byte {
 	// Make a copy to avoid multiple calls to this function re-using the same slice.
 	key := append([]byte{}, _GlobalStatePrefixTstampNanosPinnedPostHash...)
 	key = append(key, lib.EncodeUint64(tstampNanos)...)
@@ -625,14 +626,14 @@ func GlobalStateKeyForBuyDeSoFeeBasisPoints() []byte {
 	return prefixCopy
 }
 
-func GlobalStateKeyForPKIDTstampnanosToJumioTransaction(pkid *lib.PKID, timestampNanos uint64) []byte {
+func GlobalStateKeyForPKIDTstampnanosToJumioTransaction(pkid *core.PKID, timestampNanos uint64) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDTstampNanosToJumioTransaction...)
 	key := append(prefixCopy, pkid[:]...)
 	key = append(key, lib.EncodeUint64(timestampNanos)...)
 	return key
 }
 
-func GlobalStatePrefixforPKIDTstampnanosToJumioTransaction(pkid *lib.PKID) []byte {
+func GlobalStatePrefixforPKIDTstampnanosToJumioTransaction(pkid *core.PKID) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDTstampNanosToJumioTransaction...)
 	key := append(prefixCopy, pkid[:]...)
 	return key
@@ -652,13 +653,13 @@ func GlobalStateKeyForJumioDeSoNanos() []byte {
 	return prefixCopy
 }
 
-func GlobalStateKeyWellKnownTutorialCreators(pkid *lib.PKID) []byte {
+func GlobalStateKeyWellKnownTutorialCreators(pkid *core.PKID) []byte {
 	prefixCopy := append([]byte{}, _GlobalStateKeyWellKnownTutorialCreators...)
 	key := append(prefixCopy, pkid[:]...)
 	return key
 }
 
-func GlobalStateKeyUpAndComingTutorialCreators(pkid *lib.PKID) []byte {
+func GlobalStateKeyUpAndComingTutorialCreators(pkid *core.PKID) []byte {
 	prefixCopy := append([]byte{}, _GlobalStateKeyUpAndComingTutorialCreators...)
 	key := append(prefixCopy, pkid[:]...)
 	return key

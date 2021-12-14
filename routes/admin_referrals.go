@@ -6,6 +6,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core"
 	"io"
 	"net/http"
 	"reflect"
@@ -83,7 +84,7 @@ func (fes *APIServer) getInfoForReferralHashBase58(
 	return &referralInfo, nil
 }
 
-func (fes *APIServer) getReferralHashStatus(pkid *lib.PKID, referralHashBase58 string) bool {
+func (fes *APIServer) getReferralHashStatus(pkid *core.PKID, referralHashBase58 string) bool {
 	referralHashBytes := []byte(referralHashBase58)
 
 	dbKey := GlobalStateKeyForPKIDReferralHashToIsActive(pkid, referralHashBytes)
@@ -96,7 +97,7 @@ func (fes *APIServer) getReferralHashStatus(pkid *lib.PKID, referralHashBase58 s
 }
 
 func (fes *APIServer) setReferralHashStatusForPKID(
-	pkid *lib.PKID, referralHashBase58 string, isActive bool,
+	pkid *core.PKID, referralHashBase58 string, isActive bool,
 ) (_err error) {
 	referralHashBytes := []byte(referralHashBase58)
 
@@ -424,7 +425,7 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeR
 			refereePKIDStartIdx := 1 + btcec.PubKeyBytesLenCompressed + 8
 			for _, keyBytes := range refereeKeys {
 				refereePKIDBytes := keyBytes[refereePKIDStartIdx:]
-				refereePKID := &lib.PKID{}
+				refereePKID := &core.PKID{}
 				copy(refereePKID[:], refereePKIDBytes)
 
 				profileEntry := utxoView.GetProfileEntryForPKID(refereePKID)
@@ -435,7 +436,7 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeR
 					// This is an anon profile, so we just populate the pub key and call it good.
 					profileEntryResponse := ProfileEntryResponse{}
 					profileEntryResponse.PublicKeyBase58Check =
-						lib.PkToString(lib.PKIDToPublicKey(refereePKID), fes.Params)
+						lib.PkToString(core.PKIDToPublicKey(refereePKID), fes.Params)
 					referredUsers = append(referredUsers, profileEntryResponse)
 				}
 			}
@@ -592,7 +593,7 @@ func (fes *APIServer) AdminDownloadReferralCSV(ww http.ResponseWriter, req *http
 		nextRow := []string{}
 		nextRow = append(nextRow, referralInfo.ReferralHashBase58)
 		nextRow = append(nextRow, usernameStr)
-		nextRow = append(nextRow, lib.PkToString(lib.PKIDToPublicKey(referralInfo.ReferrerPKID), fes.Params))
+		nextRow = append(nextRow, lib.PkToString(core.PKIDToPublicKey(referralInfo.ReferrerPKID), fes.Params))
 		nextRow = append(nextRow, strconv.FormatUint(referralInfo.ReferrerAmountUSDCents, 10))
 		nextRow = append(nextRow, strconv.FormatUint(referralInfo.RefereeAmountUSDCents, 10))
 		nextRow = append(nextRow, strconv.FormatUint(referralInfo.MaxReferrals, 10))
@@ -668,7 +669,7 @@ func (fes *APIServer) updateOrCreateReferralInfoFromCSVRow(row []string) (_err e
 		return fmt.Errorf(
 			"updateOrCreateReferralInfoFromCSVRow: Problem decoding pkid %s: %v", row[1], err)
 	}
-	referralInfo.ReferrerPKID = lib.PublicKeyToPKID(pkBytes)
+	referralInfo.ReferrerPKID = core.PublicKeyToPKID(pkBytes)
 
 	// Update the non-stats elements of the ReferralInfo.
 	referralInfo.ReferrerAmountUSDCents, err = strconv.ParseUint(row[CSVColumnReferrerAmount], 10, 64)
@@ -856,12 +857,12 @@ func (fes *APIServer) AdminDownloadRefereeCSV(ww http.ResponseWriter, req *http.
 
 		// Chop the referrerPKID out of the key.
 		referrerPKIDBytes := keyBytes[referrerPKIDStartIdx:referralHashStartIdx]
-		referrerPKID := &lib.PKID{}
+		referrerPKID := &core.PKID{}
 		copy(referrerPKID[:], referrerPKIDBytes)
 
 		// Chop the refereePKID out of the key.
 		refereePKIDBytes := keyBytes[refereePKIDStartIdx:]
-		refereePKID := &lib.PKID{}
+		refereePKID := &core.PKID{}
 		copy(refereePKID[:], refereePKIDBytes)
 
 		// Gab the referrer and referee PKIDs.
@@ -909,9 +910,9 @@ func (fes *APIServer) AdminDownloadRefereeCSV(ww http.ResponseWriter, req *http.
 		// Assemble the row.
 		nextRow := []string{}
 		nextRow = append(nextRow, string(referralHashBytes))
-		nextRow = append(nextRow, lib.PkToString(lib.PKIDToPublicKey(referrerPKID), fes.Params))
+		nextRow = append(nextRow, lib.PkToString(core.PKIDToPublicKey(referrerPKID), fes.Params))
 		nextRow = append(nextRow, referrerUsernameStr)
-		nextRow = append(nextRow, lib.PkToString(lib.PKIDToPublicKey(refereePKID), fes.Params))
+		nextRow = append(nextRow, lib.PkToString(core.PKIDToPublicKey(refereePKID), fes.Params))
 		nextRow = append(nextRow, refereeUsernameStr)
 		nextRow = append(nextRow, strconv.FormatInt(refereePostsLen, 10))
 		nextRow = append(nextRow, strconv.FormatInt(refereeLikesLen, 10))

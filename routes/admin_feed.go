@@ -6,11 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core"
 	"io"
 	"net/http"
 	"time"
-
-	"github.com/deso-protocol/core/lib"
 )
 
 // AdminPinPostRequest ...
@@ -34,10 +33,10 @@ func (fes *APIServer) AdminPinPost(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Decode the postHash.
-	postHash := &lib.BlockHash{}
+	postHash := &core.BlockHash{}
 	if requestData.PostHashHex != "" {
 		postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
-		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
+		if err != nil || len(postHashBytes) != core.HashSizeBytes {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminPinPost: Error parsing post hash %v: %v",
 				requestData.PostHashHex, err))
 			return
@@ -109,10 +108,10 @@ func (fes *APIServer) AdminUpdateGlobalFeed(ww http.ResponseWriter, req *http.Re
 	}
 
 	// Decode the postHash.
-	postHash := &lib.BlockHash{}
+	postHash := &core.BlockHash{}
 	if requestData.PostHashHex != "" {
 		postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
-		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
+		if err != nil || len(postHashBytes) != core.HashSizeBytes {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Error parsing post hash %v: %v",
 				requestData.PostHashHex, err))
 			return
@@ -209,7 +208,7 @@ func (fes *APIServer) AdminRemoveNilPosts(ww http.ResponseWriter, req *http.Requ
 	}
 
 	maxBigEndianUint64Bytes := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
-	maxKeyLen := 1 + len(maxBigEndianUint64Bytes) + lib.HashSizeBytes
+	maxKeyLen := 1 + len(maxBigEndianUint64Bytes) + core.HashSizeBytes
 	// Get postHashes for posts in the globalFeed.
 	keys, _, err := fes.GlobalState.Seek(
 		_GlobalStatePrefixTstampNanosPostHash, /*startPrefix*/
@@ -227,7 +226,7 @@ func (fes *APIServer) AdminRemoveNilPosts(ww http.ResponseWriter, req *http.Requ
 	for _, dbKeyBytes := range keys {
 		// Chop the public key out of the db key.
 		// The dbKeyBytes are: [One Prefix Byte][Uint64 Tstamp Bytes][PostHash]
-		postHash := &lib.BlockHash{}
+		postHash := &core.BlockHash{}
 		copy(postHash[:], dbKeyBytes[1+len(maxBigEndianUint64Bytes):][:])
 
 		// Get the postEntry from the utxoView.

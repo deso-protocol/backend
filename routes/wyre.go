@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/lib"
+	"github.com/deso-protocol/core/view"
 	"github.com/fatih/structs"
 	"github.com/golang/glog"
 	"io"
@@ -225,7 +227,7 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 					return
 				}
 				// Pay out deso to send to the public key
-				var txnHash *lib.BlockHash
+				var txnHash *core.BlockHash
 				txnHash, err = fes.SendSeedDeSo(publicKeyBytes, nanosPurchased, true)
 				if err != nil {
 					_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error paying out deso: %v", err))
@@ -600,7 +602,7 @@ func (fes *APIServer) GetWyreWalletOrdersForPublicKey(ww http.ResponseWriter, re
 			return
 		}
 	} else if requestData.Username != "" {
-		var utxoView *lib.UtxoView
+		var utxoView *view.UtxoView
 		utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetWyreWalletOrdersForPublicKey: error getting utxoview: %v", err))

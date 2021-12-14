@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/lib"
+	"github.com/deso-protocol/core/view"
 	"io/ioutil"
 	"net/http"
 	"reflect"
@@ -47,9 +49,9 @@ func (fes *APIServer) WriteGlobalStateDataToResponse(data interface{}, functionN
 // GetVerifiedUsernameMapResponse gets the verified username map (both map[string]string and map[string]*lib.PKID) from
 // the configured GlobalStateAPIUrl or this node's global state.
 func (fes *APIServer) GetVerifiedUsernameMap() (
-	_verifiedUsernameToPKID map[string]*lib.PKID, _err error,
+	_verifiedUsernameToPKID map[string]*core.PKID, _err error,
 ) {
-	verifiedUsernameMap := make(map[string]*lib.PKID)
+	verifiedUsernameMap := make(map[string]*core.PKID)
 	var err error
 	// If there is an external global state specified, fetch the verified username map from there.
 	if fes.Config.GlobalStateAPIUrl != "" {
@@ -78,24 +80,24 @@ func (fes *APIServer) GetVerifiedUsernameMap() (
 
 // GetBlacklist returns both a slice of strings and a map of PKID to []byte representing the current state of
 // blacklisted users.
-func (fes *APIServer) GetBlacklist(utxoView *lib.UtxoView) (
-	_blacklistedPKIDMap map[lib.PKID][]byte, _err error,
+func (fes *APIServer) GetBlacklist(utxoView *view.UtxoView) (
+	_blacklistedPKIDMap map[core.PKID][]byte, _err error,
 ) {
 	return fes.GetRestrictedPublicKeys(_GlobalStatePrefixPublicKeyToBlacklistState, IsBlacklisted, utxoView, RoutePathGetBlacklistedPublicKeys)
 }
 
 // GetGraylist returns both a slice of strings and a map of PKID to []byte representing the current state of graylisted
 // users.
-func (fes *APIServer) GetGraylist(utxoView *lib.UtxoView) (
-	_graylistedPKIDMap map[lib.PKID][]byte, _err error,
+func (fes *APIServer) GetGraylist(utxoView *view.UtxoView) (
+	_graylistedPKIDMap map[core.PKID][]byte, _err error,
 ) {
 	return fes.GetRestrictedPublicKeys(_GlobalStatePrefixPublicKeyToGraylistState, IsGraylisted, utxoView, RoutePathGetGraylistedPublicKeys)
 }
 
 // GetRestrictedPublicKeys fetches the blacklisted or graylisted public keys from this node's global state or the configured
 // external global state. This returns both a slice of public keys (strings) and a map of PKID to restricted bytes.
-func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, filterValue []byte, utxoView *lib.UtxoView, routePath string) (
-	_pkidMap map[lib.PKID][]byte, _err error,
+func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, filterValue []byte, utxoView *view.UtxoView, routePath string) (
+	_pkidMap map[core.PKID][]byte, _err error,
 ) {
 	// Hit GlobalStateAPIUrl for restricted public keys.
 	if fes.Config.GlobalStateAPIUrl != "" {
@@ -112,14 +114,14 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, filterValue []byte,
 			return nil, fmt.Errorf("GetRestrictedPublicKeys: Error decoding bytes: %v", err)
 		}
 		// Iterate over the restricted public key map to convert string to PKIDs and create a filteredPublicKeys slice.
-		pkidMap := make(map[lib.PKID][]byte)
+		pkidMap := make(map[core.PKID][]byte)
 		for k, v := range stringifiedPKIDsMap {
 			var publicKeyBytes []byte
 			publicKeyBytes, _, err = lib.Base58CheckDecode(k)
 			if err != nil {
 				return nil, err
 			}
-			pkid := lib.PublicKeyToPKID(publicKeyBytes)
+			pkid := core.PublicKeyToPKID(publicKeyBytes)
 			pkidMap[*pkid] = v
 		}
 		return pkidMap, nil
@@ -136,7 +138,7 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, filterValue []byte,
 	if err != nil {
 		return nil, err
 	}
-	filteredPKIDMap := make(map[lib.PKID][]byte)
+	filteredPKIDMap := make(map[core.PKID][]byte)
 	// Iterate over all restricted public keys
 	for ii, publicKeyWithPrefix := range publicKeys {
 		// Sanity check that the byte found in global state indicates this is a restricted key.
@@ -150,7 +152,7 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, filterValue []byte,
 	return filteredPKIDMap, nil
 }
 
-func (fes *APIServer) GetGlobalFeedCache() (_postHashes []*lib.BlockHash, _err error) {
+func (fes *APIServer) GetGlobalFeedCache() (_postHashes []*core.BlockHash, _err error) {
 	if fes.Config.GlobalStateAPIUrl != "" {
 		body, err := fes.FetchFromExternalGlobalState(RoutePathGetGlobalFeed)
 		if err != nil {
@@ -158,7 +160,7 @@ func (fes *APIServer) GetGlobalFeedCache() (_postHashes []*lib.BlockHash, _err e
 		}
 
 		// Decode the body into a slice of BlockHashes
-		var blockHashes []*lib.BlockHash
+		var blockHashes []*core.BlockHash
 		decoder := json.NewDecoder(bytes.NewReader(body))
 		if err = decoder.Decode(&blockHashes); err != nil {
 			return nil, fmt.Errorf("GetGlobalFeed: Error decoding bytes: %v", err)

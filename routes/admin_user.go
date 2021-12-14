@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/lib"
+	"github.com/deso-protocol/core/view"
 	"github.com/pkg/errors"
 	"io"
 	"net/http"
@@ -370,8 +372,8 @@ func (fes *APIServer) AdminGetUserGlobalMetadata(ww http.ResponseWriter, req *ht
 }
 
 // Add a new audit log record to the history of username verification audit logs.
-func (fes *APIServer) UpdateUsernameVerificationAuditLog(usernameToVerify string, pkidEntryToVerify *lib.PKIDEntry,
-	isRemoval bool, verifierPublicKeyBase58Check string, utxoView *lib.UtxoView) (_err error) {
+func (fes *APIServer) UpdateUsernameVerificationAuditLog(usernameToVerify string, pkidEntryToVerify *view.PKIDEntry,
+	isRemoval bool, verifierPublicKeyBase58Check string, utxoView *view.UtxoView) (_err error) {
 	verificationAuditLogs := []VerificationUsernameAuditLog{}
 	// Get the key to look up the current list of audit logs for this username
 	verificationAuditLogKey := GlobalStateKeyForUsernameVerificationAuditLogs(usernameToVerify)
@@ -420,8 +422,8 @@ func (fes *APIServer) UpdateUsernameVerificationAuditLog(usernameToVerify string
 }
 
 // Add a new audit log record to the history of filter audit logs.
-func (fes *APIServer) UpdateFilterAuditLogs(usernameToUpdate string, pkidEntryToUpdate *lib.PKIDEntry, filterType FilterType,
-	isRemoval bool, updaterPublicKeyBase58Check string, utxoView *lib.UtxoView) (_err error) {
+func (fes *APIServer) UpdateFilterAuditLogs(usernameToUpdate string, pkidEntryToUpdate *view.PKIDEntry, filterType FilterType,
+	isRemoval bool, updaterPublicKeyBase58Check string, utxoView *view.UtxoView) (_err error) {
 	// Fetch the existing logs from global state
 	filterLogs, err := fes.GetFilterAuditLogs(usernameToUpdate, filterType)
 	if err != nil {
@@ -512,7 +514,7 @@ func (fes *APIServer) GetFilterAuditLogs(username string, filterType FilterType)
 
 // Type used for gob decoding and encoding verification mapping
 type VerifiedUsernameToPKID struct {
-	VerifiedUsernameToPKID map[string]*lib.PKID
+	VerifiedUsernameToPKID map[string]*core.PKID
 }
 
 type VerificationUsernameAuditLog struct {
@@ -520,10 +522,10 @@ type VerificationUsernameAuditLog struct {
 	TimestampNanos uint64
 	// Username and PKID of the admin who verified the user.
 	VerifierUsername string
-	VerifierPKID     *lib.PKID
+	VerifierPKID     *core.PKID
 	// The user who was verified or had their verification removed.
 	VerifiedUsername string
-	VerifiedPKID     *lib.PKID
+	VerifiedPKID     *core.PKID
 	// Indicator of whether this request granted verification or removed verification.
 	IsRemoval bool
 }
@@ -544,10 +546,10 @@ type FilterAuditLog struct {
 	Filter FilterType
 	// Username and PKID of the admin who filtered the user.
 	UpdaterUsername string
-	UpdaterPKID     *lib.PKID
+	UpdaterPKID     *core.PKID
 	// The user who was filtered or had their filter removed.
 	UpdatedUsername string
-	UpdatedPKID     *lib.PKID
+	UpdatedPKID     *core.PKID
 	// Indicator of whether this request granted the filter status or removed it.
 	IsRemoval bool
 }
@@ -613,7 +615,7 @@ func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *h
 	if verifiedMap != nil {
 		verifiedMapStruct.VerifiedUsernameToPKID = verifiedMap
 	} else {
-		verifiedMapStruct.VerifiedUsernameToPKID = make(map[string]*lib.PKID)
+		verifiedMapStruct.VerifiedUsernameToPKID = make(map[string]*core.PKID)
 	}
 
 	// Add a new audit log record for this verification request.
@@ -857,9 +859,9 @@ func (fes *APIServer) AdminGetUsernameVerificationAuditLogs(ww http.ResponseWrit
 			VerificationUsernameAuditLogResponse{
 				TimestampNanos:               verificationAuditLog.TimestampNanos,
 				VerifierUsername:             verificationAuditLog.VerifierUsername,
-				VerifierPublicKeyBase58Check: lib.PkToString(lib.PKIDToPublicKey(verificationAuditLog.VerifierPKID), fes.Params),
+				VerifierPublicKeyBase58Check: lib.PkToString(core.PKIDToPublicKey(verificationAuditLog.VerifierPKID), fes.Params),
 				VerifiedUsername:             verificationAuditLog.VerifiedUsername,
-				VerifiedPublicKeyBase58Check: lib.PkToString(lib.PKIDToPublicKey(verificationAuditLog.VerifiedPKID), fes.Params),
+				VerifiedPublicKeyBase58Check: lib.PkToString(core.PKIDToPublicKey(verificationAuditLog.VerifiedPKID), fes.Params),
 				IsRemoval:                    verificationAuditLog.IsRemoval,
 			})
 	}
@@ -933,8 +935,8 @@ func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Re
 	userPKIDEntry := utxoView.GetPKIDForPublicKey(userPublicKeyBytes)
 	userPKID := userPKIDEntry.PKID
 	profileEntry := utxoView.GetProfileEntryForPKID(userPKIDEntry.PKID)
-	getPublicKeyFromPKID := func(pkid *lib.PKID) string {
-		return lib.PkToString(lib.PKIDToPublicKey(pkid), fes.Params)
+	getPublicKeyFromPKID := func(pkid *core.PKID) string {
+		return lib.PkToString(core.PKIDToPublicKey(pkid), fes.Params)
 	}
 
 	// Pull the verified map from global state and check if verified.

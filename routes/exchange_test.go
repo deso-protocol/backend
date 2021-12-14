@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	chainlib "github.com/btcsuite/btcd/blockchain"
 	"github.com/deso-protocol/backend/config"
+	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/lib"
 	"io"
 	"io/ioutil"
@@ -1295,7 +1296,7 @@ func TestAPI(t *testing.T) {
 		// The miner public key should return one transaction for its single
 		// block reward rather than three.
 		{
-			prefix := lib.DbTxindexTxIDKey(&lib.BlockHash{})[0]
+			prefix := lib.DbTxindexTxIDKey(&core.BlockHash{})[0]
 			txnsInTransactionIndex, _ := lib.EnumerateKeysForPrefix(apiServer.TXIndex.TXIndexChain.DB(), []byte{prefix})
 			require.Equal(1+len(apiServer.Params.SeedTxns)+len(apiServer.Params.SeedBalances), len(txnsInTransactionIndex))
 		}
@@ -1380,7 +1381,7 @@ func TestAPI(t *testing.T) {
 
 		// Now everything should be reset properly.
 		{
-			prefix := lib.DbTxindexTxIDKey(&lib.BlockHash{})[0]
+			prefix := lib.DbTxindexTxIDKey(&core.BlockHash{})[0]
 			txnsInTransactionIndex, _ := lib.EnumerateKeysForPrefix(apiServer.TXIndex.TXIndexChain.DB(), []byte{prefix})
 			require.Equal(5+len(apiServer.Params.SeedTxns)+len(apiServer.Params.SeedBalances), len(txnsInTransactionIndex))
 		}

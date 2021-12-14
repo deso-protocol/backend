@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/lib"
 	"io/ioutil"
 	"net/http"
@@ -35,7 +36,7 @@ type RemoteMiner struct {
 	latestBlockHeaders      []*lib.MsgDeSoHeader
 	latestExtraDatas        []uint64
 	latestBlockID           string
-	currentDiffTarget       *lib.BlockHash
+	currentDiffTarget       *core.BlockHash
 }
 
 func NewRemoteMiner(
@@ -69,7 +70,7 @@ func NewRemoteMiner(
 }
 
 func (bb *RemoteMiner) GetBlockTemplate(threadIndex int64) (
-	_hdr *lib.MsgDeSoHeader, _extraNonce uint64, _blockID string, _diffTarget *lib.BlockHash) {
+	_hdr *lib.MsgDeSoHeader, _extraNonce uint64, _blockID string, _diffTarget *core.BlockHash) {
 
 	bb.mtxLatestBLockTemplates.RLock()
 	defer bb.mtxLatestBLockTemplates.RUnlock()
@@ -172,7 +173,7 @@ func (bb *RemoteMiner) RefreshBlockTemplates() error {
 	if err != nil {
 		return fmt.Errorf("Error parsing difficulty target: %v", err)
 	}
-	diffTargetHash := &lib.BlockHash{}
+	diffTargetHash := &core.BlockHash{}
 	copy(diffTargetHash[:], diffTargetBytes)
 
 	bb.latestExtraDatas = res.ExtraDatas

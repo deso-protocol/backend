@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core"
 	"net/http"
 	"time"
 
@@ -114,9 +115,9 @@ type User struct {
 	// JumioFinishedTime = Time user completed flow in Jumio
 	JumioFinishedTime uint64
 	// JumioVerified = user was verified from Jumio flow
-	JumioVerified    bool
+	JumioVerified bool
 	// JumioReturned = jumio webhook called
-	JumioReturned    bool
+	JumioReturned bool
 
 	// Is this user an admin
 	IsAdmin bool
@@ -180,7 +181,7 @@ func (fes *APIServer) GetBalanceForPublicKey(publicKeyBytes []byte) (
 // If the map does not already exist, this function will create one in global state.
 // Returns nil it encounters an error. Returning nil is not dangerous, as
 // _profileEntryToResponse() will ignore the map entirely in that case.
-func (fes *APIServer) GetVerifiedUsernameToPKIDMapFromGlobalState() (_verificationMap map[string]*lib.PKID, _err error) {
+func (fes *APIServer) GetVerifiedUsernameToPKIDMapFromGlobalState() (_verificationMap map[string]*core.PKID, _err error) {
 	// Pull the verified map from global state.
 	verifiedMapBytes, err := fes.GlobalState.Get(_GlobalStatePrefixForVerifiedMap)
 	if err != nil {
@@ -196,7 +197,7 @@ func (fes *APIServer) GetVerifiedUsernameToPKIDMapFromGlobalState() (_verificati
 		}
 	} else {
 		// Create the inital map structure
-		verifiedMapStruct.VerifiedUsernameToPKID = make(map[string]*lib.PKID)
+		verifiedMapStruct.VerifiedUsernameToPKID = make(map[string]*core.PKID)
 
 		// Encode the map and stick it in the database.
 		metadataDataBuf := bytes.NewBuffer([]byte{})
@@ -280,7 +281,7 @@ func (fes *APIServer) putUserMetadataInGlobalState(
 	return nil
 }
 
-func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, useBuyDeSoSeed bool) (txnHash *lib.BlockHash, _err error) {
+func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, useBuyDeSoSeed bool) (txnHash *core.BlockHash, _err error) {
 	fes.mtxSeedDeSo.Lock()
 	defer fes.mtxSeedDeSo.Unlock()
 
@@ -300,7 +301,7 @@ func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, 
 		return nil, fmt.Errorf("SendSeedDeSo: Error computing keys from seed: %+v", err)
 	}
 
-	sendDeSo := func() (txnHash *lib.BlockHash, _err error) {
+	sendDeSo := func() (txnHash *core.BlockHash, _err error) {
 		// Create the transaction outputs and add the recipient's public key and the
 		// amount we want to pay them
 		txnOutputs := []*lib.DeSoOutput{}
@@ -353,7 +354,7 @@ func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, 
 
 	// Here we retry sending DeSo once if there is an error.  This is concerning, but we believe it is safe at this
 	// time as no DESO will be sent if there is an error.  We wait for 5 seconds
-	var hash *lib.BlockHash
+	var hash *core.BlockHash
 	hash, err = sendDeSo()
 	if err != nil {
 		publicKeyBase58Check := lib.PkToString(recipientPkBytes, fes.Params)

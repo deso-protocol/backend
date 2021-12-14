@@ -6,6 +6,8 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/view"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -118,7 +120,7 @@ func (fes *APIServer) SendPhoneNumberVerificationText(ww http.ResponseWriter, re
 	}
 }
 
-func (fes *APIServer) canUserCreateProfile(userMetadata *UserMetadata, utxoView *lib.UtxoView) (_canUserCreateProfile bool, _err error) {
+func (fes *APIServer) canUserCreateProfile(userMetadata *UserMetadata, utxoView *view.UtxoView) (_canUserCreateProfile bool, _err error) {
 	// If a user already has a profile, they can update their profile.
 	profileEntry := utxoView.GetProfileEntryForPublicKey(userMetadata.PublicKey)
 	if profileEntry != nil && len(profileEntry.Username) > 0 {
@@ -344,7 +346,7 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 			}
 		}
 
-		var txnHash *lib.BlockHash
+		var txnHash *core.BlockHash
 		txnHash, err = fes.SendSeedDeSo(userMetadata.PublicKey, amountToSendNanos, false)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Error sending seed DeSo: %v", err))
@@ -849,7 +851,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTransactionId string, publicKeyBytes []byte, utxoView *lib.UtxoView) (_userMetadata *UserMetadata, err error) {
+func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTransactionId string, publicKeyBytes []byte, utxoView *view.UtxoView) (_userMetadata *UserMetadata, err error) {
 	// Update the user metadata to show that user has been jumio verified and store jumio transaction id.
 	userMetadata.JumioVerified = true
 	userMetadata.JumioTransactionID = jumioTransactionId
@@ -885,7 +887,7 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: SendDeSo wallet balance is below nanos purchased")
 			}
 			// Send JumioDeSoNanos to public key
-			var txnHash *lib.BlockHash
+			var txnHash *core.BlockHash
 			txnHash, err = fes.SendSeedDeSo(publicKeyBytes, desoNanos, false)
 			if err != nil {
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error sending starter DeSo: %v", err)
@@ -959,7 +961,7 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 				return userMetadata, nil
 			}
 			// Send the referrer money
-			var referrerTxnHash *lib.BlockHash
+			var referrerTxnHash *core.BlockHash
 			referrerTxnHash, err = fes.SendSeedDeSo(referrerPublicKeyBytes, referrerDeSoNanos, false)
 			if err != nil {
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error sending DESO to referrer: %v", err)
@@ -1034,7 +1036,7 @@ func (fes *APIServer) GetJumioStatusForPublicKey(ww http.ResponseWriter, rr *htt
 	}
 
 	if userMetadata.JumioVerified {
-		var utxoView *lib.UtxoView
+		var utxoView *view.UtxoView
 		utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetJumioStatusForPublicKey: error getting utxoview: %v", err))

@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/view"
 	"io"
 	"net/http"
 	"reflect"
@@ -818,7 +820,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		return
 	}
 
-	var lastTxHash *lib.BlockHash
+	var lastTxHash *core.BlockHash
 	lastTxSeen := false
 	lastTxID := transactionInfoRequest.LastTransactionIDBase58Check
 	if lastTxID == "" {
@@ -829,7 +831,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error decoding last tx id (%v): %v", lastTxID, err))
 			return
 		}
-		lastTxHash = &lib.BlockHash{}
+		lastTxHash = &core.BlockHash{}
 		copy(lastTxHash[:], txIDBytes)
 	}
 
@@ -905,7 +907,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			APIAddError(ww, fmt.Sprintf("APITransactionInfo: TransactionID byte length is %d but should be 32", len(txIDBytes)))
 			return
 		}
-		txID := &lib.BlockHash{}
+		txID := &core.BlockHash{}
 		copy(txID[:], txIDBytes)
 
 		// Use the txID to lookup the requested transaction.
@@ -982,12 +984,12 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	}
 
 	// Speed up calls to GetBlock with a local cache
-	blockMap := make(map[*lib.BlockHash]*lib.MsgDeSoBlock)
+	blockMap := make(map[*core.BlockHash]*lib.MsgDeSoBlock)
 
 	// The API response returns oldest -> newest so we need to iterate over the results backwards
 	for ii := len(valsFound) - 1; ii >= 0; ii-- {
 		txIDBytes := valsFound[ii]
-		txID := &lib.BlockHash{}
+		txID := &core.BlockHash{}
 		copy(txID[:], txIDBytes)
 
 		if transactionInfoRequest.IDsOnly {
@@ -1004,7 +1006,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			}
 
 			// Fetch the block
-			blockHash := &lib.BlockHash{}
+			blockHash := &core.BlockHash{}
 			copy(blockHash[:], blockHashBytes)
 			block := blockMap[blockHash]
 			if block == nil {
@@ -1190,14 +1192,14 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 	// If the HashHex is set, look the block up using that.
 	numBlocks := len(fes.blockchain.BestChain())
 
-	var blockHash *lib.BlockHash
+	var blockHash *core.BlockHash
 	if blockRequest.HashHex != "" {
 		hashBytes, err := hex.DecodeString(blockRequest.HashHex)
 		if err != nil {
 			APIAddError(ww, fmt.Sprintf("APIBlockRequest: Problem parsing block hash: %v", err))
 			return
 		}
-		blockHash = &lib.BlockHash{}
+		blockHash = &core.BlockHash{}
 		copy(blockHash[:], hashBytes[:])
 
 	} else {
@@ -1334,10 +1336,10 @@ func (fes *APIServer) _augmentAndProcessTransactionWithSubsidyWithKey(
 // that are "RemovedEverywhere."
 //
 // NOTE: If a readerPK is passed, it will always be returned in the new map.
-func (fes *APIServer) FilterOutRestrictedPubKeysFromMap(profilePubKeyMap map[lib.PkMapKey][]byte, readerPK []byte, moderationType string, utxoView *lib.UtxoView,
-) (_filteredPubKeyMap map[lib.PkMapKey][]byte, _err error) {
+func (fes *APIServer) FilterOutRestrictedPubKeysFromMap(profilePubKeyMap map[view.PkMapKey][]byte, readerPK []byte, moderationType string, utxoView *view.UtxoView,
+) (_filteredPubKeyMap map[view.PkMapKey][]byte, _err error) {
 
-	filteredPubKeyMap := make(map[lib.PkMapKey][]byte)
+	filteredPubKeyMap := make(map[view.PkMapKey][]byte)
 	for pkMapKey, publicKey := range profilePubKeyMap {
 		pkid := utxoView.GetPKIDForPublicKey(publicKey).PKID
 		// If the key is restricted based on the current moderation type and the pkMapKey does not equal that of the currentPoster,
@@ -1352,7 +1354,7 @@ func (fes *APIServer) FilterOutRestrictedPubKeysFromMap(profilePubKeyMap map[lib
 	}
 
 	if readerPK != nil {
-		filteredPubKeyMap[lib.MakePkMapKey(readerPK)] = readerPK
+		filteredPubKeyMap[view.MakePkMapKey(readerPK)] = readerPK
 	}
 
 	return filteredPubKeyMap, nil
@@ -1362,7 +1364,7 @@ func (fes *APIServer) FilterOutRestrictedPubKeysFromMap(profilePubKeyMap map[lib
 // Accepts a list of profile public keys and returns a subset of those keys based on
 // the moderationType specified.  Passing an empty string will only filter out profiles
 // that are "RemovedEverywhere."
-func (fes *APIServer) FilterOutRestrictedPubKeysFromList(profilePubKeys [][]byte, readerPK []byte, moderationType string, utxoView *lib.UtxoView) (_filteredPubKeys [][]byte, _err error) {
+func (fes *APIServer) FilterOutRestrictedPubKeysFromList(profilePubKeys [][]byte, readerPK []byte, moderationType string, utxoView *view.UtxoView) (_filteredPubKeys [][]byte, _err error) {
 
 	filteredPubKeys := [][]byte{}
 	for _, profilePubKey := range profilePubKeys {
@@ -1414,19 +1416,19 @@ func (fes *APIServer) GetBlockedPubKeysForUser(userPubKey []byte) (_blockedPubKe
 // This is then joined with mempool and all profiles are returned.  Because the mempool may contain
 // profile changes, the number of profiles returned in the map is not guaranteed to be numEntries.
 func (fes *APIServer) GetProfilesByCoinValue(
-	bav *lib.UtxoView,
+	bav *view.UtxoView,
 	readerPK []byte,
 	startProfilePubKey []byte,
 	numToFetch int,
 	getPosts bool,
 	moderationType string,
 ) (
-	_profiles map[lib.PkMapKey]*lib.ProfileEntry,
-	_postsByProfilePublicKey map[lib.PkMapKey][]*lib.PostEntry,
-	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, _err error,
+	_profiles map[view.PkMapKey]*view.ProfileEntry,
+	_postsByProfilePublicKey map[view.PkMapKey][]*view.PostEntry,
+	_postEntryReaderStates map[core.BlockHash]*view.PostEntryReaderState, _err error,
 ) {
 
-	var startProfile *lib.ProfileEntry
+	var startProfile *view.ProfileEntry
 	if startProfilePubKey != nil {
 		startProfile = lib.DBGetProfileEntryForPKID(bav.Handle, lib.DBGetPKIDEntryForPublicKey(bav.Handle, startProfilePubKey).PKID)
 	}
@@ -1486,8 +1488,8 @@ func (fes *APIServer) GetProfilesByCoinValue(
 	}
 
 	// At this point, all the profiles should be loaded into the view.
-	postsByPublicKey := make(map[lib.PkMapKey][]*lib.PostEntry)
-	postEntryReaderStates := make(map[lib.BlockHash]*lib.PostEntryReaderState)
+	postsByPublicKey := make(map[view.PkMapKey][]*view.PostEntry)
+	postEntryReaderStates := make(map[core.BlockHash]*view.PostEntryReaderState)
 	if getPosts {
 		// Do one more pass to load all the posts associated with each profile into the view.
 		for _, pubKey := range validProfilePubKeys {
@@ -1519,7 +1521,7 @@ func (fes *APIServer) GetProfilesByCoinValue(
 			if postEntry.IsDeleted() || postEntry.IsHidden || len(postEntry.ParentStakeID) != 0 {
 				continue
 			}
-			posterPublicKey := lib.MakePkMapKey(postEntry.PosterPublicKey)
+			posterPublicKey := view.MakePkMapKey(postEntry.PosterPublicKey)
 			postsForProfile := postsByPublicKey[posterPublicKey]
 			postsForProfile = append(postsForProfile, postEntry)
 			postsByPublicKey[posterPublicKey] = postsForProfile
@@ -1545,7 +1547,7 @@ func (fes *APIServer) GetProfilesByCoinValue(
 
 	// Now that the view mappings are a complete picture, iterate through them
 	// and set them on the map we're returning.
-	profilesByPublicKey := make(map[lib.PkMapKey]*lib.ProfileEntry)
+	profilesByPublicKey := make(map[view.PkMapKey]*view.ProfileEntry)
 	for _, pubKey := range filteredViewPubKeys {
 		pkidEntry := bav.GetPKIDForPublicKey(pubKey)
 		profileEntry := bav.ProfilePKIDToProfileEntry[*pkidEntry.PKID]
@@ -1553,14 +1555,14 @@ func (fes *APIServer) GetProfilesByCoinValue(
 		if profileEntry.IsDeleted() || profileEntry.IsHidden {
 			continue
 		}
-		profilesByPublicKey[lib.MakePkMapKey(profileEntry.PublicKey)] = profileEntry
+		profilesByPublicKey[view.MakePkMapKey(profileEntry.PublicKey)] = profileEntry
 	}
 
 	return profilesByPublicKey, postsByPublicKey, postEntryReaderStates, nil
 }
 
-func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, startAfterPostHash *lib.BlockHash, publicKey []byte, numToFetch int, skipHidden bool, mediaRequired bool) (
-	_postEntries []*lib.PostEntry, _err error) {
+func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *view.UtxoView, startAfterPostHash *core.BlockHash, publicKey []byte, numToFetch int, skipHidden bool, mediaRequired bool) (
+	_postEntries []*view.PostEntry, _err error) {
 	// Get the people who follow publicKey
 	// Note: GetFollowEntriesForPublicKey also loads them into the view
 	followEntries, err := bav.GetFollowEntriesForPublicKey(publicKey, false /* getEntriesFollowingPublicKey */)
@@ -1571,7 +1573,7 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 	}
 
 	// Extract the followed pub keys from the follow entries.
-	followedPubKeysMap := make(map[lib.PkMapKey][]byte)
+	followedPubKeysMap := make(map[view.PkMapKey][]byte)
 	for _, followEntry := range followEntries {
 		// Each follow entry needs to be converted back to a public key to stay consistent with
 		// the old logic.
@@ -1582,7 +1584,7 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 				lib.PkToString(followEntry.FollowedPKID[:], bav.Params))
 			continue
 		}
-		followedPubKeysMap[lib.MakePkMapKey(pubKeyForPKID)] = pubKeyForPKID
+		followedPubKeysMap[view.MakePkMapKey(pubKeyForPKID)] = pubKeyForPKID
 	}
 
 	// Filter out any restricted pub keys.
@@ -1611,7 +1613,7 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 	}
 
 	// Iterate over the view. Put all posts authored by people you follow into an array
-	var postEntriesForFollowFeed []*lib.PostEntry
+	var postEntriesForFollowFeed []*view.PostEntry
 	for _, postEntry := range bav.PostHashToPostEntry {
 		// Ignore deleted or hidden posts and any comments.
 		if postEntry.IsDeleted() || (postEntry.IsHidden && skipHidden) || len(postEntry.ParentStakeID) != 0 {
@@ -1623,7 +1625,7 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 			continue
 		}
 
-		if _, isFollowedByUser := followedPubKeysMap[lib.MakePkMapKey(postEntry.PosterPublicKey)]; isFollowedByUser {
+		if _, isFollowedByUser := followedPubKeysMap[view.MakePkMapKey(postEntry.PosterPublicKey)]; isFollowedByUser {
 			postEntriesForFollowFeed = append(postEntriesForFollowFeed, postEntry)
 		}
 	}
@@ -1655,10 +1657,10 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 // Fetches all the posts from the db starting with a given postHash, up to numToFetch.
 // This is then joined with mempool and all posts are returned.  Because the mempool may contain
 // post changes, the number of posts returned in the map is not guaranteed to be numToFetch.
-func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.BlockHash, readerPK []byte, numToFetch int, skipHidden bool, skipVanillaRepost bool) (
-	_corePosts []*lib.PostEntry, _commentsByPostHash map[lib.BlockHash][]*lib.PostEntry, _err error) {
+func (fes *APIServer) GetPostsByTime(bav *view.UtxoView, startPostHash *core.BlockHash, readerPK []byte, numToFetch int, skipHidden bool, skipVanillaRepost bool) (
+	_corePosts []*view.PostEntry, _commentsByPostHash map[core.BlockHash][]*view.PostEntry, _err error) {
 
-	var startPost *lib.PostEntry
+	var startPost *view.PostEntry
 	if startPostHash != nil {
 		startPost = bav.GetPostEntryForPostHash(startPostHash)
 	}
@@ -1668,8 +1670,8 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 		startTstampNanos = startPost.TimestampNanos
 	}
 
-	allCorePosts := []*lib.PostEntry{}
-	addedPostHashes := make(map[lib.BlockHash]struct{})
+	allCorePosts := []*view.PostEntry{}
+	addedPostHashes := make(map[core.BlockHash]struct{})
 	skipFirstPost := false
 	for len(allCorePosts) < numToFetch {
 		// Start by fetching the posts we have in the db.
@@ -1696,7 +1698,7 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 
 		// Cycle through all the posts and store a map of the PubKeys so we can filter out those
 		// that are restricted later.
-		postEntryPubKeyMap := make(map[lib.PkMapKey][]byte)
+		postEntryPubKeyMap := make(map[view.PkMapKey][]byte)
 		for _, postEntry := range bav.PostHashToPostEntry {
 			// Ignore deleted / rolled-back / hidden posts.
 			if postEntry.IsDeleted() || (postEntry.IsHidden && skipHidden) {
@@ -1705,7 +1707,7 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 
 			// We make sure that the post isn't a comment.
 			if len(postEntry.ParentStakeID) == 0 {
-				postEntryPubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] = postEntry.PosterPublicKey
+				postEntryPubKeyMap[view.MakePkMapKey(postEntry.PosterPublicKey)] = postEntry.PosterPublicKey
 			}
 		}
 
@@ -1720,7 +1722,7 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 		for _, postEntry := range bav.PostHashToPostEntry {
 
 			// Ignore deleted or rolled-back posts. Skip vanilla repost posts if skipVanillaRepost is true.
-			if postEntry.IsDeleted() || (postEntry.IsHidden && skipHidden) || (lib.IsVanillaRepost(postEntry) && skipVanillaRepost) {
+			if postEntry.IsDeleted() || (postEntry.IsHidden && skipHidden) || (view.IsVanillaRepost(postEntry) && skipVanillaRepost) {
 				continue
 			}
 
@@ -1731,7 +1733,7 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 
 			// Make sure this isn't a comment and then make sure the public key isn't restricted.
 			if len(postEntry.ParentStakeID) == 0 {
-				if filteredPostEntryPubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] == nil {
+				if filteredPostEntryPubKeyMap[view.MakePkMapKey(postEntry.PosterPublicKey)] == nil {
 					continue
 				}
 				allCorePosts = append(allCorePosts, postEntry)
@@ -1740,7 +1742,7 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 		}
 	}
 	// We no longer return comments with the posts.  Too inefficient.
-	commentsByPostHash := make(map[lib.BlockHash][]*lib.PostEntry)
+	commentsByPostHash := make(map[core.BlockHash][]*view.PostEntry)
 
 	return allCorePosts, commentsByPostHash, nil
 }

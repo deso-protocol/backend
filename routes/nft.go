@@ -4,6 +4,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/view"
 	"io"
 	"net/http"
 	"reflect"
@@ -136,13 +138,13 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 
 	// Get the PostHash for the NFT we are creating.
 	nftPostHashBytes, err := hex.DecodeString(requestData.NFTPostHashHex)
-	if err != nil || len(nftPostHashBytes) != lib.HashSizeBytes {
+	if err != nil || len(nftPostHashBytes) != core.HashSizeBytes {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"CreateNFT: Error parsing post hash %v: %v",
 			requestData.NFTPostHashHex, err))
 		return
 	}
-	nftPostHash := &lib.BlockHash{}
+	nftPostHash := &core.BlockHash{}
 	copy(nftPostHash[:], nftPostHashBytes)
 
 	// Get the updater's public key.
@@ -261,13 +263,13 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 
 	// Get the PostHash for the NFT.
 	nftPostHashBytes, err := hex.DecodeString(requestData.NFTPostHashHex)
-	if err != nil || len(nftPostHashBytes) != lib.HashSizeBytes {
+	if err != nil || len(nftPostHashBytes) != core.HashSizeBytes {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"UpdateNFT: Error parsing post hash %v: %v",
 			requestData.NFTPostHashHex, err))
 		return
 	}
-	nftPostHash := &lib.BlockHash{}
+	nftPostHash := &core.BlockHash{}
 	copy(nftPostHash[:], nftPostHashBytes)
 
 	// Get the updater's public key.
@@ -285,7 +287,7 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Get the NFT in question so we can do a more hardcore validation of the request data.
-	nftKey := lib.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
+	nftKey := view.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
 	nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
 	if nftEntry == nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
@@ -399,13 +401,13 @@ func (fes *APIServer) CreateNFTBid(ww http.ResponseWriter, req *http.Request) {
 
 	// Get the PostHash for the NFT.
 	nftPostHashBytes, err := hex.DecodeString(requestData.NFTPostHashHex)
-	if err != nil || len(nftPostHashBytes) != lib.HashSizeBytes {
+	if err != nil || len(nftPostHashBytes) != core.HashSizeBytes {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"CreateNFTBid: Error parsing post hash %v: %v",
 			requestData.NFTPostHashHex, err))
 		return
 	}
-	nftPostHash := &lib.BlockHash{}
+	nftPostHash := &core.BlockHash{}
 	copy(nftPostHash[:], nftPostHashBytes)
 
 	// Get the updater's public key.
@@ -424,7 +426,7 @@ func (fes *APIServer) CreateNFTBid(ww http.ResponseWriter, req *http.Request) {
 
 	// Get the NFT in question so we can do a more hardcore validation of the request data.
 	if requestData.SerialNumber != 0 {
-		nftKey := lib.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
+		nftKey := view.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
 		nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
 		if nftEntry == nil {
 			_AddBadRequestError(ww, fmt.Sprintf(
@@ -558,13 +560,13 @@ func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
 
 	// Get the PostHash for the NFT.
 	nftPostHashBytes, err := hex.DecodeString(requestData.NFTPostHashHex)
-	if err != nil || len(nftPostHashBytes) != lib.HashSizeBytes {
+	if err != nil || len(nftPostHashBytes) != core.HashSizeBytes {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"AcceptNFTBid: Error parsing post hash %v: %v",
 			requestData.NFTPostHashHex, err))
 		return
 	}
-	nftPostHash := &lib.BlockHash{}
+	nftPostHash := &core.BlockHash{}
 	copy(nftPostHash[:], nftPostHashBytes)
 
 	// Get the updater's public key.
@@ -596,7 +598,7 @@ func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
 			requestData.BidderPublicKeyBase58Check))
 		return
 	}
-	nftBidKey := lib.MakeNFTBidKey(bidderPKID.PKID, nftPostHash, uint64(requestData.SerialNumber))
+	nftBidKey := view.MakeNFTBidKey(bidderPKID.PKID, nftPostHash, uint64(requestData.SerialNumber))
 	nftBidEntry := utxoView.GetNFTBidEntryForNFTBidKey(&nftBidKey)
 	if nftBidEntry == nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
@@ -712,7 +714,7 @@ func (fes *APIServer) GetNFTShowcase(ww http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	var readerPKID *lib.PKID
+	var readerPKID *core.PKID
 	if requestData.ReaderPublicKeyBase58Check != "" {
 		readerPKID = utxoView.GetPKIDForPublicKey(readerPublicKeyBytes).PKID
 	}
@@ -728,7 +730,7 @@ func (fes *APIServer) GetNFTShowcase(ww http.ResponseWriter, req *http.Request) 
 			continue
 		}
 
-		nftKey := lib.MakeNFTKey(nftHash, 1)
+		nftKey := view.MakeNFTKey(nftHash, 1)
 		nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
 
 		postEntryResponse, err := fes._postEntryToResponse(
@@ -797,7 +799,7 @@ type GetNFTsForUserRequest struct {
 	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
 	IsForSale                  *bool  `safeForLogging:"true"`
 	// Ignored if IsForSale is provided
-	IsPending                  *bool  `safeForLogging:"true"`
+	IsPending *bool `safeForLogging:"true"`
 }
 
 type NFTEntryAndPostEntryResponse struct {
@@ -849,14 +851,14 @@ func (fes *APIServer) GetNFTsForUser(ww http.ResponseWriter, req *http.Request) 
 	}
 	pkid := utxoView.GetPKIDForPublicKey(userPublicKey)
 	readerPKIDEntry := utxoView.GetPKIDForPublicKey(readerPublicKeyBytes)
-	var readerPKID *lib.PKID
+	var readerPKID *core.PKID
 	if readerPKIDEntry != nil {
 		readerPKID = readerPKIDEntry.PKID
 	}
 
 	nftEntries := utxoView.GetNFTEntriesForPKID(pkid.PKID)
 
-	filteredNFTEntries := []*lib.NFTEntry{}
+	filteredNFTEntries := []*view.NFTEntry{}
 	if requestData.IsForSale != nil {
 		checkForSale := *requestData.IsForSale
 		for _, nftEntry := range nftEntries {
@@ -875,7 +877,7 @@ func (fes *APIServer) GetNFTsForUser(ww http.ResponseWriter, req *http.Request) 
 		filteredNFTEntries = nftEntries
 	}
 
-	postHashToEntryResponseMap := make(map[*lib.BlockHash]*PostEntryResponse)
+	postHashToEntryResponseMap := make(map[*core.BlockHash]*PostEntryResponse)
 	publicKeyToProfileEntryResponse := make(map[string]*ProfileEntryResponse)
 	for _, nftEntry := range filteredNFTEntries {
 		postEntryResponse := postHashToEntryResponseMap[nftEntry.NFTPostHash]
@@ -1033,11 +1035,11 @@ func (fes *APIServer) GetNFTBidsForNFTPost(ww http.ResponseWriter, req *http.Req
 	}
 
 	// Decode the postHash.
-	postHash := &lib.BlockHash{}
+	postHash := &core.BlockHash{}
 	if requestData.PostHashHex != "" {
 		var postHashBytes []byte
 		postHashBytes, err = hex.DecodeString(requestData.PostHashHex)
-		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
+		if err != nil || len(postHashBytes) != core.HashSizeBytes {
 			_AddBadRequestError(ww, fmt.Sprintf("GetNFTBidsForNFTPost: Error parsing post hash %v: %v",
 				requestData.PostHashHex, err))
 			return
@@ -1054,7 +1056,7 @@ func (fes *APIServer) GetNFTBidsForNFTPost(ww http.ResponseWriter, req *http.Req
 		return
 	}
 	readerPKIDEntry := utxoView.GetPKIDForPublicKey(readerPublicKeyBytes)
-	var readerPKID *lib.PKID
+	var readerPKID *core.PKID
 	if readerPKIDEntry != nil {
 		readerPKID = readerPKIDEntry.PKID
 	}
@@ -1105,11 +1107,11 @@ func (fes *APIServer) GetNFTCollectionSummary(ww http.ResponseWriter, req *http.
 	}
 
 	// Decode the postHash.
-	postHash := &lib.BlockHash{}
+	postHash := &core.BlockHash{}
 	if requestData.PostHashHex != "" {
 		var postHashBytes []byte
 		postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
-		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
+		if err != nil || len(postHashBytes) != core.HashSizeBytes {
 			_AddBadRequestError(ww, fmt.Sprintf("GetNFTCollectionSummary: Error parsing post hash %v: %v",
 				requestData.PostHashHex, err))
 			return
@@ -1131,7 +1133,7 @@ func (fes *APIServer) GetNFTCollectionSummary(ww http.ResponseWriter, req *http.
 		return
 	}
 	var readerPublicKeyBytes []byte
-	var readerPKID *lib.PKID
+	var readerPKID *core.PKID
 	if requestData.ReaderPublicKeyBase58Check != "" {
 		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
 		if err != nil {
@@ -1148,7 +1150,7 @@ func (fes *APIServer) GetNFTCollectionSummary(ww http.ResponseWriter, req *http.
 
 	postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPublicKeyBytes, postEntry)
 
-	nftKey := lib.MakeNFTKey(postEntry.PostHash, 1)
+	nftKey := view.MakeNFTKey(postEntry.PostHash, 1)
 	nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
 
 	res := &GetNFTCollectionSummaryResponse{
@@ -1157,7 +1159,7 @@ func (fes *APIServer) GetNFTCollectionSummary(ww http.ResponseWriter, req *http.
 	}
 
 	for _, serialNumber := range res.NFTCollectionResponse.AvailableSerialNumbers {
-		serialNumberKey := lib.MakeNFTKey(postEntry.PostHash, serialNumber)
+		serialNumberKey := view.MakeNFTKey(postEntry.PostHash, serialNumber)
 		serialNumberNFTEntry := utxoView.GetNFTEntryForNFTKey(&serialNumberKey)
 		res.SerialNumberToNFTEntryResponse[serialNumber] = fes._nftEntryToResponse(serialNumberNFTEntry, nil, utxoView, true, readerPKID)
 	}
@@ -1185,10 +1187,10 @@ func (fes *APIServer) GetNFTEntriesForPostHash(ww http.ResponseWriter, req *http
 	}
 
 	// Decode the postHash.
-	postHash := &lib.BlockHash{}
+	postHash := &core.BlockHash{}
 	if requestData.PostHashHex != "" {
 		postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
-		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
+		if err != nil || len(postHashBytes) != core.HashSizeBytes {
 			_AddBadRequestError(ww, fmt.Sprintf("GetNFTEntriesForPostHash: Error parsing post hash %v: %v",
 				requestData.PostHashHex, err))
 			return
@@ -1211,7 +1213,7 @@ func (fes *APIServer) GetNFTEntriesForPostHash(ww http.ResponseWriter, req *http
 	}
 
 	var readerPublicKeyBytes []byte
-	var readerPKID *lib.PKID
+	var readerPKID *core.PKID
 	if requestData.ReaderPublicKeyBase58Check != "" {
 		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
 		if err != nil {
@@ -1235,7 +1237,7 @@ func (fes *APIServer) GetNFTEntriesForPostHash(ww http.ResponseWriter, req *http
 	}
 }
 
-func (fes *APIServer) _nftEntryToResponse(nftEntry *lib.NFTEntry, postEntryResponse *PostEntryResponse, utxoView *lib.UtxoView, skipProfileEntryResponse bool, readerPKID *lib.PKID) *NFTEntryResponse {
+func (fes *APIServer) _nftEntryToResponse(nftEntry *view.NFTEntry, postEntryResponse *PostEntryResponse, utxoView *view.UtxoView, skipProfileEntryResponse bool, readerPKID *core.PKID) *NFTEntryResponse {
 	profileEntry := utxoView.GetProfileEntryForPKID(nftEntry.OwnerPKID)
 	var profileEntryResponse *ProfileEntryResponse
 	var publicKeyBase58Check string
@@ -1286,11 +1288,11 @@ func (fes *APIServer) _nftEntryToResponse(nftEntry *lib.NFTEntry, postEntryRespo
 }
 
 func (fes *APIServer) _nftEntryToNFTCollectionResponse(
-	nftEntry *lib.NFTEntry,
+	nftEntry *view.NFTEntry,
 	posterPublicKey []byte,
 	postEntryResponse *PostEntryResponse,
-	utxoView *lib.UtxoView,
-	readerPKID *lib.PKID,
+	utxoView *view.UtxoView,
+	readerPKID *core.PKID,
 ) *NFTCollectionResponse {
 
 	profileEntry := utxoView.GetProfileEntryForPublicKey(posterPublicKey)
@@ -1304,7 +1306,7 @@ func (fes *APIServer) _nftEntryToNFTCollectionResponse(
 	var numCopiesForSale uint64
 	serialNumbersForSale := []uint64{}
 	for ii := uint64(1); ii <= postEntryResponse.NumNFTCopies; ii++ {
-		nftKey := lib.MakeNFTKey(nftEntry.NFTPostHash, ii)
+		nftKey := view.MakeNFTKey(nftEntry.NFTPostHash, ii)
 		nftEntryii := utxoView.GetNFTEntryForNFTKey(&nftKey)
 		if nftEntryii != nil && nftEntryii.IsForSale {
 			if nftEntryii.OwnerPKID != readerPKID {
@@ -1327,7 +1329,7 @@ func (fes *APIServer) _nftEntryToNFTCollectionResponse(
 	}
 }
 
-func (fes *APIServer) _bidEntryToResponse(bidEntry *lib.NFTBidEntry, postEntryResponse *PostEntryResponse, utxoView *lib.UtxoView, skipProfileEntryResponse bool, includeHighAndLowBids bool) *NFTBidEntryResponse {
+func (fes *APIServer) _bidEntryToResponse(bidEntry *view.NFTBidEntry, postEntryResponse *PostEntryResponse, utxoView *view.UtxoView, skipProfileEntryResponse bool, includeHighAndLowBids bool) *NFTBidEntryResponse {
 	profileEntry := utxoView.GetProfileEntryForPKID(bidEntry.BidderPKID)
 	var profileEntryResponse *ProfileEntryResponse
 	var publicKeyBase58Check string
@@ -1434,13 +1436,13 @@ func (fes *APIServer) TransferNFT(ww http.ResponseWriter, req *http.Request) {
 
 	// Get the PostHash for the NFT.
 	nftPostHashBytes, err := hex.DecodeString(requestData.NFTPostHashHex)
-	if err != nil || len(nftPostHashBytes) != lib.HashSizeBytes {
+	if err != nil || len(nftPostHashBytes) != core.HashSizeBytes {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"TransferNFT: Error parsing post hash %v: %v",
 			requestData.NFTPostHashHex, err))
 		return
 	}
-	nftPostHash := &lib.BlockHash{}
+	nftPostHash := &core.BlockHash{}
 	copy(nftPostHash[:], nftPostHashBytes)
 
 	// Get the sender's public key.
@@ -1465,7 +1467,7 @@ func (fes *APIServer) TransferNFT(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Get the NFT in question so we can do a more hardcore validation of the request data.
-	nftKey := lib.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
+	nftKey := view.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
 	nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
 	if nftEntry == nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
@@ -1588,13 +1590,13 @@ func (fes *APIServer) AcceptNFTTransfer(ww http.ResponseWriter, req *http.Reques
 
 	// Get the PostHash for the NFT.
 	nftPostHashBytes, err := hex.DecodeString(requestData.NFTPostHashHex)
-	if err != nil || len(nftPostHashBytes) != lib.HashSizeBytes {
+	if err != nil || len(nftPostHashBytes) != core.HashSizeBytes {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"AcceptNFTTransfer: Error parsing post hash %v: %v",
 			requestData.NFTPostHashHex, err))
 		return
 	}
-	nftPostHash := &lib.BlockHash{}
+	nftPostHash := &core.BlockHash{}
 	copy(nftPostHash[:], nftPostHashBytes)
 
 	// Get the updater's public key.
@@ -1612,7 +1614,7 @@ func (fes *APIServer) AcceptNFTTransfer(ww http.ResponseWriter, req *http.Reques
 	}
 
 	// Get the NFT in question so we can do a more hardcore validation of the request data.
-	nftKey := lib.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
+	nftKey := view.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
 	nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
 	if nftEntry == nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
@@ -1724,13 +1726,13 @@ func (fes *APIServer) BurnNFT(ww http.ResponseWriter, req *http.Request) {
 
 	// Get the PostHash for the NFT.
 	nftPostHashBytes, err := hex.DecodeString(requestData.NFTPostHashHex)
-	if err != nil || len(nftPostHashBytes) != lib.HashSizeBytes {
+	if err != nil || len(nftPostHashBytes) != core.HashSizeBytes {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"BurnNFT: Error parsing post hash %v: %v",
 			requestData.NFTPostHashHex, err))
 		return
 	}
-	nftPostHash := &lib.BlockHash{}
+	nftPostHash := &core.BlockHash{}
 	copy(nftPostHash[:], nftPostHashBytes)
 
 	// Get the updater's public key.
@@ -1748,7 +1750,7 @@ func (fes *APIServer) BurnNFT(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Get the NFT in question so we can do a more hardcore validation of the request data.
-	nftKey := lib.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
+	nftKey := view.MakeNFTKey(nftPostHash, uint64(requestData.SerialNumber))
 	nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
 	if nftEntry == nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
@@ -1816,11 +1818,11 @@ type GetNFTsCreatedByPublicKeyRequest struct {
 	// PostHashHex of the last NFT from the previous page
 	LastPostHashHex string `safeForLogging:"true"`
 	// Number of records to fetch
-	NumToFetch    uint64 `safeForLogging:"true"`
+	NumToFetch uint64 `safeForLogging:"true"`
 }
 
 type NFTDetails struct {
-	NFTEntryResponses []*NFTEntryResponse
+	NFTEntryResponses     []*NFTEntryResponse
 	NFTCollectionResponse *NFTCollectionResponse
 }
 
@@ -1867,7 +1869,7 @@ func (fes *APIServer) GetNFTsCreatedByPublicKey(ww http.ResponseWriter, req *htt
 	}
 	// Decode the reader's public key so we can fetch each post entry's reader state.
 	var readerPk []byte
-	var readerPKID *lib.PKID
+	var readerPKID *core.PKID
 	if requestData.ReaderPublicKeyBase58Check != "" {
 		readerPk, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
 		if err != nil {
@@ -1877,7 +1879,7 @@ func (fes *APIServer) GetNFTsCreatedByPublicKey(ww http.ResponseWriter, req *htt
 		readerPKID = utxoView.GetPKIDForPublicKey(readerPk).PKID
 	}
 
-	var startPostHash *lib.BlockHash
+	var startPostHash *core.BlockHash
 	if requestData.LastPostHashHex != "" {
 		// Get the StartPostHash from the LastPostHashHex
 		startPostHash, err = GetPostHashFromPostHashHex(requestData.LastPostHashHex)
@@ -1934,7 +1936,7 @@ func (fes *APIServer) GetNFTsCreatedByPublicKey(ww http.ResponseWriter, req *htt
 			nftEntryResponses = append(nftEntryResponses, fes._nftEntryToResponse(nftEntry, nil, utxoView, false, readerPKID))
 		}
 		res.NFTs = append(res.NFTs, NFTDetails{
-			NFTEntryResponses: nftEntryResponses,
+			NFTEntryResponses:     nftEntryResponses,
 			NFTCollectionResponse: fes._nftEntryToNFTCollectionResponse(nftEntries[0], post.PosterPublicKey, postEntryResponse, utxoView, readerPKID),
 		})
 	}

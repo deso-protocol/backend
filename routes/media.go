@@ -22,7 +22,6 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/deso-protocol/core/lib"
-	"github.com/h2non/bimg"
 	"google.golang.org/api/option"
 )
 
@@ -50,7 +49,7 @@ func (fes *APIServer) uploadSingleImage(image string, extension string) (_imageU
 
 	if extension != ".gif" {
 		var imageBytes []byte
-		imageBytes, err = resizeAndConvertFromEncodedImageContent(image, 1000)
+		//imageBytes, err = resizeAndConvertFromEncodedImageContent(image, 1000)
 		if err != nil {
 			return "", err
 		}
@@ -77,30 +76,30 @@ func getEncodedImageContent(encodedImageString string) string {
 	return encodedImageString[strings.Index(encodedImageString, ",")+1:]
 }
 
-func resizeAndConvertToWebp(encodedImageString string, maxDim uint) (_image []byte, _err error) {
-	// Extract the relevant portion of the base64 encoded string and process the image.
-	encodedImageContent := getEncodedImageContent(encodedImageString)
-	return resizeAndConvertFromEncodedImageContent(encodedImageContent, maxDim)
+//func resizeAndConvertToWebp(encodedImageString string, maxDim uint) (_image []byte, _err error) {
+//	// Extract the relevant portion of the base64 encoded string and process the image.
+//	encodedImageContent := getEncodedImageContent(encodedImageString)
+//	return resizeAndConvertFromEncodedImageContent(encodedImageContent, maxDim)
+//
+//}
 
-}
-
-func resizeAndConvertFromEncodedImageContent(encodedImageContent string, maxDim uint) (_image []byte, _err error) {
-	// always strip metadata
-	processOptions := bimg.Options{StripMetadata: true}
-	decodedBytes, err := base64.StdEncoding.DecodeString(encodedImageContent)
-	imgBytes, err := bimg.NewImage(decodedBytes).Process(processOptions)
-	if err != nil {
-		return nil, err
-	}
-	img := bimg.NewImage(imgBytes)
-
-	// resize the image
-	resizedImage, err := _resizeImage(img, maxDim)
-	if err != nil {
-		return nil, err
-	}
-	return resizedImage.Convert(bimg.WEBP)
-}
+//func resizeAndConvertFromEncodedImageContent(encodedImageContent string, maxDim uint) (_image []byte, _err error) {
+//	// always strip metadata
+//	processOptions := bimg.Options{StripMetadata: true}
+//	decodedBytes, err := base64.StdEncoding.DecodeString(encodedImageContent)
+//	imgBytes, err := bimg.NewImage(decodedBytes).Process(processOptions)
+//	if err != nil {
+//		return nil, err
+//	}
+//	img := bimg.NewImage(imgBytes)
+//
+//	// resize the image
+//	resizedImage, err := _resizeImage(img, maxDim)
+//	if err != nil {
+//		return nil, err
+//	}
+//	return resizedImage.Convert(bimg.WEBP)
+//}
 
 type UploadImageResponse struct {
 	// Location of the image after upload
@@ -200,38 +199,38 @@ func preprocessExtraData(extraData map[string]string) map[string][]byte {
 	return extraDataProcessed
 }
 
-func _resizeImage(imageObj *bimg.Image, maxDim uint) (_imgObj *bimg.Image, _err error) {
-	// Get the width and height.
-	imgSize, err := imageObj.Size()
-	if err != nil {
-		return nil, err
-	}
-	imgWidth := imgSize.Width
-	imgHeight := imgSize.Height
-
-	// Resize the image based on which side is longer. Doing it this way preserves the
-	// image's aspect ratio while making sure it isn't too large.
-	var resizedImageBytes []byte
-	newWidth := imgWidth
-	newHeight := imgHeight
-	if imgWidth > imgHeight {
-		if newWidth >= int(maxDim) {
-			newWidth = int(maxDim)
-			newHeight = int(float64(imgHeight) * float64(newWidth) / float64(imgWidth))
-		}
-	} else {
-		if newHeight >= int(maxDim) {
-			newHeight = int(maxDim)
-			newWidth = int(float64(imgWidth) * float64(newHeight) / float64(imgHeight))
-		}
-	}
-	resizedImageBytes, err = imageObj.Resize(newWidth, newHeight)
-	if err != nil {
-		return nil, err
-	}
-	resizedImage := bimg.NewImage(resizedImageBytes)
-	return resizedImage, nil
-}
+//func _resizeImage(imageObj *bimg.Image, maxDim uint) (_imgObj *bimg.Image, _err error) {
+//	// Get the width and height.
+//	imgSize, err := imageObj.Size()
+//	if err != nil {
+//		return nil, err
+//	}
+//	imgWidth := imgSize.Width
+//	imgHeight := imgSize.Height
+//
+//	// Resize the image based on which side is longer. Doing it this way preserves the
+//	// image's aspect ratio while making sure it isn't too large.
+//	var resizedImageBytes []byte
+//	newWidth := imgWidth
+//	newHeight := imgHeight
+//	if imgWidth > imgHeight {
+//		if newWidth >= int(maxDim) {
+//			newWidth = int(maxDim)
+//			newHeight = int(float64(imgHeight) * float64(newWidth) / float64(imgWidth))
+//		}
+//	} else {
+//		if newHeight >= int(maxDim) {
+//			newHeight = int(maxDim)
+//			newWidth = int(float64(imgWidth) * float64(newHeight) / float64(imgHeight))
+//		}
+//	}
+//	resizedImageBytes, err = imageObj.Resize(newWidth, newHeight)
+//	if err != nil {
+//		return nil, err
+//	}
+//	resizedImage := bimg.NewImage(resizedImageBytes)
+//	return resizedImage, nil
+//}
 
 type GetFullTikTokURLRequest struct {
 	TikTokShortVideoID string
@@ -318,7 +317,7 @@ func (fes *APIServer) UploadVideo(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: Unable to convert Upload-Length header to int for validation: %v", err))
 		return
 	}
-	if uploadLength > 4 * 1024 * 1024 * 1024 {
+	if uploadLength > 4*1024*1024*1024 {
 		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: Files must be less than 4GB"))
 		return
 	}
@@ -359,10 +358,10 @@ func (fes *APIServer) UploadVideo(ww http.ResponseWriter, req *http.Request) {
 }
 
 type CFVideoDetailsResponse struct {
-	Result map[string]interface{} `json:"result"`
-	Success bool `json:"success"`
-	Errors []interface{} `json:"errors"`
-	Messages []interface{} `json:"messages"`
+	Result   map[string]interface{} `json:"result"`
+	Success  bool                   `json:"success"`
+	Errors   []interface{}          `json:"errors"`
+	Messages []interface{}          `json:"messages"`
 }
 
 type GetVideoStatusResponse struct {

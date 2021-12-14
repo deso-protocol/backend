@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/view"
 	"io"
 	"net/http"
 	"reflect"
@@ -82,7 +84,7 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 	}
 }
 
-func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard bool) (*lib.GlobalParamsEntry, error) {
+func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard bool) (*view.GlobalParamsEntry, error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return nil, fmt.Errorf("updateUserFields: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
@@ -98,7 +100,7 @@ func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard 
 	return globalParams, nil
 }
 
-func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoView, skipForLeaderboard bool) error {
+func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *view.UtxoView, skipForLeaderboard bool) error {
 	// If there's no public key, then return an error. We need a public key on
 	// the user object in order to be able to update the fields.
 	if user.PublicKeyBase58Check == "" {
@@ -262,7 +264,7 @@ func (fes *APIServer) UserAdminStatus(publicKeyBase58Check string) (_isAdmin boo
 }
 
 // Get map of creators you hodl.
-func (fes *APIServer) GetYouHodlMap(pkid *lib.PKIDEntry, fetchProfiles bool, utxoView *lib.UtxoView) (
+func (fes *APIServer) GetYouHodlMap(pkid *view.PKIDEntry, fetchProfiles bool, utxoView *view.UtxoView) (
 	_youHodlMap map[string]*BalanceEntryResponse, _err error) {
 
 	// Get all the hodlings for this user from the db
@@ -285,7 +287,7 @@ func (fes *APIServer) GetYouHodlMap(pkid *lib.PKIDEntry, fetchProfiles bool, utx
 			// In this case the user is the HODLer.
 
 			// Optionally look up the profile of the creator.
-			var profileEntry *lib.ProfileEntry
+			var profileEntry *view.ProfileEntry
 			if fetchProfiles {
 				profileEntry = utxoView.GetProfileEntryForPKID(balanceEntry.CreatorPKID)
 			}
@@ -303,10 +305,10 @@ func (fes *APIServer) GetYouHodlMap(pkid *lib.PKIDEntry, fetchProfiles bool, utx
 }
 
 // Convert list of BalanceEntries to a map of hodler / creator PKID to balance entry response.
-func (fes *APIServer) getMapFromEntries(entries []*lib.BalanceEntry, profiles []*lib.ProfileEntry, useCreatorPKIDAsKey bool, utxoView *lib.UtxoView) map[string]*BalanceEntryResponse {
+func (fes *APIServer) getMapFromEntries(entries []*view.BalanceEntry, profiles []*view.ProfileEntry, useCreatorPKIDAsKey bool, utxoView *view.UtxoView) map[string]*BalanceEntryResponse {
 	mapYouHodl := map[string]*BalanceEntryResponse{}
 	for ii, entry := range entries {
-		var currentProfile *lib.ProfileEntry
+		var currentProfile *view.ProfileEntry
 		if len(profiles) != 0 {
 			currentProfile = profiles[ii]
 		}
@@ -322,7 +324,7 @@ func (fes *APIServer) getMapFromEntries(entries []*lib.BalanceEntry, profiles []
 }
 
 func (fes *APIServer) _balanceEntryToResponse(
-	balanceEntry *lib.BalanceEntry, dbBalanceNanos uint64, profileEntry *lib.ProfileEntry, utxoView *lib.UtxoView) *BalanceEntryResponse {
+	balanceEntry *view.BalanceEntry, dbBalanceNanos uint64, profileEntry *view.ProfileEntry, utxoView *view.UtxoView) *BalanceEntryResponse {
 
 	if balanceEntry == nil {
 		return nil
@@ -345,11 +347,11 @@ func (fes *APIServer) _balanceEntryToResponse(
 }
 
 // GetHodlingsForPublicKey ...
-func (fes *APIServer) GetHodlingsForPublicKey(pkid *lib.PKIDEntry, fetchProfiles bool, referenceUtxoView *lib.UtxoView) (
+func (fes *APIServer) GetHodlingsForPublicKey(pkid *view.PKIDEntry, fetchProfiles bool, referenceUtxoView *view.UtxoView) (
 	_youHodlMap map[string]*BalanceEntryResponse,
 	_hodlYouMap map[string]*BalanceEntryResponse, _err error) {
 	// Get a view that considers all of this user's transactions.
-	var utxoView *lib.UtxoView
+	var utxoView *view.UtxoView
 	if referenceUtxoView != nil {
 		utxoView = referenceUtxoView
 	} else {
@@ -377,7 +379,7 @@ func (fes *APIServer) GetHodlingsForPublicKey(pkid *lib.PKIDEntry, fetchProfiles
 }
 
 // Get map of public keys hodling your coin.
-func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, utxoView *lib.UtxoView) (
+func (fes *APIServer) GetHodlYouMap(pkid *view.PKIDEntry, fetchProfiles bool, utxoView *view.UtxoView) (
 	_youHodlMap map[string]*BalanceEntryResponse, _err error) {
 	// Get all the hodlings for this user from the db
 	entriesHodlingYou, profileHodlingYou, err := utxoView.GetHolders(pkid.PKID, fetchProfiles)
@@ -398,7 +400,7 @@ func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, utx
 			// In this case the user is the one *being* HODL'ed.
 
 			// Optionally ook up the profile of the person who is HODL'ing the user.
-			var profileEntry *lib.ProfileEntry
+			var profileEntry *view.ProfileEntry
 			if fetchProfiles {
 				profileEntry = utxoView.GetProfileEntryForPKID(balanceEntry.HODLerPKID)
 			}
@@ -724,7 +726,7 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 
 	if numToFetch == 1 {
 		// If only one entry was requested, find that one.
-		profileEntry := profileEntriesByPublicKey[lib.MakePkMapKey(startPubKey)]
+		profileEntry := profileEntriesByPublicKey[view.MakePkMapKey(startPubKey)]
 		if profileEntry == nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetProfiles: Could not find profile for pub key: %v", startPubKey))
 			return
@@ -862,14 +864,14 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 }
 
 func (fes *APIServer) GetProfilesByUsernamePrefixAndDeSoLocked(
-	db *badger.DB, usernamePrefix string, readerPK []byte, utxoView *lib.UtxoView) (
-	_profileEntries []*lib.ProfileEntry, _err error) {
+	db *badger.DB, usernamePrefix string, readerPK []byte, utxoView *view.UtxoView) (
+	_profileEntries []*view.ProfileEntry, _err error) {
 
-	profileEntries, err := lib.DBGetProfilesByUsernamePrefixAndDeSoLocked(db, usernamePrefix, utxoView)
+	profileEntries, err := db.DBGetProfilesByUsernamePrefixAndDeSoLocked(db, usernamePrefix, utxoView)
 
-	pubKeyMap := make(map[lib.PkMapKey][]byte)
+	pubKeyMap := make(map[view.PkMapKey][]byte)
 	for _, profileEntry := range profileEntries {
-		pubKeyMap[lib.MakePkMapKey(profileEntry.PublicKey)] = profileEntry.PublicKey
+		pubKeyMap[view.MakePkMapKey(profileEntry.PublicKey)] = profileEntry.PublicKey
 	}
 
 	filteredPubKeyMap, err := fes.FilterOutRestrictedPubKeysFromMap(pubKeyMap, readerPK, "leaderboard", utxoView)
@@ -877,9 +879,9 @@ func (fes *APIServer) GetProfilesByUsernamePrefixAndDeSoLocked(
 		return nil, fmt.Errorf("DBGetProfilesByUsernamePrefixAndDeSoLocked: %v", err)
 	}
 
-	var filteredProfileEntries []*lib.ProfileEntry
+	var filteredProfileEntries []*view.ProfileEntry
 	for _, profileEntry := range profileEntries {
-		_, found := filteredPubKeyMap[lib.MakePkMapKey(profileEntry.PublicKey)]
+		_, found := filteredPubKeyMap[view.MakePkMapKey(profileEntry.PublicKey)]
 		if found {
 			filteredProfileEntries = append(filteredProfileEntries, profileEntry)
 		}
@@ -888,7 +890,7 @@ func (fes *APIServer) GetProfilesByUsernamePrefixAndDeSoLocked(
 	return filteredProfileEntries, nil
 }
 
-func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, utxoView *lib.UtxoView) *ProfileEntryResponse {
+func (fes *APIServer) _profileEntryToResponse(profileEntry *view.ProfileEntry, utxoView *view.UtxoView) *ProfileEntryResponse {
 	if profileEntry == nil {
 		return nil
 	}
@@ -949,18 +951,18 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 }
 
 func (fes *APIServer) augmentProfileEntry(
-	profileEntry *lib.ProfileEntry,
-	profileEntriesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry,
-	postsByProfilePublicKey map[lib.PkMapKey][]*lib.PostEntry,
-	postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState,
+	profileEntry *view.ProfileEntry,
+	profileEntriesByPublicKey map[view.PkMapKey]*view.ProfileEntry,
+	postsByProfilePublicKey map[view.PkMapKey][]*view.PostEntry,
+	postEntryReaderStates map[core.BlockHash]*view.PostEntryReaderState,
 	addGlobalFeedBool bool,
-	utxoView *lib.UtxoView,
+	utxoView *view.UtxoView,
 	readerPK []byte) *ProfileEntryResponse {
 
 	profileEntryResponse := fes._profileEntryToResponse(profileEntry, utxoView)
 
 	// Attach the posts to the profile
-	profilePostsFound := postsByProfilePublicKey[lib.MakePkMapKey(profileEntry.PublicKey)]
+	profilePostsFound := postsByProfilePublicKey[view.MakePkMapKey(profileEntry.PublicKey)]
 	for _, profilePostEntry := range profilePostsFound {
 		profilePostRes, err := fes._postEntryToResponse(profilePostEntry, addGlobalFeedBool, fes.Params, utxoView, readerPK, 2)
 
@@ -972,7 +974,7 @@ func (fes *APIServer) augmentProfileEntry(
 		// Attach reader state to each post.
 		profilePostRes.PostEntryReaderState = postEntryReaderStates[*profilePostEntry.PostHash]
 
-		profileEntryFound := profileEntriesByPublicKey[lib.MakePkMapKey(profilePostEntry.PosterPublicKey)]
+		profileEntryFound := profileEntriesByPublicKey[view.MakePkMapKey(profilePostEntry.PosterPublicKey)]
 		profilePostRes.ProfileEntryResponse = fes._profileEntryToResponse(
 			profileEntryFound, utxoView)
 		if profilePostRes.IsHidden {
@@ -1077,7 +1079,7 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 	}
 
 	// Get profile entry by public key.  If public key not provided, get profileEntry by username.
-	var profileEntry *lib.ProfileEntry
+	var profileEntry *view.ProfileEntry
 	var publicKeyBytes []byte
 	var publicKeyBase58Check string
 	if requestData.PublicKeyBase58Check != "" {
@@ -1434,7 +1436,7 @@ type GetFollowsResponse struct {
 	NumFollowers            uint64
 }
 
-func (fes *APIServer) sortFollowEntries(followEntryPKIDii *lib.PKID, followEntryPKIDjj *lib.PKID, utxoView *lib.UtxoView, fetchValues bool) bool {
+func (fes *APIServer) sortFollowEntries(followEntryPKIDii *core.PKID, followEntryPKIDjj *core.PKID, utxoView *view.UtxoView, fetchValues bool) bool {
 	followEntryPublicKeyii := utxoView.GetPublicKeyForPKID(followEntryPKIDii)
 	followEntryPublicKeyjj := utxoView.GetPublicKeyForPKID(followEntryPKIDjj)
 	// if we're fetching values, we want public keys that don't have profiles to be at the end.
@@ -1461,14 +1463,14 @@ func (fes *APIServer) sortFollowEntries(followEntryPKIDii *lib.PKID, followEntry
 // Returns a map like {publicKey1: profileEntry1, publicKey2: profileEntry2, ...} for publicKeyBytes's
 // followers / following
 func (fes *APIServer) getPublicKeyToProfileEntryMapForFollows(publicKeyBytes []byte,
-	getEntriesFollowingPublicKey bool, referenceUtxoView *lib.UtxoView,
+	getEntriesFollowingPublicKey bool, referenceUtxoView *view.UtxoView,
 	lastFollowPublicKeyBytes []byte, numToFetch uint64, fetchValues bool, fetchAllFollows bool) (
 	_publicKeyToProfileEntry map[string]*ProfileEntryResponse, numFollowers uint64,
 	_err error) {
 
 	// Allow a reference view to be passed in. This speeds things up in the event we've already
 	// created this view.
-	var utxoView *lib.UtxoView
+	var utxoView *view.UtxoView
 	var err error
 	if referenceUtxoView != nil {
 		utxoView = referenceUtxoView
@@ -1480,7 +1482,7 @@ func (fes *APIServer) getPublicKeyToProfileEntryMapForFollows(publicKeyBytes []b
 		}
 	}
 
-	followEntries := []*lib.FollowEntry{}
+	followEntries := []*view.FollowEntry{}
 	followEntries, err = utxoView.GetFollowEntriesForPublicKey(publicKeyBytes, getEntriesFollowingPublicKey)
 
 	if err != nil {
@@ -1522,7 +1524,7 @@ func (fes *APIServer) getPublicKeyToProfileEntryMapForFollows(publicKeyBytes []b
 
 	for _, followEntry := range followEntries {
 		// get the profile entry for each follower pubkey
-		var followPKID *lib.PKID
+		var followPKID *core.PKID
 		if getEntriesFollowingPublicKey {
 			followPKID = followEntry.FollowerPKID
 		} else {
@@ -1946,10 +1948,10 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 
 	addPostForHash := func(postHashHex string, readerPK []byte, profileEntryRequired bool) {
 		postHashBytes, err := hex.DecodeString(postHashHex)
-		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
+		if err != nil || len(postHashBytes) != core.HashSizeBytes {
 			return
 		}
-		postHash := &lib.BlockHash{}
+		postHash := &core.BlockHash{}
 		copy(postHash[:], postHashBytes)
 
 		postEntry := utxoView.GetPostEntryForPostHash(postHash)
@@ -2105,7 +2107,7 @@ func (fes *APIServer) SetNotificationMetadata(ww http.ResponseWriter, req *http.
 	}
 }
 
-func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, blockedPubKeys map[string]struct{}, utxoView *lib.UtxoView, iterateReverse bool) ([]*TransactionMetadataResponse, error) {
+func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, blockedPubKeys map[string]struct{}, utxoView *view.UtxoView, iterateReverse bool) ([]*TransactionMetadataResponse, error) {
 	filteredOutCategories := request.FilteredOutNotificationCategories
 
 	pkBytes, _, err := lib.Base58CheckDecode(request.PublicKeyBase58Check)
@@ -2144,7 +2146,7 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 		}
 
 		for ii, txIDBytes := range valsFound {
-			txID := &lib.BlockHash{}
+			txID := &core.BlockHash{}
 			copy(txID[:], txIDBytes)
 
 			// In this case we need to look up the full transaction and convert
@@ -2215,7 +2217,7 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 	return dbTxnMetadataFound, nil
 }
 
-func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest, blockedPubKeys map[string]struct{}, utxoView *lib.UtxoView, iterateReverse bool) ([]*TransactionMetadataResponse, error) {
+func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest, blockedPubKeys map[string]struct{}, utxoView *view.UtxoView, iterateReverse bool) ([]*TransactionMetadataResponse, error) {
 	filteredOutCategories := request.FilteredOutNotificationCategories
 
 	pkBytes, _, err := lib.Base58CheckDecode(request.PublicKeyBase58Check)
@@ -2371,7 +2373,7 @@ func (fes *APIServer) _getNotificationsCount(request *GetNotificationsRequest) (
 	return notificationsCount, nextNotificationStartIndex, nil
 }
 
-func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*TransactionMetadataResponse, *lib.UtxoView, error) {
+func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*TransactionMetadataResponse, *view.UtxoView, error) {
 	// If the TxIndex flag was not passed to this node then we can't compute
 	// notifications.
 	if fes.TXIndex == nil {
@@ -2474,7 +2476,7 @@ func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredO
 	return false
 }
 
-func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Check string, utxoView *lib.UtxoView) bool {
+func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Check string, utxoView *view.UtxoView) bool {
 	// Transactions initiated by the passed-in public key should not
 	// trigger notifications.
 	if txnMeta.TransactorPublicKeyBase58Check == publicKeyBase58Check {
@@ -2749,7 +2751,7 @@ func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	var utxoView *lib.UtxoView
+	var utxoView *view.UtxoView
 	utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("IsHodlingPublicKey: Error getting utxoView: %v", err))
@@ -2945,21 +2947,21 @@ func (fes *APIServer) DeletePII(ww http.ResponseWriter, rr *http.Request) {
 }
 
 // IsUserGraylisted returns true if the user is graylisted based on the current Graylist state.
-func (fes *APIServer) IsUserGraylisted(pkid *lib.PKID) bool {
+func (fes *APIServer) IsUserGraylisted(pkid *core.PKID) bool {
 	return reflect.DeepEqual(fes.GetGraylistState(pkid), IsGraylisted)
 }
 
 // GetGraylistState returns the graylist state bytes based on the current Graylist state.
-func (fes *APIServer) GetGraylistState(pkid *lib.PKID) []byte {
+func (fes *APIServer) GetGraylistState(pkid *core.PKID) []byte {
 	return fes.GraylistedPKIDMap[*pkid]
 }
 
 // IsUserBlacklisted returns true if the user is blacklisted based on the current Blacklist state.
-func (fes *APIServer) IsUserBlacklisted(pkid *lib.PKID) bool {
+func (fes *APIServer) IsUserBlacklisted(pkid *core.PKID) bool {
 	return reflect.DeepEqual(fes.GetBlacklistState(pkid), IsBlacklisted)
 }
 
 // GetBlacklistState returns the blacklist state bytes based on the current Blacklist state.
-func (fes *APIServer) GetBlacklistState(pkid *lib.PKID) []byte {
+func (fes *APIServer) GetBlacklistState(pkid *core.PKID) []byte {
 	return fes.BlacklistedPKIDMap[*pkid]
 }

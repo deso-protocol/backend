@@ -5,12 +5,11 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core/view"
 	"io"
 	"net/http"
 	"reflect"
 	"time"
-
-	"github.com/deso-protocol/core/lib"
 )
 
 type AdminGetNFTDropRequest struct {
@@ -69,7 +68,7 @@ func (fes *APIServer) GetNFTDropEntry(nftDropNumber uint64) (_dropEntry *NFTDrop
 
 func (fes *APIServer) GetPostsForNFTDropEntry(dropEntryToReturn *NFTDropEntry,
 ) (_posts []*PostEntryResponse, _err error) {
-	profileEntryResponseMap := make(map[lib.PkMapKey]*ProfileEntryResponse)
+	profileEntryResponseMap := make(map[view.PkMapKey]*ProfileEntryResponse)
 	var postEntryResponses []*PostEntryResponse
 
 	// Grab a view (needed for getting global params, etc).
@@ -87,7 +86,7 @@ func (fes *APIServer) GetPostsForNFTDropEntry(dropEntryToReturn *NFTDropEntry,
 		}
 
 		// Add the profile entry to the post entry.
-		profileEntryResponse, entryFound := profileEntryResponseMap[lib.MakePkMapKey(postEntry.PosterPublicKey)]
+		profileEntryResponse, entryFound := profileEntryResponseMap[view.MakePkMapKey(postEntry.PosterPublicKey)]
 		if !entryFound {
 			// If we didn't find the entry in our map, we need to make it...
 			profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
@@ -96,7 +95,7 @@ func (fes *APIServer) GetPostsForNFTDropEntry(dropEntryToReturn *NFTDropEntry,
 				continue
 			} else {
 				profileEntryResponse = fes._profileEntryToResponse(profileEntry, utxoView)
-				profileEntryResponseMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] = profileEntryResponse
+				profileEntryResponseMap[view.MakePkMapKey(postEntry.PosterPublicKey)] = profileEntryResponse
 			}
 		}
 		postEntryResponse.ProfileEntryResponse = profileEntryResponse

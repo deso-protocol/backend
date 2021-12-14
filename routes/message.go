@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/lib"
+	"github.com/deso-protocol/core/view"
 	"github.com/pkg/errors"
 	"io"
 	"net/http"
@@ -111,7 +113,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 
 			if _, alreadySeen := publicKeyToNumberOfFollowers[otherPartyPublicKeyBase58Check]; !alreadySeen {
 				// TODO: Make an index to quickly lookup how many followers a user has
-				otherPartyFollowers, err := lib.DbGetPKIDsFollowingYou(utxoView.Handle, lib.PublicKeyToPKID(otherPartyPublicKeyBytes))
+				otherPartyFollowers, err := lib.DbGetPKIDsFollowingYou(utxoView.Handle, core.PublicKeyToPKID(otherPartyPublicKeyBytes))
 				if err != nil {
 					return nil, nil, nil, 0, errors.Wrapf(
 						err, "getMessagesStateless: Problem getting follows for public key")
@@ -243,8 +245,8 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 				followsUser, followChecked := publicKeyFollowsUser[otherPartyPublicKeyBase58Check]
 				if !followChecked {
 					followEntry := lib.DbGetFollowerToFollowedMapping(utxoView.Handle,
-						lib.PublicKeyToPKID(otherPartyPublicKeyBytes),
-						lib.PublicKeyToPKID(publicKeyBytes))
+						core.PublicKeyToPKID(otherPartyPublicKeyBytes),
+						core.PublicKeyToPKID(publicKeyBytes))
 					followsUser = followEntry != nil
 					publicKeyFollowsUser[otherPartyPublicKeyBase58Check] = followsUser
 				}
@@ -258,8 +260,8 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 				followsPublicKey, followChecked := userFollowsPublicKey[otherPartyPublicKeyBase58Check]
 				if !followChecked {
 					followEntry := lib.DbGetFollowerToFollowedMapping(utxoView.Handle,
-						lib.PublicKeyToPKID(publicKeyBytes),
-						lib.PublicKeyToPKID(otherPartyPublicKeyBytes))
+						core.PublicKeyToPKID(publicKeyBytes),
+						core.PublicKeyToPKID(otherPartyPublicKeyBytes))
 					followsPublicKey = followEntry != nil
 					userFollowsPublicKey[otherPartyPublicKeyBase58Check] = followsPublicKey
 				}
@@ -392,7 +394,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	return publicKeyToProfileEntry, newContactEntries, unreadMessagesBycontact, numOfUnreadThreads, nil
 }
 
-func (fes *APIServer) getOtherPartyInThread(messageEntry *lib.MessageEntry,
+func (fes *APIServer) getOtherPartyInThread(messageEntry *view.MessageEntry,
 	readerPublicKeyBytes []byte) (otherPartyPublicKeyBytes []byte, otherPartyPublicKeyBase58Check string) {
 	if reflect.DeepEqual(messageEntry.RecipientPublicKey, readerPublicKeyBytes) {
 		otherPartyPublicKeyBytes = messageEntry.SenderPublicKey

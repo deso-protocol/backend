@@ -3,6 +3,8 @@ package routes
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/view"
 	"io"
 	"math/rand"
 	"net/http"
@@ -140,7 +142,7 @@ func ShuffleKeys(records *[][]byte) {
 	})
 }
 
-func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit int, seekKey []byte, disregardFR bool) (_profileEntryResponses []ProfileEntryResponse, _err error) {
+func (fes *APIServer) GetFeaturedCreators(utxoView *view.UtxoView, responseLimit int, seekKey []byte, disregardFR bool) (_profileEntryResponses []ProfileEntryResponse, _err error) {
 	maxKeyLen := 1 + btcec.PubKeyBytesLenCompressed
 	keys, _, err := fes.GlobalState.Seek(
 		seekKey,
@@ -170,7 +172,7 @@ func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit 
 		// Chop the PKID out of the db key.
 		// The dbKeyBytes are: [One Prefix Byte][btcec.PubKeyBytesLenCompressed]
 		pkidBytes := dbKeyBytes[1:]
-		profileEntry := utxoView.GetProfileEntryForPKID(lib.NewPKID(pkidBytes))
+		profileEntry := utxoView.GetProfileEntryForPKID(core.NewPKID(pkidBytes))
 
 		// Only add creator if FR is 10% or less
 		if profileEntry != nil && (profileEntry.CoinEntry.CreatorBasisPoints <= 10*100 || disregardFR) {

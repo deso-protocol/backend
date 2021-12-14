@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	fmt "fmt"
+	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/view"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -290,11 +292,11 @@ type APIServer struct {
 	HotFeedBlockHeight uint32
 	// Map of whitelisted post hashes used for serving the hot feed.
 	// The float64 value is a multiplier than can be modified and used in scoring.
-	HotFeedApprovedPostsToMultipliers             map[lib.BlockHash]float64
+	HotFeedApprovedPostsToMultipliers             map[core.BlockHash]float64
 	LastHotFeedApprovedPostOpProcessedTstampNanos uint64
 	// Multipliers applied to individual PKIDs to help node operators better fit their
 	// hot feed to the type of content they would like to display.
-	HotFeedPKIDMultipliers                          map[lib.PKID]*HotFeedPKIDMultiplier
+	HotFeedPKIDMultipliers                          map[core.PKID]*HotFeedPKIDMultiplier
 	LastHotFeedPKIDMultiplierOpProcessedTstampNanos uint64
 	// Constants for the hotness score algorithm.
 	HotFeedInteractionCap        uint64
@@ -312,10 +314,10 @@ type APIServer struct {
 
 	// VerifiedUsernameToPKIDMap is a map of lowercase usernames to PKIDs representing the current state of
 	// verifications this node is recognizing.
-	VerifiedUsernameToPKIDMap map[string]*lib.PKID
+	VerifiedUsernameToPKIDMap map[string]*core.PKID
 	// BlacklistedPKIDMap is a map of PKID to a byte slice representing the PKID of a user as the key and the current
 	// blacklist state of that user as the key. If a PKID is not present in this map, then the user is NOT blacklisted.
-	BlacklistedPKIDMap map[lib.PKID][]byte
+	BlacklistedPKIDMap map[core.PKID][]byte
 	// BlacklistedResponseMap is a map of PKIDs converted to base58-encoded string to a byte slice. This is computed
 	// from the BlacklistedPKIDMap above and is a JSON-encodable version of that map. This map is only used when
 	// responding to requests for this node's blacklist. A JSON-encoded response is easier for any language to digest
@@ -323,14 +325,14 @@ type APIServer struct {
 	BlacklistedResponseMap map[string][]byte
 	// GraylistedPKIDMap is a map of PKID to a byte slice representing the PKID of a user as the key and the current
 	// graylist state of that user as the key. If a PKID is not present in this map, then the user is NOT graylisted.
-	GraylistedPKIDMap map[lib.PKID][]byte
+	GraylistedPKIDMap map[core.PKID][]byte
 	// GraylistedResponseMap is a map of PKIDs converted to base58-encoded string to a byte slice. This is computed
 	// from the GraylistedPKIDMap above and is a JSON-encodable version of that map. This map is only used when
 	// responding to requests for this node's graylist. A JSON-encoded response is easier for any language to digest
 	// than a gob-encoded one.
 	GraylistedResponseMap map[string][]byte
 	// GlobalFeedPostHashes is a slice of BlockHashes representing the state of posts on the global feed on this node.
-	GlobalFeedPostHashes []*lib.BlockHash
+	GlobalFeedPostHashes []*core.BlockHash
 
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
@@ -1986,7 +1988,7 @@ func (fes *APIServer) SetVerifiedUsernameMap() {
 	}
 }
 
-func (fes *APIServer) SetBlacklistedPKIDMap(utxoView *lib.UtxoView) {
+func (fes *APIServer) SetBlacklistedPKIDMap(utxoView *view.UtxoView) {
 	blacklistMap, err := fes.GetBlacklist(utxoView)
 	if err != nil {
 		glog.Errorf("SetBlacklistedPKIDMap: Error getting blacklist: %v", err)
@@ -1999,7 +2001,7 @@ func (fes *APIServer) SetBlacklistedPKIDMap(utxoView *lib.UtxoView) {
 	}
 }
 
-func (fes *APIServer) SetGraylistedPKIDMap(utxoView *lib.UtxoView) {
+func (fes *APIServer) SetGraylistedPKIDMap(utxoView *view.UtxoView) {
 	graylistMap, err := fes.GetGraylist(utxoView)
 	if err != nil {
 		glog.Errorf("SetGraylistedPKIDMap: Error getting graylist: %v", err)
@@ -2024,7 +2026,7 @@ func (fes *APIServer) SetGlobalFeedPostHashes() {
 // makePKIDMapJSONEncodable converts a map that has PKID keys into Base58-encoded strings.
 // Using gob-encoding when sending responses would make using this API difficult to interact with when using any
 // language other than go.
-func (fes *APIServer) makePKIDMapJSONEncodable(restrictedKeysMap map[lib.PKID][]byte) map[string][]byte {
+func (fes *APIServer) makePKIDMapJSONEncodable(restrictedKeysMap map[core.PKID][]byte) map[string][]byte {
 	outputMap := make(map[string][]byte)
 	for k, v := range restrictedKeysMap {
 		outputMap[lib.PkToString(k.ToBytes(), fes.Params)] = v

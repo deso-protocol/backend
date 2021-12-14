@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/mitchellh/mapstructure"
@@ -174,7 +175,7 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 // 2. Calculate the nanos to send
 // 3. Send the nanos
 // 4. Record the successful send
-func (fes *APIServer) finishETHTx(ethTx *InfuraTx, ethTxLog *ETHTxLog) (desoTxHash *lib.BlockHash, _err error) {
+func (fes *APIServer) finishETHTx(ethTx *InfuraTx, ethTxLog *ETHTxLog) (desoTxHash *core.BlockHash, _err error) {
 	if ethTx == nil {
 		return nil, errors.New("ETHTx provided is nil")
 	}

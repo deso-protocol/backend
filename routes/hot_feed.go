@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/view"
 	"io"
 	"math"
 	"net/http"
@@ -30,15 +32,15 @@ const (
 
 // A single element in the server's HotFeedOrderedList.
 type HotFeedEntry struct {
-	PostHash     *lib.BlockHash
+	PostHash     *core.BlockHash
 	PostHashHex  string
 	HotnessScore uint64
 }
 
 // A key to track whether a specific public key has interacted with a post before.
 type HotFeedInteractionKey struct {
-	InteractionPKID     lib.PKID
-	InteractionPostHash lib.BlockHash
+	InteractionPKID     core.PKID
+	InteractionPostHash core.BlockHash
 }
 
 // Multipliers to help a node operator boost content from PKID's relevant to their node.
@@ -93,7 +95,7 @@ func (fes *APIServer) UpdateHotFeed() {
 	fes.HotFeedPKIDMultipliers = hotFeedPKIDMultipliers
 }
 
-func (fes *APIServer) UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts map[lib.BlockHash]float64) {
+func (fes *APIServer) UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts map[core.BlockHash]float64) {
 	// Grab all of the relevant operations to update the map with.
 	startTimestampNanos := uint64(time.Now().UTC().AddDate(0, 0, -1).UnixNano()) // 1 day ago.
 	if fes.LastHotFeedApprovedPostOpProcessedTstampNanos != 0 {
@@ -119,7 +121,7 @@ func (fes *APIServer) UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts map[lib
 		postHashStartIdx := timestampStartIdx + 8
 
 		postHashBytes := opKey[postHashStartIdx:]
-		postHash := &lib.BlockHash{}
+		postHash := &core.BlockHash{}
 		copy(postHash[:], postHashBytes)
 
 		// Deserialize the HotFeedApprovedPostOp.
@@ -160,7 +162,7 @@ func (fes *APIServer) UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts map[lib
 }
 
 func (fes *APIServer) UpdateHotFeedPKIDMultipliersMap(
-	hotFeedPKIDMultipliers map[lib.PKID]*HotFeedPKIDMultiplier,
+	hotFeedPKIDMultipliers map[core.PKID]*HotFeedPKIDMultiplier,
 ) {
 	// Grab all of the relevant operations to update the map with.
 	startTimestampNanos := uint64(time.Now().UTC().AddDate(0, 0, -1).UnixNano()) // 1 day ago.
@@ -187,7 +189,7 @@ func (fes *APIServer) UpdateHotFeedPKIDMultipliersMap(
 		pkidStartIdx := timestampStartIdx + 8
 
 		opPKIDBytes := opKey[pkidStartIdx:]
-		opPKID := &lib.PKID{}
+		opPKID := &core.PKID{}
 		copy(opPKID[:], opPKIDBytes)
 
 		// Deserialize the HotFeedPKIDMultiplierOp.
@@ -232,16 +234,16 @@ func (fes *APIServer) UpdateHotFeedPKIDMultipliersMap(
 	}
 }
 
-func (fes *APIServer) CopyHotFeedApprovedPostsMap() map[lib.BlockHash]float64 {
-	hotFeedApprovedPosts := make(map[lib.BlockHash]float64, len(fes.HotFeedApprovedPostsToMultipliers))
+func (fes *APIServer) CopyHotFeedApprovedPostsMap() map[core.BlockHash]float64 {
+	hotFeedApprovedPosts := make(map[core.BlockHash]float64, len(fes.HotFeedApprovedPostsToMultipliers))
 	for postKey, postVal := range fes.HotFeedApprovedPostsToMultipliers {
 		hotFeedApprovedPosts[postKey] = postVal
 	}
 	return hotFeedApprovedPosts
 }
 
-func (fes *APIServer) CopyHotFeedPKIDMultipliersMap() map[lib.PKID]*HotFeedPKIDMultiplier {
-	hotFeedPKIDMultipliers := make(map[lib.PKID]*HotFeedPKIDMultiplier, len(fes.HotFeedPKIDMultipliers))
+func (fes *APIServer) CopyHotFeedPKIDMultipliersMap() map[core.PKID]*HotFeedPKIDMultiplier {
+	hotFeedPKIDMultipliers := make(map[core.PKID]*HotFeedPKIDMultiplier, len(fes.HotFeedPKIDMultipliers))
 	for pkidKey, multiplierVal := range fes.HotFeedPKIDMultipliers {
 		multiplierValCopy := *multiplierVal
 		hotFeedPKIDMultipliers[pkidKey] = &multiplierValCopy
@@ -256,9 +258,9 @@ type HotnessPostInfo struct {
 }
 
 func (fes *APIServer) UpdateHotFeedOrderedList(
-	postsToMultipliers map[lib.BlockHash]float64,
-	pkidsToMultipliers map[lib.PKID]*HotFeedPKIDMultiplier,
-) (_hotFeedPostsMap map[lib.BlockHash]*HotnessPostInfo,
+	postsToMultipliers map[core.BlockHash]float64,
+	pkidsToMultipliers map[core.PKID]*HotFeedPKIDMultiplier,
+) (_hotFeedPostsMap map[core.BlockHash]*HotnessPostInfo,
 ) {
 	// Check to see if any of the algorithm constants have changed.
 	foundNewConstants := false
@@ -336,7 +338,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	}
 
 	// Iterate over the blocks and track hotness scores.
-	hotnessInfoMap := make(map[lib.BlockHash]*HotnessPostInfo)
+	hotnessInfoMap := make(map[core.BlockHash]*HotnessPostInfo)
 	postInteractionMap := make(map[HotFeedInteractionKey][]byte)
 	for blockIdx, node := range relevantNodes {
 		block, _ := lib.GetBlock(node.Hash, utxoView.Handle)
@@ -406,7 +408,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 
 				// Finally, make sure the post scored isn't a comment or repost.
 				postEntryScored := utxoView.GetPostEntryForPostHash(postHashScored)
-				if len(postEntryScored.ParentStakeID) > 0 || lib.IsVanillaRepost(postEntryScored) {
+				if len(postEntryScored.ParentStakeID) > 0 || view.IsVanillaRepost(postEntryScored) {
 					continue
 				}
 
@@ -466,7 +468,7 @@ func (fes *APIServer) GetHotFeedConstantsFromGlobalState() (
 }
 
 func CheckTxnForCreatePost(txn *lib.MsgDeSoTxn) (
-	_isCreatePostTxn bool, _postHashCreated *lib.BlockHash) {
+	_isCreatePostTxn bool, _postHashCreated *core.BlockHash) {
 	if txn.TxnMeta.GetTxnType() == lib.TxnTypeSubmitPost {
 		txMeta := txn.TxnMeta.(*lib.SubmitPostMetadata)
 		// The post hash of a brand new post is the same as its txn hash.
@@ -479,10 +481,10 @@ func CheckTxnForCreatePost(txn *lib.MsgDeSoTxn) (
 }
 
 func GetPostHashToScoreForTxn(txn *lib.MsgDeSoTxn,
-	utxoView *lib.UtxoView) (_postHashScored *lib.BlockHash, _posterPKID *lib.PKID) {
+	utxoView *view.UtxoView) (_postHashScored *core.BlockHash, _posterPKID *core.PKID) {
 	// Figure out which post this transaction should affect.
-	interactionPostHash := &lib.BlockHash{}
-	var interactionPostEntry *lib.PostEntry
+	interactionPostHash := &core.BlockHash{}
+	var interactionPostEntry *view.PostEntry
 	txnType := txn.TxnMeta.GetTxnType()
 	if txnType == lib.TxnTypeLike {
 		txMeta := txn.TxnMeta.(*lib.LikeMetadata)
@@ -504,12 +506,12 @@ func GetPostHashToScoreForTxn(txn *lib.MsgDeSoTxn,
 		if len(txMeta.PostHashToModify) == 0 {
 			return nil, nil
 		}
-		postHash := &lib.BlockHash{}
+		postHash := &core.BlockHash{}
 		copy(postHash[:], txMeta.PostHashToModify[:])
 		interactionPostEntry = utxoView.GetPostEntryForPostHash(postHash)
 
 		// For posts we must process three cases: Reposts, Quoted Reposts, and Comments.
-		if lib.IsVanillaRepost(interactionPostEntry) || lib.IsQuotedRepost(interactionPostEntry) {
+		if view.IsVanillaRepost(interactionPostEntry) || view.IsQuotedRepost(interactionPostEntry) {
 			repostedPostHashBytes := txn.ExtraData[lib.RepostedPostHash]
 			copy(interactionPostHash[:], repostedPostHashBytes)
 		} else if len(interactionPostEntry.ParentStakeID) > 0 {
@@ -541,8 +543,8 @@ func (fes *APIServer) GetHotnessScoreInfoForTxn(
 	txn *lib.MsgDeSoTxn,
 	blockAge int, // Number of blocks this txn is from the blockTip.  Not block height.
 	postInteractionMap map[HotFeedInteractionKey][]byte,
-	utxoView *lib.UtxoView,
-) (_postHashScored *lib.BlockHash, _interactionPKID *lib.PKID, _hotnessScore uint64,
+	utxoView *view.UtxoView,
+) (_postHashScored *core.BlockHash, _interactionPKID *core.PKID, _hotnessScore uint64,
 ) {
 	// Figure out who is responsible for the transaction.
 	interactionPKIDEntry := utxoView.GetPKIDForPublicKey(txn.PublicKey)
@@ -576,7 +578,7 @@ func (fes *APIServer) GetHotnessScoreInfoForTxn(
 }
 
 func (fes *APIServer) PruneHotFeedApprovedPostsMap(
-	hotFeedPosts map[lib.BlockHash]*HotnessPostInfo, hotFeedApprovedPosts map[lib.BlockHash]float64,
+	hotFeedPosts map[core.BlockHash]*HotnessPostInfo, hotFeedApprovedPosts map[core.BlockHash]float64,
 ) {
 	for postHash := range fes.HotFeedApprovedPostsToMultipliers {
 		if _, inHotFeedMap := hotFeedPosts[postHash]; !inHotFeedMap {
@@ -688,7 +690,7 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 		// Only add pinned posts if we are starting from the top of the feed.
 		if len(requestData.SeenPosts) == 0 {
 			maxBigEndianUint64Bytes := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
-			maxKeyLen := 1 + len(maxBigEndianUint64Bytes) + lib.HashSizeBytes
+			maxKeyLen := 1 + len(maxBigEndianUint64Bytes) + core.HashSizeBytes
 			// Get all pinned posts and prepend them to the list of postEntries
 			pinnedStartKey := _GlobalStatePrefixTstampNanosPinnedPostHash
 			// todo: how many posts can we really pin?
@@ -699,7 +701,7 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 
 			var pinnedPostEntryRepsonses []PostEntryResponse
 			for _, dbKeyBytes := range keys {
-				postHash := &lib.BlockHash{}
+				postHash := &core.BlockHash{}
 				copy(postHash[:], dbKeyBytes[1+len(maxBigEndianUint64Bytes):][:])
 				postEntry := utxoView.GetPostEntryForPostHash(postHash)
 				if postEntry != nil {
@@ -835,10 +837,10 @@ func (fes *APIServer) AdminUpdateHotFeedPostMultiplier(ww http.ResponseWriter, r
 	}
 
 	// Decode the postHash.
-	postHash := &lib.BlockHash{}
+	postHash := &core.BlockHash{}
 	if requestData.PostHashHex != "" {
 		postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
-		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
+		if err != nil || len(postHashBytes) != core.HashSizeBytes {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateHotFeedPostMultiplier: Error parsing post hash %v: %v",
 				requestData.PostHashHex, err))
 			return

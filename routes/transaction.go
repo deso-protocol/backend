@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/view"
 	"io"
 	"math/big"
 	"net/http"
@@ -40,18 +42,18 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Decode the postHash.
-	var txnHash *lib.BlockHash
+	var txnHash *core.BlockHash
 	if requestData.TxnHashHex == "" {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTxn: Must provide a TxnHashHex."))
 		return
 	} else {
 		txnHashBytes, err := hex.DecodeString(requestData.TxnHashHex)
-		if err != nil || len(txnHashBytes) != lib.HashSizeBytes {
+		if err != nil || len(txnHashBytes) != core.HashSizeBytes {
 			_AddBadRequestError(ww, fmt.Sprintf("GetTxn: Error parsing post hash %v: %v",
 				requestData.TxnHashHex, err))
 			return
 		}
-		txnHash = &lib.BlockHash{}
+		txnHash = &core.BlockHash{}
 		copy(txnHash[:], txnHashBytes)
 	}
 
@@ -154,8 +156,8 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgDeSoTxn, re
 	// the hash of the post that this request was modifying.
 	postHashToModify := txn.TxnMeta.(*lib.SubmitPostMetadata).PostHashToModify
 	postHash := txn.Hash()
-	if len(postHashToModify) == lib.HashSizeBytes {
-		postHash = &lib.BlockHash{}
+	if len(postHashToModify) == core.HashSizeBytes {
+		postHash = &core.BlockHash{}
 		copy(postHash[:], postHashToModify[:])
 	}
 
@@ -177,7 +179,7 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgDeSoTxn, re
 	response.PostEntryResponse = postEntryResponse
 
 	// Try to whitelist a post if it is not a comment and is not a vanilla repost.
-	if len(postHashToModify) == 0 && !lib.IsVanillaRepost(postEntry) {
+	if len(postHashToModify) == 0 && !view.IsVanillaRepost(postEntry) {
 		// If this is a new post, let's try and auto-whitelist it now that it has been broadcast.
 		// First we need to figure out if the user is whitelisted.
 		userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(updaterPublicKeyBytes, fes.Params))
@@ -200,7 +202,7 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgDeSoTxn, re
 			maxAutoWhitelistPostsPerDay := 5
 			postEntriesInLastDay := 0
 			for _, dbPostOrCommentHash := range dbPostAndCommentHashes {
-				if existingPostEntry := utxoView.GetPostEntryForPostHash(dbPostOrCommentHash); len(existingPostEntry.ParentStakeID) == 0 && !lib.IsVanillaRepost(existingPostEntry) {
+				if existingPostEntry := utxoView.GetPostEntryForPostHash(dbPostOrCommentHash); len(existingPostEntry.ParentStakeID) == 0 && !view.IsVanillaRepost(existingPostEntry) {
 					postEntriesInLastDay += 1
 				}
 				if maxAutoWhitelistPostsPerDay >= postEntriesInLastDay {
@@ -346,7 +348,7 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 	// Convert image to base64 by stripping the data: prefix.
 	if requestData.NewProfilePic != "" {
 		var resizedImageBytes []byte
-		resizedImageBytes, err = resizeAndConvertToWebp(requestData.NewProfilePic, uint(fes.Params.MaxProfilePicDimensions))
+		//resizedImageBytes, err = resizeAndConvertToWebp(requestData.NewProfilePic, uint(fes.Params.MaxProfilePicDimensions))
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("Problem resizing profile picture: %v", err))
 			return
@@ -372,7 +374,7 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 	if len(requestData.NewUsername) > 0 {
 
 		utxoView.GetProfileEntryForUsername([]byte(requestData.NewUsername))
-		existingProfile, usernameExists := utxoView.ProfileUsernameToProfileEntry[lib.MakeUsernameMapKey([]byte(requestData.NewUsername))]
+		existingProfile, usernameExists := utxoView.ProfileUsernameToProfileEntry[view.MakeUsernameMapKey([]byte(requestData.NewUsername))]
 		if usernameExists && existingProfile != nil && !existingProfile.IsDeleted() {
 			// Check that the existing profile does not belong to the profile public key
 			if utxoView.GetPKIDForPublicKey(profilePublicKey) != utxoView.GetPKIDForPublicKey(existingProfile.PublicKey) {
@@ -447,7 +449,7 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata *UserMetadata, utxoView *lib.UtxoView) (_additionalFee uint64, _txnHash *lib.BlockHash, _err error) {
+func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata *UserMetadata, utxoView *view.UtxoView) (_additionalFee uint64, _txnHash *core.BlockHash, _err error) {
 	// Determine if this is a profile creation request and if we need to comp the user for creating the profile.
 	existingProfileEntry := utxoView.GetProfileEntryForPublicKey(profilePublicKey)
 	// If we are updating an existing profile, there is no fee and we do not comp anything.
@@ -531,7 +533,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 }
 
 func GetBalanceForPublicKeyUsingUtxoView(
-	publicKeyBytes []byte, utxoView *lib.UtxoView) (_balance uint64, _err error) {
+	publicKeyBytes []byte, utxoView *view.UtxoView) (_balance uint64, _err error) {
 
 	// Get unspent utxos from the view.
 	utxoEntriesFound, err := utxoView.GetUnspentUtxoEntrysForPublicKey(publicKeyBytes)
@@ -748,7 +750,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		return
 	}
 
-	var desoTxnHash *lib.BlockHash
+	var desoTxnHash *core.BlockHash
 	if requestData.Broadcast {
 		glog.Infof("ExchangeBitcoinStateless: Broadcasting Bitcoin txn: %v", bitcoinTxn)
 
@@ -1098,7 +1100,7 @@ func (fes *APIServer) CreateLikeStateless(ww http.ResponseWriter, req *http.Requ
 
 	// Decode the post hash for the liked post.
 	postHashBytes, err := hex.DecodeString(requestData.LikedPostHashHex)
-	if err != nil || len(postHashBytes) != lib.HashSizeBytes {
+	if err != nil || len(postHashBytes) != core.HashSizeBytes {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetLikesStateless: Error parsing post hash %v: %v",
 			requestData.LikedPostHashHex, err))
@@ -1121,7 +1123,7 @@ func (fes *APIServer) CreateLikeStateless(ww http.ResponseWriter, req *http.Requ
 	}
 
 	// We need to make the postHashBytes into a block hash in order to create the txn.
-	postHash := lib.BlockHash{}
+	postHash := core.BlockHash{}
 	copy(postHash[:], postHashBytes)
 
 	// Try and create the message for the user.
@@ -1225,7 +1227,7 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 	var parentStakeID []byte
 	if requestData.ParentStakeID != "" {
 		// The length tells us this is a block hash.
-		if len(requestData.ParentStakeID) == lib.HashSizeBytes*2 {
+		if len(requestData.ParentStakeID) == core.HashSizeBytes*2 {
 			parentStakeID, err = hex.DecodeString(requestData.ParentStakeID)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf(
@@ -1262,7 +1264,7 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 				requestData.PostHashHexToModify, err))
 			return
 		}
-		if len(postHashToModifyBytes) != lib.HashSizeBytes {
+		if len(postHashToModifyBytes) != core.HashSizeBytes {
 			_AddBadRequestError(ww, fmt.Sprintf(
 				"SubmitPost: Invalid length for PostHashHexToModify %v",
 				requestData.PostHashHexToModify))
@@ -1271,7 +1273,7 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		postHashToModify = postHashToModifyBytes
 	}
 
-	var utxoView *lib.UtxoView
+	var utxoView *view.UtxoView
 	utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Error getting utxoView"))
@@ -1303,13 +1305,13 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 			// a repost post if it is a quote repost.
 			if requestData.BodyObj.Body == "" && len(requestData.BodyObj.ImageURLs) == 0 {
 				// Convert repost post hash from bytes to block hash and look up postEntry by postHash.
-				repostPostHash := &lib.BlockHash{}
+				repostPostHash := &core.BlockHash{}
 				copy(repostPostHash[:], repostPostHashBytes)
 				repostPostEntry := utxoView.GetPostEntryForPostHash(repostPostHash)
 
 				// If the body of the post that we are trying to repost is empty, this is an error as
 				// we do not want to allow a user to repost
-				if lib.IsVanillaRepost(repostPostEntry) {
+				if view.IsVanillaRepost(repostPostEntry) {
 					_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Cannot repost a post that is a repost without a quote"))
 					return
 				}
@@ -2045,7 +2047,7 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 			requestData.DiamondPostHashHex, err))
 		return
 	}
-	if len(diamondPostHashBytes) != lib.HashSizeBytes {
+	if len(diamondPostHashBytes) != core.HashSizeBytes {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"SendDiamonds: Invalid length for DiamondPostHashHex %v",
 			requestData.DiamondPostHashHex))
@@ -2053,7 +2055,7 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Now that we know we have a real post hash, we can turn it into a BlockHash.
-	diamondPostHash := &lib.BlockHash{}
+	diamondPostHash := &core.BlockHash{}
 	copy(diamondPostHash[:], diamondPostHashBytes[:])
 
 	if reflect.DeepEqual(senderPublicKeyBytes, receiverPublicKeyBytes) {
@@ -2426,7 +2428,7 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 	// Create an array of utxoEntries from transaction inputs' utxoKeys.
 	totalInputNanos := uint64(0)
 	for _, txInput := range txn.TxInputs {
-		utxoEntry := utxoView.GetUtxoEntryForUtxoKey((*lib.UtxoKey)(txInput))
+		utxoEntry := utxoView.GetUtxoEntryForUtxoKey((*core.UtxoKey)(txInput))
 		if utxoEntry == nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Already spent utxo or invalid txn input: %v", txInput))
 			return

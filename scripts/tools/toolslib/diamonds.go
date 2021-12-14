@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/deso-protocol/backend/routes"
-	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
@@ -38,7 +39,7 @@ func _generateUnsignedSendDiamonds(senderPubKey *btcec.PublicKey, postHashHex st
 	}
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := ioutil.ReadAll(resp.Body)
-		return nil, errors.Errorf("_generateUnsignedSendDiamonds(): Received non 200 response code: " +
+		return nil, errors.Errorf("_generateUnsignedSendDiamonds(): Received non 200 response code: "+
 			"Status Code: %v Body: %v", resp.StatusCode, string(bodyBytes))
 	}
 
@@ -58,7 +59,7 @@ func _generateUnsignedSendDiamonds(senderPubKey *btcec.PublicKey, postHashHex st
 	if err != nil {
 		return nil, errors.Wrap(err, "_generateUnsignedSendDiamonds(): failed decoding post hash")
 	}
-	diamondPostHash := &lib.BlockHash{}
+	diamondPostHash := &core.BlockHash{}
 	copy(diamondPostHash[:], diamondPostHashBytes[:])
 
 	// Append extra data to the transaction. The fees and everything was already computed correctly server side.

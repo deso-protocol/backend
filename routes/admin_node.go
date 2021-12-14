@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core"
 	"io"
 	"math"
 	"net"
@@ -13,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/deso-protocol/core/lib"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/deso-protocol/core/lib"
 )
 
 // NodeControlRequest ...
@@ -264,7 +265,7 @@ func (fes *APIServer) _handleConnectDeSoNode(
 				locator := fes.blockchain.LatestLocator(fes.blockchain.HeaderTip())
 
 				desoPeer.AddDeSoMessage(&lib.MsgDeSoGetHeaders{
-					StopHash:     &lib.BlockHash{},
+					StopHash:     &core.BlockHash{},
 					BlockLocator: locator,
 				}, false)
 
