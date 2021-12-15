@@ -1166,7 +1166,6 @@ func (gs *GlobalState) Seek(startPrefix []byte, validForPrefix []byte,
 	// If we have a remote node then use that node to fulfill this request.
 	if gs.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
-
 		url, json_data, err := gs.CreateSeekRequest(
 			startPrefix,
 			validForPrefix,

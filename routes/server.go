@@ -237,6 +237,10 @@ const (
 	RoutePathGetBlacklistedPublicKeys = "/api/v0/get-blacklisted-public-keys"
 	RoutePathGetGraylistedPublicKeys  = "/api/v0/get-graylisted-public-keys"
 	RoutePathGetGlobalFeed            = "/api/v0/get-global-feed"
+
+	// supply.go
+	RoutePathGetTotalSupply = "/api/v0/total-supply"
+	RoutePathGetRichList    = "/api/v0/rich-list"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -335,7 +339,12 @@ type APIServer struct {
 	// GlobalFeedPostHashes is a slice of BlockHashes representing the state of posts on the global feed on this node.
 	GlobalFeedPostHashes []*lib.BlockHash
 
-	// map of country name to sign up bonus data
+	// Cache of Total Supply and Rich List
+	TotalSupplyNanos uint64
+	TotalSupplyDESO  float64
+	RichList         []RichListEntryResponse
+
+  // map of country name to sign up bonus data
 	AllCountryLevelSignUpBonuses map[string]CountrySignUpBonusResponse
 
 	// Signals that the frontend server is in a stopped state
@@ -416,6 +425,10 @@ func NewAPIServer(
 
 	if fes.Config.RunHotFeedRoutine {
 		fes.StartHotFeedRoutine()
+	}
+
+	if fes.Config.RunSupplyMonitoringRoutine {
+		fes.StartSupplyMonitoring()
 	}
 
 	fes.SetGlobalStateCache()
@@ -1522,6 +1535,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetGlobalFeed,
 			fes.GetGlobalFeed,
+			PublicAccess,
+		},
+		{
+			"GetTotalSupply",
+			[]string{"GET"},
+			RoutePathGetTotalSupply,
+			fes.GetTotalSupply,
+			PublicAccess,
+		},
+		{
+			"GetRichList",
+			[]string{"GET"},
+			RoutePathGetRichList,
+			fes.GetRichList,
 			PublicAccess,
 		},
 	}

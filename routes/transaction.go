@@ -869,6 +869,11 @@ func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint
 	return nanosPurchased
 }
 
+func (fes *APIServer) GetUSDFromNanos(nanos uint64) float64 {
+	usdCentsPerDeSo := float64(fes.UsdCentsPerDeSoExchangeRate)
+	return usdCentsPerDeSo * float64(nanos/lib.NanosPerUnit) / 100
+}
+
 // ExceedsSendDeSoBalance - Check if nanosPurchased is greater than the balance of the BuyDESO wallet.
 func (fes *APIServer) ExceedsDeSoBalance(nanosPurchased uint64, seed string) (bool, error) {
 	buyDeSoSeedBalance, err := fes.getBalanceForSeed(seed)
