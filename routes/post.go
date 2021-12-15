@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/view"
 	"io"
 	"net/http"
@@ -173,7 +174,7 @@ func (fes *APIServer) _postEntryToResponse(postEntry *view.PostEntry, addGlobalF
 	if len(postEntry.ParentStakeID) == core.HashSizeBytes {
 		stakeIDStr = hex.EncodeToString(postEntry.ParentStakeID)
 	} else if len(postEntry.ParentStakeID) == btcec.PubKeyBytesLenCompressed {
-		stakeIDStr = lib.PkToString(postEntry.ParentStakeID, params)
+		stakeIDStr = db.PkToString(postEntry.ParentStakeID, params)
 	}
 
 	var inMempool bool
@@ -202,7 +203,7 @@ func (fes *APIServer) _postEntryToResponse(postEntry *view.PostEntry, addGlobalF
 
 	res := &PostEntryResponse{
 		PostHashHex:                    hex.EncodeToString(postEntry.PostHash[:]),
-		PosterPublicKeyBase58Check:     lib.PkToString(postEntry.PosterPublicKey, params),
+		PosterPublicKeyBase58Check:     db.PkToString(postEntry.PosterPublicKey, params),
 		ParentStakeID:                  stakeIDStr,
 		Body:                           bodyJSONObj.Body,
 		ImageURLs:                      bodyJSONObj.ImageURLs,
@@ -361,7 +362,7 @@ func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
 		return nil, nil, fmt.Errorf("GetPostEntriesByDESO: Error fetching mempool view: %v", err)
 	}
 	// Start by fetching the posts we have in the db.
-	dbPostHashes, _, _, err := lib.DBGetPaginatedPostsOrderedByTime(
+	dbPostHashes, _, _, err := db.DBGetPaginatedPostsOrderedByTime(
 		utxoView.Handle, startTstampNanos, nil, -1, false /*fetchEntries*/, false)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "GetPostEntriesByDESO: Problem fetching ProfileEntrys from db: ")
@@ -656,7 +657,7 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 			minTimestampNanos = postEntries[len(postEntries)-1].TimestampNanos
 		}
 
-		_, dbPostAndCommentHashes, _, err := lib.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
+		_, dbPostAndCommentHashes, _, err := db.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
 			utxoView.Handle, readerPK, false /*fetchEntries*/, minTimestampNanos, maxTimestampNanos,
 		)
 		if err != nil {
@@ -869,7 +870,7 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 	postEntryResponses := []*PostEntryResponse{}
 	for _, postEntry := range postEntries {
 		// If the creator who posted postEntry is in the map of blocked pub keys, skip this postEntry
-		if _, ok := blockedPubKeys[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]; !ok {
+		if _, ok := blockedPubKeys[db.PkToString(postEntry.PosterPublicKey, fes.Params)]; !ok {
 			var postEntryResponse *PostEntryResponse
 			postEntryResponse, err = fes._postEntryToResponse(postEntry, requestData.AddGlobalFeedBool, fes.Params, utxoView, readerPublicKeyBytes, 2)
 			if err != nil {
@@ -881,7 +882,7 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 				profileEntryFound, utxoView)
 			commentsFound := commentsByPostHash[*postEntry.PostHash]
 			for _, commentEntry := range commentsFound {
-				if _, ok = blockedPubKeys[lib.PkToString(commentEntry.PosterPublicKey, fes.Params)]; !ok {
+				if _, ok = blockedPubKeys[db.PkToString(commentEntry.PosterPublicKey, fes.Params)]; !ok {
 					commentResponse, err := fes._getCommentResponse(commentEntry, profileEntryMap, requestData.AddGlobalFeedBool, utxoView, readerPublicKeyBytes)
 					if fes._shouldSkipCommentResponse(commentResponse, err) {
 						continue
@@ -1042,7 +1043,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		rootBlockedPublicKeys, err = fes.GetBlockedPubKeysForUser(rootParent.PosterPublicKey)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf(
-				"GetSinglePost: Problem with GetBlockedPubKeysForUser for root entry: publicKey: %v %v", lib.PkToString(rootParent.PosterPublicKey, fes.Params), err))
+				"GetSinglePost: Problem with GetBlockedPubKeysForUser for root entry: publicKey: %v %v", db.PkToString(rootParent.PosterPublicKey, fes.Params), err))
 			return
 		}
 	} else if len(parentPostEntries) == 0 {
@@ -1050,7 +1051,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		rootBlockedPublicKeys, err = fes.GetBlockedPubKeysForUser(postEntry.PosterPublicKey)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf(
-				"GetSinglePost: Problem with GetBlockedPubKeysForUser for current post entry: publicKey: %v %v", lib.PkToString(postEntry.PosterPublicKey, fes.Params), err))
+				"GetSinglePost: Problem with GetBlockedPubKeysForUser for current post entry: publicKey: %v %v", db.PkToString(postEntry.PosterPublicKey, fes.Params), err))
 			return
 		}
 	}
@@ -1067,18 +1068,18 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	// Determine whether or not the posters of the "single post" we are fetching is blocked by the reader.  If the
 	// poster of the single post is blocked, we will want to include the single post, but not any of the comments
 	// created by the poster that are children of this "single post".
-	_, isCurrentPosterBlocked := blockedPublicKeys[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]
+	_, isCurrentPosterBlocked := blockedPublicKeys[db.PkToString(postEntry.PosterPublicKey, fes.Params)]
 	for _, commentEntry := range commentEntries {
 		pkMapKey := view.MakePkMapKey(commentEntry.PosterPublicKey)
 		// Remove comments that are blocked by either the reader or the poster of the root post
-		if _, ok := blockedPublicKeys[lib.PkToString(commentEntry.PosterPublicKey, fes.Params)]; !ok && profilePubKeyMap[pkMapKey] == nil {
+		if _, ok := blockedPublicKeys[db.PkToString(commentEntry.PosterPublicKey, fes.Params)]; !ok && profilePubKeyMap[pkMapKey] == nil {
 			profilePubKeyMap[pkMapKey] = commentEntry.PosterPublicKey
 		}
 	}
 	for _, parentPostEntry := range parentPostEntries {
 		pkMapKey := view.MakePkMapKey(parentPostEntry.PosterPublicKey)
 		// Remove parents that are blocked by either the reader or the poster of the root post
-		if _, ok := blockedPublicKeys[lib.PkToString(parentPostEntry.PosterPublicKey, fes.Params)]; !ok && profilePubKeyMap[pkMapKey] == nil {
+		if _, ok := blockedPublicKeys[db.PkToString(parentPostEntry.PosterPublicKey, fes.Params)]; !ok && profilePubKeyMap[pkMapKey] == nil {
 			profilePubKeyMap[pkMapKey] = parentPostEntry.PosterPublicKey
 		}
 	}
@@ -1841,7 +1842,7 @@ func (fes *APIServer) GetDiamondsForPost(ww http.ResponseWriter, req *http.Reque
 		}
 
 		// Sort based on pub key if all else fails.
-		return lib.PkToString(diamondSenders[ii].PublicKey, fes.Params) > lib.PkToString(diamondSenders[jj].PublicKey, fes.Params)
+		return db.PkToString(diamondSenders[ii].PublicKey, fes.Params) > db.PkToString(diamondSenders[jj].PublicKey, fes.Params)
 	})
 
 	// Cut out the page of diamondSenders that we care about.

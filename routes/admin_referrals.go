@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/db"
 	"io"
 	"net/http"
 	"reflect"
@@ -202,7 +203,7 @@ func (fes *APIServer) AdminCreateReferralHash(ww http.ResponseWriter, req *http.
 	referrerPKID := utxoView.GetPKIDForPublicKey(userPublicKeyBytes)
 	if referrerPKID == nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"AdminCreateReferralHash: nil PKID for pubkey: %v", lib.PkToString(userPublicKeyBytes, fes.Params)))
+			"AdminCreateReferralHash: nil PKID for pubkey: %v", db.PkToString(userPublicKeyBytes, fes.Params)))
 		return
 	}
 
@@ -369,7 +370,7 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeR
 	referrerPKID := utxoView.GetPKIDForPublicKey(pkBytes)
 	if referrerPKID == nil {
 		return nil, fmt.Errorf(
-			"putReferralHashWithInfo: nil PKID for pubkey: %v", lib.PkToString(pkBytes, fes.Params))
+			"putReferralHashWithInfo: nil PKID for pubkey: %v", db.PkToString(pkBytes, fes.Params))
 	}
 
 	// Build a key to seek all of the referral hashes for this PKID.
@@ -436,7 +437,7 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeR
 					// This is an anon profile, so we just populate the pub key and call it good.
 					profileEntryResponse := ProfileEntryResponse{}
 					profileEntryResponse.PublicKeyBase58Check =
-						lib.PkToString(core.PKIDToPublicKey(refereePKID), fes.Params)
+						db.PkToString(core.PKIDToPublicKey(refereePKID), fes.Params)
 					referredUsers = append(referredUsers, profileEntryResponse)
 				}
 			}
@@ -593,7 +594,7 @@ func (fes *APIServer) AdminDownloadReferralCSV(ww http.ResponseWriter, req *http
 		nextRow := []string{}
 		nextRow = append(nextRow, referralInfo.ReferralHashBase58)
 		nextRow = append(nextRow, usernameStr)
-		nextRow = append(nextRow, lib.PkToString(core.PKIDToPublicKey(referralInfo.ReferrerPKID), fes.Params))
+		nextRow = append(nextRow, db.PkToString(core.PKIDToPublicKey(referralInfo.ReferrerPKID), fes.Params))
 		nextRow = append(nextRow, strconv.FormatUint(referralInfo.ReferrerAmountUSDCents, 10))
 		nextRow = append(nextRow, strconv.FormatUint(referralInfo.RefereeAmountUSDCents, 10))
 		nextRow = append(nextRow, strconv.FormatUint(referralInfo.MaxReferrals, 10))
@@ -894,14 +895,14 @@ func (fes *APIServer) AdminDownloadRefereeCSV(ww http.ResponseWriter, req *http.
 
 		// Grab a list of post hashes liked by this user.
 		refereeLikesLen := int64(-1)
-		refereeLikedPostHashes, err := lib.DbGetPostHashesYouLike(utxoView.Handle, refereePKID[:])
+		refereeLikedPostHashes, err := db.DbGetPostHashesYouLike(utxoView.Handle, refereePKID[:])
 		if err == nil {
 			refereeLikesLen = int64(len(refereeLikedPostHashes))
 		}
 
 		// Grab the PKIDs diamonded by the referee.
 		refereeDiamondsLen := int64(-1)
-		refereeDiamondedPKIDs, err := lib.DbGetPKIDsThatDiamondedYouMap(
+		refereeDiamondedPKIDs, err := db.DbGetPKIDsThatDiamondedYouMap(
 			utxoView.Handle, refereePKID, true /*fetchYouDiamonded*/)
 		if err == nil {
 			refereeDiamondsLen = int64(len(refereeDiamondedPKIDs))
@@ -910,9 +911,9 @@ func (fes *APIServer) AdminDownloadRefereeCSV(ww http.ResponseWriter, req *http.
 		// Assemble the row.
 		nextRow := []string{}
 		nextRow = append(nextRow, string(referralHashBytes))
-		nextRow = append(nextRow, lib.PkToString(core.PKIDToPublicKey(referrerPKID), fes.Params))
+		nextRow = append(nextRow, db.PkToString(core.PKIDToPublicKey(referrerPKID), fes.Params))
 		nextRow = append(nextRow, referrerUsernameStr)
-		nextRow = append(nextRow, lib.PkToString(core.PKIDToPublicKey(refereePKID), fes.Params))
+		nextRow = append(nextRow, db.PkToString(core.PKIDToPublicKey(refereePKID), fes.Params))
 		nextRow = append(nextRow, refereeUsernameStr)
 		nextRow = append(nextRow, strconv.FormatInt(refereePostsLen, 10))
 		nextRow = append(nextRow, strconv.FormatInt(refereeLikesLen, 10))

@@ -7,6 +7,7 @@ import (
 	chainlib "github.com/btcsuite/btcd/blockchain"
 	"github.com/deso-protocol/backend/config"
 	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/lib"
 	"io"
 	"io/ioutil"
@@ -493,7 +494,7 @@ func TestAPI(t *testing.T) {
 	// Getting info on a nonexistent transaction should fail gracefully.
 	{
 		transactionInfoRequest := &APITransactionInfoRequest{
-			TransactionIDBase58Check: lib.PkToString([]byte("12345678901234567890123456789012"), apiServer.Params),
+			TransactionIDBase58Check: db.PkToString([]byte("12345678901234567890123456789012"), apiServer.Params),
 		}
 		jsonRequest, err := json.Marshal(transactionInfoRequest)
 		require.NoError(err)
@@ -568,15 +569,15 @@ func TestAPI(t *testing.T) {
 	var secondBlockTxn *lib.MsgDeSoTxn
 	{
 		blockHash := apiServer.blockchain.BestChain()[1].Hash
-		blockLookup, err := lib.GetBlock(blockHash, apiServer.blockchain.DB())
+		blockLookup, err := db.GetBlock(blockHash, apiServer.blockchain.DB())
 		require.NoError(err)
-		block2Lookup, err := lib.GetBlock(apiServer.blockchain.BestChain()[2].Hash, apiServer.blockchain.DB())
+		block2Lookup, err := db.GetBlock(apiServer.blockchain.BestChain()[2].Hash, apiServer.blockchain.DB())
 
 		firstBlockTxn = blockLookup.Txns[0]
 		secondBlockTxn = block2Lookup.Txns[0]
 
 		transactionInfoRequest := &APITransactionInfoRequest{
-			TransactionIDBase58Check: lib.PkToString(firstBlockTxn.Hash()[:], apiServer.Params),
+			TransactionIDBase58Check: db.PkToString(firstBlockTxn.Hash()[:], apiServer.Params),
 		}
 		jsonRequest, err := json.Marshal(transactionInfoRequest)
 		require.NoError(err)
@@ -602,7 +603,7 @@ func TestAPI(t *testing.T) {
 		assert.Equal(0, len(transactionInfoRes.Transactions[0].Inputs))
 		assert.Equal(1, len(transactionInfoRes.Transactions[0].Outputs))
 		assert.Equal(
-			lib.PkToString(firstBlockTxn.TxOutputs[0].PublicKey, apiServer.Params),
+			db.PkToString(firstBlockTxn.TxOutputs[0].PublicKey, apiServer.Params),
 			transactionInfoRes.Transactions[0].Outputs[0].PublicKeyBase58Check)
 		assert.Equal(
 			int64(1000000000),
@@ -939,7 +940,7 @@ func TestAPI(t *testing.T) {
 	// The first send from the miner should be available.
 	{
 		transactionInfoRequest := &APITransactionInfoRequest{
-			TransactionIDBase58Check: lib.PkToString(txn1.Hash()[:], apiServer.Params),
+			TransactionIDBase58Check: db.PkToString(txn1.Hash()[:], apiServer.Params),
 		}
 		jsonRequest, err := json.Marshal(transactionInfoRequest)
 		require.NoError(err)
@@ -964,8 +965,8 @@ func TestAPI(t *testing.T) {
 		assert.Equal(1, len(transactionInfoRes.Transactions[0].Inputs))
 		assert.Contains(
 			[]string{
-				lib.PkToString(firstBlockTxn.Hash()[:], apiServer.Params),
-				lib.PkToString(secondBlockTxn.Hash()[:], apiServer.Params),
+				db.PkToString(firstBlockTxn.Hash()[:], apiServer.Params),
+				db.PkToString(secondBlockTxn.Hash()[:], apiServer.Params),
 			},
 			transactionInfoRes.Transactions[0].Inputs[0].TransactionIDBase58Check)
 		assert.Equal(2, len(transactionInfoRes.Transactions[0].Outputs))
@@ -984,7 +985,7 @@ func TestAPI(t *testing.T) {
 	}
 	{
 		transactionInfoRequest := &APITransactionInfoRequest{
-			TransactionIDBase58Check: lib.PkToString(txn2.Hash()[:], apiServer.Params),
+			TransactionIDBase58Check: db.PkToString(txn2.Hash()[:], apiServer.Params),
 		}
 		jsonRequest, err := json.Marshal(transactionInfoRequest)
 		require.NoError(err)
@@ -1008,7 +1009,7 @@ func TestAPI(t *testing.T) {
 			transactionInfoRes.Transactions[0].BlockHashHex)
 		assert.Equal(1, len(transactionInfoRes.Transactions[0].Inputs))
 		assert.Contains(
-			lib.PkToString(txn1.Hash()[:], apiServer.Params),
+			db.PkToString(txn1.Hash()[:], apiServer.Params),
 			transactionInfoRes.Transactions[0].Inputs[0].TransactionIDBase58Check)
 		assert.Equal(2, len(transactionInfoRes.Transactions[0].Outputs))
 	}
@@ -1122,7 +1123,7 @@ func TestAPI(t *testing.T) {
 	require.NoError(apiServer.TXIndex.Update())
 	{
 		transactionInfoRequest := &APITransactionInfoRequest{
-			TransactionIDBase58Check: lib.PkToString(txn1.Hash()[:], apiServer.Params),
+			TransactionIDBase58Check: db.PkToString(txn1.Hash()[:], apiServer.Params),
 		}
 		jsonRequest, err := json.Marshal(transactionInfoRequest)
 		require.NoError(err)
@@ -1148,8 +1149,8 @@ func TestAPI(t *testing.T) {
 		assert.Equal(1, len(transactionInfoRes.Transactions[0].Inputs))
 		assert.Contains(
 			[]string{
-				lib.PkToString(firstBlockTxn.Hash()[:], apiServer.Params),
-				lib.PkToString(secondBlockTxn.Hash()[:], apiServer.Params),
+				db.PkToString(firstBlockTxn.Hash()[:], apiServer.Params),
+				db.PkToString(secondBlockTxn.Hash()[:], apiServer.Params),
 			},
 			transactionInfoRes.Transactions[0].Inputs[0].TransactionIDBase58Check)
 		assert.Equal(2, len(transactionInfoRes.Transactions[0].Outputs))
@@ -1168,7 +1169,7 @@ func TestAPI(t *testing.T) {
 	}
 	{
 		transactionInfoRequest := &APITransactionInfoRequest{
-			TransactionIDBase58Check: lib.PkToString(txn2.Hash()[:], apiServer.Params),
+			TransactionIDBase58Check: db.PkToString(txn2.Hash()[:], apiServer.Params),
 		}
 		jsonRequest, err := json.Marshal(transactionInfoRequest)
 		require.NoError(err)
@@ -1193,7 +1194,7 @@ func TestAPI(t *testing.T) {
 			transactionInfoRes.Transactions[0].BlockHashHex)
 		assert.Equal(1, len(transactionInfoRes.Transactions[0].Inputs))
 		assert.Contains(
-			lib.PkToString(txn1.Hash()[:], apiServer.Params),
+			db.PkToString(txn1.Hash()[:], apiServer.Params),
 			transactionInfoRes.Transactions[0].Inputs[0].TransactionIDBase58Check)
 		assert.Equal(2, len(transactionInfoRes.Transactions[0].Outputs))
 	}
@@ -1296,13 +1297,13 @@ func TestAPI(t *testing.T) {
 		// The miner public key should return one transaction for its single
 		// block reward rather than three.
 		{
-			prefix := lib.DbTxindexTxIDKey(&core.BlockHash{})[0]
-			txnsInTransactionIndex, _ := lib.EnumerateKeysForPrefix(apiServer.TXIndex.TXIndexChain.DB(), []byte{prefix})
+			prefix := db.DbTxindexTxIDKey(&core.BlockHash{})[0]
+			txnsInTransactionIndex, _ := db.EnumerateKeysForPrefix(apiServer.TXIndex.TXIndexChain.DB(), []byte{prefix})
 			require.Equal(1+len(apiServer.Params.SeedTxns)+len(apiServer.Params.SeedBalances), len(txnsInTransactionIndex))
 		}
 		{
-			keysInPublicKeyTable, _ := lib.EnumerateKeysForPrefix(
-				apiServer.TXIndex.TXIndexChain.DB(), lib.DbTxindexPublicKeyPrefix([]byte{}))
+			keysInPublicKeyTable, _ := db.EnumerateKeysForPrefix(
+				apiServer.TXIndex.TXIndexChain.DB(), db.DbTxindexPublicKeyPrefix([]byte{}))
 			// There should be two keys since one is the miner public key and
 			// the other is a dummy public key corresponding to the input of
 			// a block reward txn. Plus one for the seed balance, which creates
@@ -1314,7 +1315,7 @@ func TestAPI(t *testing.T) {
 		}
 		{
 			minerPk, _, _ := lib.Base58CheckDecode(senderPkString)
-			transactionsInPublicKeyIndex := lib.DbGetTxindexTxnsForPublicKey(
+			transactionsInPublicKeyIndex := db.DbGetTxindexTxnsForPublicKey(
 				apiServer.TXIndex.TXIndexChain.DB(), minerPk)
 			// The number should be one because there should be a single block
 			// reward in the first block and that's it.
@@ -1371,7 +1372,7 @@ func TestAPI(t *testing.T) {
 			}
 			assert.Equal("", transactionInfoRes.Error)
 			assert.Equal(1, len(transactionInfoRes.Transactions))
-			assert.Equal(lib.PkToString(firstBlockTxn.Hash()[:], apiServer.Params),
+			assert.Equal(db.PkToString(firstBlockTxn.Hash()[:], apiServer.Params),
 				transactionInfoRes.Transactions[0].TransactionIDBase58Check)
 		}
 
@@ -1381,13 +1382,13 @@ func TestAPI(t *testing.T) {
 
 		// Now everything should be reset properly.
 		{
-			prefix := lib.DbTxindexTxIDKey(&core.BlockHash{})[0]
-			txnsInTransactionIndex, _ := lib.EnumerateKeysForPrefix(apiServer.TXIndex.TXIndexChain.DB(), []byte{prefix})
+			prefix := db.DbTxindexTxIDKey(&core.BlockHash{})[0]
+			txnsInTransactionIndex, _ := db.EnumerateKeysForPrefix(apiServer.TXIndex.TXIndexChain.DB(), []byte{prefix})
 			require.Equal(5+len(apiServer.Params.SeedTxns)+len(apiServer.Params.SeedBalances), len(txnsInTransactionIndex))
 		}
 		{
-			keysInPublicKeyTable, _ := lib.EnumerateKeysForPrefix(
-				apiServer.TXIndex.TXIndexChain.DB(), lib.DbTxindexPublicKeyPrefix([]byte{}))
+			keysInPublicKeyTable, _ := db.EnumerateKeysForPrefix(
+				apiServer.TXIndex.TXIndexChain.DB(), db.DbTxindexPublicKeyPrefix([]byte{}))
 			// Three pairs for the block rewards and two pairs for the transactions
 			// we created.
 			require.Equal(10+

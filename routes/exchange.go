@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/view"
 	"io"
 	"net/http"
@@ -152,7 +153,7 @@ func (fes *APIServer) APIBase(ww http.ResponseWriter, rr *http.Request) {
 	blockNode := fes.blockchain.BlockTip()
 
 	// Take the hash computed from above and find the corresponding block.
-	blockMsg, err := lib.GetBlock(blockNode.Hash, fes.blockchain.DB())
+	blockMsg, err := db.GetBlock(blockNode.Hash, fes.blockchain.DB())
 	if err != nil {
 		APIAddError(ww, fmt.Sprintf("APIBase: Problem fetching block: %v", err))
 		return
@@ -167,7 +168,7 @@ func (fes *APIServer) APIBase(ww http.ResponseWriter, rr *http.Request) {
 	}
 	for _, txn := range blockMsg.Txns {
 		// Look up the metadata for each transaction.
-		txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txn.Hash())
+		txnMeta := db.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txn.Hash())
 
 		res.Transactions = append(
 			res.Transactions, APITransactionToResponse(
@@ -270,9 +271,9 @@ func (fes *APIServer) APIKeyPair(ww http.ResponseWriter, rr *http.Request) {
 	}
 
 	res := APIKeyPairResponse{
-		PublicKeyBase58Check:  lib.PkToString(pubKey.SerializeCompressed(), fes.Params),
+		PublicKeyBase58Check:  db.PkToString(pubKey.SerializeCompressed(), fes.Params),
 		PublicKeyHex:          hex.EncodeToString(pubKey.SerializeCompressed()),
-		PrivateKeyBase58Check: lib.PrivToString(privKey.Serialize(), fes.Params),
+		PrivateKeyBase58Check: db.PrivToString(privKey.Serialize(), fes.Params),
 		PrivateKeyHex:         hex.EncodeToString(privKey.Serialize()),
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
@@ -396,10 +397,10 @@ func (fes *APIServer) APIBalance(ww http.ResponseWriter, rr *http.Request) {
 		}
 
 		balanceResponse.UTXOs = append(balanceResponse.UTXOs, &UTXOEntryResponse{
-			TransactionIDBase58Check: lib.PkToString(utxoEntry.UtxoKey.TxID[:], fes.Params),
+			TransactionIDBase58Check: db.PkToString(utxoEntry.UtxoKey.TxID[:], fes.Params),
 			Index:                    int64(utxoEntry.UtxoKey.Index),
 			AmountNanos:              utxoEntry.AmountNanos,
-			PublicKeyBase58Check:     lib.PkToString(utxoEntry.PublicKey, fes.Params),
+			PublicKeyBase58Check:     db.PkToString(utxoEntry.PublicKey, fes.Params),
 			Confirmations:            confirmations,
 			UtxoType:                 utxoEntry.UtxoType.String(),
 			BlockHeight:              int64(utxoEntry.BlockHeight),
@@ -447,7 +448,7 @@ type TransactionResponse struct {
 	// into the "block" endpoint.
 	BlockHashHex string `json:",omitempty"`
 
-	TransactionMetadata *lib.TransactionMetadata `json:",omitempty"`
+	TransactionMetadata *db.TransactionMetadata `json:",omitempty"`
 }
 
 // TransactionInfoResponse contains information about the transaction
@@ -513,7 +514,7 @@ type APITransferDeSoResponse struct {
 // an object that can be easily JSON serialized.
 func APITransactionToResponse(
 	txnn *lib.MsgDeSoTxn,
-	txnMeta *lib.TransactionMetadata,
+	txnMeta *db.TransactionMetadata,
 	params *lib.DeSoParams) *TransactionResponse {
 
 	signatureHex := ""
@@ -523,7 +524,7 @@ func APITransactionToResponse(
 
 	// Remove UtxoOps from the response because it's massive and usually useless
 	// We do some funky pointer stuff here so that we don't change the original object
-	var txnMetaResponse lib.TransactionMetadata
+	var txnMetaResponse db.TransactionMetadata
 	if txnMeta != nil {
 		txnMetaResponse = *txnMeta
 		basicMetadata := *txnMeta.BasicTransferTxindexMetadata
@@ -533,7 +534,7 @@ func APITransactionToResponse(
 
 	txnBytes, _ := txnn.ToBytes(false /*preSignature*/)
 	ret := &TransactionResponse{
-		TransactionIDBase58Check: lib.PkToString(txnn.Hash()[:], params),
+		TransactionIDBase58Check: db.PkToString(txnn.Hash()[:], params),
 		RawTransactionHex:        hex.EncodeToString(txnBytes),
 		SignatureHex:             signatureHex,
 		TransactionType:          txnn.TxnMeta.GetTxnType().String(),
@@ -543,13 +544,13 @@ func APITransactionToResponse(
 	}
 	for _, input := range txnn.TxInputs {
 		ret.Inputs = append(ret.Inputs, &InputResponse{
-			TransactionIDBase58Check: lib.PkToString(input.TxID[:], params),
+			TransactionIDBase58Check: db.PkToString(input.TxID[:], params),
 			Index:                    int64(input.Index),
 		})
 	}
 	for _, output := range txnn.TxOutputs {
 		ret.Outputs = append(ret.Outputs, &OutputResponse{
-			PublicKeyBase58Check: lib.PkToString(output.PublicKey, params),
+			PublicKeyBase58Check: db.PkToString(output.PublicKey, params),
 			AmountNanos:          output.AmountNanos,
 		})
 	}
@@ -726,8 +727,8 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 		ChangeAmountNanos:             changeAmountt,
 		FeeNanos:                      feeNanoss,
 		FeeRateNanosPerKB:             feeNanoss * 1000 / uint64(len(txnBytes)),
-		SenderPublicKeyBase58Check:    lib.PkToString(senderPub.SerializeCompressed(), fes.Params),
-		RecipientPublicKeyBase58Check: lib.PkToString(recipientPubBytes, fes.Params),
+		SenderPublicKeyBase58Check:    db.PkToString(senderPub.SerializeCompressed(), fes.Params),
+		RecipientPublicKeyBase58Check: db.PkToString(recipientPubBytes, fes.Params),
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
@@ -863,7 +864,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 
 			if transactionInfoRequest.IDsOnly {
 				res.Transactions = append(res.Transactions,
-					&TransactionResponse{TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params)})
+					&TransactionResponse{TransactionIDBase58Check: db.PkToString(poolTx.Tx.Hash()[:], fes.Params)})
 			} else {
 				res.Transactions = append(res.Transactions, APITransactionToResponse(poolTx.Tx, poolTx.TxMeta, fes.Params))
 			}
@@ -911,7 +912,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		copy(txID[:], txIDBytes)
 
 		// Use the txID to lookup the requested transaction.
-		txn, txnMeta := lib.DbGetTxindexFullTransactionByTxID(fes.TXIndex.TXIndexChain.DB(), fes.blockchain.DB(), txID)
+		txn, txnMeta := db.DbGetTxindexFullTransactionByTxID(fes.TXIndex.TXIndexChain.DB(), fes.blockchain.DB(), txID)
 
 		if txn == nil {
 			// Try to look the transaction up in the mempool before giving up.
@@ -965,17 +966,17 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	}
 	res.Transactions = []*TransactionResponse{}
 
-	validForPrefix := lib.DbTxindexPublicKeyPrefix(publicKeyBytes)
+	validForPrefix := db.DbTxindexPublicKeyPrefix(publicKeyBytes)
 	// If FetchStartIndex is specified then the startPrefix is the public key with FetchStartIndex appended.
 	// Otherwise, we leave off the index so that the seek will start from the end of the transaction list.
-	startPrefix := lib.DbTxindexPublicKeyPrefix(publicKeyBytes)
+	startPrefix := db.DbTxindexPublicKeyPrefix(publicKeyBytes)
 	if transactionInfoRequest.LastPublicKeyTransactionIndex > 0 {
-		startPrefix = lib.DbTxindexPublicKeyIndexToTxnKey(publicKeyBytes, uint32(transactionInfoRequest.LastPublicKeyTransactionIndex))
+		startPrefix = db.DbTxindexPublicKeyIndexToTxnKey(publicKeyBytes, uint32(transactionInfoRequest.LastPublicKeyTransactionIndex))
 	}
 	// The maximum key length is the length of the DB key constructed from the public key plus the size of the uint64 appended to it.
-	maxKeyLen := len(lib.DbTxindexPublicKeyIndexToTxnKey(publicKeyBytes, uint32(0)))
+	maxKeyLen := len(db.DbTxindexPublicKeyIndexToTxnKey(publicKeyBytes, uint32(0)))
 
-	keysFound, valsFound, err := lib.DBGetPaginatedKeysAndValuesForPrefix(
+	keysFound, valsFound, err := db.DBGetPaginatedKeysAndValuesForPrefix(
 		fes.TXIndex.TXIndexChain.DB(), startPrefix, validForPrefix,
 		maxKeyLen, int(limit), true, true)
 	if err != nil {
@@ -994,11 +995,11 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 
 		if transactionInfoRequest.IDsOnly {
 			res.Transactions = append(res.Transactions, &TransactionResponse{
-				TransactionIDBase58Check: lib.PkToString(txIDBytes[:], fes.Params),
+				TransactionIDBase58Check: db.PkToString(txIDBytes[:], fes.Params),
 			})
 		} else {
 			// In this case we need to look up the full transaction and convert it into a proper transaction response.
-			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txID)
+			txnMeta := db.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txID)
 			blockHashBytes, err := hex.DecodeString(txnMeta.BlockHashHex)
 			if err != nil {
 				APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error parsing block: %v %v", txnMeta.BlockHashHex, err))
@@ -1010,7 +1011,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			copy(blockHash[:], blockHashBytes)
 			block := blockMap[blockHash]
 			if block == nil {
-				block, err = lib.GetBlock(blockHash, fes.blockchain.DB())
+				block, err = db.GetBlock(blockHash, fes.blockchain.DB())
 				if block == nil || err != nil {
 					fmt.Errorf("DbGetTxindexFullTransactionByTxID: Block corresponding to txn not found")
 					return
@@ -1027,8 +1028,8 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 
 	lastKey := keysFound[len(keysFound)-1]
 	// The index comes after the <_Prefix, PublicKey> bytes.
-	lastKeyIndexBytes := lastKey[len(lib.DbTxindexPublicKeyPrefix(publicKeyBytes)):]
-	res.LastPublicKeyTransactionIndex = int64(lib.DecodeUint32(lastKeyIndexBytes))
+	lastKeyIndexBytes := lastKey[len(db.DbTxindexPublicKeyPrefix(publicKeyBytes)):]
+	res.LastPublicKeyTransactionIndex = int64(db.DecodeUint32(lastKeyIndexBytes))
 
 	// Start with the mempool
 	poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
@@ -1060,7 +1061,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 
 			// Finally, add the transaction to our list if it's relevant
 			if transactionInfoRequest.IDsOnly {
-				txRes := &TransactionResponse{TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params)}
+				txRes := &TransactionResponse{TransactionIDBase58Check: db.PkToString(poolTx.Tx.Hash()[:], fes.Params)}
 				res.Transactions = append(res.Transactions, txRes)
 			} else {
 				res.Transactions = append(res.Transactions, APITransactionToResponse(poolTx.Tx, txnMeta, fes.Params))
@@ -1217,7 +1218,7 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 	}
 
 	// Take the hash computed from above and find the corresponding block.
-	blockMsg, err := lib.GetBlock(blockHash, fes.blockchain.DB())
+	blockMsg, err := db.GetBlock(blockHash, fes.blockchain.DB())
 	if err != nil {
 		APIAddError(ww, fmt.Sprintf("APIBlockRequest: Problem fetching block: %v", err))
 		return
@@ -1233,7 +1234,7 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 	if blockRequest.FullBlock {
 		for _, txn := range blockMsg.Txns {
 			// Look up the metadata for each transaction.
-			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txn.Hash())
+			txnMeta := db.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txn.Hash())
 
 			res.Transactions = append(
 				res.Transactions, APITransactionToResponse(
@@ -1400,7 +1401,7 @@ func IsRestrictedPubKey(userGraylistState []byte, userBlacklistState []byte, mod
 // while value are empty structs to keep memory usage down.
 func (fes *APIServer) GetBlockedPubKeysForUser(userPubKey []byte) (_blockedPubKeyMap map[string]struct{}, _err error) {
 	/* Get public keys of users the reader has blocked */
-	userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPubKey, fes.Params))
+	userMetadata, err := fes.getUserMetadataFromGlobalState(db.PkToString(userPubKey, fes.Params))
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf("GetBlockedPubKeysForUser: Problem with getUserMetadataFromGlobalState: %v", err), "")
 	}
@@ -1430,7 +1431,7 @@ func (fes *APIServer) GetProfilesByCoinValue(
 
 	var startProfile *view.ProfileEntry
 	if startProfilePubKey != nil {
-		startProfile = lib.DBGetProfileEntryForPKID(bav.Handle, lib.DBGetPKIDEntryForPublicKey(bav.Handle, startProfilePubKey).PKID)
+		startProfile = db.DBGetProfileEntryForPKID(bav.Handle, db.DBGetPKIDEntryForPublicKey(bav.Handle, startProfilePubKey).PKID)
 	}
 
 	var startDeSoLockedNanos uint64
@@ -1447,7 +1448,7 @@ func (fes *APIServer) GetProfilesByCoinValue(
 	for len(validProfilePubKeys) > prevCount && len(validProfilePubKeys) < numToFetch {
 		prevCount = len(validProfilePubKeys)
 		// Fetch some profile pub keys from the db.
-		dbProfilePubKeys, _, err := lib.DBGetPaginatedProfilesByDeSoLocked(
+		dbProfilePubKeys, _, err := db.DBGetPaginatedProfilesByDeSoLocked(
 			bav.Handle, startDeSoLockedNanos, nextStartKey, numToFetch, false /*fetchEntries*/)
 		if err != nil {
 			return nil, nil, nil, errors.Wrapf(err, "GetAllProfiles: Problem fetching ProfilePubKeys from db: ")
@@ -1501,7 +1502,7 @@ func (fes *APIServer) GetProfilesByCoinValue(
 			}
 
 			// Load all the posts
-			_, dbPostAndCommentHashes, _, err := lib.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
+			_, dbPostAndCommentHashes, _, err := db.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
 				bav.Handle, profileEntry.PublicKey, false /*fetchEntries*/, 0 /*minTimestamp*/, 0, /*maxTimestamp*/
 			)
 			if err != nil {
@@ -1581,7 +1582,7 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *view.UtxoView, star
 		if len(pubKeyForPKID) == 0 {
 			glog.Errorf("GetPostsForFollowFeedForPublicKey found PKID %v that "+
 				"does not have public key mapping; this should never happen",
-				lib.PkToString(followEntry.FollowedPKID[:], bav.Params))
+				db.PkToString(followEntry.FollowedPKID[:], bav.Params))
 			continue
 		}
 		followedPubKeysMap[view.MakePkMapKey(pubKeyForPKID)] = pubKeyForPKID
@@ -1597,7 +1598,7 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *view.UtxoView, star
 	// For each of these pub keys, get their posts, and load them into the view too
 	for _, followedPubKey := range filteredPubKeysMap {
 
-		_, dbPostAndCommentHashes, _, err := lib.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
+		_, dbPostAndCommentHashes, _, err := db.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
 			bav.Handle, followedPubKey, false /*fetchEntries*/, minTimestampNanos, 0, /*maxTimestampNanos*/
 		)
 		if err != nil {
@@ -1675,7 +1676,7 @@ func (fes *APIServer) GetPostsByTime(bav *view.UtxoView, startPostHash *core.Blo
 	skipFirstPost := false
 	for len(allCorePosts) < numToFetch {
 		// Start by fetching the posts we have in the db.
-		dbPostHashes, _, _, err := lib.DBGetPaginatedPostsOrderedByTime(
+		dbPostHashes, _, _, err := db.DBGetPaginatedPostsOrderedByTime(
 			bav.Handle, startTstampNanos, startPostHash, numToFetch, false /*fetchEntries*/, true)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "GetAllProfiles: Problem fetching ProfileEntrys from db: ")

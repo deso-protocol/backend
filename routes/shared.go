@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/db"
 	"net/http"
 	"time"
 
@@ -357,7 +358,7 @@ func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, 
 	var hash *core.BlockHash
 	hash, err = sendDeSo()
 	if err != nil {
-		publicKeyBase58Check := lib.PkToString(recipientPkBytes, fes.Params)
+		publicKeyBase58Check := db.PkToString(recipientPkBytes, fes.Params)
 		glog.Errorf("SendSeedDeSo: 1st attempt - error sending %d nanos of DESO to public key %v: error - %v", amountNanos, publicKeyBase58Check, err)
 		time.Sleep(5 * time.Second)
 		hash, err = sendDeSo()

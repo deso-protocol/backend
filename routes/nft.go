@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/view"
 	"io"
 	"net/http"
@@ -1246,7 +1247,7 @@ func (fes *APIServer) _nftEntryToResponse(nftEntry *view.NFTEntry, postEntryResp
 		publicKeyBase58Check = profileEntryResponse.PublicKeyBase58Check
 	} else {
 		publicKey := utxoView.GetPublicKeyForPKID(nftEntry.OwnerPKID)
-		publicKeyBase58Check = lib.PkToString(publicKey, fes.Params)
+		publicKeyBase58Check = db.PkToString(publicKey, fes.Params)
 	}
 
 	// We only care about these values in the case where the reader is the current owner.
@@ -1260,7 +1261,7 @@ func (fes *APIServer) _nftEntryToResponse(nftEntry *view.NFTEntry, postEntryResp
 		}
 		if nftEntry.LastOwnerPKID != nil && (hasUnlockableText || nftEntry.IsPending) {
 			publicKey := utxoView.GetPublicKeyForPKID(nftEntry.LastOwnerPKID)
-			lastOwnerPublicKeyBase58CheckVal := lib.PkToString(publicKey, fes.Params)
+			lastOwnerPublicKeyBase58CheckVal := db.PkToString(publicKey, fes.Params)
 			lastOwnerPublicKeyBase58Check = &lastOwnerPublicKeyBase58CheckVal
 		}
 	}
@@ -1340,7 +1341,7 @@ func (fes *APIServer) _bidEntryToResponse(bidEntry *view.NFTBidEntry, postEntryR
 		publicKeyBase58Check = profileEntryResponse.PublicKeyBase58Check
 	} else {
 		publicKey = utxoView.GetPublicKeyForPKID(bidEntry.BidderPKID)
-		publicKeyBase58Check = lib.PkToString(publicKey, fes.Params)
+		publicKeyBase58Check = db.PkToString(publicKey, fes.Params)
 	}
 	var postHashHex *string
 	if bidEntry.NFTPostHash != nil {

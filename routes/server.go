@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	fmt "fmt"
 	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/view"
 	"io"
 	"io/ioutil"
@@ -2029,7 +2030,7 @@ func (fes *APIServer) SetGlobalFeedPostHashes() {
 func (fes *APIServer) makePKIDMapJSONEncodable(restrictedKeysMap map[core.PKID][]byte) map[string][]byte {
 	outputMap := make(map[string][]byte)
 	for k, v := range restrictedKeysMap {
-		outputMap[lib.PkToString(k.ToBytes(), fes.Params)] = v
+		outputMap[db.PkToString(k.ToBytes(), fes.Params)] = v
 	}
 	return outputMap
 }

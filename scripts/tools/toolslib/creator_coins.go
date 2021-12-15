@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io/ioutil"
@@ -18,8 +19,8 @@ func _generateUnsignedCreatorCoinBuy(buyerPubKey *btcec.PublicKey, creatorPubKey
 
 	// Setup request
 	payload := &routes.BuyOrSellCreatorCoinRequest{
-		UpdaterPublicKeyBase58Check: lib.PkToString(buyerPubKey.SerializeCompressed(), params),
-		CreatorPublicKeyBase58Check: lib.PkToString(creatorPubKey.SerializeCompressed(), params),
+		UpdaterPublicKeyBase58Check: db.PkToString(buyerPubKey.SerializeCompressed(), params),
+		CreatorPublicKeyBase58Check: db.PkToString(creatorPubKey.SerializeCompressed(), params),
 		OperationType:               "buy",
 		DeSoToSellNanos:             amountNanos,
 		CreatorCoinToSellNanos:      0,

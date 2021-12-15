@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/lib"
 	"github.com/deso-protocol/core/view"
 	"github.com/pkg/errors"
@@ -113,7 +114,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 
 			if _, alreadySeen := publicKeyToNumberOfFollowers[otherPartyPublicKeyBase58Check]; !alreadySeen {
 				// TODO: Make an index to quickly lookup how many followers a user has
-				otherPartyFollowers, err := lib.DbGetPKIDsFollowingYou(utxoView.Handle, core.PublicKeyToPKID(otherPartyPublicKeyBytes))
+				otherPartyFollowers, err := db.DbGetPKIDsFollowingYou(utxoView.Handle, core.PublicKeyToPKID(otherPartyPublicKeyBytes))
 				if err != nil {
 					return nil, nil, nil, 0, errors.Wrapf(
 						err, "getMessagesStateless: Problem getting follows for public key")
@@ -132,7 +133,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			otherPartyPublicKeyBytes, otherPartyPublicKeyBase58Check := fes.getOtherPartyInThread(messageEntry, publicKeyBytes)
 
 			if _, alreadySeen := publicKeyToNanosUserHeld[otherPartyPublicKeyBase58Check]; !alreadySeen {
-				otherPartyBalanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(otherPartyPublicKeyBytes, publicKeyBytes, utxoView)
+				otherPartyBalanceEntry, err := db.GetSingleBalanceEntryFromPublicKeys(otherPartyPublicKeyBytes, publicKeyBytes, utxoView)
 				if err != nil {
 					return nil, nil, nil, 0, errors.Wrapf(
 						err, "getMessagesStateless: Problem getting balance entry for public key")
@@ -210,7 +211,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			if holdersOnly {
 				holdsUser, balanceChecked := publicKeyHoldsUser[otherPartyPublicKeyBase58Check]
 				if !balanceChecked {
-					balanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(otherPartyPublicKeyBytes, publicKeyBytes, utxoView)
+					balanceEntry, err := db.GetSingleBalanceEntryFromPublicKeys(otherPartyPublicKeyBytes, publicKeyBytes, utxoView)
 					if err != nil {
 						return nil, nil, nil, 0, errors.Wrapf(
 							err, "getMessagesStateless: Problem getting balance entry for holder public key %v", otherPartyPublicKeyBase58Check)
@@ -227,7 +228,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			if !publicKeyWithinFilters && holdingsOnly {
 				holdsPublicKey, balanceChecked := userHoldsPublicKey[otherPartyPublicKeyBase58Check]
 				if !balanceChecked {
-					balanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(publicKeyBytes, otherPartyPublicKeyBytes, utxoView)
+					balanceEntry, err := db.GetSingleBalanceEntryFromPublicKeys(publicKeyBytes, otherPartyPublicKeyBytes, utxoView)
 					if err != nil {
 						return nil, nil, nil, 0, errors.Wrapf(
 							err, "getMessagesStateless: Problem getting balance entry for holder public key %v", otherPartyPublicKeyBase58Check)
@@ -244,7 +245,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			if !publicKeyWithinFilters && followersOnly {
 				followsUser, followChecked := publicKeyFollowsUser[otherPartyPublicKeyBase58Check]
 				if !followChecked {
-					followEntry := lib.DbGetFollowerToFollowedMapping(utxoView.Handle,
+					followEntry := db.DbGetFollowerToFollowedMapping(utxoView.Handle,
 						core.PublicKeyToPKID(otherPartyPublicKeyBytes),
 						core.PublicKeyToPKID(publicKeyBytes))
 					followsUser = followEntry != nil
@@ -259,7 +260,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			if !publicKeyWithinFilters && followingOnly {
 				followsPublicKey, followChecked := userFollowsPublicKey[otherPartyPublicKeyBase58Check]
 				if !followChecked {
-					followEntry := lib.DbGetFollowerToFollowedMapping(utxoView.Handle,
+					followEntry := db.DbGetFollowerToFollowedMapping(utxoView.Handle,
 						core.PublicKeyToPKID(publicKeyBytes),
 						core.PublicKeyToPKID(otherPartyPublicKeyBytes))
 					followsPublicKey = followEntry != nil
@@ -317,14 +318,14 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 
 		// By now we know this messageEntry is meant to be included in the response.
 		messageEntryRes := &MessageEntryResponse{
-			SenderPublicKeyBase58Check:    lib.PkToString(messageEntry.SenderPublicKey, fes.Params),
-			RecipientPublicKeyBase58Check: lib.PkToString(messageEntry.RecipientPublicKey, fes.Params),
+			SenderPublicKeyBase58Check:    db.PkToString(messageEntry.SenderPublicKey, fes.Params),
+			RecipientPublicKeyBase58Check: db.PkToString(messageEntry.RecipientPublicKey, fes.Params),
 			EncryptedText:                 hex.EncodeToString(messageEntry.EncryptedText),
 			TstampNanos:                   messageEntry.TstampNanos,
 			IsSender:                      !reflect.DeepEqual(messageEntry.RecipientPublicKey, publicKeyBytes),
 			V2:                            V2,
 		}
-		contactEntry, _ := contactMap[lib.PkToString(otherPartyPublicKeyBytes, fes.Params)]
+		contactEntry, _ := contactMap[db.PkToString(otherPartyPublicKeyBytes, fes.Params)]
 		contactEntry.Messages = append(contactEntry.Messages, messageEntryRes)
 	}
 
@@ -401,7 +402,7 @@ func (fes *APIServer) getOtherPartyInThread(messageEntry *view.MessageEntry,
 	} else {
 		otherPartyPublicKeyBytes = messageEntry.RecipientPublicKey
 	}
-	otherPartyPublicKeyBase58Check = lib.PkToString(otherPartyPublicKeyBytes, fes.Params)
+	otherPartyPublicKeyBase58Check = db.PkToString(otherPartyPublicKeyBytes, fes.Params)
 	return
 }
 

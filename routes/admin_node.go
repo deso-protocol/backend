@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/db"
 	"io"
 	"math"
 	"net"
@@ -194,7 +195,7 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 	// Encode the miner public keys as strings.
 	minerPublicKeyStrs := []string{}
 	for _, publicKey := range fes.backendServer.GetMiner().PublicKeys {
-		minerPublicKeyStrs = append(minerPublicKeyStrs, lib.PkToString(
+		minerPublicKeyStrs = append(minerPublicKeyStrs, db.PkToString(
 			publicKey.SerializeCompressed(), fes.Params))
 	}
 

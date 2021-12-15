@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/routes"
 	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io/ioutil"
@@ -20,7 +21,7 @@ func _generateUnsignedSendDiamonds(senderPubKey *btcec.PublicKey, postHashHex st
 
 	// Setup request
 	payload := &routes.SendDiamondsRequest{}
-	payload.SenderPublicKeyBase58Check = lib.PkToString(senderPubKey.SerializeCompressed(), params)
+	payload.SenderPublicKeyBase58Check = db.PkToString(senderPubKey.SerializeCompressed(), params)
 	payload.ReceiverPublicKeyBase58Check = receiverPublicKeyBase58Check
 	payload.DiamondPostHashHex = postHashHex
 	payload.DiamondLevel = diamondLevel

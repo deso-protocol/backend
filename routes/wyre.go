@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/lib"
 	"github.com/deso-protocol/core/view"
 	"github.com/fatih/structs"
@@ -678,7 +679,7 @@ func (fes *APIServer) WyreWalletOrderMetadataToResponse(metadata *WyreWalletOrde
 	}
 	basicTransferTxnHash := metadata.BasicTransferTxnBlockHash
 	if basicTransferTxnHash != nil {
-		orderMetadataResponse.BasicTransferTxnHash = lib.PkToString(basicTransferTxnHash[:], fes.Params)
+		orderMetadataResponse.BasicTransferTxnHash = db.PkToString(basicTransferTxnHash[:], fes.Params)
 	}
 	return &orderMetadataResponse
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/lib"
 	"github.com/deso-protocol/core/view"
 	"github.com/golang/glog"
@@ -232,7 +233,7 @@ func (fes *APIServer) TxnFeeMapToResponse(skipProfileEntryResponses bool) map[st
 			}
 			// Append the transaction fee to the slice of txnOutputs
 			txnOutputs = append(txnOutputs, TransactionFee{
-				PublicKeyBase58Check: lib.PkToString(output.PublicKey, fes.Params),
+				PublicKeyBase58Check: db.PkToString(output.PublicKey, fes.Params),
 				AmountNanos:          output.AmountNanos,
 				ProfileEntryResponse: profileEntryResponse,
 			})
@@ -315,14 +316,14 @@ func (fes *APIServer) AdminAddExemptPublicKey(ww http.ResponseWriter, req *http.
 			_AddBadRequestError(ww, fmt.Sprintf("AdminAddExemptPublicKey: Error deleting key from global state: %v", err))
 			return
 		}
-		delete(fes.ExemptPublicKeyMap, lib.PkToString(publicKeyBytes, fes.Params))
+		delete(fes.ExemptPublicKeyMap, db.PkToString(publicKeyBytes, fes.Params))
 	} else {
 		// Add the key to global state
 		if err = fes.GlobalState.Put(dbKey, []byte{1}); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminAddExemptPublicKey: Error adding key to global state: %v", err))
 			return
 		}
-		fes.ExemptPublicKeyMap[lib.PkToString(publicKeyBytes, fes.Params)] = []byte{}
+		fes.ExemptPublicKeyMap[db.PkToString(publicKeyBytes, fes.Params)] = []byte{}
 	}
 }
 
@@ -383,7 +384,7 @@ func (fes *APIServer) GetExemptPublicKeyMapFromGlobalState() map[string]interfac
 		// Chop the publicKeyBytes out of the db key.
 		// The dbKeyBytes are: [One Prefix Byte][btcec.PubKeyBytesLenCompressed]
 		publicKeyBytes := key[1:]
-		exemptPublicKeyMap[lib.PkToString(publicKeyBytes, fes.Params)] = []byte{}
+		exemptPublicKeyMap[db.PkToString(publicKeyBytes, fes.Params)] = []byte{}
 	}
 
 	return exemptPublicKeyMap

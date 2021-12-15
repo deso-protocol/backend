@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/view"
 	"io"
 	"net/http"
@@ -68,7 +69,7 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 
 	paramUpdaters := make(map[string]bool)
 	for kk := range fes.Params.ParamUpdaterPublicKeys {
-		paramUpdaters[lib.PkToString(kk[:], fes.Params)] = true
+		paramUpdaters[db.PkToString(kk[:], fes.Params)] = true
 	}
 
 	// Update all user information before returning.
@@ -292,12 +293,12 @@ func (fes *APIServer) GetYouHodlMap(pkid *view.PKIDEntry, fetchProfiles bool, ut
 				profileEntry = utxoView.GetProfileEntryForPKID(balanceEntry.CreatorPKID)
 			}
 
-			if _, ok := youHodlMap[lib.PkToString(balanceEntry.CreatorPKID[:], fes.Params)]; ok {
+			if _, ok := youHodlMap[db.PkToString(balanceEntry.CreatorPKID[:], fes.Params)]; ok {
 				// If we made it here, we found both a mempool and a db balanceEntry.
 				// We update the dbBalanceEntry so it can be used in order to get net mempool data.
-				dbBalanceEntryResponse = youHodlMap[lib.PkToString(balanceEntry.CreatorPKID[:], fes.Params)]
+				dbBalanceEntryResponse = youHodlMap[db.PkToString(balanceEntry.CreatorPKID[:], fes.Params)]
 			}
-			youHodlMap[lib.PkToString(balanceEntry.CreatorPKID[:], fes.Params)] = fes._balanceEntryToResponse(
+			youHodlMap[db.PkToString(balanceEntry.CreatorPKID[:], fes.Params)] = fes._balanceEntryToResponse(
 				balanceEntry, dbBalanceEntryResponse.BalanceNanos, profileEntry, utxoView)
 		}
 	}
@@ -313,10 +314,10 @@ func (fes *APIServer) getMapFromEntries(entries []*view.BalanceEntry, profiles [
 			currentProfile = profiles[ii]
 		}
 		if useCreatorPKIDAsKey {
-			mapYouHodl[lib.PkToString(entry.CreatorPKID[:], fes.Params)] =
+			mapYouHodl[db.PkToString(entry.CreatorPKID[:], fes.Params)] =
 				fes._balanceEntryToResponse(entry, entry.BalanceNanos /*dbBalanceNanos*/, currentProfile, utxoView)
 		} else {
-			mapYouHodl[lib.PkToString(entry.HODLerPKID[:], fes.Params)] =
+			mapYouHodl[db.PkToString(entry.HODLerPKID[:], fes.Params)] =
 				fes._balanceEntryToResponse(entry, entry.BalanceNanos /*dbBalanceNanos*/, currentProfile, utxoView)
 		}
 	}
@@ -335,8 +336,8 @@ func (fes *APIServer) _balanceEntryToResponse(
 	creatorPk := utxoView.GetPublicKeyForPKID(balanceEntry.CreatorPKID)
 
 	return &BalanceEntryResponse{
-		HODLerPublicKeyBase58Check:  lib.PkToString(hodlerPk, fes.Params),
-		CreatorPublicKeyBase58Check: lib.PkToString(creatorPk, fes.Params),
+		HODLerPublicKeyBase58Check:  db.PkToString(hodlerPk, fes.Params),
+		CreatorPublicKeyBase58Check: db.PkToString(creatorPk, fes.Params),
 		HasPurchased:                balanceEntry.HasPurchased,
 		BalanceNanos:                balanceEntry.BalanceNanos,
 		NetBalanceInMempool:         int64(balanceEntry.BalanceNanos) - int64(dbBalanceNanos),
@@ -405,12 +406,12 @@ func (fes *APIServer) GetHodlYouMap(pkid *view.PKIDEntry, fetchProfiles bool, ut
 				profileEntry = utxoView.GetProfileEntryForPKID(balanceEntry.HODLerPKID)
 			}
 
-			if _, ok := hodlYouMap[lib.PkToString(balanceEntry.HODLerPKID[:], fes.Params)]; ok {
+			if _, ok := hodlYouMap[db.PkToString(balanceEntry.HODLerPKID[:], fes.Params)]; ok {
 				// If we made it here, we found both a mempool and a db balanceEntry.
 				// We update the dbBalanceEntry so it can be used in order to get net mempool data.
-				dbBalanceEntryResponse = hodlYouMap[lib.PkToString(balanceEntry.HODLerPKID[:], fes.Params)]
+				dbBalanceEntryResponse = hodlYouMap[db.PkToString(balanceEntry.HODLerPKID[:], fes.Params)]
 			}
-			hodlYouMap[lib.PkToString(balanceEntry.HODLerPKID[:], fes.Params)] = fes._balanceEntryToResponse(
+			hodlYouMap[db.PkToString(balanceEntry.HODLerPKID[:], fes.Params)] = fes._balanceEntryToResponse(
 				balanceEntry, dbBalanceEntryResponse.BalanceNanos, profileEntry, utxoView)
 		}
 	}
@@ -929,7 +930,7 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *view.ProfileEntry, u
 
 	// Generate profile entry response
 	profResponse := &ProfileEntryResponse{
-		PublicKeyBase58Check: lib.PkToString(profileEntry.PublicKey, fes.Params),
+		PublicKeyBase58Check: db.PkToString(profileEntry.PublicKey, fes.Params),
 		Username:             string(profileEntry.Username),
 		Description:          string(profileEntry.Description),
 		CoinEntry: &CoinEntryResponse{
@@ -1347,8 +1348,8 @@ func (fes *APIServer) GetDiamondsForPublicKey(ww http.ResponseWriter, req *http.
 			senderPubKey = pubKey
 		}
 		diamondSenderSummary := &DiamondSenderSummaryResponse{
-			SenderPublicKeyBase58Check:   lib.PkToString(senderPubKey, fes.Params),
-			ReceiverPublicKeyBase58Check: lib.PkToString(receiverPubKey, fes.Params),
+			SenderPublicKeyBase58Check:   db.PkToString(senderPubKey, fes.Params),
+			ReceiverPublicKeyBase58Check: db.PkToString(receiverPubKey, fes.Params),
 			DiamondLevelMap:              make(map[uint64]uint64),
 		}
 		for _, diamondEntry := range diamondEntryList {
@@ -1457,7 +1458,7 @@ func (fes *APIServer) sortFollowEntries(followEntryPKIDii *core.PKID, followEntr
 	}
 	// If we're not fetching values (meaning no profiles for public keys) or neither FollowEntry has a profile,
 	// sort based on public key as a string.
-	return lib.PkToString(followEntryPublicKeyii, fes.Params) < lib.PkToString(followEntryPublicKeyjj, fes.Params)
+	return db.PkToString(followEntryPublicKeyii, fes.Params) < db.PkToString(followEntryPublicKeyjj, fes.Params)
 }
 
 // Returns a map like {publicKey1: profileEntry1, publicKey2: profileEntry2, ...} for publicKeyBytes's
@@ -1546,7 +1547,7 @@ func (fes *APIServer) getPublicKeyToProfileEntryMapForFollows(publicKeyBytes []b
 			followProfileEntry = fes._profileEntryToResponse(
 				utxoView.GetProfileEntryForPublicKey(followPubKey), utxoView)
 		}
-		followPubKeyBase58Check := lib.PkToString(followPubKey, fes.Params)
+		followPubKeyBase58Check := db.PkToString(followPubKey, fes.Params)
 		publicKeyToProfileEntry[followPubKeyBase58Check] = followProfileEntry
 
 		// If we've fetched enough followers and we're not fetching all followers, break.
@@ -1671,7 +1672,7 @@ func (fes *APIServer) GetUserGlobalMetadata(ww http.ResponseWriter, req *http.Re
 	}
 
 	// Now that we have a public key, update get the global state object.
-	userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
+	userMetadata, err := fes.getUserMetadataFromGlobalState(db.PkToString(userPublicKeyBytes, fes.Params))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetUserGlobalMetadata: Problem getting metadata from global state: %v", err))
@@ -1741,7 +1742,7 @@ func (fes *APIServer) UpdateUserGlobalMetadata(ww http.ResponseWriter, req *http
 	}
 
 	// Now that we have a public key, update the global state object.
-	userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
+	userMetadata, err := fes.getUserMetadataFromGlobalState(db.PkToString(userPublicKeyBytes, fes.Params))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem with getUserMetadataFromGlobalState: %v", err))
 		return
@@ -1918,7 +1919,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		// so the profile information could be out of date.
 		profileEntry := utxoView.GetProfileEntryForPublicKey(currentPkBytes)
 		if profileEntry != nil {
-			profileEntryResponses[lib.PkToString(profileEntry.PublicKey, fes.Params)] =
+			profileEntryResponses[db.PkToString(profileEntry.PublicKey, fes.Params)] =
 				fes._profileEntryToResponse(profileEntry, utxoView)
 		}
 		return nil
@@ -1963,7 +1964,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 			return
 		}
 
-		postEntryResponse.ProfileEntryResponse = profileEntryResponses[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]
+		postEntryResponse.ProfileEntryResponse = profileEntryResponses[db.PkToString(postEntry.PosterPublicKey, fes.Params)]
 		// Filter out responses if profile entry is missing and is required
 		if postEntryResponse.ProfileEntryResponse == nil && profileEntryRequired {
 			return
@@ -2004,7 +2005,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 				txnMeta.TxnOutputResponses = append(
 					txnMeta.TxnOutputResponses,
 					&OutputResponse{
-						PublicKeyBase58Check: lib.PkToString(output.PublicKey, fes.Params),
+						PublicKeyBase58Check: db.PkToString(output.PublicKey, fes.Params),
 						AmountNanos:          output.AmountNanos,
 					})
 			}
@@ -2081,7 +2082,7 @@ func (fes *APIServer) SetNotificationMetadata(ww http.ResponseWriter, req *http.
 	// else fetches this user's data and writes at the same time we could
 	// overwrite each other. there's a task in jira to investigate concurrency
 	// issues with global state.
-	userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
+	userMetadata, err := fes.getUserMetadataFromGlobalState(db.PkToString(userPublicKeyBytes, fes.Params))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"SetNotificationMetadata: Problem getting metadata from global state: %v", err))
@@ -2118,17 +2119,17 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 	// Iterate over the database to find as many keys as we can.
 	//
 	// Start by constructing the validForPrefix. It's just the public key.
-	validForPrefix := lib.DbTxindexPublicKeyPrefix(pkBytes)
+	validForPrefix := db.DbTxindexPublicKeyPrefix(pkBytes)
 	// If FetchStartIndex is specified then the startPrefix is the public key
 	// with FetchStartIndex appended. Otherwise, we leave off the index so that
 	// the seek will start from the end of the transaction list.
-	startPrefix := lib.DbTxindexPublicKeyPrefix(pkBytes)
+	startPrefix := db.DbTxindexPublicKeyPrefix(pkBytes)
 	if request.FetchStartIndex >= 0 {
-		startPrefix = lib.DbTxindexPublicKeyIndexToTxnKey(pkBytes, uint32(request.FetchStartIndex))
+		startPrefix = db.DbTxindexPublicKeyIndexToTxnKey(pkBytes, uint32(request.FetchStartIndex))
 	}
 	// The maximum key length is the length of the key with the public key
 	// plus the size of the uint64 appended to it.
-	maxKeyLen := len(lib.DbTxindexPublicKeyIndexToTxnKey(pkBytes, uint32(0)))
+	maxKeyLen := len(db.DbTxindexPublicKeyIndexToTxnKey(pkBytes, uint32(0)))
 
 	// txnMetadataFound will contain TransactionMetadata objects, with the newest txns
 	// showing up at the beginning of the list.
@@ -2136,7 +2137,7 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 	// Note that we are always guaranteed to hit one of the stopping conditions defined at
 	// the end of this loop.
 	for {
-		keysFound, valsFound, err := lib.DBGetPaginatedKeysAndValuesForPrefix(
+		keysFound, valsFound, err := db.DBGetPaginatedKeysAndValuesForPrefix(
 			fes.TXIndex.TXIndexChain.DB(), startPrefix, validForPrefix,
 			maxKeyLen, int(request.NumToFetch), iterateReverse, /*reverse*/
 			true /*fetchValues*/)
@@ -2151,7 +2152,7 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 
 			// In this case we need to look up the full transaction and convert
 			// it into a proper transaction response.
-			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txID)
+			txnMeta := db.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txID)
 			if txnMeta == nil {
 				// We should never be missing a transaction for a given txid, but
 				// just continue in this case.
@@ -2168,13 +2169,13 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 				continue
 			}
 			// Skip transactions from blocked users.
-			if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
+			if _, ok := blockedPubKeys[db.PkToString(transactorPkBytes, fes.Params)]; ok {
 				continue
 			}
-			currentIndexBytes := keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]
+			currentIndexBytes := keysFound[ii][len(db.DbTxindexPublicKeyPrefix(pkBytes)):]
 			res := &TransactionMetadataResponse{
 				Metadata: txnMeta,
-				Index:    int64(lib.DecodeUint32(currentIndexBytes)),
+				Index:    int64(db.DecodeUint32(currentIndexBytes)),
 			}
 			if NotificationTxnShouldBeIncluded(res.Metadata, &filteredOutCategories) {
 				dbTxnMetadataFound = append(dbTxnMetadataFound, res)
@@ -2196,8 +2197,8 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 		// If the index of the last key we found is the zero index then we're done here.
 		lastKey := keysFound[len(keysFound)-1]
 		// The index comes after the <_Prefix, PublicKey> bytes.
-		lastKeyIndexBytes := lastKey[len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]
-		lastKeyIndex := lib.DecodeUint32(lastKeyIndexBytes)
+		lastKeyIndexBytes := lastKey[len(db.DbTxindexPublicKeyPrefix(pkBytes)):]
+		lastKeyIndex := db.DecodeUint32(lastKeyIndexBytes)
 		if lastKeyIndex == 0 {
 			break
 		}
@@ -2211,7 +2212,7 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 		} else {
 			nextPagePrefixIdx = uint32(lastKeyIndex + 1)
 		}
-		startPrefix = lib.DbTxindexPublicKeyIndexToTxnKey(
+		startPrefix = db.DbTxindexPublicKeyIndexToTxnKey(
 			pkBytes, nextPagePrefixIdx)
 	}
 	return dbTxnMetadataFound, nil
@@ -2227,7 +2228,7 @@ func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest,
 	// Get the NextIndex from the db. This will be used to determine whether
 	// or not it's appropriate to fetch txns from the mempool. It will also be
 	// used to assign consistent index values to memppool txns.
-	NextIndexVal := lib.DbGetTxindexNextIndexForPublicKey(fes.TXIndex.TXIndexChain.DB(), pkBytes)
+	NextIndexVal := db.DbGetTxindexNextIndexForPublicKey(fes.TXIndex.TXIndexChain.DB(), pkBytes)
 	if NextIndexVal == nil {
 		return nil, fmt.Errorf("Unable to get next index for public key: %v", request.PublicKeyBase58Check)
 	}
@@ -2279,7 +2280,7 @@ func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest,
 				}
 
 				// Skip transactions from blocked users.
-				if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
+				if _, ok := blockedPubKeys[db.PkToString(transactorPkBytes, fes.Params)]; ok {
 					continue
 				}
 
@@ -2445,7 +2446,7 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 }
 
 // Determine if a transaction should be included in the notifications response based on filters
-func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredOutCategoriesPointer *map[string]bool) bool {
+func NotificationTxnShouldBeIncluded(txnMeta *db.TransactionMetadata, filteredOutCategoriesPointer *map[string]bool) bool {
 	filteredOutCategories := *filteredOutCategoriesPointer
 
 	// If filteredOutCategory map isn't defined in the request, everything should be included
@@ -2476,7 +2477,7 @@ func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredO
 	return false
 }
 
-func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Check string, utxoView *view.UtxoView) bool {
+func TxnMetaIsNotification(txnMeta *db.TransactionMetadata, publicKeyBase58Check string, utxoView *view.UtxoView) bool {
 	// Transactions initiated by the passed-in public key should not
 	// trigger notifications.
 	if txnMeta.TransactorPublicKeyBase58Check == publicKeyBase58Check {
@@ -2549,7 +2550,7 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 	return false
 }
 
-func TxnIsAssociatedWithPublicKey(txnMeta *lib.TransactionMetadata, publicKeyBase58Check string) bool {
+func TxnIsAssociatedWithPublicKey(txnMeta *db.TransactionMetadata, publicKeyBase58Check string) bool {
 	if txnMeta.TransactorPublicKeyBase58Check == publicKeyBase58Check {
 		return true
 	}
@@ -2562,7 +2563,7 @@ func TxnIsAssociatedWithPublicKey(txnMeta *lib.TransactionMetadata, publicKeyBas
 }
 
 type TransactionMetadataResponse struct {
-	Metadata           *lib.TransactionMetadata
+	Metadata           *db.TransactionMetadata
 	TxnOutputResponses []*OutputResponse
 	Txn                *TransactionResponse
 	Index              int64
@@ -2622,7 +2623,7 @@ func (fes *APIServer) BlockPublicKey(ww http.ResponseWriter, req *http.Request) 
 		_AddBadRequestError(ww, fmt.Sprintf("BlockPublicKey: Problem with getUserMetadataFromGlobalState: %v", err))
 		return
 	}
-	blockPublicKeyString := lib.PkToString(blockPublicKeyBytes, fes.Params)
+	blockPublicKeyString := db.PkToString(blockPublicKeyBytes, fes.Params)
 
 	blockedPublicKeys := userMetadata.BlockedPublicKeys
 	if blockedPublicKeys == nil {
@@ -2845,10 +2846,10 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 	// so that we can return public keys in base58Check.
 	derivedKeys := make(map[string]*UserDerivedKey)
 	for _, entry := range derivedKeyMappings {
-		derivedPublicKey := lib.PkToString(entry.DerivedPublicKey[:], fes.Params)
+		derivedPublicKey := db.PkToString(entry.DerivedPublicKey[:], fes.Params)
 		derivedKeys[derivedPublicKey] = &UserDerivedKey{
-			OwnerPublicKeyBase58Check:   lib.PkToString(entry.OwnerPublicKey[:], fes.Params),
-			DerivedPublicKeyBase58Check: lib.PkToString(entry.DerivedPublicKey[:], fes.Params),
+			OwnerPublicKeyBase58Check:   db.PkToString(entry.OwnerPublicKey[:], fes.Params),
+			DerivedPublicKeyBase58Check: db.PkToString(entry.DerivedPublicKey[:], fes.Params),
 			ExpirationBlock:             entry.ExpirationBlock,
 			IsValid:                     entry.OperationType == lib.AuthorizeDerivedKeyOperationValid,
 		}

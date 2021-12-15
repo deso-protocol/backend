@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/view"
 	"io"
 	"math"
@@ -155,7 +156,7 @@ func (fes *APIServer) UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts map[cor
 		// If we've made it to the end of the op list, update the last op processed timestamp.
 		if opIdx == len(opKeys)-1 {
 			opTstampBytes := opKey[timestampStartIdx:postHashStartIdx]
-			opTstampNanos := lib.DecodeUint64(opTstampBytes)
+			opTstampNanos := db.DecodeUint64(opTstampBytes)
 			fes.LastHotFeedApprovedPostOpProcessedTstampNanos = opTstampNanos
 		}
 	}
@@ -225,7 +226,7 @@ func (fes *APIServer) UpdateHotFeedPKIDMultipliersMap(
 		if opIdx == len(opKeys)-1 {
 			// Update the time stamp of the last op processed.
 			opTstampBytes := opKey[timestampStartIdx:pkidStartIdx]
-			opTstampNanos := lib.DecodeUint64(opTstampBytes)
+			opTstampNanos := db.DecodeUint64(opTstampBytes)
 			fes.LastHotFeedPKIDMultiplierOpProcessedTstampNanos = opTstampNanos
 
 			// Record that the multiplier map has updates.
@@ -275,7 +276,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		// Set the default constants in GlobalState and then on the server object.
 		err := fes.GlobalState.Put(
 			_GlobalStatePrefixForHotFeedInteractionCap,
-			lib.EncodeUint64(DefaultHotFeedInteractionCap),
+			db.EncodeUint64(DefaultHotFeedInteractionCap),
 		)
 		if err != nil {
 			glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put InteractionCap: %v", err)
@@ -283,7 +284,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		}
 		err = fes.GlobalState.Put(
 			_GlobalStatePrefixForHotFeedTimeDecayBlocks,
-			lib.EncodeUint64(DefaultHotFeedTimeDecayBlocks),
+			db.EncodeUint64(DefaultHotFeedTimeDecayBlocks),
 		)
 		if err != nil {
 			glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put TimeDecayBlocks: %v", err)
@@ -341,7 +342,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	hotnessInfoMap := make(map[core.BlockHash]*HotnessPostInfo)
 	postInteractionMap := make(map[HotFeedInteractionKey][]byte)
 	for blockIdx, node := range relevantNodes {
-		block, _ := lib.GetBlock(node.Hash, utxoView.Handle)
+		block, _ := db.GetBlock(node.Hash, utxoView.Handle)
 		for _, txn := range block.Txns {
 			// For time decay, we care about how many blocks away from the tip this block is.
 			blockAgee := len(relevantNodes) - blockIdx
@@ -452,7 +453,7 @@ func (fes *APIServer) GetHotFeedConstantsFromGlobalState() (
 	}
 	interactionCap := uint64(0)
 	if len(interactionCapBytes) > 0 {
-		interactionCap = lib.DecodeUint64(interactionCapBytes)
+		interactionCap = db.DecodeUint64(interactionCapBytes)
 	}
 
 	timeDecayBlocksBytes, err := fes.GlobalState.Get(_GlobalStatePrefixForHotFeedTimeDecayBlocks)
@@ -461,7 +462,7 @@ func (fes *APIServer) GetHotFeedConstantsFromGlobalState() (
 	}
 	timeDecayBlocks := uint64(0)
 	if len(timeDecayBlocksBytes) > 0 {
-		timeDecayBlocks = lib.DecodeUint64(timeDecayBlocksBytes)
+		timeDecayBlocks = db.DecodeUint64(timeDecayBlocksBytes)
 	}
 
 	return interactionCap, timeDecayBlocks, nil
@@ -758,7 +759,7 @@ func (fes *APIServer) AdminUpdateHotFeedAlgorithm(ww http.ResponseWriter, req *h
 	if requestData.InteractionCap > 0 {
 		err := fes.GlobalState.Put(
 			_GlobalStatePrefixForHotFeedInteractionCap,
-			lib.EncodeUint64(uint64(requestData.InteractionCap)),
+			db.EncodeUint64(uint64(requestData.InteractionCap)),
 		)
 		if err != nil {
 			_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateHotFeedAlgorithm: Error putting InteractionCap: %v", err))
@@ -769,7 +770,7 @@ func (fes *APIServer) AdminUpdateHotFeedAlgorithm(ww http.ResponseWriter, req *h
 	if requestData.TimeDecayBlocks > 0 {
 		err := fes.GlobalState.Put(
 			_GlobalStatePrefixForHotFeedTimeDecayBlocks,
-			lib.EncodeUint64(uint64(requestData.TimeDecayBlocks)),
+			db.EncodeUint64(uint64(requestData.TimeDecayBlocks)),
 		)
 		if err != nil {
 			_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateHotFeedAlgorithm: Error putting TimeDecayBlocks: %v", err))

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/view"
 	"io"
 	"io/ioutil"
@@ -198,7 +199,7 @@ func (fes *APIServer) validatePhoneNumberNotAlreadyInUse(phoneNumber string, use
 
 	// Validate that the phone number is not already in use by a different account
 	if phoneNumberMetadata.PublicKey != nil {
-		publicKeyBase58Check := lib.PkToString(phoneNumberMetadata.PublicKey, fes.Params)
+		publicKeyBase58Check := db.PkToString(phoneNumberMetadata.PublicKey, fes.Params)
 		if publicKeyBase58Check != userPublicKeyBase58Check {
 			return errors.Wrap(fmt.Errorf("validatePhoneNumberNotAlreadyInUse: Phone number already in use"), "")
 		}
@@ -392,7 +393,7 @@ func (fes *APIServer) ResendVerifyEmail(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
+	userMetadata, err := fes.getUserMetadataFromGlobalState(db.PkToString(userPublicKeyBytes, fes.Params))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("ResendVerifyEmail: Problem with getUserMetadataFromGlobalState: %v", err))
 		return
@@ -426,7 +427,7 @@ func (fes *APIServer) VerifyEmail(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Now that we have a public key, update the global state object.
-	userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
+	userMetadata, err := fes.getUserMetadataFromGlobalState(db.PkToString(userPublicKeyBytes, fes.Params))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("VerifyEmail: Problem with getUserMetadataFromGlobalState: %v", err))
 		return
@@ -898,7 +899,7 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			eventDataMap["amountNanos"] = desoNanos
 			eventDataMap["txnHashHex"] = txnHash.String()
 			eventDataMap["referralCode"] = userMetadata.ReferralHashBase58Check
-			if err = fes.logAmplitudeEvent(lib.PkToString(publicKeyBytes, fes.Params), "referral : payout : referee", eventDataMap); err != nil {
+			if err = fes.logAmplitudeEvent(db.PkToString(publicKeyBytes, fes.Params), "referral : payout : referee", eventDataMap); err != nil {
 				glog.Errorf("JumioVerifiedhandler: Error logging payout to referee in amplitude: %v", err)
 			}
 
@@ -971,10 +972,10 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			eventDataMap["amountNanos"] = referrerDeSoNanos
 			eventDataMap["txnHashHex"] = referrerTxnHash.String()
 			eventDataMap["referralCode"] = userMetadata.ReferralHashBase58Check
-			eventDataMap["refereePublicKey"] = lib.PkToString(publicKeyBytes, fes.Params)
+			eventDataMap["refereePublicKey"] = db.PkToString(publicKeyBytes, fes.Params)
 			eventDataMap["totalReferrals"] = referralInfo.TotalReferrals
 			eventDataMap["totalReferrerPayoutNanos"] = referralInfo.TotalReferrerDeSoNanos
-			if err = fes.logAmplitudeEvent(lib.PkToString(referrerPublicKeyBytes, fes.Params), "referral : payout : referrer", eventDataMap); err != nil {
+			if err = fes.logAmplitudeEvent(db.PkToString(referrerPublicKeyBytes, fes.Params), "referral : payout : referrer", eventDataMap); err != nil {
 				glog.Errorf("JumioVerifiedhandler: Error logging payout to referrer in amplitude: %v", err)
 			}
 			// Set the referrer deso txn hash.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io/ioutil"
@@ -18,8 +19,8 @@ func _generateUnsignedSendDeSo(senderPubKey *btcec.PublicKey, recipientPubKey *b
 
 	// Setup request
 	payload := &routes.SendDeSoRequest{
-		SenderPublicKeyBase58Check:   lib.PkToString(senderPubKey.SerializeCompressed(), params),
-		RecipientPublicKeyOrUsername: lib.PkToString(recipientPubKey.SerializeCompressed(), params),
+		SenderPublicKeyBase58Check:   db.PkToString(senderPubKey.SerializeCompressed(), params),
+		RecipientPublicKeyOrUsername: db.PkToString(recipientPubKey.SerializeCompressed(), params),
 		AmountNanos:                  amountNanos,
 		MinFeeRateNanosPerKB:         1000,
 	}

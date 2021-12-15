@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/lib"
 	"github.com/deso-protocol/core/view"
 	"github.com/pkg/errors"
@@ -106,7 +107,7 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 	}
 
 	// Now that we have a public key, set up the global state UserMetadata object.
-	userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
+	userMetadata, err := fes.getUserMetadataFromGlobalState(db.PkToString(userPublicKeyBytes, fes.Params))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem getting metadata from global state: %v", err))
 		return
@@ -269,7 +270,7 @@ func (fes *APIServer) getUserMetadataUsernameMaps(numToFetch int) (_publicKeyToU
 		// Chop the public key out of the db key.
 		pkBytes := make([]byte, btcec.PubKeyBytesLenCompressed)
 		copy(pkBytes[:], dbKeyBytes[1 : 1+btcec.PubKeyBytesLenCompressed][:])
-		pubKeyString := lib.PkToString(pkBytes, fes.Params)
+		pubKeyString := db.PkToString(pkBytes, fes.Params)
 
 		// Decode the user metadata associated with this key.
 		userMetadata := UserMetadata{}
@@ -346,7 +347,7 @@ func (fes *APIServer) AdminGetUserGlobalMetadata(ww http.ResponseWriter, req *ht
 	}
 
 	// Grab user's metadata from global state
-	userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
+	userMetadata, err := fes.getUserMetadataFromGlobalState(db.PkToString(userPublicKeyBytes, fes.Params))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserGlobalMetadata: Problem obtaining userMetadata from global state: %v", err))
 	}
@@ -859,9 +860,9 @@ func (fes *APIServer) AdminGetUsernameVerificationAuditLogs(ww http.ResponseWrit
 			VerificationUsernameAuditLogResponse{
 				TimestampNanos:               verificationAuditLog.TimestampNanos,
 				VerifierUsername:             verificationAuditLog.VerifierUsername,
-				VerifierPublicKeyBase58Check: lib.PkToString(core.PKIDToPublicKey(verificationAuditLog.VerifierPKID), fes.Params),
+				VerifierPublicKeyBase58Check: db.PkToString(core.PKIDToPublicKey(verificationAuditLog.VerifierPKID), fes.Params),
 				VerifiedUsername:             verificationAuditLog.VerifiedUsername,
-				VerifiedPublicKeyBase58Check: lib.PkToString(core.PKIDToPublicKey(verificationAuditLog.VerifiedPKID), fes.Params),
+				VerifiedPublicKeyBase58Check: db.PkToString(core.PKIDToPublicKey(verificationAuditLog.VerifiedPKID), fes.Params),
 				IsRemoval:                    verificationAuditLog.IsRemoval,
 			})
 	}
@@ -936,7 +937,7 @@ func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Re
 	userPKID := userPKIDEntry.PKID
 	profileEntry := utxoView.GetProfileEntryForPKID(userPKIDEntry.PKID)
 	getPublicKeyFromPKID := func(pkid *core.PKID) string {
-		return lib.PkToString(core.PKIDToPublicKey(pkid), fes.Params)
+		return db.PkToString(core.PKIDToPublicKey(pkid), fes.Params)
 	}
 
 	// Pull the verified map from global state and check if verified.
@@ -1107,5 +1108,5 @@ func (fes *APIServer) HashHexToBase58Check(hashHex string) (base58Check string, 
 	if err != nil {
 		return "", fmt.Errorf("AdminGetUserMetadata: Problem decoding JumioStarterDeSoTxnHashHex: %v", err)
 	}
-	return lib.PkToString(hashBytes, fes.Params), nil
+	return db.PkToString(hashBytes, fes.Params), nil
 }

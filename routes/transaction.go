@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/view"
 	"io"
 	"math/big"
@@ -60,7 +61,7 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 	txnFound := fes.mempool.IsTransactionInPool(txnHash)
 	// Only check DB in testnet for now.
 	if !txnFound && fes.Params.NetworkType == lib.NetworkType_TESTNET {
-		txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), txnHash)
+		txnFound = db.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), txnHash)
 	}
 	res := &GetTxnResponse{
 		TxnFound: txnFound,
@@ -182,7 +183,7 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgDeSoTxn, re
 	if len(postHashToModify) == 0 && !view.IsVanillaRepost(postEntry) {
 		// If this is a new post, let's try and auto-whitelist it now that it has been broadcast.
 		// First we need to figure out if the user is whitelisted.
-		userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(updaterPublicKeyBytes, fes.Params))
+		userMetadata, err := fes.getUserMetadataFromGlobalState(db.PkToString(updaterPublicKeyBytes, fes.Params))
 		if err != nil {
 			return errors.Wrapf(err, "Get error: Problem getting "+
 				"metadata from global state.")
@@ -191,7 +192,7 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgDeSoTxn, re
 		// Only whitelist posts for users that are auto-whitelisted and the post is not a comment or a vanilla repost.
 		if userMetadata.WhitelistPosts && len(postEntry.ParentStakeID) == 0 && (postEntry.IsQuotedRepost || postEntry.RepostedPostHash == nil) {
 			minTimestampNanos := time.Now().UTC().AddDate(0, 0, -1).UnixNano() // last 24 hours
-			_, dbPostAndCommentHashes, _, err := lib.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
+			_, dbPostAndCommentHashes, _, err := db.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
 				fes.blockchain.DB(), updaterPublicKeyBytes, false /*fetchEntries*/, uint64(minTimestampNanos), 0, /*maxTimestampNanos*/
 			)
 			if err != nil {
@@ -1040,7 +1041,7 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 	// If we got here and if broadcast was requested then it means the
 	// transaction passed validation and it's therefore reasonable to
 	// update the user objects to reflect that.
-	txID := lib.PkToString(txnn.Hash()[:], fes.Params)
+	txID := db.PkToString(txnn.Hash()[:], fes.Params)
 
 	txnBytes, err := txnn.ToBytes(true)
 	if err != nil {
@@ -2163,7 +2164,7 @@ func (fes *APIServer) getTransactionFee(txnType lib.TxnType, transactorPublicKey
 		return extraOutputs, nil
 	}
 	// If this node has designated this public key as one exempt from node-level fees, only return the DeSoOutputs requested by the API request body.
-	if _, exists := fes.ExemptPublicKeyMap[lib.PkToString(transactorPublicKey, fes.Params)]; exists {
+	if _, exists := fes.ExemptPublicKeyMap[db.PkToString(transactorPublicKey, fes.Params)]; exists {
 		return extraOutputs, nil
 	}
 	// Append the fees to the extraOutputs and return.

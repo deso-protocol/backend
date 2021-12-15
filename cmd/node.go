@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"github.com/deso-protocol/core/lib"
+	"github.com/deso-protocol/core/db"
 	"path/filepath"
 
 	"github.com/deso-protocol/backend/config"
@@ -33,10 +33,10 @@ func (node *Node) Start() {
 	// For the global state, we use a local db unless a remote node is set in
 	// which case all global state set/fetch calls will proxy to the remote.
 	if node.Config.GlobalStateRemoteNode == "" {
-		globalStateDir := filepath.Join(lib.GetBadgerDbPath(node.CoreNode.Config.DataDirectory), "global_state")
+		globalStateDir := filepath.Join(db.GetBadgerDbPath(node.CoreNode.Config.DataDirectory), "global_state")
 		globalStateOpts := badger.DefaultOptions(globalStateDir)
 		globalStateOpts.MemTableSize = 1024 << 20
-		globalStateOpts.ValueDir = lib.GetBadgerDbPath(globalStateDir)
+		globalStateOpts.ValueDir = db.GetBadgerDbPath(globalStateDir)
 		glog.Infof("GlobalState BadgerDB Dir: %v", globalStateOpts.Dir)
 		glog.Infof("GlobalState BadgerDB ValueDir: %v", globalStateOpts.ValueDir)
 		node.GlobalState, err = badger.Open(globalStateOpts)

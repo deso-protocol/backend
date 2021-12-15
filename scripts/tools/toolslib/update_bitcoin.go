@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io/ioutil"
@@ -18,7 +19,7 @@ func _generateUnsignedBTCPriceUpdate(updaterPubKey *btcec.PublicKey, newUSDCents
 
 	// Setup request
 	payload := &routes.UpdateGlobalParamsRequest{
-		UpdaterPublicKeyBase58Check: lib.PkToString(updaterPubKey.SerializeCompressed(), params),
+		UpdaterPublicKeyBase58Check: db.PkToString(updaterPubKey.SerializeCompressed(), params),
 		USDCentsPerBitcoin:          int64(newUSDCentsPerBitcoin),
 		MinFeeRateNanosPerKB:        1000,
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/db"
 	"io"
 	"net/http"
 	"strings"
@@ -407,7 +408,7 @@ type WyreWalletOrderMetadata struct {
 }
 
 func GlobalStateKeyForNFTDropEntry(dropNumber uint64) []byte {
-	dropNumBytes := lib.EncodeUint64(uint64(dropNumber))
+	dropNumBytes := db.EncodeUint64(uint64(dropNumber))
 	keyBytes := _GlobalStatePrefixNFTDropNumberToNFTDropEntry
 	keyBytes = append(keyBytes, dropNumBytes...)
 	return keyBytes
@@ -459,7 +460,7 @@ func GlobalStateKeyForPKIDReferralHashToIsActive(pkid *core.PKID, referralHashBy
 
 func GlobalStateSeekKeyForHotFeedApprovedPostOps(startTimestampNanos uint64) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixForHotFeedApprovedPostOps...)
-	key := append(prefixCopy, lib.EncodeUint64(startTimestampNanos)...)
+	key := append(prefixCopy, db.EncodeUint64(startTimestampNanos)...)
 	return key
 }
 
@@ -468,14 +469,14 @@ func GlobalStateKeyForHotFeedApprovedPostOp(
 	postHash *core.BlockHash,
 ) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixForHotFeedApprovedPostOps...)
-	key := append(prefixCopy, lib.EncodeUint64(opTimestampNanos)...)
+	key := append(prefixCopy, db.EncodeUint64(opTimestampNanos)...)
 	key = append(key, postHash[:]...)
 	return key
 }
 
 func GlobalStateSeekKeyForHotFeedPKIDMultiplierOps(startTimestampNanos uint64) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixForHotFeedPKIDMultiplierOps...)
-	key := append(prefixCopy, lib.EncodeUint64(startTimestampNanos)...)
+	key := append(prefixCopy, db.EncodeUint64(startTimestampNanos)...)
 	return key
 }
 
@@ -484,7 +485,7 @@ func GlobalStateKeyForHotFeedPKIDMultiplierOp(
 	opPKID *core.PKID,
 ) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixForHotFeedPKIDMultiplierOps...)
-	key := append(prefixCopy, lib.EncodeUint64(opTimestampNanos)...)
+	key := append(prefixCopy, db.EncodeUint64(opTimestampNanos)...)
 	key = append(key, opPKID[:]...)
 	return key
 }
@@ -514,7 +515,7 @@ func GlobalStateKeyForPKIDReferralHashRefereePKID(pkid *core.PKID, referralHash 
 func GlobalStateKeyForTimestampPKIDReferralHashRefereePKID(
 	tstampNanos uint64, pkid *core.PKID, referralHash []byte, refereePKID *core.PKID) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixTimestampPKIDReferralHashRefereePKID...)
-	key := append(prefixCopy, lib.EncodeUint64(tstampNanos)...)
+	key := append(prefixCopy, db.EncodeUint64(tstampNanos)...)
 	key = append(key, pkid[:]...)
 	key = append(key, referralHash[:]...)
 	key = append(key, refereePKID[:]...)
@@ -525,7 +526,7 @@ func GlobalStateKeyForTimestampPKIDReferralHashRefereePKID(
 func GlobalStateKeyForTstampPostHash(tstampNanos uint64, postHash *core.BlockHash) []byte {
 	// Make a copy to avoid multiple calls to this function re-using the same slice.
 	key := append([]byte{}, _GlobalStatePrefixTstampNanosPostHash...)
-	key = append(key, lib.EncodeUint64(tstampNanos)...)
+	key = append(key, db.EncodeUint64(tstampNanos)...)
 	key = append(key, postHash[:]...)
 	return key
 }
@@ -533,7 +534,7 @@ func GlobalStateKeyForTstampPostHash(tstampNanos uint64, postHash *core.BlockHas
 func GlobalStateSeekKeyForTstampPostHash(tstampNanos uint64) []byte {
 	// Make a copy to avoid multiple calls to this function re-using the same slice.
 	key := append([]byte{}, _GlobalStatePrefixTstampNanosPostHash...)
-	key = append(key, lib.EncodeUint64(tstampNanos)...)
+	key = append(key, db.EncodeUint64(tstampNanos)...)
 	return key
 }
 
@@ -541,7 +542,7 @@ func GlobalStateSeekKeyForTstampPostHash(tstampNanos uint64) []byte {
 func GlobalStateKeyForTstampPinnedPostHash(tstampNanos uint64, postHash *core.BlockHash) []byte {
 	// Make a copy to avoid multiple calls to this function re-using the same slice.
 	key := append([]byte{}, _GlobalStatePrefixTstampNanosPinnedPostHash...)
-	key = append(key, lib.EncodeUint64(tstampNanos)...)
+	key = append(key, db.EncodeUint64(tstampNanos)...)
 	key = append(key, postHash[:]...)
 	return key
 }
@@ -600,7 +601,7 @@ func GlobalStateKeyForUserPkContactPkToMostRecentReadTstampNanos(userPubKey []by
 func GlobalStateKeyForUserPublicKeyTstampNanosToWyreOrderMetadata(userPublicKeyBytes []byte, timestampNanos uint64) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixUserPublicKeyWyreOrderIdToWyreOrderMetadata...)
 	key := append(prefixCopy, userPublicKeyBytes...)
-	key = append(key, lib.EncodeUint64(timestampNanos)...)
+	key = append(key, db.EncodeUint64(timestampNanos)...)
 	return key
 }
 
@@ -629,7 +630,7 @@ func GlobalStateKeyForBuyDeSoFeeBasisPoints() []byte {
 func GlobalStateKeyForPKIDTstampnanosToJumioTransaction(pkid *core.PKID, timestampNanos uint64) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDTstampNanosToJumioTransaction...)
 	key := append(prefixCopy, pkid[:]...)
-	key = append(key, lib.EncodeUint64(timestampNanos)...)
+	key = append(key, db.EncodeUint64(timestampNanos)...)
 	return key
 }
 
@@ -1163,7 +1164,7 @@ func (gs *GlobalState) Seek(startPrefix []byte, validForPrefix []byte,
 
 	// If we get here, it means we don't have a remote node so get the
 	// data from our local db.
-	retKeys, retVals, err := lib.DBGetPaginatedKeysAndValuesForPrefix(gs.GlobalStateDB, startPrefix,
+	retKeys, retVals, err := db.DBGetPaginatedKeysAndValuesForPrefix(gs.GlobalStateDB, startPrefix,
 		validForPrefix, maxKeyLen, numToFetch, reverse, fetchValues)
 	if err != nil {
 		return nil, nil, fmt.Errorf("Seek: Error getting paginated keys and values: %v", err)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/deso-protocol/backend/routes"
 	"github.com/deso-protocol/backend/scripts/tools/toolslib"
+	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/lib"
 	"github.com/tyler-smith/go-bip39"
 )
@@ -44,7 +45,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Public key found:", lib.PkToString(updaterPubKey.SerializeCompressed(), params))
+	fmt.Println("Public key found:", db.PkToString(updaterPubKey.SerializeCompressed(), params))
 
 	// Submit the update transaction
 	err = toolslib.UpdateBitcoinUSDExchangeRate(updaterPubKey, updaterPrivKey, newUSDCentsPerBitcoin, params, node)
