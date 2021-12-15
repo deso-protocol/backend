@@ -793,11 +793,16 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		// use Bitcoin nodes to do it. Note that BLockCypher tends to be the more reliable path.
 		if fes.BlockCypherAPIKey != "" {
 			// Push the transaction to BlockCypher and ensure no error occurs.
-			if err = lib.BlockCypherPushAndWaitForTxn(
+			if err, isDoubleSpend := lib.BlockCypherPushAndWaitForTxn(
 				hex.EncodeToString(bitcoinTxnBytes), &bitcoinTxnHash,
 				fes.BlockCypherAPIKey, fes.Params.BitcoinDoubleSpendWaitSeconds,
 				fes.Params); err != nil {
 
+				if !isDoubleSpend {
+					_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error broadcasting " +
+						"transaction - not double spend: %v", err))
+					return
+				}
 				// If we hit an error, kick off a goroutine to retry this txn every
 				// minute for a few hours.
 				//
