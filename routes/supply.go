@@ -86,6 +86,10 @@ func (fes *APIServer) StartSupplyMonitoring() {
 }
 
 func (fes *APIServer) GetTotalSupply(ww http.ResponseWriter, req *http.Request) {
+	if !fes.Config.RunSupplyMonitoringRoutine {
+		_AddBadRequestError(ww, fmt.Sprintf("Supply Monitoring is not enabled on this node"))
+		return
+	}
 	if err := json.NewEncoder(ww).Encode(fes.TotalSupplyDESO); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTotalSupply: Error encoding response: %v", err))
 		return
@@ -93,6 +97,10 @@ func (fes *APIServer) GetTotalSupply(ww http.ResponseWriter, req *http.Request) 
 }
 
 func (fes *APIServer) GetRichList(ww http.ResponseWriter, req *http.Request) {
+	if !fes.Config.RunSupplyMonitoringRoutine {
+		_AddBadRequestError(ww, fmt.Sprintf("Supply Monitoring is not enabled on this node"))
+		return
+	}
 	if err := json.NewEncoder(ww).Encode(fes.RichList); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetRichList: Error encoding response: %v", err))
 		return
