@@ -160,7 +160,8 @@ func (fes *APIServer) AdminUpdateJumioUSDCents(ww http.ResponseWriter, req *http
 		return
 	}
 
-	// Update all country level sign up bonus metadata explicitly in case some are using the default amount
+	// Update the cache of all country level sign up bonus metadata explicitly in case
+	// some are using the default amount
 	fes.SetAllCountrySignUpBonusMetadata()
 
 	res := AdminUpdateJumioUSDCentsResponse{
@@ -289,7 +290,7 @@ func (fes *APIServer) AdminUpdateJumioCountrySignUpBonus(ww http.ResponseWriter,
 			"error putting country level sign up bonus metadata in global state: %v", err))
 		return
 	}
-	// Update the map
+	// Update the cache
 	fes.SetSingleCountrySignUpBonus(countryCodeDetails, requestData.CountryLevelSignUpBonus)
 }
 
@@ -315,14 +316,14 @@ type CountrySignUpBonusResponse struct {
 }
 
 // SetAllCountrySignUpBonusMetadata goes through all countries in map of CountryCodes in utils and sets the sign-up
-// bonus config.
+// bonus config in cache.
 func (fes *APIServer) SetAllCountrySignUpBonusMetadata() {
 	for countryCode, countryDetails := range utils.CountryCodes {
 		signUpBonus, err := fes.GetJumioCountrySignUpBonus(countryCode)
 		if err != nil {
 			glog.Errorf("SetAllCountrySignUpBonusMetadata: %v", err)
 			// If there was an error, look up the current value in the map and use that.
-			fes.GetSingleCountrySignUpBonus(countryCode)
+			signUpBonus = fes.GetSingleCountrySignUpBonus(countryCode)
 		}
 		fes.SetSingleCountrySignUpBonus(countryDetails, signUpBonus)
 	}

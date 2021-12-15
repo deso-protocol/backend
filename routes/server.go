@@ -344,7 +344,7 @@ type APIServer struct {
 	TotalSupplyDESO  float64
 	RichList         []RichListEntryResponse
 
-  // map of country name to sign up bonus data
+	// map of country name to sign up bonus data
 	AllCountryLevelSignUpBonuses map[string]CountrySignUpBonusResponse
 
 	// Signals that the frontend server is in a stopped state
