@@ -67,6 +67,7 @@ type CreateNFTRequest struct {
 	IsForSale                      bool   `safeForLogging:"true"`
 	MinBidAmountNanos              int    `safeForLogging:"true"`
 	IsBuyNow                       bool   `safeForLogging:"true"`
+	BuyNowPriceNanos               uint64 `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
@@ -134,6 +135,10 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 			"CreateNFT: NFTRoyaltyToCoinBasisPoints must be between %d and %d, received: %d",
 			0, fes.Params.MaxNFTRoyaltyBasisPoints, requestData.NFTRoyaltyToCoinBasisPoints))
 		return
+	} else if !requestData.IsBuyNow && requestData.BuyNowPriceNanos > 0 {
+		_AddBadRequestError(ww, fmt.Sprint("CreateNFT: cannot set BuyNowPriceNanos if NFT is not going to be "+
+			"sold in a 'Buy Now' fashion"))
+		return
 	}
 
 	// Get the PostHash for the NFT we are creating.
@@ -175,6 +180,7 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		uint64(requestData.NFTRoyaltyToCreatorBasisPoints),
 		uint64(requestData.NFTRoyaltyToCoinBasisPoints),
 		requestData.IsBuyNow,
+		requestData.BuyNowPriceNanos,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Problem creating transaction: %v", err))
@@ -210,6 +216,7 @@ type UpdateNFTRequest struct {
 	IsForSale                   bool   `safeForLogging:"true"`
 	MinBidAmountNanos           int    `safeForLogging:"true"`
 	IsBuyNow                    bool   `safeForLogging:"true"`
+	BuyNowPriceNanos            uint64 `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
@@ -260,6 +267,10 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 	} else if requestData.MinBidAmountNanos < 0 {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"UpdateNFT: MinBidAmountNanos must be >= 0, got: %d", requestData.MinBidAmountNanos))
+		return
+	} else if !requestData.IsBuyNow && requestData.BuyNowPriceNanos > 0 {
+		_AddBadRequestError(ww, fmt.Sprint("UpdateNFT: cannot set BuyNowPriceNanos if NFT is not going to be "+
+			"sold in a 'Buy Now' fashion"))
 		return
 	}
 
@@ -312,6 +323,7 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 		requestData.IsForSale,
 		uint64(requestData.MinBidAmountNanos),
 		requestData.IsBuyNow,
+		requestData.BuyNowPriceNanos,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateNFT: Problem creating transaction: %v", err))
@@ -802,7 +814,7 @@ type GetNFTsForUserRequest struct {
 	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
 	IsForSale                  *bool  `safeForLogging:"true"`
 	// Ignored if IsForSale is provided
-	IsPending                  *bool  `safeForLogging:"true"`
+	IsPending *bool `safeForLogging:"true"`
 }
 
 type NFTEntryAndPostEntryResponse struct {
@@ -1822,11 +1834,11 @@ type GetNFTsCreatedByPublicKeyRequest struct {
 	// PostHashHex of the last NFT from the previous page
 	LastPostHashHex string `safeForLogging:"true"`
 	// Number of records to fetch
-	NumToFetch    uint64 `safeForLogging:"true"`
+	NumToFetch uint64 `safeForLogging:"true"`
 }
 
 type NFTDetails struct {
-	NFTEntryResponses []*NFTEntryResponse
+	NFTEntryResponses     []*NFTEntryResponse
 	NFTCollectionResponse *NFTCollectionResponse
 }
 
@@ -1940,7 +1952,7 @@ func (fes *APIServer) GetNFTsCreatedByPublicKey(ww http.ResponseWriter, req *htt
 			nftEntryResponses = append(nftEntryResponses, fes._nftEntryToResponse(nftEntry, nil, utxoView, false, readerPKID))
 		}
 		res.NFTs = append(res.NFTs, NFTDetails{
-			NFTEntryResponses: nftEntryResponses,
+			NFTEntryResponses:     nftEntryResponses,
 			NFTCollectionResponse: fes._nftEntryToNFTCollectionResponse(nftEntries[0], post.PosterPublicKey, postEntryResponse, utxoView, readerPKID),
 		})
 	}
