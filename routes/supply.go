@@ -32,7 +32,7 @@ func (fes *APIServer) StartSupplyMonitoring() {
 	out:
 		for {
 			select {
-			case <-time.After(1 * time.Minute):
+			case <-time.After(10 * time.Minute):
 				totalSupply := uint64(0)
 				lowestValOnRichlist := uint64(math.MaxUint64)
 				startPrefix := lib.DbGetPrefixForPublicKeyToDesoBalanceNanos()
