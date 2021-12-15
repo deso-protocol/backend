@@ -5,13 +5,15 @@ import (
 	"fmt"
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
-	"math"
 	"net/http"
 	"sort"
 	"time"
 )
 
 const richListLength = 1000
+
+// Only keep balances in rich list if balance is greater than 100 DESO
+const richListMin = 100 * lib.NanosPerUnit
 
 type RichListEntry struct {
 	KeyBytes     []byte
@@ -34,7 +36,6 @@ func (fes *APIServer) StartSupplyMonitoring() {
 			select {
 			case <-time.After(10 * time.Minute):
 				totalSupply := uint64(0)
-				lowestValOnRichlist := uint64(math.MaxUint64)
 				// Get all the balances from the DB
 				startPrefix := lib.DbGetPrefixForPublicKeyToDesoBalanceNanos()
 				validForPrefix := lib.DbGetPrefixForPublicKeyToDesoBalanceNanos()
@@ -55,10 +56,7 @@ func (fes *APIServer) StartSupplyMonitoring() {
 					totalSupply += balanceNanos
 					// We don't need to keep all of the balances, just the top ones so let's skip adding items
 					// if we know they won't make the cut.
-					if len(richList) < richListLength || balanceNanos >= lowestValOnRichlist {
-						if balanceNanos < lowestValOnRichlist {
-							lowestValOnRichlist = balanceNanos
-						}
+					if balanceNanos >= richListMin {
 						richList = append(richList, RichListEntry{
 							KeyBytes:     key,
 							BalanceNanos: balanceNanos,
