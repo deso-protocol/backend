@@ -750,7 +750,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 
 	var desoTxnHash *lib.BlockHash
 	if requestData.Broadcast {
-		glog.Infof("ExchangeBitcoinStateless: Broadcasting Bitcoin txn: %v", bitcoinTxn)
+		glog.Infof("ExchangeBitcoinStateless: Broadcasting Bitcoin txn: %v", bitcoinTxn.TxHash())
 
 		// Check whether the deposits being used to construct this transaction have RBF enabled.
 		// If they do then we force the user to wait until those deposits have been mined into a
@@ -793,10 +793,50 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		// use Bitcoin nodes to do it. Note that BLockCypher tends to be the more reliable path.
 		if fes.BlockCypherAPIKey != "" {
 			// Push the transaction to BlockCypher and ensure no error occurs.
-			if err = lib.BlockCypherPushAndWaitForTxn(
+			if isDoubleSpend, err := lib.BlockCypherPushAndWaitForTxn(
 				hex.EncodeToString(bitcoinTxnBytes), &bitcoinTxnHash,
 				fes.BlockCypherAPIKey, fes.Params.BitcoinDoubleSpendWaitSeconds,
 				fes.Params); err != nil {
+
+				if !isDoubleSpend {
+					_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error broadcasting "+
+						"transaction - not double spend: %v", err))
+					return
+				}
+				// If we hit an error, kick off a goroutine to retry this txn every
+				// minute for a few hours.
+				//
+				// TODO: This code is very ugly and highly error-prone. If you write it
+				// incorrectly, it will send infinite money to someone. Don't change it
+				// unless you absolutely have to...
+				go func() {
+					endTime := time.Now().Add(3 * time.Hour)
+					for time.Now().Before(endTime) {
+						err = lib.CheckBitcoinDoubleSpend(
+							&bitcoinTxnHash, fes.BlockCypherAPIKey, fes.Params)
+						if err == nil {
+							// If we get here then it means the txn *finally* worked. Blast
+							// out the DESO in this case and return.
+							glog.Infof("Eventually mined Bitcoin txn %v. Sending DESO...", bitcoinTxnHash)
+							desoTxnHash, err = fes.SendSeedDeSo(pkBytes, nanosPurchased, true)
+							if err != nil {
+								glog.Errorf("Error sending DESO for Bitcoin txn %v", bitcoinTxnHash)
+							}
+							// Note that if we don't return we'll send money to this person infinitely...
+							return
+						} else {
+							glog.Infof("Error when re-checking double-spend for Bitcoin txn %v: %v", bitcoinTxnHash, err)
+						}
+
+						// Sleep for a bit each time.
+						glog.Infof("Sleeping for 1 minute while waiting for Bitcoin "+
+							"txn %v to mine...", bitcoinTxnHash)
+						sleepTime := time.Minute
+						time.Sleep(sleepTime)
+					}
+					glog.Infof("Bitcoin txn %v did not end up mining after several hours", bitcoinTxnHash)
+				}()
+
 				_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error broadcasting transaction: %v", err))
 				return
 			}
