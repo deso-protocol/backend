@@ -139,6 +139,9 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprint("CreateNFT: cannot set BuyNowPriceNanos if NFT is not going to be "+
 			"sold in a 'Buy Now' fashion"))
 		return
+	} else if requestData.IsBuyNow && requestData.BuyNowPriceNanos < uint64(requestData.MinBidAmountNanos) {
+		_AddBadRequestError(ww, fmt.Sprint("CreateNFT: cannot set BuyNowPriceNanos less than MinBidAmountNanos"))
+		return
 	}
 
 	// Get the PostHash for the NFT we are creating.
@@ -271,6 +274,9 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 	} else if !requestData.IsBuyNow && requestData.BuyNowPriceNanos > 0 {
 		_AddBadRequestError(ww, fmt.Sprint("UpdateNFT: cannot set BuyNowPriceNanos if NFT is not going to be "+
 			"sold in a 'Buy Now' fashion"))
+		return
+	} else if requestData.IsBuyNow && requestData.BuyNowPriceNanos < uint64(requestData.MinBidAmountNanos) {
+		_AddBadRequestError(ww, fmt.Sprint("UpdateNFT: cannot set BuyNowPriceNanos less than MinBidAmountNanos"))
 		return
 	}
 
