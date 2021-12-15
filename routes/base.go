@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"math/big"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/deso-protocol/core/lib"
@@ -140,26 +141,28 @@ type BlockchainDeSoTickerResponse struct {
 	LastTradePrice float64 `json:"last_trade_price"`
 }
 
-// UpdateUSDCentsToDeSoExchangeRate updates app state's USD Cents per DeSo value
-func (fes *APIServer) UpdateUSDCentsToDeSoExchangeRate() {
-	glog.Infof("Refreshing exchange rate...")
-
+func (fes *APIServer) GetBlockchainDotComExchangeRate() (_exchangeRate float64, _err error) {
 	// Get the ticker from Blockchain.com
 	// Do several fetches and take the max
 	//
 	// TODO: This is due to a bug in Blockchain's API that returns random values ~30% of the
 	// time for the last_price field. Once that bug is fixed, this multi-fetching will no
 	// longer be needed.
+	httpClient := &http.Client{}
 	exchangeRatesFetched := []float64{}
 	for ii := 0; ii < 10; ii++ {
 		url := "https://api.blockchain.com/v3/exchange/tickers/CLOUT-USD"
-		req, _ := http.NewRequest("GET", url, nil)
-		req.Header.Set("Content-Type", "application/json")
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
-			glog.Errorf("GetExchangePriceFromBlockchain: Problem with HTTP request %s: %v", url, err)
-			return
+			glog.Errorf("GetBlockchainDotComExchangeRate: Problem creating request: %v", err)
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			glog.Errorf("GetBlockchainDotComExchangeRate: Problem with HTTP request %s: %v", url, err)
+			continue
 		}
 		defer resp.Body.Close()
 
@@ -168,9 +171,9 @@ func (fes *APIServer) UpdateUSDCentsToDeSoExchangeRate() {
 		responseData := &BlockchainDeSoTickerResponse{}
 		decoder := json.NewDecoder(bytes.NewReader(body))
 		if err = decoder.Decode(responseData); err != nil {
-			glog.Errorf("GetExchangePriceFromBlockchain: Problem decoding response JSON into "+
+			glog.Errorf("GetBlockchainDotComExchangeRate: Problem decoding response JSON into "+
 				"interface %v, response: %v, error: %v", responseData, resp, err)
-			return
+			continue
 		}
 
 		// Return the last trade price.
@@ -180,19 +183,93 @@ func (fes *APIServer) UpdateUSDCentsToDeSoExchangeRate() {
 	}
 	blockchainDotComExchangeRate, err := stats.Max(exchangeRatesFetched)
 	if err != nil {
-		glog.Error(err)
+		glog.Errorf("GetBlockchainDotComExchangeRate: Problem getting max from list of float64s: %v", err)
+		return 0, err
 	}
 	glog.Infof("Blockchain exchange rate: %v %v", blockchainDotComExchangeRate, exchangeRatesFetched)
 	if fes.backendServer != nil && fes.backendServer.GetStatsdClient() != nil {
 		if err = fes.backendServer.GetStatsdClient().Gauge("BLOCKCHAIN_LAST_TRADE_PRICE", blockchainDotComExchangeRate, []string{}, 1); err != nil {
-			glog.Errorf("GetExchangePriceFromBlockchain: Error logging Last Trade Price of %f to datadog: %v", blockchainDotComExchangeRate, err)
+			glog.Errorf("GetBlockchainDotComExchangeRate: Error logging Last Trade Price of %f to datadog: %v", blockchainDotComExchangeRate, err)
 		}
 	}
+	return blockchainDotComExchangeRate, nil
+}
+
+type CoinbaseDeSoTickerResponse struct {
+	Data struct {
+		Base     string `json:"base"`
+		Currency string `json:"currency"`
+		Amount   string `json:"amount"` // In USD
+	} `json:"data"`
+}
+
+func (fes *APIServer) GetCoinbaseExchangeRate() (_exchangeRate float64, _err error) {
+	httpClient := &http.Client{}
+	url := "https://api.coinbase.com/v2/prices/DESO-USD/buy"
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		glog.Errorf("GetCoinbaseExchangeRate: Problem creating request: %v", err)
+		return 0, err
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		glog.Errorf("GetCoinbaseExchangeRate: Problem making request: %v", err)
+		return 0, err
+	}
+	defer resp.Body.Close()
+	// Decode the response into the appropriate struct.
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		glog.Errorf("GetCoinbaseExchangeRate: Problem reading response body: %v", err)
+		return 0, err
+	}
+	responseData := &CoinbaseDeSoTickerResponse{}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	if err = decoder.Decode(responseData); err != nil {
+		glog.Errorf("GetCoinbaseExchangeRate: Problem decoding response JSON into "+
+			"interface %v, response: %v, error: %v", responseData, resp, err)
+		return 0, err
+	}
+	usdToDESOExchangePrice, err := strconv.ParseFloat(responseData.Data.Amount, 64)
+	if err != nil {
+		glog.Errorf("GetCoinbaseExchangeRate: Problem parsing amount as float: %v", err)
+		return 0, err
+	}
+
+	usdCentsToDESOExchangePrice := usdToDESOExchangePrice * 100
+	if fes.backendServer != nil && fes.backendServer.GetStatsdClient() != nil {
+		if err = fes.backendServer.GetStatsdClient().Gauge("COINBASE_LAST_TRADE_PRICE", usdCentsToDESOExchangePrice, []string{}, 1); err != nil {
+			glog.Errorf("GetCoinbaseExchangeRate: Error logging Last Trade Price of %f to datadog: %v", usdCentsToDESOExchangePrice, err)
+		}
+	}
+	return usdCentsToDESOExchangePrice, nil
+}
+
+// UpdateUSDCentsToDeSoExchangeRate updates app state's USD Cents per DeSo value
+func (fes *APIServer) UpdateUSDCentsToDeSoExchangeRate() {
+	glog.Infof("Refreshing exchange rate...")
+
+	// Fetch price from blockchain.com
+	blockchainDotComPrice, err := fes.GetBlockchainDotComExchangeRate()
+	glog.Infof("Blockchain.com price (USD cents): %v", blockchainDotComPrice)
+	if err != nil {
+		glog.Errorf("UpdateUSDCentsToDeSoExchangeRate: Error fetching exchange rate from blockchain.com: %v", err)
+	}
+
+	// Fetch price from coinbase
+	coinbasePrice, err := fes.GetCoinbaseExchangeRate()
+	glog.Infof("Coinbase price (USD Cents): %v", coinbasePrice)
+	if err != nil {
+		glog.Errorf("UpdateUSDCentsToDeSoExchangeRate: Error fetching exchange rate from coinbase: %v", err)
+	}
+
+	// Take the max
+	lastTradePrice, err := stats.Max([]float64{blockchainDotComPrice, coinbasePrice})
 
 	// Get the current timestamp and append the current last trade price to the LastTradeDeSoPriceHistory slice
 	timestamp := uint64(time.Now().UnixNano())
 	fes.LastTradeDeSoPriceHistory = append(fes.LastTradeDeSoPriceHistory, LastTradePriceHistoryItem{
-		LastTradePrice: uint64(blockchainDotComExchangeRate),
+		LastTradePrice: uint64(lastTradePrice),
 		Timestamp:      timestamp,
 	})
 
@@ -279,7 +356,7 @@ type GetAppStateResponse struct {
 	JumioDeSoNanos              uint64
 
 	DefaultFeeRateNanosPerKB uint64
-	TransactionFeeMap map[string][]TransactionFee
+	TransactionFeeMap        map[string][]TransactionFee
 
 	// Address to which we want to send ETH when used to buy DESO
 	BuyETHAddress string
@@ -312,7 +389,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 	if globalParams != nil && globalParams.MinimumNetworkFeeNanosPerKB > 0 {
 		defaultFeeRateNanosPerKB = globalParams.MinimumNetworkFeeNanosPerKB
 	}
-	
+
 	res := &GetAppStateResponse{
 		MinSatoshisBurnedForProfileCreation: fes.Config.MinSatoshisForProfile,
 		BlockHeight:                         fes.backendServer.GetBlockchain().BlockTip().Height,
