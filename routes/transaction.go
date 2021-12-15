@@ -793,11 +793,16 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		// use Bitcoin nodes to do it. Note that BLockCypher tends to be the more reliable path.
 		if fes.BlockCypherAPIKey != "" {
 			// Push the transaction to BlockCypher and ensure no error occurs.
-			if err = lib.BlockCypherPushAndWaitForTxn(
+			if isDoubleSpend, err := lib.BlockCypherPushAndWaitForTxn(
 				hex.EncodeToString(bitcoinTxnBytes), &bitcoinTxnHash,
 				fes.BlockCypherAPIKey, fes.Params.BitcoinDoubleSpendWaitSeconds,
 				fes.Params); err != nil {
 
+				if !isDoubleSpend {
+					_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error broadcasting "+
+						"transaction - not double spend: %v", err))
+					return
+				}
 				// If we hit an error, kick off a goroutine to retry this txn every
 				// minute for a few hours.
 				//
@@ -806,7 +811,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 				// unless you absolutely have to...
 				go func() {
 					endTime := time.Now().Add(3 * time.Hour)
-					for ; time.Now().Before(endTime); {
+					for time.Now().Before(endTime) {
 						err = lib.CheckBitcoinDoubleSpend(
 							&bitcoinTxnHash, fes.BlockCypherAPIKey, fes.Params)
 						if err == nil {
@@ -824,7 +829,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 						}
 
 						// Sleep for a bit each time.
-						glog.Infof("Sleeping for 1 minute while waiting for Bitcoin " +
+						glog.Infof("Sleeping for 1 minute while waiting for Bitcoin "+
 							"txn %v to mine...", bitcoinTxnHash)
 						sleepTime := time.Minute
 						time.Sleep(sleepTime)
