@@ -117,7 +117,7 @@ type GetPostsStatelessResponse struct {
 }
 
 // Given a post entry, check if it is reposting another post and if so, get that post entry as a response.
-func (fes *APIServer) _getRepostPostEntryResponse(postEntry *view.PostEntry, addGlobalFeedBool bool, params *lib.DeSoParams, utxoView *view.UtxoView, readerPK []byte, maxDepth uint8) (_repostPostEntry *PostEntryResponse, err error) {
+func (fes *APIServer) _getRepostPostEntryResponse(postEntry *view.PostEntry, addGlobalFeedBool bool, params *core.DeSoParams, utxoView *view.UtxoView, readerPK []byte, maxDepth uint8) (_repostPostEntry *PostEntryResponse, err error) {
 	// if the maxDepth at this point is 0, we stop getting reposted post entries
 	if maxDepth == 0 {
 		return nil, nil
@@ -152,7 +152,7 @@ func (fes *APIServer) _getRepostPostEntryResponse(postEntry *view.PostEntry, add
 	}
 }
 
-func (fes *APIServer) _postEntryToResponse(postEntry *view.PostEntry, addGlobalFeedBool bool, params *lib.DeSoParams, utxoView *view.UtxoView, readerPK []byte, maxDepth uint8) (
+func (fes *APIServer) _postEntryToResponse(postEntry *view.PostEntry, addGlobalFeedBool bool, params *core.DeSoParams, utxoView *view.UtxoView, readerPK []byte, maxDepth uint8) (
 	*PostEntryResponse, error) {
 	// We only want to fetch reposted posts two levels down.  We only want to display repost posts that are at most two levels deep.
 	// This only happens when someone reposts a post that is a quoted repost.  For a quote repost for which the reposted
@@ -162,7 +162,7 @@ func (fes *APIServer) _postEntryToResponse(postEntry *view.PostEntry, addGlobalF
 		maxDepth = 2
 	}
 	// Get the body
-	bodyJSONObj := &lib.DeSoBodySchema{}
+	bodyJSONObj := &net.DeSoBodySchema{}
 	err := json.Unmarshal(postEntry.Body, bodyJSONObj)
 	if err != nil {
 		// Just ignore posts whose JSON doesn't parse properly.

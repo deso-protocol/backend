@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/db"
+	"github.com/deso-protocol/core/network"
 	"io"
 	"net/http"
 	"strings"
-
-	"github.com/deso-protocol/core/lib"
 
 	"github.com/dgraph-io/badger/v3"
 	"github.com/nyaruka/phonenumbers"
@@ -672,9 +671,9 @@ func GlobalStateKeyETHPurchases(txnHash string) []byte {
 	return key
 }
 
-func GlobalStateKeyTransactionFeeOutputsFromTxnType(txnType lib.TxnType) []byte {
+func GlobalStateKeyTransactionFeeOutputsFromTxnType(txnType net.TxnType) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixTxnTypeToDeSoOutputs...)
-	key := append(prefixCopy, lib.UintToBuf(uint64(txnType))...)
+	key := append(prefixCopy, core.UintToBuf(uint64(txnType))...)
 	return key
 }
 

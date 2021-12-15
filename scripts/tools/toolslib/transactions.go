@@ -5,14 +5,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"github.com/deso-protocol/backend/routes"
-	"github.com/deso-protocol/core/lib"
+	"github.com/deso-protocol/core/network"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
 )
 
 // SubmitTransactionToNode...
-func SubmitTransactionToNode(txn *lib.MsgDeSoTxn, node string) error {
+func SubmitTransactionToNode(txn *net.MsgDeSoTxn, node string) error {
 	endpoint := node + routes.RoutePathSubmitTransaction
 
 	// Encode the signed transaction to hex
@@ -21,7 +21,6 @@ func SubmitTransactionToNode(txn *lib.MsgDeSoTxn, node string) error {
 		return errors.Wrap(err, "SubmitTransactionToServer() failed to convert txn to bytes")
 	}
 	txnHex := hex.EncodeToString(txnBytes)
-
 
 	// Setup request
 	payload := &routes.SubmitTransactionRequest{txnHex}
@@ -38,7 +37,7 @@ func SubmitTransactionToNode(txn *lib.MsgDeSoTxn, node string) error {
 	}
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := ioutil.ReadAll(resp.Body)
-		return errors.Errorf("_generateUnsignedUpdateProfile(): Received non 200 response code: " +
+		return errors.Errorf("_generateUnsignedUpdateProfile(): Received non 200 response code: "+
 			"Status Code: %v Body: %v", resp.StatusCode, string(bodyBytes))
 	}
 	return nil

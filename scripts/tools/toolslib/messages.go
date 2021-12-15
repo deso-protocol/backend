@@ -5,15 +5,15 @@ import (
 	"encoding/json"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/db"
-	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
 )
 
 func _generateUnsignedMessage(senderPubKey *btcec.PublicKey, recipientPubKey *btcec.PublicKey, message string,
-	params *lib.DeSoParams, node string) (*routes.SendMessageStatelessResponse, error) {
+	params *core.DeSoParams, node string) (*routes.SendMessageStatelessResponse, error) {
 	endpoint := node + routes.RoutePathSendMessageStateless
 
 	// Setup request
@@ -55,7 +55,7 @@ func _generateUnsignedMessage(senderPubKey *btcec.PublicKey, recipientPubKey *bt
 }
 
 func SendMessage(senderPubKey *btcec.PublicKey, senderPrivKey *btcec.PrivateKey,
-	recipientPubKey *btcec.PublicKey, message string, params *lib.DeSoParams, node string) error {
+	recipientPubKey *btcec.PublicKey, message string, params *core.DeSoParams, node string) error {
 
 	// Request an unsigned transaction from the node
 	unsignedMessage, err := _generateUnsignedMessage(senderPubKey, recipientPubKey, message, params, node)

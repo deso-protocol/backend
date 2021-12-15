@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/db"
-	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
@@ -14,7 +14,7 @@ import (
 
 // _generateUnsignedCreatorCoinBuy...
 func _generateUnsignedCreatorCoinBuy(buyerPubKey *btcec.PublicKey, creatorPubKey *btcec.PublicKey,
-	amountNanos uint64, params *lib.DeSoParams, node string) (*routes.BuyOrSellCreatorCoinResponse, error) {
+	amountNanos uint64, params *core.DeSoParams, node string) (*routes.BuyOrSellCreatorCoinResponse, error) {
 	endpoint := node + routes.RoutePathBuyOrSellCreatorCoin
 
 	// Setup request
@@ -62,7 +62,7 @@ func _generateUnsignedCreatorCoinBuy(buyerPubKey *btcec.PublicKey, creatorPubKey
 
 // BuyCreator...
 func BuyCreator(buyerPubKey *btcec.PublicKey, buyerPrivKey *btcec.PrivateKey, creatorPubKey *btcec.PublicKey,
-	amountNanos uint64, params *lib.DeSoParams, node string) error {
+	amountNanos uint64, params *core.DeSoParams, node string) error {
 
 	// Request an unsigned transaction from the node
 	unsignedCCBuy, err := _generateUnsignedCreatorCoinBuy(buyerPubKey, creatorPubKey, amountNanos, params, node)

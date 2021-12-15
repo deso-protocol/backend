@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/db"
-	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
@@ -14,7 +14,7 @@ import (
 
 // _generateUnsignedSendDeSo...
 func _generateUnsignedSendDeSo(senderPubKey *btcec.PublicKey, recipientPubKey *btcec.PublicKey, amountNanos int64,
-	params *lib.DeSoParams, node string) (*routes.SendDeSoResponse, error) {
+	params *core.DeSoParams, node string) (*routes.SendDeSoResponse, error) {
 	endpoint := node + routes.RoutePathSendDeSo
 
 	// Setup request
@@ -58,7 +58,7 @@ func _generateUnsignedSendDeSo(senderPubKey *btcec.PublicKey, recipientPubKey *b
 // SendDeSo...
 func SendDeSo(senderPubKey *btcec.PublicKey,
 	senderPrivKey *btcec.PrivateKey,
-	recipientPubKey *btcec.PublicKey, amountNanos int64, params *lib.DeSoParams, node string) error {
+	recipientPubKey *btcec.PublicKey, amountNanos int64, params *core.DeSoParams, node string) error {
 
 	// Request an unsigned transaction from the node
 	unsignedSendDeSo, err := _generateUnsignedSendDeSo(senderPubKey, recipientPubKey, amountNanos, params, node)

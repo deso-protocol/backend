@@ -129,7 +129,7 @@ type APIBaseResponse struct {
 	Transactions []*TransactionResponse
 }
 
-func _headerToResponse(header *lib.MsgDeSoHeader, hash string) *HeaderResponse {
+func _headerToResponse(header *net.MsgDeSoHeader, hash string) *HeaderResponse {
 	return &HeaderResponse{
 		BlockHashHex:             hash,
 		Version:                  header.Version,
@@ -513,9 +513,9 @@ type APITransferDeSoResponse struct {
 // APITransactionToResponse converts a raw DeSo transaction message to
 // an object that can be easily JSON serialized.
 func APITransactionToResponse(
-	txnn *lib.MsgDeSoTxn,
+	txnn *net.MsgDeSoTxn,
 	txnMeta *db.TransactionMetadata,
-	params *lib.DeSoParams) *TransactionResponse {
+	params *core.DeSoParams) *TransactionResponse {
 
 	signatureHex := ""
 	if txnn.Signature != nil {
@@ -632,7 +632,7 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 	senderPublicKeyBytes := senderPub.SerializeCompressed()
 
 	// Compute the additional transaction fees as specified by the request body and the node-level fees.
-	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeBasicTransfer, senderPublicKeyBytes, transferDeSoRequest.TransactionFees)
+	additionalOutputs, err := fes.getTransactionFee(net.TxnTypeBasicTransfer, senderPublicKeyBytes, transferDeSoRequest.TransactionFees)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("APITransferDeSo: TransactionFees specified in Request body are invalid: %v", err))
 		return
@@ -644,7 +644,7 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 
 	// If the AmountNanos is less than zero then we have a special case where we create
 	// a transaction with the maximum spend.
-	var txnn *lib.MsgDeSoTxn
+	var txnn *net.MsgDeSoTxn
 	var totalInputt uint64
 	var spendAmountt uint64
 	var changeAmountt uint64
@@ -684,7 +684,7 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 
 		// Create the transaction outputs and add the recipient's public key and the
 		// amount we want to pay them
-		txnOutputs := append(additionalOutputs, &lib.DeSoOutput{
+		txnOutputs := append(additionalOutputs, &net.DeSoOutput{
 			PublicKey: recipientPub.SerializeCompressed(),
 			// If we get here we know the amount is non-negative.
 			AmountNanos: uint64(transferDeSoRequest.AmountNanos),
@@ -692,12 +692,12 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 
 		// Assemble the transaction so that inputs can be found and fees can
 		// be computed.
-		txnn = &lib.MsgDeSoTxn{
+		txnn = &net.MsgDeSoTxn{
 			// The inputs will be set below.
-			TxInputs:  []*lib.DeSoInput{},
+			TxInputs:  []*net.DeSoInput{},
 			TxOutputs: txnOutputs,
 			PublicKey: senderPublicKeyBytes,
-			TxnMeta:   &lib.BasicTransferMetadata{},
+			TxnMeta:   &net.BasicTransferMetadata{},
 			// We wait to compute the signature until we've added all the
 			// inputs and change.
 		}
@@ -985,7 +985,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	}
 
 	// Speed up calls to GetBlock with a local cache
-	blockMap := make(map[*core.BlockHash]*lib.MsgDeSoBlock)
+	blockMap := make(map[*core.BlockHash]*net.MsgDeSoBlock)
 
 	// The API response returns oldest -> newest so we need to iterate over the results backwards
 	for ii := len(valsFound) - 1; ii >= 0; ii-- {
@@ -1253,7 +1253,7 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 // because the API needed to cut out the derivation of the public key from the
 // user object, among other things.
 func (fes *APIServer) _processTransactionWithKey(
-	txn *lib.MsgDeSoTxn, _privKey *btcec.PrivateKey, wantsBroadcast bool) error {
+	txn *net.MsgDeSoTxn, _privKey *btcec.PrivateKey, wantsBroadcast bool) error {
 
 	txnSignature, err := txn.Sign(_privKey)
 	if err != nil {
@@ -1292,7 +1292,7 @@ func (fes *APIServer) _processTransactionWithKey(
 // cut out the derivation of the public key from the user object, among other
 // things.
 func (fes *APIServer) _augmentAndProcessTransactionWithSubsidyWithKey(
-	txn *lib.MsgDeSoTxn, privBase58 *btcec.PrivateKey,
+	txn *net.MsgDeSoTxn, privBase58 *btcec.PrivateKey,
 	minFeeRateNanosPerKB uint64, inputSubsidy uint64,
 	wantsBroadcast bool) (
 	_totalInput uint64, _spendAmount uint64, _changeAmount uint64,

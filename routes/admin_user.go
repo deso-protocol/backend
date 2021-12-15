@@ -581,7 +581,7 @@ func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *h
 	usernameToVerify := requestData.UsernameToVerify
 
 	// Verify the username adheres to the consensus username criteria
-	if len(usernameToVerify) == 0 || len(usernameToVerify) > lib.MaxUsernameLengthBytes || !lib.UsernameRegex.Match([]byte(usernameToVerify)) {
+	if len(usernameToVerify) == 0 || len(usernameToVerify) > core.MaxUsernameLengthBytes || !core.UsernameRegex.Match([]byte(usernameToVerify)) {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGrantVerificationBadge: Must provide a valid username"))
 		return
 	}
@@ -687,7 +687,7 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 	usernameToRemove := requestData.UsernameForWhomToRemoveVerification
 
 	// Verify the username adheres to the consensus username criteria
-	if len(usernameToRemove) == 0 || len(usernameToRemove) > lib.MaxUsernameLengthBytes || !lib.UsernameRegex.Match([]byte(usernameToRemove)) {
+	if len(usernameToRemove) == 0 || len(usernameToRemove) > core.MaxUsernameLengthBytes || !core.UsernameRegex.Match([]byte(usernameToRemove)) {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Must provide a valid username"))
 		return
 	}

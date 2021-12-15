@@ -473,7 +473,7 @@ func (fes *APIServer) verifyEmailHash(emailAddress string, publicKey string) str
 	hashBytes := []byte(emailAddress)
 	hashBytes = append(hashBytes, []byte(publicKey)...)
 	hashBytes = append(hashBytes, []byte(fes.Config.SendgridSalt)...)
-	return lib.Sha256DoubleHash(hashBytes).String()[:8]
+	return core.Sha256DoubleHash(hashBytes).String()[:8]
 }
 
 func (fes *APIServer) sendEmail(email *mail.SGMailV3) {
@@ -990,7 +990,7 @@ func (fes *APIServer) GetJumioDeSoNanos() uint64 {
 	if err != nil {
 		return 0
 	}
-	jumioDeSoNanos, bytesRead := lib.Uvarint(val)
+	jumioDeSoNanos, bytesRead := core.Uvarint(val)
 	if bytesRead <= 0 {
 		return 0
 	}

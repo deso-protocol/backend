@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"io"
@@ -69,7 +70,7 @@ func (fes *APIServer) GetBlockTemplate(ww http.ResponseWriter, req *http.Request
 	}
 
 	// Reject requests for v0 headers to phase them out.
-	if requestData.HeaderVersion == lib.HeaderVersion0 {
+	if requestData.HeaderVersion == core.HeaderVersion0 {
 		_AddBadRequestError(ww, fmt.Sprintf("GetBlockTemplate: Error: Header version v0 not supported. "+
 			"Please upgrade your miner to request v1 headers, and to hash "+
 			"with DeSoHashV1"))
@@ -153,9 +154,9 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 
 	// Swap in the ExtraNonce and the public key from the request.
 	blockFound.Txns[0].TxOutputs[0].PublicKey = pkBytes
-	blockFound.Txns[0].TxnMeta.(*lib.BlockRewardMetadataa).ExtraData = lib.UintToBuf(requestData.ExtraData)
+	blockFound.Txns[0].TxnMeta.(*net.BlockRewardMetadataa).ExtraData = core.UintToBuf(requestData.ExtraData)
 
-	header := &lib.MsgDeSoHeader{}
+	header := &net.MsgDeSoHeader{}
 	if err := header.FromBytes(requestData.Header); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitBlock: Problem parsing header: %v", err))
 		return

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"github.com/deso-protocol/backend/routes"
 	"github.com/deso-protocol/core"
-	"github.com/deso-protocol/core/lib"
+	"github.com/deso-protocol/core/miner"
 	"io/ioutil"
 	"net/http"
 	"runtime"
@@ -33,7 +33,7 @@ type RemoteMiner struct {
 	TemplateRefreshIntervalSeconds float64
 
 	mtxLatestBLockTemplates deadlock.RWMutex
-	latestBlockHeaders      []*lib.MsgDeSoHeader
+	latestBlockHeaders      []*net.MsgDeSoHeader
 	latestExtraDatas        []uint64
 	latestBlockID           string
 	currentDiffTarget       *core.BlockHash
@@ -70,7 +70,7 @@ func NewRemoteMiner(
 }
 
 func (bb *RemoteMiner) GetBlockTemplate(threadIndex int64) (
-	_hdr *lib.MsgDeSoHeader, _extraNonce uint64, _blockID string, _diffTarget *core.BlockHash) {
+	_hdr *net.MsgDeSoHeader, _extraNonce uint64, _blockID string, _diffTarget *core.BlockHash) {
 
 	bb.mtxLatestBLockTemplates.RLock()
 	defer bb.mtxLatestBLockTemplates.RUnlock()
@@ -79,7 +79,7 @@ func (bb *RemoteMiner) GetBlockTemplate(threadIndex int64) (
 }
 
 func (bb *RemoteMiner) SubmitWinningHeader(
-	header *lib.MsgDeSoHeader, extraData uint64, blockID string) error {
+	header *net.MsgDeSoHeader, extraData uint64, blockID string) error {
 	headerBytes, err := header.ToBytes(false)
 	if err != nil {
 		return fmt.Errorf("Error converting header to bytes: %v", err)
@@ -132,7 +132,7 @@ func (bb *RemoteMiner) RefreshBlockTemplates() error {
 	getBlockTemplateRequest := &routes.GetBlockTemplateRequest{
 		PublicKeyBase58Check: bb.PublicKeyBase58Check,
 		NumHeaders:           bb.NumThreads,
-		HeaderVersion:        lib.CurrentHeaderVersion,
+		HeaderVersion:        core.CurrentHeaderVersion,
 	}
 	jsonRequest, err := json.Marshal(getBlockTemplateRequest)
 	if err != nil {
@@ -160,9 +160,9 @@ func (bb *RemoteMiner) RefreshBlockTemplates() error {
 	bb.mtxLatestBLockTemplates.Lock()
 	defer bb.mtxLatestBLockTemplates.Unlock()
 
-	bb.latestBlockHeaders = []*lib.MsgDeSoHeader{}
+	bb.latestBlockHeaders = []*net.MsgDeSoHeader{}
 	for _, hdrBytes := range res.Headers {
-		header := &lib.MsgDeSoHeader{}
+		header := &net.MsgDeSoHeader{}
 		if err := header.FromBytes(hdrBytes); err != nil {
 			return fmt.Errorf("Error parsing headers in response: %v", err)
 		}
@@ -214,7 +214,7 @@ func (ss *SingleThread) Loop() {
 
 		// Hash on it
 		timeBefore := time.Now()
-		bestHash, bestNonce, err := lib.FindLowestHash(hdr, uint64(ss.IterationsPerCycle))
+		bestHash, bestNonce, err := miner.FindLowestHash(hdr, uint64(ss.IterationsPerCycle))
 		glog.V(2).Infof("Time per iteration: %v", time.Since(timeBefore))
 		if err != nil {
 			// If there's an error log it and break out.
@@ -222,7 +222,7 @@ func (ss *SingleThread) Loop() {
 			break
 		}
 
-		if lib.LessThan(diffTarget, bestHash) {
+		if miner.LessThan(diffTarget, bestHash) {
 			continue
 		}
 

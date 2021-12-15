@@ -999,7 +999,7 @@ func (fes *APIServer) _getProfilePictureForPublicKey(publicKey []byte) ([]byte, 
 		return []byte{}, "", fmt.Errorf("_getProfilePictureForPublicKey: Profile not found")
 	}
 	profilePic := string(profileEntry.ProfilePic)
-	if !strings.HasPrefix(profilePic, "data:image/") && !lib.ProfilePicRegex.Match([]byte(profilePic)) {
+	if !strings.HasPrefix(profilePic, "data:image/") && !core.ProfilePicRegex.Match([]byte(profilePic)) {
 		return []byte{}, "", fmt.Errorf("_getProfilePictureForPublicKey: profile picture is not base64 encoded image")
 	}
 	contentTypeEnd := strings.Index(profilePic, ";base64")
@@ -2454,7 +2454,7 @@ func NotificationTxnShouldBeIncluded(txnMeta *db.TransactionMetadata, filteredOu
 		return true
 	}
 
-	if txnMeta.TxnType == lib.TxnTypeBasicTransfer.String() || txnMeta.TxnType == lib.TxnTypeCreatorCoinTransfer.String() {
+	if txnMeta.TxnType == net.TxnTypeBasicTransfer.String() || txnMeta.TxnType == net.TxnTypeCreatorCoinTransfer.String() {
 		if txnMeta.BasicTransferTxindexMetadata != nil && txnMeta.BasicTransferTxindexMetadata.DiamondLevel > 0 {
 			return !filteredOutCategories["diamond"]
 		} else if txnMeta.CreatorCoinTransferTxindexMetadata != nil && txnMeta.CreatorCoinTransferTxindexMetadata.DiamondLevel > 0 {
@@ -2462,15 +2462,15 @@ func NotificationTxnShouldBeIncluded(txnMeta *db.TransactionMetadata, filteredOu
 		} else {
 			return !filteredOutCategories["transfer"]
 		}
-	} else if txnMeta.TxnType == lib.TxnTypeCreatorCoin.String() {
+	} else if txnMeta.TxnType == net.TxnTypeCreatorCoin.String() {
 		return !filteredOutCategories["transfer"]
-	} else if txnMeta.TxnType == lib.TxnTypeSubmitPost.String() {
+	} else if txnMeta.TxnType == net.TxnTypeSubmitPost.String() {
 		return !filteredOutCategories["post"]
-	} else if txnMeta.TxnType == lib.TxnTypeFollow.String() {
+	} else if txnMeta.TxnType == net.TxnTypeFollow.String() {
 		return !filteredOutCategories["follow"]
-	} else if txnMeta.TxnType == lib.TxnTypeLike.String() {
+	} else if txnMeta.TxnType == net.TxnTypeLike.String() {
 		return !filteredOutCategories["like"]
-	} else if txnMeta.TxnType == lib.TxnTypeNFTBid.String() || txnMeta.TxnType == lib.TxnTypeAcceptNFTBid.String() || txnMeta.TxnType == lib.TxnTypeNFTTransfer.String() {
+	} else if txnMeta.TxnType == net.TxnTypeNFTBid.String() || txnMeta.TxnType == net.TxnTypeAcceptNFTBid.String() || txnMeta.TxnType == net.TxnTypeNFTTransfer.String() {
 		return !filteredOutCategories["nft"]
 	}
 	// If the transaction type doesn't fall into any of the previous steps, we don't want it
@@ -2491,7 +2491,7 @@ func TxnMetaIsNotification(txnMeta *db.TransactionMetadata, publicKeyBase58Check
 		if affectedObj.PublicKeyBase58Check == publicKeyBase58Check {
 			// We don't want to send notifications if a user received an output as a result of a fee on a
 			// non-Basic Transfer transaction.
-			if affectedObj.Metadata == "BasicTransferOutput" && txnMeta.TxnType != string(lib.TxnStringBasicTransfer) {
+			if affectedObj.Metadata == "BasicTransferOutput" && txnMeta.TxnType != string(net.TxnStringBasicTransfer) {
 				continue
 			}
 			publicKeyIsAffected = true
@@ -2543,7 +2543,7 @@ func TxnMetaIsNotification(txnMeta *db.TransactionMetadata, publicKeyBase58Check
 	} else if txnMeta.NFTTransferTxindexMetadata != nil {
 		// Someone transferred you an NFT
 		return true
-	} else if txnMeta.TxnType == lib.TxnTypeBasicTransfer.String() {
+	} else if txnMeta.TxnType == net.TxnTypeBasicTransfer.String() {
 		// Someone paid you
 		return true
 	}
@@ -2851,7 +2851,7 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 			OwnerPublicKeyBase58Check:   db.PkToString(entry.OwnerPublicKey[:], fes.Params),
 			DerivedPublicKeyBase58Check: db.PkToString(entry.DerivedPublicKey[:], fes.Params),
 			ExpirationBlock:             entry.ExpirationBlock,
-			IsValid:                     entry.OperationType == lib.AuthorizeDerivedKeyOperationValid,
+			IsValid:                     entry.OperationType == net.AuthorizeDerivedKeyOperationValid,
 		}
 	}
 

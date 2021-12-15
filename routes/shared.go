@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/db"
+	"github.com/deso-protocol/core/network"
 	"net/http"
 	"time"
 
@@ -305,8 +306,8 @@ func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, 
 	sendDeSo := func() (txnHash *core.BlockHash, _err error) {
 		// Create the transaction outputs and add the recipient's public key and the
 		// amount we want to pay them
-		txnOutputs := []*lib.DeSoOutput{}
-		txnOutputs = append(txnOutputs, &lib.DeSoOutput{
+		txnOutputs := []*net.DeSoOutput{}
+		txnOutputs = append(txnOutputs, &net.DeSoOutput{
 			PublicKey: recipientPkBytes,
 			// If we get here we know the amount is non-negative.
 			AmountNanos: amountNanos,
@@ -314,12 +315,12 @@ func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, 
 
 		// Assemble the transaction so that inputs can be found and fees can
 		// be computed.
-		txn := &lib.MsgDeSoTxn{
+		txn := &net.MsgDeSoTxn{
 			// The inputs will be set below.
-			TxInputs:  []*lib.DeSoInput{},
+			TxInputs:  []*net.DeSoInput{},
 			TxOutputs: txnOutputs,
 			PublicKey: starterPubKey.SerializeCompressed(),
-			TxnMeta:   &lib.BasicTransferMetadata{},
+			TxnMeta:   &net.BasicTransferMetadata{},
 			// We wait to compute the signature until we've added all the
 			// inputs and change.
 		}

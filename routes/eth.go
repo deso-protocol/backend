@@ -8,6 +8,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/lib"
+	"github.com/deso-protocol/core/net"
 	"github.com/golang/glog"
 	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
@@ -389,7 +390,7 @@ func (fes *APIServer) QueryETHRPC(ww http.ResponseWriter, req *http.Request) {
 func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) (response *InfuraResponse, _err error) {
 	projectId := fes.Config.InfuraProjectID
 	URL := fmt.Sprintf("https://mainnet.infura.io/v3/%v", projectId)
-	if fes.Params.NetworkType == lib.NetworkType_TESTNET {
+	if fes.Params.NetworkType == net.NetworkType_TESTNET {
 		URL = fmt.Sprintf("https://ropsten.infura.io/v3/%v", projectId)
 	}
 

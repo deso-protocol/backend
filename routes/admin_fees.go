@@ -9,6 +9,7 @@ import (
 	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/lib"
+	"github.com/deso-protocol/core/network"
 	"github.com/deso-protocol/core/view"
 	"github.com/golang/glog"
 	"io"
@@ -29,7 +30,7 @@ type TransactionFee struct {
 
 type AdminSetTransactionFeeForTransactionTypeRequest struct {
 	// TransactionType is the type of transaction for which we are setting the fees.
-	TransactionType lib.TxnString
+	TransactionType net.TxnString
 	// NewTransactionFees is a slice of TransactionFee structs that tells us who should receive a fee and how much
 	// when a transaction of TransactionType is performed.
 	NewTransactionFees []TransactionFee
@@ -49,8 +50,8 @@ func (fes *APIServer) AdminSetTransactionFeeForTransactionType(ww http.ResponseW
 		_AddBadRequestError(ww, fmt.Sprintf("AdminSetTransactionFeeForTransactionType: Problem parsing request body: %v", err))
 		return
 	}
-	txnType := lib.GetTxnTypeFromString(requestData.TransactionType)
-	if txnType == lib.TxnTypeUnset {
+	txnType := net.GetTxnTypeFromString(requestData.TransactionType)
+	if txnType == net.TxnTypeUnset {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminSetTransactionFeeForTransactionType: %v is not a valid TxnType", requestData.TransactionType))
 		return
 	}
@@ -116,7 +117,7 @@ func (fes *APIServer) AdminSetAllTransactionFees(ww http.ResponseWriter, req *ht
 	}
 
 	// For each txnType, log the fee update and put the new transaction fees in global state.
-	for _, txnType := range lib.AllTxnTypes {
+	for _, txnType := range net.AllTxnTypes {
 		// Log the fee update in datadog
 		if err = fes.LogFeeSet(txnType, requestData.NewTransactionFees); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminSetAllTransactionFees: Error logging fees in datadog for %v transactions: %v", txnType, err))
@@ -157,7 +158,7 @@ func (fes *APIServer) AdminGetTransactionFeeMap(ww http.ResponseWriter, req *htt
 
 // TransformAndEncodeTransactionFees checks transaction fees for duplicate public keys, transform TransactionFee structs
 // to DeSoOutputs, and then encodes that slice of DeSoOutputs.
-func TransformAndEncodeTransactionFees(transactionFees []TransactionFee) (_outputs []*lib.DeSoOutput, _buf *bytes.Buffer, _err error) {
+func TransformAndEncodeTransactionFees(transactionFees []TransactionFee) (_outputs []*net.DeSoOutput, _buf *bytes.Buffer, _err error) {
 	// Check for duplicate public keys
 	if err := CheckTransactionFeeForDuplicatePublicKeys(transactionFees); err != nil {
 		return nil, nil, err
@@ -177,8 +178,8 @@ func TransformAndEncodeTransactionFees(transactionFees []TransactionFee) (_outpu
 }
 
 // TransformTransactionFeesToOutputs takes in a slice of TransactionFees and returns a slice of DeSoOutputs
-func TransformTransactionFeesToOutputs(transactionFees []TransactionFee) (_outputs []*lib.DeSoOutput, _err error) {
-	var outputs []*lib.DeSoOutput
+func TransformTransactionFeesToOutputs(transactionFees []TransactionFee) (_outputs []*net.DeSoOutput, _err error) {
+	var outputs []*net.DeSoOutput
 	for _, output := range transactionFees {
 		// Convert the PublicKeyBase58Check string to a public key byte slice.
 		outputPublicKeyBytes, _, err := lib.Base58CheckDecode(output.PublicKeyBase58Check)
@@ -187,7 +188,7 @@ func TransformTransactionFeesToOutputs(transactionFees []TransactionFee) (_outpu
 				output.PublicKeyBase58Check, err)
 		}
 		// Construct and append the DeSoOutput to the slice of outputs.
-		outputs = append(outputs, &lib.DeSoOutput{
+		outputs = append(outputs, &net.DeSoOutput{
 			PublicKey:   outputPublicKeyBytes,
 			AmountNanos: output.AmountNanos,
 		})
@@ -244,23 +245,23 @@ func (fes *APIServer) TxnFeeMapToResponse(skipProfileEntryResponses bool) map[st
 }
 
 // GetTransactionFeeMapFromGlobalState extracts the transaction fee map from global state.
-func (fes *APIServer) GetTransactionFeeMapFromGlobalState() map[lib.TxnType][]*lib.DeSoOutput {
-	transactionFeeMap := make(map[lib.TxnType][]*lib.DeSoOutput)
+func (fes *APIServer) GetTransactionFeeMapFromGlobalState() map[net.TxnType][]*net.DeSoOutput {
+	transactionFeeMap := make(map[net.TxnType][]*net.DeSoOutput)
 	// For each transaction type, get the list of DeSoOutputs we want to add when performing this type of transaction
-	for _, txnType := range lib.AllTxnTypes {
+	for _, txnType := range net.AllTxnTypes {
 		// Get the bytes from global state
 		desoOutputBytes, err := fes.GlobalState.Get(GlobalStateKeyTransactionFeeOutputsFromTxnType(txnType))
 		if err != nil {
 			glog.Errorf("Error getting Transaction Fee bytes from global state for transaction type %v (%d): %v - defaulting to no additional fees", txnType.String(), txnType, err)
 			// Default to an empty slice.
-			transactionFeeMap[txnType] = []*lib.DeSoOutput{}
+			transactionFeeMap[txnType] = []*net.DeSoOutput{}
 		} else {
-			var feeOutputs []*lib.DeSoOutput
+			var feeOutputs []*net.DeSoOutput
 			// Decode the bytes into the slice of DeSoOutputs
 			if err = gob.NewDecoder(bytes.NewReader(desoOutputBytes)).Decode(&feeOutputs); err != nil {
 				glog.Errorf("Error decoding desoOutputBytes to slice of DeSoOutputs: %v - default to no additional fees", err)
 				// Default to an empty slice.
-				transactionFeeMap[txnType] = []*lib.DeSoOutput{}
+				transactionFeeMap[txnType] = []*net.DeSoOutput{}
 			} else {
 				// Set the value to the decoded list of DeSoOutputs for this transaction type
 				transactionFeeMap[txnType] = feeOutputs
@@ -390,7 +391,7 @@ func (fes *APIServer) GetExemptPublicKeyMapFromGlobalState() map[string]interfac
 	return exemptPublicKeyMap
 }
 
-func (fes *APIServer) LogFeeSet(txnType lib.TxnType, transactionFees []TransactionFee) (_err error) {
+func (fes *APIServer) LogFeeSet(txnType net.TxnType, transactionFees []TransactionFee) (_err error) {
 	if fes.backendServer == nil || fes.backendServer.GetStatsdClient() == nil {
 		return nil
 	}

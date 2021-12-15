@@ -4,6 +4,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core"
+	"github.com/deso-protocol/core/network"
 	"io"
 	"net/http"
 	"strings"
@@ -106,7 +108,7 @@ type UpdateGlobalParamsResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgDeSoTxn
+	Transaction       *net.MsgDeSoTxn
 	TransactionHex    string
 }
 
@@ -127,7 +129,7 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 	}
 
 	// Compute the additional transaction fees as specified by the request body and the node-level fees.
-	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeUpdateGlobalParams, updaterPkBytes, requestData.TransactionFees)
+	additionalOutputs, err := fes.getTransactionFee(net.TxnTypeUpdateGlobalParams, updaterPkBytes, requestData.TransactionFees)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateGlobalParams: TransactionFees specified in Request body are invalid: %v", err))
 		return
@@ -223,7 +225,7 @@ type SwapIdentityResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgDeSoTxn
+	Transaction       *net.MsgDeSoTxn
 	TransactionHex    string
 }
 
@@ -275,7 +277,7 @@ func (fes *APIServer) SwapIdentity(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Compute the additional transaction fees as specified by the request body and the node-level fees.
-	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeSwapIdentity, updaterPkBytes, requestData.TransactionFees)
+	additionalOutputs, err := fes.getTransactionFee(net.TxnTypeSwapIdentity, updaterPkBytes, requestData.TransactionFees)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SwapIdentity: TransactionFees specified in Request body are invalid: %v", err))
 		return
@@ -372,7 +374,7 @@ func (fes *APIServer) TestSignTransactionWithDerivedKey(ww http.ResponseWriter, 
 
 	// Sign the transaction with a derived key. Since the txn extraData must be modified,
 	// we also get new transaction bytes, along with the signature.
-	newTxnBytes, txnSignatureBytes, err := lib.SignTransactionWithDerivedKey(txnBytes, privKeyBytes)
+	newTxnBytes, txnSignatureBytes, err := net.SignTransactionWithDerivedKey(txnBytes, privKeyBytes)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TestSignTransactionWithDerivedKey: Problem signing transaction: %v", err))
 		return
@@ -381,10 +383,10 @@ func (fes *APIServer) TestSignTransactionWithDerivedKey(ww http.ResponseWriter, 
 	// The response will contain the new transaction bytes and a signature.
 	var signedTransactionHex []byte
 	signedTransactionHex = newTxnBytes[0 : len(newTxnBytes)-1]
-	signedTransactionHex = append(signedTransactionHex, lib.UintToBuf(uint64(len(txnSignatureBytes)))...)
+	signedTransactionHex = append(signedTransactionHex, core.UintToBuf(uint64(len(txnSignatureBytes)))...)
 	signedTransactionHex = append(signedTransactionHex, txnSignatureBytes...)
 	res := TestSignTransactionWithDerivedKeyResponse{
-		TransactionHex:  hex.EncodeToString(signedTransactionHex),
+		TransactionHex: hex.EncodeToString(signedTransactionHex),
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TestSignTransactionWithDerivedKey: Problem encoding response as JSON: %v", err))

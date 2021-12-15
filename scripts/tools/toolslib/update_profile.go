@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/db"
-	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
@@ -14,7 +14,7 @@ import (
 
 // _generateUnsignedUpdateProfile...
 func _generateUnsignedUpdateProfile(updaterPubKey *btcec.PublicKey, newUsername string, newDescription string,
-	newProfilePic string, newCreatorBasisPoints uint64, params *lib.DeSoParams, node string) (*routes.UpdateProfileResponse, error) {
+	newProfilePic string, newCreatorBasisPoints uint64, params *core.DeSoParams, node string) (*routes.UpdateProfileResponse, error) {
 	endpoint := node + routes.RoutePathUpdateProfile
 
 	// Setup request
@@ -61,7 +61,7 @@ func _generateUnsignedUpdateProfile(updaterPubKey *btcec.PublicKey, newUsername 
 
 // UpdateProfile...
 func UpdateProfile(updaterPubKey *btcec.PublicKey, updaterPrivKey *btcec.PrivateKey, newUsername string, newDescription string,
-	newProfilePic string, newCreatorBasisPoints uint64, params *lib.DeSoParams, node string) error {
+	newProfilePic string, newCreatorBasisPoints uint64, params *core.DeSoParams, node string) error {
 
 	// Request an unsigned transaction from the node
 	unsignedUpdateProfile, err := _generateUnsignedUpdateProfile(updaterPubKey, newUsername, newDescription,

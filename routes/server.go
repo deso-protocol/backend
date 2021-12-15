@@ -247,7 +247,7 @@ type APIServer struct {
 	mempool       *lib.DeSoMempool
 	blockchain    *lib.Blockchain
 	blockProducer *lib.DeSoBlockProducer
-	Params        *lib.DeSoParams
+	Params        *core.DeSoParams
 	Config        *config.Config
 
 	MinFeeRateNanosPerKB uint64
@@ -306,7 +306,7 @@ type APIServer struct {
 	HotFeedPKIDMultiplierUpdated bool
 
 	//Map of transaction type to []*lib.DeSoOutput that represent fees assessed on each transaction of that type.
-	TransactionFeeMap map[lib.TxnType][]*lib.DeSoOutput
+	TransactionFeeMap map[net.TxnType][]*net.DeSoOutput
 
 	// Map of public keys that are exempt from node fees
 	ExemptPublicKeyMap map[string]interface{}
@@ -351,7 +351,7 @@ func NewAPIServer(
 	_blockchain *lib.Blockchain,
 	_blockProducer *lib.DeSoBlockProducer,
 	txIndex *lib.TXIndex,
-	params *lib.DeSoParams,
+	params *core.DeSoParams,
 	config *config.Config,
 	minFeeRateNanosPerKB uint64,
 	globalStateDB *badger.DB,

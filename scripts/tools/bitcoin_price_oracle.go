@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/deso-protocol/backend/routes"
 	"github.com/deso-protocol/backend/scripts/tools/toolslib"
+	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/lib"
 	"github.com/tyler-smith/go-bip39"
@@ -22,7 +23,7 @@ func main() {
 	}
 
 	// Network Parameters
-	params := &lib.DeSoMainnetParams
+	params := &core.DeSoMainnetParams
 	fmt.Println("Network type set:", params.NetworkType.String())
 
 	// Node Parameters

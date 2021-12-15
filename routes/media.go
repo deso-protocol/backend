@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core"
 	"github.com/gorilla/mux"
 	"io"
 	"net/http"
@@ -21,7 +22,6 @@ import (
 
 	"cloud.google.com/go/storage"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/deso-protocol/core/lib"
 	"google.golang.org/api/option"
 )
 
@@ -250,7 +250,7 @@ func (fes *APIServer) GetFullTikTokURL(ww http.ResponseWriter, req *http.Request
 	}
 	tiktokURL := fmt.Sprintf("https://vm.tiktok.com/%v", requestData.TikTokShortVideoID)
 	// Make sure the url matches the TikTok short URL regex.
-	if !lib.TikTokShortURLRegex.Match([]byte(tiktokURL)) {
+	if !core.TikTokShortURLRegex.Match([]byte(tiktokURL)) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetFullTikTokURL: TikTokShortVideoURL does not conform to regex: %v", tiktokURL))
 		return
@@ -284,7 +284,7 @@ func (fes *APIServer) GetFullTikTokURL(ww http.ResponseWriter, req *http.Request
 
 	// Convert the final URL to a string and verify that it meets the full TikTok URL regex.
 	fullURL := finalURL.String()
-	if !lib.TikTokFullURLRegex.Match([]byte(fullURL)) {
+	if !core.TikTokFullURLRegex.Match([]byte(fullURL)) {
 		_AddBadRequestError(ww, fmt.Sprintf("GetFullTikTokURL: destination url did not conform to tiktok full URL format: %v", fullURL))
 		return
 	}

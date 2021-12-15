@@ -8,7 +8,6 @@ import (
 	"github.com/deso-protocol/backend/routes"
 	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/db"
-	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
@@ -16,7 +15,7 @@ import (
 
 // _generateUnsignedGiveDiamonds...
 func _generateUnsignedSendDiamonds(senderPubKey *btcec.PublicKey, postHashHex string, receiverPublicKeyBase58Check string,
-	diamondLevel int64, params *lib.DeSoParams, node string) (*routes.SendDiamondsResponse, error) {
+	diamondLevel int64, params *core.DeSoParams, node string) (*routes.SendDiamondsResponse, error) {
 	endpoint := node + routes.RoutePathSendDiamonds
 
 	// Setup request
@@ -65,8 +64,8 @@ func _generateUnsignedSendDiamonds(senderPubKey *btcec.PublicKey, postHashHex st
 
 	// Append extra data to the transaction. The fees and everything was already computed correctly server side.
 	diamondsExtraData := make(map[string][]byte)
-	diamondsExtraData[lib.DiamondLevelKey] = lib.IntToBuf(diamondLevel)
-	diamondsExtraData[lib.DiamondPostHashKey] = diamondPostHash[:]
+	diamondsExtraData[core.DiamondLevelKey] = core.IntToBuf(diamondLevel)
+	diamondsExtraData[core.DiamondPostHashKey] = diamondPostHash[:]
 	sendDiamondsResponse.Transaction.ExtraData = diamondsExtraData
 
 	return &sendDiamondsResponse, nil
@@ -74,7 +73,7 @@ func _generateUnsignedSendDiamonds(senderPubKey *btcec.PublicKey, postHashHex st
 
 // SendDiamonds
 func SendDiamonds(senderPubKey *btcec.PublicKey, senderPrivKey *btcec.PrivateKey, postHashHex string,
-	receiverPublicKeyBase58Check string, diamondLevel int64, params *lib.DeSoParams, node string) error {
+	receiverPublicKeyBase58Check string, diamondLevel int64, params *core.DeSoParams, node string) error {
 
 	// Request an unsigned transaction from the node
 	unsignedSendDiamonds, err := _generateUnsignedSendDiamonds(senderPubKey, postHashHex, receiverPublicKeyBase58Check,

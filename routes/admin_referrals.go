@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/db"
+	"github.com/deso-protocol/core/network"
 	"io"
 	"net/http"
 	"reflect"
@@ -105,7 +106,7 @@ func (fes *APIServer) setReferralHashStatusForPKID(
 	dbKey := GlobalStateKeyForPKIDReferralHashToIsActive(pkid, referralHashBytes)
 
 	// Encode the updated entry and stick it in the database.
-	err := fes.GlobalState.Put(dbKey, []byte{lib.BoolToByte(isActive)})
+	err := fes.GlobalState.Put(dbKey, []byte{net.BoolToByte(isActive)})
 	if err != nil {
 		return errors.Wrap(fmt.Errorf(
 			"putReferralHashWithInfo: Problem putting updated referralInfo: %v", err), "")
@@ -390,7 +391,7 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeR
 		if len(isActiveBytes) == 0 {
 			return nil, fmt.Errorf("fes.getReferralInfoResponsesForPubKey: got zero isActiveBytes: %s", referralHash)
 		}
-		isActive := lib.ReadBoolByte(bytes.NewReader(isActiveBytes))
+		isActive := net.ReadBoolByte(bytes.NewReader(isActiveBytes))
 
 		// Look up and decode the referral info for the hash.
 		dbKey := GlobalStateKeyForReferralHashToReferralInfo(referralHashBytes)
@@ -624,7 +625,7 @@ func (fes *APIServer) AdminDownloadReferralCSV(ww http.ResponseWriter, req *http
 	}
 
 	for statusValIdx, statusBytes := range statusVals {
-		status := lib.ReadBoolByte(bytes.NewReader(statusBytes))
+		status := net.ReadBoolByte(bytes.NewReader(statusBytes))
 		// Note we have to add one to the idx here since csvRows has a header.
 		csvRows[statusValIdx+1] = append(csvRows[statusValIdx+1], strconv.FormatBool(status))
 	}

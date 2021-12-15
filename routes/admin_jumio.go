@@ -3,6 +3,7 @@ package routes
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/lib"
 	"io"
 	"net/http"
@@ -11,7 +12,7 @@ import (
 type AdminResetJumioRequest struct {
 	PublicKeyBase58Check string
 	Username             string
-	JWT       string
+	JWT                  string
 }
 
 func (fes *APIServer) AdminResetJumioForPublicKey(ww http.ResponseWriter, req *http.Request) {
@@ -99,7 +100,7 @@ func (fes *APIServer) AdminResetJumioForPublicKey(ww http.ResponseWriter, req *h
 }
 
 type AdminUpdateJumioDeSoRequest struct {
-	JWT string
+	JWT       string
 	DeSoNanos uint64
 }
 
@@ -117,7 +118,7 @@ func (fes *APIServer) AdminUpdateJumioDeSo(ww http.ResponseWriter, req *http.Req
 
 	if err := fes.GlobalState.Put(
 		GlobalStateKeyForJumioDeSoNanos(),
-		lib.UintToBuf(requestData.DeSoNanos)); err != nil {
+		core.UintToBuf(requestData.DeSoNanos)); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioDeSo: Problem putting premium basis points in global state: %v", err))
 		return
 	}
@@ -140,6 +141,7 @@ type AdminJumioCallback struct {
 	PublicKeyBase58Check string
 	Username             string
 }
+
 // AdminJumioCallback Note: this endpoint is mainly for testing purposes.
 func (fes *APIServer) AdminJumioCallback(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))

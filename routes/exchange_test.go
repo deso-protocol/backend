@@ -9,6 +9,7 @@ import (
 	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/lib"
+	"github.com/deso-protocol/core/miner"
 	"io"
 	"io/ioutil"
 	"log"
@@ -59,16 +60,16 @@ func GetTestBadgerDb() (_db *badger.DB, _dir string) {
 	return db, dir
 }
 
-func NewLowDifficultyBlockchain() (*lib.Blockchain, *lib.DeSoParams, *badger.DB) {
+func NewLowDifficultyBlockchain() (*lib.Blockchain, *core.DeSoParams, *badger.DB) {
 
 	// Set the number of txns per view regeneration to one while creating the txns
 	lib.ReadOnlyUtxoViewRegenerationIntervalTxns = 1
 
-	return NewLowDifficultyBlockchainWithParams(&lib.DeSoTestnetParams)
+	return NewLowDifficultyBlockchainWithParams(&core.DeSoTestnetParams)
 }
 
-func NewLowDifficultyBlockchainWithParams(params *lib.DeSoParams) (
-	*lib.Blockchain, *lib.DeSoParams, *badger.DB) {
+func NewLowDifficultyBlockchainWithParams(params *core.DeSoParams) (
+	*lib.Blockchain, *core.DeSoParams, *badger.DB) {
 
 	// Set the number of txns per view regeneration to one while creating the txns
 	lib.ReadOnlyUtxoViewRegenerationIntervalTxns = 1
@@ -79,21 +80,21 @@ func NewLowDifficultyBlockchainWithParams(params *lib.DeSoParams) (
 	// Set some special parameters for testing. If the blocks above are changed
 	// these values should be updated to reflect the latest testnet values.
 	paramsCopy := *params
-	paramsCopy.GenesisBlock = &lib.MsgDeSoBlock{
-		Header: &lib.MsgDeSoHeader{
+	paramsCopy.GenesisBlock = &net.MsgDeSoBlock{
+		Header: &net.MsgDeSoHeader{
 			Version:               0,
-			PrevBlockHash:         lib.MustDecodeHexBlockHash("0000000000000000000000000000000000000000000000000000000000000000"),
-			TransactionMerkleRoot: lib.MustDecodeHexBlockHash("097158f0d27e6d10565c4dc696c784652c3380e0ff8382d3599a4d18b782e965"),
+			PrevBlockHash:         core.MustDecodeHexBlockHash("0000000000000000000000000000000000000000000000000000000000000000"),
+			TransactionMerkleRoot: core.MustDecodeHexBlockHash("097158f0d27e6d10565c4dc696c784652c3380e0ff8382d3599a4d18b782e965"),
 			TstampSecs:            uint64(1560735050),
 			Height:                uint64(0),
 			Nonce:                 uint64(0),
 			// No ExtraNonce is set in the genesis block
 		},
-		Txns: []*lib.MsgDeSoTxn{
+		Txns: []*net.MsgDeSoTxn{
 			{
-				TxInputs:  []*lib.DeSoInput{},
-				TxOutputs: []*lib.DeSoOutput{},
-				TxnMeta: &lib.BlockRewardMetadataa{
+				TxInputs:  []*net.DeSoInput{},
+				TxOutputs: []*net.DeSoOutput{},
+				TxnMeta: &net.BlockRewardMetadataa{
 					ExtraData: []byte("They came here, to the new world. World 2.0, version 1776."),
 				},
 				// A signature is not required for BLOCK_REWARD transactions since they
@@ -111,7 +112,7 @@ func NewLowDifficultyBlockchainWithParams(params *lib.DeSoParams) (
 	paramsCopy.BlockRewardMaturity = time.Second * 4
 	paramsCopy.TimeBetweenDifficultyRetargets = 100 * time.Second
 	paramsCopy.MaxDifficultyRetargetFactor = 2
-	paramsCopy.SeedBalances = []*lib.DeSoOutput{
+	paramsCopy.SeedBalances = []*net.DeSoOutput{
 		{
 			PublicKey:   lib.MustBase58CheckDecode(moneyPkString),
 			AmountNanos: uint64(2000000 * lib.NanosPerUnit),
@@ -129,7 +130,7 @@ func NewLowDifficultyBlockchainWithParams(params *lib.DeSoParams) (
 	return chain, &paramsCopy, db
 }
 
-func NewTestMiner(t *testing.T, chain *lib.Blockchain, params *lib.DeSoParams, isSender bool) (*lib.DeSoMempool, *lib.DeSoMiner) {
+func NewTestMiner(t *testing.T, chain *lib.Blockchain, params *core.DeSoParams, isSender bool) (*lib.DeSoMempool, *miner.DeSoMiner) {
 	assert := assert.New(t)
 	require := require.New(t)
 	_ = assert
@@ -153,12 +154,12 @@ func NewTestMiner(t *testing.T, chain *lib.Blockchain, params *lib.DeSoParams, i
 		params, nil)
 	require.NoError(err)
 
-	newMiner, err := lib.NewDeSoMiner(minerPubKeys, 1 /*numThreads*/, blockProducer, params)
+	newMiner, err := miner.NewDeSoMiner(minerPubKeys, 1 /*numThreads*/, blockProducer, params)
 	require.NoError(err)
 	return mempool, newMiner
 }
 
-func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *APIServer, *lib.DeSoMiner) {
+func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *APIServer, *miner.DeSoMiner) {
 	assert := assert.New(t)
 	require := require.New(t)
 	_, _ = assert, require
@@ -226,7 +227,7 @@ func TestAPI(t *testing.T) {
 	// Index=0, Mainnet
 	{
 		// Run this test as mainnet.
-		apiServer.Params = &lib.DeSoMainnetParams
+		apiServer.Params = &core.DeSoMainnetParams
 		keyPairRequest := &APIKeyPairRequest{
 			Mnemonic:  "elegant express swarm mercy divorce conduct actor brain critic subject fit broom",
 			ExtraText: "extra text",
@@ -255,12 +256,12 @@ func TestAPI(t *testing.T) {
 		assert.Equal("BC1YLgjfMDyes7FkCoWsXYbHxW5h6QNZGLmHdmJaEWzUPd2jRhVZHQT", keyPairResponse.PublicKeyBase58Check)
 		assert.Equal("bc6EzXTBvGcciQoTge3Fb43mBVs14FLxW5RjZLebB4QYRdXrd1oEb", keyPairResponse.PrivateKeyBase58Check)
 
-		apiServer.Params = &lib.DeSoTestnetParams
+		apiServer.Params = &core.DeSoTestnetParams
 	}
 	// Index=5, Mainnet
 	{
 		// Run this test as mainnet.
-		apiServer.Params = &lib.DeSoMainnetParams
+		apiServer.Params = &core.DeSoMainnetParams
 		keyPairRequest := &APIKeyPairRequest{
 			Mnemonic:  "elegant express swarm mercy divorce conduct actor brain critic subject fit broom",
 			ExtraText: "extra text",
@@ -288,7 +289,7 @@ func TestAPI(t *testing.T) {
 		assert.Equal("BC1YLhSwLFat8r1WW6GgzL41ppeWRVBdwMuAgW9uPnatsG3XnWxR4zV", keyPairResponse.PublicKeyBase58Check)
 		assert.Equal("bc6EzbZVTKbZXZBNk39feiAsVKK1WQKcVTzbcwJXHWrcjZ5zHo7D5", keyPairResponse.PrivateKeyBase58Check)
 
-		apiServer.Params = &lib.DeSoTestnetParams
+		apiServer.Params = &core.DeSoTestnetParams
 	}
 	// Index=0, Testnet
 	{
@@ -352,7 +353,7 @@ func TestAPI(t *testing.T) {
 	// Generate keypairs for an account with no password and no extra text
 	{
 		// Run this test as mainnet.
-		apiServer.Params = &lib.DeSoMainnetParams
+		apiServer.Params = &core.DeSoMainnetParams
 		keyPairRequest := &APIKeyPairRequest{
 			Mnemonic: "trial economy dentist mistake engage enact blur segment helmet evoke taste bulb",
 			Index:    0,
@@ -379,13 +380,13 @@ func TestAPI(t *testing.T) {
 		assert.Equal("BC1YLhNxzU7cwo2Vr5xCMWvVsHiWUwB6myo56QDsxfUyiu5cf3UaDVc", keyPairResponse.PublicKeyBase58Check)
 		assert.Equal("bc6EjWM6p9C5yPLtNRE9GRpPAJePqT7WsCAFEi51mYULQZfEawjA6", keyPairResponse.PrivateKeyBase58Check)
 
-		apiServer.Params = &lib.DeSoTestnetParams
+		apiServer.Params = &core.DeSoTestnetParams
 	}
 
 	// Generate keypairs for a deep index
 	{
 		// Run this test as mainnet.
-		apiServer.Params = &lib.DeSoMainnetParams
+		apiServer.Params = &core.DeSoMainnetParams
 		keyPairRequest := &APIKeyPairRequest{
 			Mnemonic: "trial economy dentist mistake engage enact blur segment helmet evoke taste bulb",
 			Index:    1019,
@@ -412,7 +413,7 @@ func TestAPI(t *testing.T) {
 		assert.Equal("BC1YLhsGETW1BghV5WtddyySZrwVeXvMSUcujD1r6FH2Jggzh87T1Cg", keyPairResponse.PublicKeyBase58Check)
 		assert.Equal("bc6FnVXYfBNKD8UN9M8134zUcLEYRiZ14UCvm57BMbM7sbvhxbftg", keyPairResponse.PrivateKeyBase58Check)
 
-		apiServer.Params = &lib.DeSoTestnetParams
+		apiServer.Params = &core.DeSoTestnetParams
 	}
 
 	// The balance of the miner public key should be nonzero and there should
@@ -565,8 +566,8 @@ func TestAPI(t *testing.T) {
 		assert.Equal(1, len(transactionInfoRes.Transactions[0].Outputs))
 	}
 	// Lookup the info for the first block reward transaction.
-	var firstBlockTxn *lib.MsgDeSoTxn
-	var secondBlockTxn *lib.MsgDeSoTxn
+	var firstBlockTxn *net.MsgDeSoTxn
+	var secondBlockTxn *net.MsgDeSoTxn
 	{
 		blockHash := apiServer.blockchain.BestChain()[1].Hash
 		blockLookup, err := db.GetBlock(blockHash, apiServer.blockchain.DB())
@@ -715,7 +716,7 @@ func TestAPI(t *testing.T) {
 	}
 	// Adding the transaction to the mempool should cause changes to the
 	// confirmed and unconfirmed balances.
-	txn1 := &lib.MsgDeSoTxn{}
+	txn1 := &net.MsgDeSoTxn{}
 	txn1Bytes, _ := hex.DecodeString(txn1Hex)
 	_ = txn1.FromBytes(txn1Bytes)
 	_, err := apiServer.mempool.ProcessTransaction(
@@ -830,7 +831,7 @@ func TestAPI(t *testing.T) {
 		assert.Equal(2, len(transferDeSoResponse.Transaction.Outputs))
 		txn2Hex = transferDeSoResponse.Transaction.RawTransactionHex
 	}
-	txn2 := &lib.MsgDeSoTxn{}
+	txn2 := &net.MsgDeSoTxn{}
 	txn2Bytes, _ := hex.DecodeString(txn2Hex)
 	_ = txn2.FromBytes(txn2Bytes)
 	apiServer.mempool.ProcessTransaction(

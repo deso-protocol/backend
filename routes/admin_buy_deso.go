@@ -3,14 +3,14 @@ package routes
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/deso-protocol/core/lib"
+	"github.com/deso-protocol/core"
 	"io"
 	"net/http"
 )
 
 type SetUSDCentsToDeSoExchangeRateRequest struct {
 	USDCentsPerDeSo uint64
-	AdminPublicKey      string
+	AdminPublicKey  string
 }
 
 type SetUSDCentsToDeSoExchangeRateResponse struct {
@@ -29,7 +29,7 @@ func (fes *APIServer) SetUSDCentsToDeSoReserveExchangeRate(ww http.ResponseWrite
 	// Put the new value in global state
 	if err := fes.GlobalState.Put(
 		GlobalStateKeyForUSDCentsToDeSoReserveExchangeRate(),
-		lib.UintToBuf(requestData.USDCentsPerDeSo)); err != nil {
+		core.UintToBuf(requestData.USDCentsPerDeSo)); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SetUSDCentsToDeSoReserveExchangeRate: Problem putting exchange rate in global state: %v", err))
 		return
 	}
@@ -77,7 +77,7 @@ func (fes *APIServer) GetUSDCentsToDeSoReserveExchangeRateFromGlobalState() (uin
 	if val == nil {
 		return 0, nil
 	}
-	usdCentsPerDeSo, bytesRead := lib.Uvarint(val)
+	usdCentsPerDeSo, bytesRead := core.Uvarint(val)
 	if bytesRead <= 0 {
 		return 0, fmt.Errorf("Problem reading bytes from global state: %v", err)
 	}
@@ -86,7 +86,7 @@ func (fes *APIServer) GetUSDCentsToDeSoReserveExchangeRateFromGlobalState() (uin
 
 type SetBuyDeSoFeeBasisPointsRequest struct {
 	BuyDeSoFeeBasisPoints uint64
-	AdminPublicKey            string
+	AdminPublicKey        string
 }
 
 type SetBuyDeSoFeeBasisPointsResponse struct {
@@ -104,7 +104,7 @@ func (fes *APIServer) SetBuyDeSoFeeBasisPoints(ww http.ResponseWriter, req *http
 
 	if err := fes.GlobalState.Put(
 		GlobalStateKeyForBuyDeSoFeeBasisPoints(),
-		lib.UintToBuf(requestData.BuyDeSoFeeBasisPoints)); err != nil {
+		core.UintToBuf(requestData.BuyDeSoFeeBasisPoints)); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SetBuyDeSoFeeBasisPoints: Problem putting premium basis points in global state: %v", err))
 		return
 	}
@@ -149,7 +149,7 @@ func (fes *APIServer) GetBuyDeSoFeeBasisPointsResponseFromGlobalState() (uint64,
 	if val == nil {
 		return 0, nil
 	}
-	feeBasisPoints, bytesRead := lib.Uvarint(val)
+	feeBasisPoints, bytesRead := core.Uvarint(val)
 	if bytesRead <= 0 {
 		return 0, fmt.Errorf("Problem reading bytes from global state: %v", err)
 	}

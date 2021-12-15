@@ -172,8 +172,8 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 	desoAddrs := fes.backendServer.GetConnectionManager().GetAddrManager().AddressCache()
 	sort.Slice(desoAddrs, func(ii, jj int) bool {
 		// Use a hash to get a random but deterministic ordering.
-		hashI := string(lib.Sha256DoubleHash([]byte(desoAddrs[ii].IP.String() + fmt.Sprintf(":%d", desoAddrs[ii].Port)))[:])
-		hashJ := string(lib.Sha256DoubleHash([]byte(desoAddrs[jj].IP.String() + fmt.Sprintf(":%d", desoAddrs[jj].Port)))[:])
+		hashI := string(core.Sha256DoubleHash([]byte(desoAddrs[ii].IP.String() + fmt.Sprintf(":%d", desoAddrs[ii].Port)))[:])
+		hashJ := string(core.Sha256DoubleHash([]byte(desoAddrs[jj].IP.String() + fmt.Sprintf(":%d", desoAddrs[jj].Port)))[:])
 
 		return hashI < hashJ
 	})
@@ -265,7 +265,7 @@ func (fes *APIServer) _handleConnectDeSoNode(
 				// Grab the ChainLock since we might do a blockchain lookup below.
 				locator := fes.blockchain.LatestLocator(fes.blockchain.HeaderTip())
 
-				desoPeer.AddDeSoMessage(&lib.MsgDeSoGetHeaders{
+				desoPeer.AddDeSoMessage(&net.MsgDeSoGetHeaders{
 					StopHash:     &core.BlockHash{},
 					BlockLocator: locator,
 				}, false)

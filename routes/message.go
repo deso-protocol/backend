@@ -8,6 +8,7 @@ import (
 	"github.com/deso-protocol/core"
 	"github.com/deso-protocol/core/db"
 	"github.com/deso-protocol/core/lib"
+	"github.com/deso-protocol/core/network"
 	"github.com/deso-protocol/core/view"
 	"github.com/pkg/errors"
 	"io"
@@ -474,7 +475,7 @@ type SendMessageStatelessResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgDeSoTxn
+	Transaction       *net.MsgDeSoTxn
 	TransactionHex    string
 }
 
@@ -497,7 +498,7 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 	}
 
 	// Compute the additional transaction fees as specified by the request body and the node-level fees.
-	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypePrivateMessage, senderPkBytes, requestData.TransactionFees)
+	additionalOutputs, err := fes.getTransactionFee(net.TxnTypePrivateMessage, senderPkBytes, requestData.TransactionFees)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: TransactionFees specified in Request body are invalid: %v", err))
 		return

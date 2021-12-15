@@ -468,10 +468,10 @@ func (fes *APIServer) GetHotFeedConstantsFromGlobalState() (
 	return interactionCap, timeDecayBlocks, nil
 }
 
-func CheckTxnForCreatePost(txn *lib.MsgDeSoTxn) (
+func CheckTxnForCreatePost(txn *net.MsgDeSoTxn) (
 	_isCreatePostTxn bool, _postHashCreated *core.BlockHash) {
-	if txn.TxnMeta.GetTxnType() == lib.TxnTypeSubmitPost {
-		txMeta := txn.TxnMeta.(*lib.SubmitPostMetadata)
+	if txn.TxnMeta.GetTxnType() == net.TxnTypeSubmitPost {
+		txMeta := txn.TxnMeta.(*net.SubmitPostMetadata)
 		// The post hash of a brand new post is the same as its txn hash.
 		if len(txMeta.PostHashToModify) == 0 {
 			return true, txn.Hash()
@@ -481,19 +481,19 @@ func CheckTxnForCreatePost(txn *lib.MsgDeSoTxn) (
 	return false, nil
 }
 
-func GetPostHashToScoreForTxn(txn *lib.MsgDeSoTxn,
+func GetPostHashToScoreForTxn(txn *net.MsgDeSoTxn,
 	utxoView *view.UtxoView) (_postHashScored *core.BlockHash, _posterPKID *core.PKID) {
 	// Figure out which post this transaction should affect.
 	interactionPostHash := &core.BlockHash{}
 	var interactionPostEntry *view.PostEntry
 	txnType := txn.TxnMeta.GetTxnType()
-	if txnType == lib.TxnTypeLike {
-		txMeta := txn.TxnMeta.(*lib.LikeMetadata)
+	if txnType == net.TxnTypeLike {
+		txMeta := txn.TxnMeta.(*net.LikeMetadata)
 		interactionPostHash = txMeta.LikedPostHash
 
-	} else if txnType == lib.TxnTypeBasicTransfer {
+	} else if txnType == net.TxnTypeBasicTransfer {
 		// Check for a post being diamonded.
-		diamondPostHashBytes, hasDiamondPostHash := txn.ExtraData[lib.DiamondPostHashKey]
+		diamondPostHashBytes, hasDiamondPostHash := txn.ExtraData[core.DiamondPostHashKey]
 		if hasDiamondPostHash {
 			copy(interactionPostHash[:], diamondPostHashBytes[:])
 		} else {
@@ -501,8 +501,8 @@ func GetPostHashToScoreForTxn(txn *lib.MsgDeSoTxn,
 			return nil, nil
 		}
 
-	} else if txnType == lib.TxnTypeSubmitPost {
-		txMeta := txn.TxnMeta.(*lib.SubmitPostMetadata)
+	} else if txnType == net.TxnTypeSubmitPost {
+		txMeta := txn.TxnMeta.(*net.SubmitPostMetadata)
 		// If this is a transaction creating a brand new post, we can ignore it.
 		if len(txMeta.PostHashToModify) == 0 {
 			return nil, nil
@@ -513,7 +513,7 @@ func GetPostHashToScoreForTxn(txn *lib.MsgDeSoTxn,
 
 		// For posts we must process three cases: Reposts, Quoted Reposts, and Comments.
 		if view.IsVanillaRepost(interactionPostEntry) || view.IsQuotedRepost(interactionPostEntry) {
-			repostedPostHashBytes := txn.ExtraData[lib.RepostedPostHash]
+			repostedPostHashBytes := txn.ExtraData[core.RepostedPostHash]
 			copy(interactionPostHash[:], repostedPostHashBytes)
 		} else if len(interactionPostEntry.ParentStakeID) > 0 {
 			copy(interactionPostHash[:], interactionPostEntry.ParentStakeID[:])
@@ -541,7 +541,7 @@ func GetPostHashToScoreForTxn(txn *lib.MsgDeSoTxn,
 // to that post's hotness score. The postInteractionMap is used to ensure that each PKID only
 // gets one interaction per post.
 func (fes *APIServer) GetHotnessScoreInfoForTxn(
-	txn *lib.MsgDeSoTxn,
+	txn *net.MsgDeSoTxn,
 	blockAge int, // Number of blocks this txn is from the blockTip.  Not block height.
 	postInteractionMap map[HotFeedInteractionKey][]byte,
 	utxoView *view.UtxoView,
@@ -892,8 +892,8 @@ func (fes *APIServer) AdminUpdateHotFeedUserMultiplier(ww http.ResponseWriter, r
 
 	// Verify the username adheres to the consensus username criteria.
 	if len(requestData.Username) == 0 ||
-		len(requestData.Username) > lib.MaxUsernameLengthBytes ||
-		!lib.UsernameRegex.Match([]byte(requestData.Username)) {
+		len(requestData.Username) > core.MaxUsernameLengthBytes ||
+		!core.UsernameRegex.Match([]byte(requestData.Username)) {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateHotFeedUserMultiplier: Must provide a valid username"))
 		return
 	}
@@ -961,8 +961,8 @@ func (fes *APIServer) AdminGetHotFeedUserMultiplier(ww http.ResponseWriter, req 
 
 	// Verify the username adheres to the consensus username criteria.
 	if len(requestData.Username) == 0 ||
-		len(requestData.Username) > lib.MaxUsernameLengthBytes ||
-		!lib.UsernameRegex.Match([]byte(requestData.Username)) {
+		len(requestData.Username) > core.MaxUsernameLengthBytes ||
+		!core.UsernameRegex.Match([]byte(requestData.Username)) {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetHotFeedUserMultiplier: Must provide a valid username"))
 		return
 	}
