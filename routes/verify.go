@@ -151,10 +151,10 @@ func (fes *APIServer) getPhoneNumberMetadataFromGlobalState(phoneNumber string) 
 			"getPhoneNumberMetadataFromGlobalState: Problem with GlobalStateKeyForPhoneNumberStringToPhoneNumberMetadata %v", err), "")
 	}
 
-	phoneNumberMetadataBytes, err := fes.GlobalStateGet(dbKey)
+	phoneNumberMetadataBytes, err := fes.GlobalState.Get(dbKey)
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf(
-			"getPhoneNumberMetadataFromGlobalState: Problem with GlobalStateGet: %v", err), "")
+			"getPhoneNumberMetadataFromGlobalState: Problem with Get: %v", err), "")
 	}
 
 	phoneNumberMetadata := PhoneNumberMetadata{}
@@ -178,7 +178,7 @@ func (fes *APIServer) putPhoneNumberMetadataInGlobalState(phoneNumberMetadata *P
 
 	metadataDataBuf := bytes.NewBuffer([]byte{})
 	gob.NewEncoder(metadataDataBuf).Encode(phoneNumberMetadata)
-	err = fes.GlobalStatePut(dbKey, metadataDataBuf.Bytes())
+	err = fes.GlobalState.Put(dbKey, metadataDataBuf.Bytes())
 	if err != nil {
 		return errors.Wrap(fmt.Errorf(
 			"putPhoneNumberMetadataInGlobalState: Problem putting updated phone number metadata: %v", err), "")
@@ -826,7 +826,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	uniqueJumioKey := GlobalStateKeyForCountryIDDocumentTypeSubTypeDocumentNumber(idCountry, idType, idSubType, idNumber)
 	// We expect badger to return a key not found error if this document has not been verified before.
 	// If it does not return an error, this is a duplicate, so we skip ahead.
-	if val, _ := fes.GlobalStateGet(uniqueJumioKey); val == nil || userMetadata.RedoJumio {
+	if val, _ := fes.GlobalState.Get(uniqueJumioKey); val == nil || userMetadata.RedoJumio {
 		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : verified", eventDataMap); err != nil {
 			glog.Errorf("JumioCallback: Error logging successful verification in amplitude: %v", err)
 		}
@@ -834,7 +834,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 		if err != nil {
 			glog.Errorf("JumioCallback: Error in JumioVerifiedHandler: %v", err)
 		}
-		if err = fes.GlobalStatePut(uniqueJumioKey, []byte{1}); err != nil {
+		if err = fes.GlobalState.Put(uniqueJumioKey, []byte{1}); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting unique jumio key in global state: %v", err))
 			return
 		}
@@ -916,14 +916,14 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			// Add an index for logging all the PKIDs referred by a single PKID+ReferralHash pair.
 			refereePKID := utxoView.GetPKIDForPublicKey(publicKeyBytes)
 			pkidReferralHashRefereePKIDKey := GlobalStateKeyForPKIDReferralHashRefereePKID(referralInfo.ReferrerPKID, []byte(referralInfo.ReferralHashBase58), refereePKID.PKID)
-			if err = fes.GlobalStatePut(pkidReferralHashRefereePKIDKey, []byte{1}); err != nil {
+			if err = fes.GlobalState.Put(pkidReferralHashRefereePKIDKey, []byte{1}); err != nil {
 				glog.Errorf("JumioVerifiedHandler: Error adding to the index of users who were referred by a given referral code")
 			}
 			// Same as the index above but sorted by timestamp.
 			currTimestampNanos := uint64(time.Now().UTC().UnixNano()) // current tstamp
 			tstampPKIDReferralHashRefereePKIDKey := GlobalStateKeyForTimestampPKIDReferralHashRefereePKID(
 				currTimestampNanos, referralInfo.ReferrerPKID, []byte(referralInfo.ReferralHashBase58), refereePKID.PKID)
-			if err = fes.GlobalStatePut(tstampPKIDReferralHashRefereePKIDKey, []byte{1}); err != nil {
+			if err = fes.GlobalState.Put(tstampPKIDReferralHashRefereePKIDKey, []byte{1}); err != nil {
 				glog.Errorf("JumioVerifiedHandler: Error adding to the index of users who were referred by a given referral code")
 			}
 
@@ -983,7 +983,7 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 }
 
 func (fes *APIServer) GetJumioDeSoNanos() uint64 {
-	val, err := fes.GlobalStateGet(GlobalStateKeyForJumioDeSoNanos())
+	val, err := fes.GlobalState.Get(GlobalStateKeyForJumioDeSoNanos())
 	if err != nil {
 		return 0
 	}

@@ -127,12 +127,23 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 
 	orderId := wyreWalletOrderWebhookRequest.OrderId
 	orderIdBytes := []byte(orderId)
-	if err := fes.GlobalStatePut(GlobalStateKeyForWyreOrderID(orderIdBytes), []byte{1}); err != nil {
+	if err := fes.GlobalState.Put(GlobalStateKeyForWyreOrderID(orderIdBytes), []byte{1}); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: Error saving orderId to global state"))
 		return
 	}
 	referenceId := wyreWalletOrderWebhookRequest.ReferenceId
 	referenceIdSplit := strings.Split(referenceId, ":")
+	if len(referenceIdSplit) != 2 {
+		orderJSON, err := json.Marshal(wyreWalletOrderWebhookRequest)
+		if err != nil {
+			glog.Errorf("WyreWalletOrderSubscription: Invalid ReferenceId: %v, Error marshaling JSON request body: %v", referenceId, err)
+			_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: Invalid ReferenceId: %v, Error marshaling JSON request body: %v", referenceId, err))
+			return
+		}
+		glog.Errorf("WyreWalletOrderSubscription: Invalid ReferenceId: %v, request body: %v", referenceId, string(orderJSON))
+		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: Invalid ReferenceId: %v, requestBody: %v", referenceId, string(orderJSON)))
+		return
+	}
 	publicKey := referenceIdSplit[0]
 	if err := fes.logAmplitudeEvent(publicKey, fmt.Sprintf("wyre : buy : subscription : %v", strings.ToLower(wyreWalletOrderWebhookRequest.OrderStatus)), structs.Map(wyreWalletOrderWebhookRequest)); err != nil {
 		glog.Errorf("WyreWalletOrderSubscription: Error logging payload to amplitude: %v", err)
@@ -207,9 +218,9 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 			wyreOrderIdKey := GlobalStateKeyForWyreOrderIDProcessed(orderIdBytes)
 			// We expect badger to return a key not found error if DeSo has been paid out for this order.
 			// If it does not return an error, DeSo has already been paid out, so we skip ahead.
-			if val, _ := fes.GlobalStateGet(wyreOrderIdKey); val == nil {
+			if val, _ := fes.GlobalState.Get(wyreOrderIdKey); val == nil {
 				// Mark this order as paid out
-				if err = fes.GlobalStatePut(wyreOrderIdKey, []byte{1}); err != nil {
+				if err = fes.GlobalState.Put(wyreOrderIdKey, []byte{1}); err != nil {
 					_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error marking orderId %v as paid out: %v", orderId, err))
 					return
 				}
@@ -220,7 +231,7 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 					_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error paying out deso: %v", err))
 					// In the event that sending the deso to the public key fails for some reason, we will "unmark"
 					// this order as paid in global state
-					if err = fes.GlobalStateDelete(wyreOrderIdKey); err != nil {
+					if err = fes.GlobalState.Delete(wyreOrderIdKey); err != nil {
 						_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error deleting order id key when failing to payout deso: %v", err))
 					}
 					return
@@ -325,7 +336,7 @@ func (fes *APIServer) UpdateWyreGlobalState(ww http.ResponseWriter, publicKeyByt
 		return
 	}
 	// Put the metadata in GlobalState
-	if err := fes.GlobalStatePut(globalStateKey, wyreWalletOrderMetadataBuf.Bytes()); err != nil {
+	if err := fes.GlobalState.Put(globalStateKey, wyreWalletOrderMetadataBuf.Bytes()); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("Update Wyre Global state failed: %v", err))
 		return
 	}
@@ -418,6 +429,17 @@ func (fes *APIServer) GetWyreWalletOrderReservation(ww http.ResponseWriter, req 
 		_AddBadRequestError(ww, fmt.Sprintf("GetWyreWalletOrderReservation: Error parsing request body: %v", err))
 		return
 	}
+
+	referenceId := wyreWalletOrderReservationRequest.ReferenceId
+
+	// Decode the referenceId as a public key.
+	if publicKeyBytes, _, err := lib.Base58CheckDecode(referenceId); err != nil || len(publicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetWyreWalletOrderReservation: Problem decoding ReferenceId as public key %s: %v",
+			referenceId, err))
+		return
+	}
+
 	currentTime := uint64(time.Now().UnixNano())
 	// Make and marshal the payload
 	body := WyreWalletOrderReservationPayload{
@@ -429,7 +451,7 @@ func (fes *APIServer) GetWyreWalletOrderReservation(ww http.ResponseWriter, req 
 		Amount:            fmt.Sprintf("%f", wyreWalletOrderReservationRequest.SourceAmount),
 		LockFields:        []string{"dest", "destCurrency"},
 		RedirectUrl:       fmt.Sprintf("https://%v/buy-deso", req.Host),
-		ReferenceId:       fmt.Sprintf("%v:%v", wyreWalletOrderReservationRequest.ReferenceId, currentTime),
+		ReferenceId:       fmt.Sprintf("%v:%v", referenceId, currentTime),
 	}
 
 	payload, err := json.Marshal(body)
@@ -520,7 +542,7 @@ func (fes *APIServer) GetWyreWalletOrderMetadataFromGlobalState(publicKey string
 	globalStateKey := GlobalStateKeyForUserPublicKeyTstampNanosToWyreOrderMetadata(publicKeyBytes, timestamp)
 
 	// Get Wyre Order Metadata from global state and decode it
-	currentWyreWalletOrderMetadataBytes, err := fes.GlobalStateGet(globalStateKey)
+	currentWyreWalletOrderMetadataBytes, err := fes.GlobalState.Get(globalStateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -599,7 +621,7 @@ func (fes *APIServer) GetWyreWalletOrdersForPublicKey(ww http.ResponseWriter, re
 	maxKeyLen := 1 + btcec.PubKeyBytesLenCompressed + 8
 	prefix := GlobalStateKeyForUserPublicKeyTstampNanosToWyreOrderMetadata(publicKeyBytes, math.MaxUint64)
 	validPrefix := append(_GlobalStatePrefixUserPublicKeyWyreOrderIdToWyreOrderMetadata, publicKeyBytes...)
-	_, values, err = fes.GlobalStateSeek(prefix, validPrefix, maxKeyLen, 100, true, true)
+	_, values, err = fes.GlobalState.Seek(prefix, validPrefix, maxKeyLen, 100, true, true)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetWyreWalletOrdersForPublicKey: error getting wyre order metadata from global state"))
 		return

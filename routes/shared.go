@@ -182,7 +182,7 @@ func (fes *APIServer) GetBalanceForPublicKey(publicKeyBytes []byte) (
 // _profileEntryToResponse() will ignore the map entirely in that case.
 func (fes *APIServer) GetVerifiedUsernameToPKIDMapFromGlobalState() (_verificationMap map[string]*lib.PKID, _err error) {
 	// Pull the verified map from global state.
-	verifiedMapBytes, err := fes.GlobalStateGet(_GlobalStatePrefixForVerifiedMap)
+	verifiedMapBytes, err := fes.GlobalState.Get(_GlobalStatePrefixForVerifiedMap)
 	if err != nil {
 		return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMapFromGlobalState: Cannot Decode Verification Map: %v", err)
 	}
@@ -203,7 +203,7 @@ func (fes *APIServer) GetVerifiedUsernameToPKIDMapFromGlobalState() (_verificati
 		if err = gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct); err != nil {
 			return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMapFromGlobalState: cannot encode verifiedMap struct: %v", err)
 		}
-		err = fes.GlobalStatePut(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
+		err = fes.GlobalState.Put(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
 		if err != nil {
 			return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMapFromGlobalState: Cannot Decode Verification Map: %v", err)
 		}
@@ -231,10 +231,10 @@ func makeUserMetadata(userMetadataBytes []byte, userPublicKeyBytes []byte) (_use
 
 func (fes *APIServer) getUserMetadataFromGlobalStateByPublicKeyBytes(userPublicKeyBytes []byte) (_userMetadata *UserMetadata, _err error) {
 	dbKey := GlobalStateKeyForPublicKeyToUserMetadata(userPublicKeyBytes)
-	userMetadataBytes, err := fes.GlobalStateGet(dbKey)
+	userMetadataBytes, err := fes.GlobalState.Get(dbKey)
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf(
-			"getUserMetadataFromGlobalStateByPublicKeyBytes: Problem with GlobalStateGet: %v", err), "")
+			"getUserMetadataFromGlobalStateByPublicKeyBytes: Problem with Get: %v", err), "")
 	}
 
 	userMetadata, err := makeUserMetadata(userMetadataBytes, userPublicKeyBytes)
@@ -271,7 +271,7 @@ func (fes *APIServer) putUserMetadataInGlobalState(
 	// Encode the updated entry and stick it in the database.
 	metadataDataBuf := bytes.NewBuffer([]byte{})
 	gob.NewEncoder(metadataDataBuf).Encode(userMetadata)
-	err := fes.GlobalStatePut(dbKey, metadataDataBuf.Bytes())
+	err := fes.GlobalState.Put(dbKey, metadataDataBuf.Bytes())
 	if err != nil {
 		return errors.Wrap(fmt.Errorf(
 			"AdminUpdateUserGlobalMetadata: Problem putting updated user metadata: %v", err), "")

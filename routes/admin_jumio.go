@@ -53,7 +53,7 @@ func (fes *APIServer) AdminResetJumioForPublicKey(ww http.ResponseWriter, req *h
 
 	// Delete the Document Key from global state if it exists
 	if userMetadata.JumioDocumentKey != nil {
-		if err = fes.GlobalStateDelete(userMetadata.JumioDocumentKey); err != nil {
+		if err = fes.GlobalState.Delete(userMetadata.JumioDocumentKey); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminResetJumioForPublicKey: Error deleting key from global state: %v", err))
 			return
 		}
@@ -67,7 +67,7 @@ func (fes *APIServer) AdminResetJumioForPublicKey(ww http.ResponseWriter, req *h
 	prefix := GlobalStatePrefixforPKIDTstampnanosToJumioTransaction(pkid.PKID)
 	// Key is prefix + pkid + tstampnanos (8 bytes)
 	maxKeyLen := 1 + len(pkid.PKID[:]) + 8
-	keys, _, err := fes.GlobalStateSeek(prefix, prefix, maxKeyLen, 100, true, true)
+	keys, _, err := fes.GlobalState.Seek(prefix, prefix, maxKeyLen, 100, true, true)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminResetJumioForPublicKey: Error seeking global state for verification attempts: %v", err))
 		return
@@ -75,7 +75,7 @@ func (fes *APIServer) AdminResetJumioForPublicKey(ww http.ResponseWriter, req *h
 
 	// Delete the history of jumio callback payloads.
 	for _, key := range keys {
-		if err = fes.GlobalStateDelete(key); err != nil {
+		if err = fes.GlobalState.Delete(key); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminResetJumioForPublicKey: Error deleting keys from global state: %v", err))
 			return
 		}
@@ -115,7 +115,7 @@ func (fes *APIServer) AdminUpdateJumioDeSo(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
-	if err := fes.GlobalStatePut(
+	if err := fes.GlobalState.Put(
 		GlobalStateKeyForJumioDeSoNanos(),
 		lib.UintToBuf(requestData.DeSoNanos)); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioDeSo: Problem putting premium basis points in global state: %v", err))

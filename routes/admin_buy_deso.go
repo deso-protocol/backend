@@ -27,7 +27,7 @@ func (fes *APIServer) SetUSDCentsToDeSoReserveExchangeRate(ww http.ResponseWrite
 	}
 
 	// Put the new value in global state
-	if err := fes.GlobalStatePut(
+	if err := fes.GlobalState.Put(
 		GlobalStateKeyForUSDCentsToDeSoReserveExchangeRate(),
 		lib.UintToBuf(requestData.USDCentsPerDeSo)); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SetUSDCentsToDeSoReserveExchangeRate: Problem putting exchange rate in global state: %v", err))
@@ -69,7 +69,7 @@ func (fes *APIServer) GetUSDCentsToDeSoReserveExchangeRate(ww http.ResponseWrite
 
 // GetUSDCentsToDeSoReserveExchangeRateFromGlobalState is a helper function to get the current USD cents to DeSo exchange rate
 func (fes *APIServer) GetUSDCentsToDeSoReserveExchangeRateFromGlobalState() (uint64, error) {
-	val, err := fes.GlobalStateGet(GlobalStateKeyForUSDCentsToDeSoReserveExchangeRate())
+	val, err := fes.GlobalState.Get(GlobalStateKeyForUSDCentsToDeSoReserveExchangeRate())
 	if err != nil {
 		return 0, fmt.Errorf("Problem getting deso to usd exchange rate from global state: %v", err)
 	}
@@ -102,7 +102,7 @@ func (fes *APIServer) SetBuyDeSoFeeBasisPoints(ww http.ResponseWriter, req *http
 		return
 	}
 
-	if err := fes.GlobalStatePut(
+	if err := fes.GlobalState.Put(
 		GlobalStateKeyForBuyDeSoFeeBasisPoints(),
 		lib.UintToBuf(requestData.BuyDeSoFeeBasisPoints)); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SetBuyDeSoFeeBasisPoints: Problem putting premium basis points in global state: %v", err))
@@ -141,7 +141,7 @@ func (fes *APIServer) GetBuyDeSoFeeBasisPoints(ww http.ResponseWriter, req *http
 
 // GetBuyDeSoFeeBasisPointsResponseFromGlobalState is a utility to get the current buy DeSo fee from global state.
 func (fes *APIServer) GetBuyDeSoFeeBasisPointsResponseFromGlobalState() (uint64, error) {
-	val, err := fes.GlobalStateGet(GlobalStateKeyForBuyDeSoFeeBasisPoints())
+	val, err := fes.GlobalState.Get(GlobalStateKeyForBuyDeSoFeeBasisPoints())
 	if err != nil {
 		return 0, fmt.Errorf("Problem getting buy deso premium basis points from global state: %v", err)
 	}

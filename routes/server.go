@@ -94,20 +94,21 @@ const (
 	RoutePathGetHotFeed = "/api/v0/get-hot-feed"
 
 	// nft.go
-	RoutePathCreateNFT                = "/api/v0/create-nft"
-	RoutePathUpdateNFT                = "/api/v0/update-nft"
-	RoutePathGetNFTsForUser           = "/api/v0/get-nfts-for-user"
-	RoutePathGetNFTBidsForUser        = "/api/v0/get-nft-bids-for-user"
-	RoutePathCreateNFTBid             = "/api/v0/create-nft-bid"
-	RoutePathAcceptNFTBid             = "/api/v0/accept-nft-bid"
-	RoutePathGetNFTBidsForNFTPost     = "/api/v0/get-nft-bids-for-nft-post"
-	RoutePathGetNFTShowcase           = "/api/v0/get-nft-showcase"
-	RoutePathGetNextNFTShowcase       = "/api/v0/get-next-nft-showcase"
-	RoutePathGetNFTCollectionSummary  = "/api/v0/get-nft-collection-summary"
-	RoutePathGetNFTEntriesForPostHash = "/api/v0/get-nft-entries-for-nft-post"
-	RoutePathTransferNFT              = "/api/v0/transfer-nft"
-	RoutePathAcceptNFTTransfer        = "/api/v0/accept-nft-transfer"
-	RoutePathBurnNFT                  = "/api/v0/burn-nft"
+	RoutePathCreateNFT                 = "/api/v0/create-nft"
+	RoutePathUpdateNFT                 = "/api/v0/update-nft"
+	RoutePathGetNFTsForUser            = "/api/v0/get-nfts-for-user"
+	RoutePathGetNFTBidsForUser         = "/api/v0/get-nft-bids-for-user"
+	RoutePathCreateNFTBid              = "/api/v0/create-nft-bid"
+	RoutePathAcceptNFTBid              = "/api/v0/accept-nft-bid"
+	RoutePathGetNFTBidsForNFTPost      = "/api/v0/get-nft-bids-for-nft-post"
+	RoutePathGetNFTShowcase            = "/api/v0/get-nft-showcase"
+	RoutePathGetNextNFTShowcase        = "/api/v0/get-next-nft-showcase"
+	RoutePathGetNFTCollectionSummary   = "/api/v0/get-nft-collection-summary"
+	RoutePathGetNFTEntriesForPostHash  = "/api/v0/get-nft-entries-for-nft-post"
+	RoutePathGetNFTsCreatedByPublicKey = "/api/v0/get-nfts-created-by-public-key"
+	RoutePathTransferNFT               = "/api/v0/transfer-nft"
+	RoutePathAcceptNFTTransfer         = "/api/v0/accept-nft-transfer"
+	RoutePathBurnNFT                   = "/api/v0/burn-nft"
 
 	// media.go
 	RoutePathUploadImage      = "/api/v0/upload-image"
@@ -257,7 +258,7 @@ type APIServer struct {
 	// a remote node is set-- not both. When a remote node is set, global state
 	// is set and fetched from that node. Otherwise, it is set/fetched from the
 	// db. This makes it easy to run a local node in development.
-	GlobalStateDB *badger.DB
+	GlobalState *GlobalState
 
 	// Optional, may be empty. Used for Twilio integration
 	Twilio *twilio.Client
@@ -355,7 +356,13 @@ func NewAPIServer(
 	blockCypherAPIKey string,
 ) (*APIServer, error) {
 
-	if globalStateDB == nil && config.GlobalStateRemoteNode == "" {
+	globalState := &GlobalState{
+		GlobalStateRemoteSecret: config.GlobalStateRemoteSecret,
+		GlobalStateRemoteNode:   config.GlobalStateRemoteNode,
+		GlobalStateDB:           globalStateDB,
+	}
+
+	if globalStateDB == nil && globalState.GlobalStateRemoteNode == "" {
 		return nil, fmt.Errorf(
 			"NewAPIServer: Error: A globalStateDB or a globalStateRemoteNode is required")
 	}
@@ -374,9 +381,9 @@ func NewAPIServer(
 		TXIndex:                   txIndex,
 		Params:                    params,
 		Config:                    config,
-		GlobalStateDB:             globalStateDB,
 		Twilio:                    twilio,
 		BlockCypherAPIKey:         blockCypherAPIKey,
+		GlobalState:               globalState,
 		LastTradeDeSoPriceHistory: []LastTradePriceHistoryItem{},
 		PublicKeyBase58Prefix:     publicKeyBase58Prefix,
 		// We consider last trade prices from the last hour when determining the current price of DeSo.
@@ -384,12 +391,7 @@ func NewAPIServer(
 		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
 		quit:                   make(chan struct{}),
 	}
-	// We only add RoutePathUpdateProfile to the list of public routes if this node exposes its global state and
-	// compensates profile creation. This route needs to be public in order to support compensating profile creation
-	// on third party nodes for users who have verified their phone number or verified through jumio on this node.
-	if fes.Config.ExposeGlobalState && fes.Config.CompProfileCreation {
-		publicRoutes[RoutePathUpdateProfile] = nil
-	}
+
 	fes.StartSeedBalancesMonitoring()
 
 	// Call this once upon starting server to ensure we have a good initial value
@@ -726,6 +728,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetNFTEntriesForPostHash,
 			fes.GetNFTEntriesForPostHash,
+			PublicAccess,
+		},
+		{
+			"GetNFTsCreatedByPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTsCreatedByPublicKey,
+			fes.GetNFTsCreatedByPublicKey,
 			PublicAccess,
 		},
 		{
@@ -1502,7 +1511,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 	// We serve multiple groups of routes from this endpoint.
 	fullRouteList := append([]Route{}, FrontendRoutes...)
 	fullRouteList = append(fullRouteList, fes.APIRoutes()...)
-	fullRouteList = append(fullRouteList, fes.GlobalStateRoutes()...)
+	fullRouteList = append(fullRouteList, fes.GlobalState.GlobalStateRoutes()...)
 
 	for _, route := range fullRouteList {
 		var handler http.Handler
@@ -1550,7 +1559,7 @@ func Logger(inner http.Handler, name string) http.Handler {
 
 		inner.ServeHTTP(w, r)
 
-		glog.Tracef(
+		glog.V(2).Infof(
 			"%s\t%s\t%s\t%s",
 			r.Method,
 			r.RequestURI,
@@ -1564,14 +1573,16 @@ var publicRoutes = map[string]interface{}{
 	RoutePathGetJumioStatusForPublicKey:     nil,
 	RoutePathUploadVideo:                    nil,
 	RoutePathGetReferralInfoForReferralHash: nil,
-	RoutePathGetReferralInfoForUser: nil,
-	RoutePathGetVerifiedUsernames: nil,
-	RoutePathGetBlacklistedPublicKeys: nil,
-	RoutePathGetGraylistedPublicKeys: nil,
-	RoutePathGetGlobalFeed: nil,
-	RoutePathDeletePII: nil,
-	RoutePathGetUserMetadata: nil,
-
+	RoutePathGetReferralInfoForUser:         nil,
+	RoutePathGetVerifiedUsernames:           nil,
+	RoutePathGetBlacklistedPublicKeys:       nil,
+	RoutePathGetGraylistedPublicKeys:        nil,
+	RoutePathGetGlobalFeed:                  nil,
+	RoutePathDeletePII:                      nil,
+	RoutePathGetUserMetadata:                nil,
+	RoutePathSubmitTransaction:              nil,
+	RoutePathGetTxn:                         nil,
+	RoutePathUpdateProfile:                  nil,
 }
 
 // AddHeaders ...
