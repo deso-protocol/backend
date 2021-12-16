@@ -735,7 +735,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	idCountry := req.PostFormValue("idCountry")
 
 	// Temporarily, we will glog the idCountry to make sure the value we are getting from Jumio matches expectation.
-	glog.Infof("JumioCallback: idCountry: %v", idCountry)
+	glog.Infof("JumioCallback: idCountry: %s", idCountry)
 
 	// Identifier on ID - e.g. Driver's license number for DRIVING_LICENSE, Passport number for PASSPORT
 	idNumber := req.PostFormValue("idNumber")
