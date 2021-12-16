@@ -208,9 +208,12 @@ const (
 	RoutePathAdminUpdateNFTDrop = "/api/v0/admin/update-nft-drop"
 
 	// admin_jumio.go
-	RoutePathAdminResetJumioForPublicKey = "/api/v0/admin/reset-jumio-for-public-key"
-	RoutePathAdminUpdateJumioDeSo        = "/api/v0/admin/update-jumio-deso"
-	RoutePathAdminJumioCallback          = "/api/v0/admin/jumio-callback"
+	RoutePathAdminResetJumioForPublicKey          = "/api/v0/admin/reset-jumio-for-public-key"
+	RoutePathAdminUpdateJumioDeSo                 = "/api/v0/admin/update-jumio-deso"
+	RoutePathAdminUpdateJumioUSDCents             = "/api/v0/admin/update-jumio-usd-cents"
+	RoutePathAdminJumioCallback                   = "/api/v0/admin/jumio-callback"
+	RoutePathAdminUpdateJumioCountrySignUpBonus   = "/api/v0/admin/update-jumio-country-sign-up-bonus"
+	RoutePathAdminGetAllCountryLevelSignUpBonuses = "/api/v0/admin/get-all-country-level-sign-up-bonuses"
 
 	// admin_referrals.go
 	RoutePathAdminCreateReferralHash        = "/api/v0/admin/create-referral-hash"
@@ -341,6 +344,9 @@ type APIServer struct {
 	TotalSupplyDESO  float64
 	RichList         []RichListEntryResponse
 
+	// map of country name to sign up bonus data
+	AllCountryLevelSignUpBonuses map[string]CountrySignUpBonusResponse
+
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
 }
@@ -397,8 +403,9 @@ func NewAPIServer(
 		PublicKeyBase58Prefix:     publicKeyBase58Prefix,
 		// We consider last trade prices from the last hour when determining the current price of DeSo.
 		// This helps prevents attacks that attempt to purchase $DESO at below market value.
-		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
-		quit:                   make(chan struct{}),
+		LastTradePriceLookback:       uint64(time.Hour.Nanoseconds()),
+		AllCountryLevelSignUpBonuses: make(map[string]CountrySignUpBonusResponse),
+		quit:                         make(chan struct{}),
 	}
 
 	fes.StartSeedBalancesMonitoring()
@@ -1242,6 +1249,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			SuperAdminAccess,
 		},
 		{
+			"AdminUpdateJumioUSDCents",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateJumioUSDCents,
+			fes.AdminUpdateJumioUSDCents,
+			SuperAdminAccess,
+		},
+		{
 			"AdminTestSignTransactionWithDerivedKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathTestSignTransactionWithDerivedKey,
@@ -1254,6 +1268,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			RoutePathAdminJumioCallback,
 			fes.AdminJumioCallback,
 			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateJumioCountrySignUpBonus",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateJumioCountrySignUpBonus,
+			fes.AdminUpdateJumioCountrySignUpBonus,
+			SuperAdminAccess,
+		},
+		{
+			"AdminGetAllCountryLevelSignUpBonuses",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetAllCountryLevelSignUpBonuses,
+			fes.AdminGetAllCountryLevelSignUpBonuses,
+			AdminAccess,
 		},
 		{
 			"AdminCreateReferralHash",
@@ -2002,6 +2030,7 @@ func (fes *APIServer) SetGlobalStateCache() {
 	fes.SetBlacklistedPKIDMap(utxoView)
 	fes.SetGraylistedPKIDMap(utxoView)
 	fes.SetGlobalFeedPostHashes()
+	fes.SetAllCountrySignUpBonusMetadata()
 }
 
 func (fes *APIServer) SetVerifiedUsernameMap() {

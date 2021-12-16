@@ -22,19 +22,19 @@ func TestGlobalStateServicePutGetDeleteWithDB(t *testing.T) {
 
 	// Getting when no value is present should return nil without an
 	// error.
-	val, err := apiServer.GlobalStateGet([]byte("woo"))
+	val, err := apiServer.GlobalState.Get([]byte("woo"))
 	require.NoError(err)
 	require.Nil(val)
 
 	// Putting then getting a value should work.
-	require.NoError(apiServer.GlobalStatePut([]byte("woo"), []byte("hoo")))
-	val, err = apiServer.GlobalStateGet([]byte("woo"))
+	require.NoError(apiServer.GlobalState.Put([]byte("woo"), []byte("hoo")))
+	val, err = apiServer.GlobalState.Get([]byte("woo"))
 	require.NoError(err)
 	require.Equal(val, []byte("hoo"))
 
 	// Doing a batch get should work.
-	require.NoError(apiServer.GlobalStatePut([]byte("fan"), []byte("tastic")))
-	valueList, err := apiServer.GlobalStateBatchGet([][]byte{
+	require.NoError(apiServer.GlobalState.Put([]byte("fan"), []byte("tastic")))
+	valueList, err := apiServer.GlobalState.BatchGet([][]byte{
 		[]byte("woo"),
 		[]byte("great"),
 		[]byte("fan"),
@@ -50,8 +50,8 @@ func TestGlobalStateServicePutGetDeleteWithDB(t *testing.T) {
 	}
 
 	// Deleting a value should make it no longer gettable.
-	require.NoError(apiServer.GlobalStateDelete([]byte("woo")))
-	val, err = apiServer.GlobalStateGet([]byte("woo"))
+	require.NoError(apiServer.GlobalState.Delete([]byte("woo")))
+	val, err = apiServer.GlobalState.Get([]byte("woo"))
 	require.NoError(err)
 	require.Nil(val)
 }
@@ -67,7 +67,7 @@ func TestGlobalStateServicePutGetDeleteWithRemoteNode(t *testing.T) {
 	// Getting when no value is present should return nil without an
 	// error.
 	{
-		url, json_data, err := apiServer.CreateGlobalStateGetRequest([]byte("woo"))
+		url, json_data, err := apiServer.GlobalState.CreateGetRequest([]byte("woo"))
 		require.NoError(err)
 		request, _ := http.NewRequest(
 			"POST", url, bytes.NewBuffer(json_data))
@@ -85,7 +85,7 @@ func TestGlobalStateServicePutGetDeleteWithRemoteNode(t *testing.T) {
 
 	// Putting then getting a value should work.
 	{
-		url, json_data, err := apiServer.CreateGlobalStatePutRequest([]byte("woo"), []byte("hoo"))
+		url, json_data, err := apiServer.GlobalState.CreatePutRequest([]byte("woo"), []byte("hoo"))
 		require.NoError(err)
 		request, _ := http.NewRequest(
 			"POST", url, bytes.NewBuffer(json_data))
@@ -100,7 +100,7 @@ func TestGlobalStateServicePutGetDeleteWithRemoteNode(t *testing.T) {
 		}
 	}
 	{
-		url, json_data, err := apiServer.CreateGlobalStateGetRequest([]byte("woo"))
+		url, json_data, err := apiServer.GlobalState.CreateGetRequest([]byte("woo"))
 		require.NoError(err)
 		request, _ := http.NewRequest(
 			"POST", url,
@@ -119,7 +119,7 @@ func TestGlobalStateServicePutGetDeleteWithRemoteNode(t *testing.T) {
 
 	// Batch get should work.
 	{
-		url, json_data, err := apiServer.CreateGlobalStateBatchGetRequest(
+		url, json_data, err := apiServer.GlobalState.CreateBatchGetRequest(
 			[][]byte{[]byte("woo"), []byte("fantastic"), []byte("great")},
 		)
 		require.NoError(err)
@@ -145,7 +145,7 @@ func TestGlobalStateServicePutGetDeleteWithRemoteNode(t *testing.T) {
 
 	// Deleting a value should make it no longer gettable.
 	{
-		url, json_data, err := apiServer.CreateGlobalStateDeleteRequest([]byte("woo"))
+		url, json_data, err := apiServer.GlobalState.CreateDeleteRequest([]byte("woo"))
 		require.NoError(err)
 		request, _ := http.NewRequest(
 			"POST", url,
@@ -161,7 +161,7 @@ func TestGlobalStateServicePutGetDeleteWithRemoteNode(t *testing.T) {
 		}
 	}
 	{
-		url, json_data, err := apiServer.CreateGlobalStateGetRequest([]byte("woo"))
+		url, json_data, err := apiServer.GlobalState.CreateGetRequest([]byte("woo"))
 		require.NoError(err)
 		request, _ := http.NewRequest(
 			"POST", url,
@@ -188,19 +188,19 @@ func TestGlobalStateServiceURLCreation(t *testing.T) {
 		t, "https://deso.com:17001" /*globalStateRemoteNode*/)
 
 	{
-		url, _, err := apiServer.CreateGlobalStateGetRequest([]byte("woo"))
+		url, _, err := apiServer.GlobalState.CreateGetRequest([]byte("woo"))
 		require.NoError(err)
 		assert.Equal("https://deso.com:17001/api/v1/global-state/get?shared_secret=abcdef", url)
 	}
 
 	{
-		url, _, err := apiServer.CreateGlobalStatePutRequest([]byte("woo"), []byte("hoo"))
+		url, _, err := apiServer.GlobalState.CreatePutRequest([]byte("woo"), []byte("hoo"))
 		require.NoError(err)
 		assert.Equal("https://deso.com:17001/api/v1/global-state/put?shared_secret=abcdef", url)
 	}
 
 	{
-		url, _, err := apiServer.CreateGlobalStateBatchGetRequest(
+		url, _, err := apiServer.GlobalState.CreateBatchGetRequest(
 			[][]byte{[]byte("woo"), []byte("fantastic"), []byte("great")},
 		)
 		require.NoError(err)
@@ -208,7 +208,7 @@ func TestGlobalStateServiceURLCreation(t *testing.T) {
 	}
 
 	{
-		url, _, err := apiServer.CreateGlobalStateDeleteRequest([]byte("woo"))
+		url, _, err := apiServer.GlobalState.CreateDeleteRequest([]byte("woo"))
 		require.NoError(err)
 		assert.Equal("https://deso.com:17001/api/v1/global-state/delete?shared_secret=abcdef", url)
 	}

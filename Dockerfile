@@ -21,6 +21,7 @@ COPY backend/config  config
 COPY backend/cmd     cmd
 COPY backend/miner   miner
 COPY backend/routes  routes
+COPY backend/utils   utils
 COPY backend/main.go .
 
 # include core src
