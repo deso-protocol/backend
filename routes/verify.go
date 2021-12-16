@@ -705,10 +705,7 @@ type JumioIdentityVerification struct {
 type JumioRejectReason struct {
 	RejectReasonCode        string `json:"rejectReasonCode"`
 	RejectReasonDescription string `json:"rejectReasonDescription"`
-	RejectReasonDetails     struct {
-		DetailsCode        string `json:"detailsCode"`
-		DetailsDescription string `json:"detailsDescription"`
-	} `json:"rejectReasonDetails"`
+	RejectReasonDetails     interface{} `json:"rejectReasonDetails"`
 }
 
 // Jumio webhook - If Jumio verified user is a human that we haven't paid already, pay them some starter DESO.
