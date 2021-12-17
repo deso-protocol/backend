@@ -72,6 +72,7 @@ type GetReferralInfoForReferralHashRequest struct {
 
 type GetReferralInfoForReferralHashResponse struct {
 	ReferralInfoResponse *SimpleReferralInfoResponse
+	CountrySignUpBonus   CountryLevelSignUpBonus
 }
 
 func (fes *APIServer) GetReferralInfoForReferralHash(ww http.ResponseWriter, req *http.Request) {
@@ -101,6 +102,7 @@ func (fes *APIServer) GetReferralInfoForReferralHash(ww http.ResponseWriter, req
 			Info:     simpleReferralInfo,
 			IsActive: fes.getReferralHashStatus(referralInfo.ReferrerPKID, referralInfo.ReferralHashBase58),
 		},
+		CountrySignUpBonus: fes.GetCountryLevelSignUpBonusFromHeader(req),
 	}
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
