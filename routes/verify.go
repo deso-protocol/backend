@@ -6,7 +6,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
-	"github.com/deso-protocol/backend/utils/country_codes"
+	"github.com/deso-protocol/backend/countries"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -930,7 +930,7 @@ func (fes *APIServer) GetCountryLevelSignUpBonusFromHeader(req *http.Request) (_
 func (fes *APIServer) GetCountryLevelSignUpBonusFromAlpha2(countryCodeAlpha2 string) (_signUpBonus CountryLevelSignUpBonus) {
 	countrySignUpBonus := fes.GetDefaultJumioCountrySignUpBonus()
 
-	if alpha3, exists := country_codes.Alpha2ToAlpha3[countryCodeAlpha2]; exists {
+	if alpha3, exists := countries.Alpha2ToAlpha3[countryCodeAlpha2]; exists {
 		countrySignUpBonus = fes.GetSingleCountrySignUpBonus(alpha3)
 	}
 

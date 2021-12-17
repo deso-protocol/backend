@@ -1,4 +1,4 @@
-package country_codes
+package countries
 
 var Alpha2ToAlpha3 = map[string]string{
 	"BD": "BGD",

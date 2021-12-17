@@ -1,4 +1,4 @@
-package country_codes
+package countries
 
 type Alpha3CountryCodeDetails struct {
 	CountryCode string
