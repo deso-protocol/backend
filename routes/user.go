@@ -415,6 +415,81 @@ func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, utx
 	return hodlYouMap, nil
 }
 
+type GetUserMetadataRequest struct {
+	PublicKeyBase58Check string
+}
+
+type GetUserMetadataResponse struct {
+	HasPhoneNumber   bool
+	CanCreateProfile bool
+	BlockedPubKeys   map[string]struct{}
+	HasEmail         bool
+	EmailVerified    bool
+	// JumioFinishedTime = Time user completed flow in Jumio
+	JumioFinishedTime uint64
+	// JumioVerified = user was verified from Jumio flow
+	JumioVerified bool
+	// JumioReturned = jumio webhook called
+	JumioReturned bool
+}
+
+// GetUserMetadata ...
+func (fes *APIServer) GetUserMetadata(ww http.ResponseWriter, req *http.Request) {
+	if !fes.Config.ExposeGlobalState {
+		_AddNotFoundError(ww, fmt.Sprintf("Global state not exposed"))
+		return
+	}
+	vars := mux.Vars(req)
+	publicKeyBase58Check, publicKeyBase58CheckExists := vars["publicKeyBase58Check"]
+	if !publicKeyBase58CheckExists {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: Missing public key base 58 check"))
+		return
+	}
+
+	// Decode the public key into bytes.
+	publicKeyBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: error decoding public key: %v", err))
+		return
+	}
+
+	userMetadata, err := fes.getUserMetadataFromGlobalStateByPublicKeyBytes(publicKeyBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: error getting user metadata from global state: %v", err))
+		return
+	}
+
+	res := GetUserMetadataResponse{}
+	res.HasPhoneNumber = userMetadata.PhoneNumber != ""
+	res.HasEmail = userMetadata.Email != ""
+	res.EmailVerified = userMetadata.EmailVerified
+	res.JumioVerified = userMetadata.JumioVerified
+	res.JumioReturned = userMetadata.JumioReturned
+	res.JumioFinishedTime = userMetadata.JumioFinishedTime
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: error getting utxoview: %v", err))
+		return
+	}
+	if res.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: error getting CanCreateProfile: %v", err))
+		return
+	}
+
+	// Get map of public keys user has blocked
+	if res.BlockedPubKeys, err = fes.GetBlockedPubKeysForUser(publicKeyBytes); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: error getting blocked public keys: %v", err))
+		return
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: Problem encoding response as JSON: %v", err))
+		return
+	}
+
+}
+
 type DeleteIdentityRequest struct{}
 
 type DeleteIdentityResponse struct{}
@@ -1710,7 +1785,7 @@ type GetNotificationsCountRequest struct {
 }
 
 type GetNotificationsCountResponse struct {
-	NotificationsCount uint64
+	NotificationsCount          uint64
 	LastUnreadNotificationIndex uint64
 	// Whether new unread notifications were added and the user metadata should be updated
 	UpdateMetadata bool
@@ -1766,9 +1841,9 @@ func (fes *APIServer) GetNotificationsCount(ww http.ResponseWriter, req *http.Re
 	}
 
 	res := &GetNotificationsCountResponse{
-		NotificationsCount: notificationsCount,
+		NotificationsCount:          notificationsCount,
 		LastUnreadNotificationIndex: uint64(notificationStartIndex),
-		UpdateMetadata: updateMetadata,
+		UpdateMetadata:              updateMetadata,
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
@@ -1903,6 +1978,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		transferCreatorCoinMetadata := txnMeta.Metadata.CreatorCoinTransferTxindexMetadata
 		nftBidMetadata := txnMeta.Metadata.NFTBidTxindexMetadata
 		acceptNFTBidMetadata := txnMeta.Metadata.AcceptNFTBidTxindexMetadata
+		nftTransferMetadata := txnMeta.Metadata.NFTTransferTxindexMetadata
 		basicTransferMetadata := txnMeta.Metadata.BasicTransferTxindexMetadata
 
 		if postMetadata != nil {
@@ -1918,6 +1994,8 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 			addPostForHash(nftBidMetadata.NFTPostHashHex, userPublicKeyBytes, false)
 		} else if acceptNFTBidMetadata != nil {
 			addPostForHash(acceptNFTBidMetadata.NFTPostHashHex, userPublicKeyBytes, false)
+		} else if nftTransferMetadata != nil {
+			addPostForHash(nftTransferMetadata.NFTPostHashHex, userPublicKeyBytes, false)
 		} else if basicTransferMetadata != nil {
 			txnOutputs := txnMeta.Metadata.TxnOutputs
 			for _, output := range txnOutputs {
@@ -2066,8 +2144,6 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 		}
 
 		for ii, txIDBytes := range valsFound {
-			currentIndexTest := int64(lib.DecodeUint32(keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]))
-			fmt.Printf("%v", currentIndexTest)
 			txID := &lib.BlockHash{}
 			copy(txID[:], txIDBytes)
 
@@ -2391,7 +2467,7 @@ func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredO
 		return !filteredOutCategories["follow"]
 	} else if txnMeta.TxnType == lib.TxnTypeLike.String() {
 		return !filteredOutCategories["like"]
-	} else if txnMeta.TxnType == lib.TxnTypeNFTBid.String() || txnMeta.TxnType == lib.TxnTypeAcceptNFTBid.String() {
+	} else if txnMeta.TxnType == lib.TxnTypeNFTBid.String() || txnMeta.TxnType == lib.TxnTypeAcceptNFTBid.String() || txnMeta.TxnType == lib.TxnTypeNFTTransfer.String() {
 		return !filteredOutCategories["nft"]
 	}
 	// If the transaction type doesn't fall into any of the previous steps, we don't want it
@@ -2460,6 +2536,9 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 		return true
 	} else if txnMeta.AcceptNFTBidTxindexMetadata != nil {
 		// Someone accepted your bid for an NFT
+		return true
+	} else if txnMeta.NFTTransferTxindexMetadata != nil {
+		// Someone transferred you an NFT
 		return true
 	} else if txnMeta.TxnType == lib.TxnTypeBasicTransfer.String() {
 		// Someone paid you
@@ -2867,7 +2946,7 @@ func (fes *APIServer) DeletePII(ww http.ResponseWriter, rr *http.Request) {
 
 // IsUserGraylisted returns true if the user is graylisted based on the current Graylist state.
 func (fes *APIServer) IsUserGraylisted(pkid *lib.PKID) bool {
-	return reflect.DeepEqual(fes.GetGraylistState(pkid), lib.IsGraylisted)
+	return reflect.DeepEqual(fes.GetGraylistState(pkid), IsGraylisted)
 }
 
 // GetGraylistState returns the graylist state bytes based on the current Graylist state.
@@ -2877,7 +2956,7 @@ func (fes *APIServer) GetGraylistState(pkid *lib.PKID) []byte {
 
 // IsUserBlacklisted returns true if the user is blacklisted based on the current Blacklist state.
 func (fes *APIServer) IsUserBlacklisted(pkid *lib.PKID) bool {
-	return reflect.DeepEqual(fes.GetBlacklistState(pkid), lib.IsBlacklisted)
+	return reflect.DeepEqual(fes.GetBlacklistState(pkid), IsBlacklisted)
 }
 
 // GetBlacklistState returns the blacklist state bytes based on the current Blacklist state.

@@ -151,10 +151,10 @@ func (fes *APIServer) getPhoneNumberMetadataFromGlobalState(phoneNumber string) 
 			"getPhoneNumberMetadataFromGlobalState: Problem with GlobalStateKeyForPhoneNumberStringToPhoneNumberMetadata %v", err), "")
 	}
 
-	phoneNumberMetadataBytes, err := fes.GlobalStateGet(dbKey)
+	phoneNumberMetadataBytes, err := fes.GlobalState.Get(dbKey)
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf(
-			"getPhoneNumberMetadataFromGlobalState: Problem with GlobalStateGet: %v", err), "")
+			"getPhoneNumberMetadataFromGlobalState: Problem with Get: %v", err), "")
 	}
 
 	phoneNumberMetadata := PhoneNumberMetadata{}
@@ -178,7 +178,7 @@ func (fes *APIServer) putPhoneNumberMetadataInGlobalState(phoneNumberMetadata *P
 
 	metadataDataBuf := bytes.NewBuffer([]byte{})
 	gob.NewEncoder(metadataDataBuf).Encode(phoneNumberMetadata)
-	err = fes.GlobalStatePut(dbKey, metadataDataBuf.Bytes())
+	err = fes.GlobalState.Put(dbKey, metadataDataBuf.Bytes())
 	if err != nil {
 		return errors.Wrap(fmt.Errorf(
 			"putPhoneNumberMetadataInGlobalState: Problem putting updated phone number metadata: %v", err), "")
@@ -702,6 +702,12 @@ type JumioIdentityVerification struct {
 	Reason     string `json:"reason"`
 }
 
+type JumioRejectReason struct {
+	RejectReasonCode        string `json:"rejectReasonCode"`
+	RejectReasonDescription string `json:"rejectReasonDescription"`
+	RejectReasonDetails     interface{} `json:"rejectReasonDetails"`
+}
+
 // Jumio webhook - If Jumio verified user is a human that we haven't paid already, pay them some starter DESO.
 // Make sure you only allow access to jumio IPs for this endpoint, otherwise anybody can take all the funds from
 // the public key that sends DeSo. WHITELIST JUMIO IPs.
@@ -725,6 +731,9 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	// Country of ID
 	idCountry := req.PostFormValue("idCountry")
 
+	// Temporarily, we will glog the idCountry to make sure the value we are getting from Jumio matches expectation.
+	glog.Infof("JumioCallback: idCountry: %s", idCountry)
+
 	// Identifier on ID - e.g. Driver's license number for DRIVING_LICENSE, Passport number for PASSPORT
 	idNumber := req.PostFormValue("idNumber")
 
@@ -733,6 +742,9 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 
 	// Jumio TransactionID
 	jumioTransactionId := req.PostFormValue("jumioIdScanReference")
+
+	// Verification status
+	verificationStatus := req.FormValue("verificationStatus")
 
 	// Get Public key bytes and PKID
 	if userReference == "" {
@@ -776,6 +788,20 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	// Map of data for amplitude
 	eventDataMap := make(map[string]interface{})
 	eventDataMap["referralCode"] = userMetadata.ReferralHashBase58Check
+	eventDataMap["verificationStatus"] = verificationStatus
+
+	// If verification status is DENIED_FRAUD or ERROR_NOT_READABLE_ID, parse the rejection reason
+	// See description of rejectReason here:
+	// https://github.com/Jumio/implementation-guides/blob/master/netverify/callback.md#parameters
+	if verificationStatus == "DENIED_FRAUD" || verificationStatus == "ERROR_NOT_READABLE_ID" {
+		rejectReason := req.FormValue("rejectReason")
+		var jumioRejectReason JumioRejectReason
+		if err = json.Unmarshal([]byte(rejectReason), &jumioRejectReason); err != nil {
+			glog.Errorf("JumioCallback: error unmarshaling reject reason: %v", err)
+		} else {
+			eventDataMap["rejectReason"] = jumioRejectReason
+		}
+	}
 
 	if req.FormValue("idScanStatus") != "SUCCESS" {
 		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : scan : fail", eventDataMap); err != nil {
@@ -826,15 +852,15 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	uniqueJumioKey := GlobalStateKeyForCountryIDDocumentTypeSubTypeDocumentNumber(idCountry, idType, idSubType, idNumber)
 	// We expect badger to return a key not found error if this document has not been verified before.
 	// If it does not return an error, this is a duplicate, so we skip ahead.
-	if val, _ := fes.GlobalStateGet(uniqueJumioKey); val == nil || userMetadata.RedoJumio {
+	if val, _ := fes.GlobalState.Get(uniqueJumioKey); val == nil || userMetadata.RedoJumio {
 		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : verified", eventDataMap); err != nil {
 			glog.Errorf("JumioCallback: Error logging successful verification in amplitude: %v", err)
 		}
-		userMetadata, err = fes.JumioVerifiedHandler(userMetadata, jumioTransactionId, publicKeyBytes, utxoView)
+		userMetadata, err = fes.JumioVerifiedHandler(userMetadata, jumioTransactionId, idCountry, publicKeyBytes, utxoView)
 		if err != nil {
 			glog.Errorf("JumioCallback: Error in JumioVerifiedHandler: %v", err)
 		}
-		if err = fes.GlobalStatePut(uniqueJumioKey, []byte{1}); err != nil {
+		if err = fes.GlobalState.Put(uniqueJumioKey, []byte{1}); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Error putting unique jumio key in global state: %v", err))
 			return
 		}
@@ -849,7 +875,66 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTransactionId string, publicKeyBytes []byte, utxoView *lib.UtxoView) (_userMetadata *UserMetadata, err error) {
+// GetDefaultJumioCountrySignUpBonus returns the default sign-up bonus configuration.
+func (fes *APIServer) GetDefaultJumioCountrySignUpBonus() CountryLevelSignUpBonus {
+	return CountryLevelSignUpBonus{
+		AllowCustomKickbackAmount:      false,
+		AllowCustomReferralAmount:      false,
+		ReferralAmountOverrideUSDCents: fes.GetJumioUSDCents(),
+		KickbackAmountOverrideUSDCents: 0,
+	}
+}
+
+// GetJumioCountrySignUpBonus gets the country level sign up bonus configuration for the provided country code.  If
+// there is an error or there is no sign up bonus configuration for a given country, return the default sign-up bonus
+// configuration.
+func (fes *APIServer) GetJumioCountrySignUpBonus(countryCode string) (_signUpBonus CountryLevelSignUpBonus, _err error) {
+	key := GlobalStateKeyForCountryCodeToCountrySignUpBonus(countryCode)
+
+	jumioCountrySignUpBonusMetadataBytes, err := fes.GlobalState.Get(key)
+	if err != nil {
+		return fes.GetDefaultJumioCountrySignUpBonus(), fmt.Errorf(
+			"GetJumioCountrySignUpBonus: error getting sign up bonus metadata from global state for %s: %v",
+			countryCode, err)
+	}
+	var signUpBonus CountryLevelSignUpBonus
+
+	if jumioCountrySignUpBonusMetadataBytes != nil {
+		if err = gob.NewDecoder(bytes.NewReader(jumioCountrySignUpBonusMetadataBytes)).Decode(
+			&signUpBonus); err != nil {
+			return fes.GetDefaultJumioCountrySignUpBonus(), fmt.Errorf(
+				"GetJumioCountrySignUpBonus: Failed decoding signup bonus metadata (%s): %v",
+				countryCode, err)
+		}
+		return signUpBonus, nil
+	} else {
+		// We were unable to find a country, return the default
+		return fes.GetDefaultJumioCountrySignUpBonus(), nil
+	}
+}
+
+// GetRefereeSignUpBonusAmount gets the amount the referee should get a sign-up bonus for verifying with Jumio based on
+// the country of their ID.
+func (fes *APIServer) GetRefereeSignUpBonusAmount(signUpBonus CountryLevelSignUpBonus, referralCodeUSDCents uint64) uint64 {
+	amount := signUpBonus.ReferralAmountOverrideUSDCents
+	if signUpBonus.AllowCustomReferralAmount && referralCodeUSDCents > amount {
+		amount = referralCodeUSDCents
+	}
+	return fes.GetNanosFromUSDCents(float64(amount), 0)
+}
+
+// GetReferrerSignUpBonusAmount gets the amount the referrer should get as a kickback for referring the user based
+// on the country from which the referee signed up.
+func (fes *APIServer) GetReferrerSignUpBonusAmount(signUpBonus CountryLevelSignUpBonus, referralCodeUSDCents uint64) uint64 {
+	amount := signUpBonus.KickbackAmountOverrideUSDCents
+	if signUpBonus.AllowCustomReferralAmount && referralCodeUSDCents > amount {
+		amount = referralCodeUSDCents
+	}
+	return fes.GetNanosFromUSDCents(float64(amount), 0)
+}
+
+func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTransactionId string,
+	jumioCountryCode string, publicKeyBytes []byte, utxoView *lib.UtxoView) (_userMetadata *UserMetadata, err error) {
 	// Update the user metadata to show that user has been jumio verified and store jumio transaction id.
 	userMetadata.JumioVerified = true
 	userMetadata.JumioTransactionID = jumioTransactionId
@@ -857,10 +942,14 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 	userMetadata.MustCompleteTutorial = true
 	userMetadata.RedoJumio = false
 
+	// We will always get a valid signUpBonusMetadataObject, so glog the error and proceed.
+	signUpBonusMetadata := fes.GetSingleCountrySignUpBonus(jumioCountryCode)
+
 	// Decide whether or not the user is going to get paid.
-	if desoNanos := fes.GetJumioDeSoNanos(); desoNanos > 0 || userMetadata.ReferralHashBase58Check != "" {
+	if signUpBonusMetadata.ReferralAmountOverrideUSDCents > 0 || userMetadata.ReferralHashBase58Check != "" {
 		payReferrer := false
 
+		referralAmountUSDCents := uint64(0)
 		// Decide whether the user should be paid the standard amount or a special referral amount.
 		if userMetadata.ReferralHashBase58Check != "" {
 			var referralInfo *ReferralInfo
@@ -868,16 +957,18 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			if err != nil {
 				glog.Errorf("JumioVerifiedHandler: Error getting referral info: %v", err)
 			} else if referralInfo != nil && (referralInfo.TotalReferrals < referralInfo.MaxReferrals || referralInfo.MaxReferrals == 0) && fes.getReferralHashStatus(referralInfo.ReferrerPKID, referralInfo.ReferralHashBase58) {
-				desoNanos = fes.GetNanosFromUSDCents(float64(referralInfo.RefereeAmountUSDCents), 0)
+				referralAmountUSDCents = referralInfo.RefereeAmountUSDCents
 				payReferrer = true
 			}
 		}
 
+		refereeSignUpBonusDeSoNanos := fes.GetRefereeSignUpBonusAmount(signUpBonusMetadata, referralAmountUSDCents)
+
 		// Pay the referee.
-		if desoNanos > 0 {
+		if refereeSignUpBonusDeSoNanos > 0 {
 			// Check the balance of the starter deso seed.
 			var balanceInsufficient bool
-			balanceInsufficient, err = fes.ExceedsDeSoBalance(desoNanos, fes.Config.StarterDESOSeed)
+			balanceInsufficient, err = fes.ExceedsDeSoBalance(refereeSignUpBonusDeSoNanos, fes.Config.StarterDESOSeed)
 			if err != nil {
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error checking if send deso balance is sufficient: %v", err)
 			}
@@ -886,14 +977,14 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			}
 			// Send JumioDeSoNanos to public key
 			var txnHash *lib.BlockHash
-			txnHash, err = fes.SendSeedDeSo(publicKeyBytes, desoNanos, false)
+			txnHash, err = fes.SendSeedDeSo(publicKeyBytes, refereeSignUpBonusDeSoNanos, false)
 			if err != nil {
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error sending starter DeSo: %v", err)
 			}
 
 			// Log payout to referee in amplitude
 			eventDataMap := make(map[string]interface{})
-			eventDataMap["amountNanos"] = desoNanos
+			eventDataMap["amountNanos"] = refereeSignUpBonusDeSoNanos
 			eventDataMap["txnHashHex"] = txnHash.String()
 			eventDataMap["referralCode"] = userMetadata.ReferralHashBase58Check
 			if err = fes.logAmplitudeEvent(lib.PkToString(publicKeyBytes, fes.Params), "referral : payout : referee", eventDataMap); err != nil {
@@ -913,28 +1004,29 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			if err != nil {
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error getting referral info: %v", err)
 			}
+
+			kickbackAmountDeSoNanos := fes.GetReferrerSignUpBonusAmount(signUpBonusMetadata,
+				referralInfo.ReferrerAmountUSDCents)
 			// Add an index for logging all the PKIDs referred by a single PKID+ReferralHash pair.
 			refereePKID := utxoView.GetPKIDForPublicKey(publicKeyBytes)
 			pkidReferralHashRefereePKIDKey := GlobalStateKeyForPKIDReferralHashRefereePKID(referralInfo.ReferrerPKID, []byte(referralInfo.ReferralHashBase58), refereePKID.PKID)
-			if err = fes.GlobalStatePut(pkidReferralHashRefereePKIDKey, []byte{1}); err != nil {
+			if err = fes.GlobalState.Put(pkidReferralHashRefereePKIDKey, []byte{1}); err != nil {
 				glog.Errorf("JumioVerifiedHandler: Error adding to the index of users who were referred by a given referral code")
 			}
 			// Same as the index above but sorted by timestamp.
 			currTimestampNanos := uint64(time.Now().UTC().UnixNano()) // current tstamp
 			tstampPKIDReferralHashRefereePKIDKey := GlobalStateKeyForTimestampPKIDReferralHashRefereePKID(
 				currTimestampNanos, referralInfo.ReferrerPKID, []byte(referralInfo.ReferralHashBase58), refereePKID.PKID)
-			if err = fes.GlobalStatePut(tstampPKIDReferralHashRefereePKIDKey, []byte{1}); err != nil {
+			if err = fes.GlobalState.Put(tstampPKIDReferralHashRefereePKIDKey, []byte{1}); err != nil {
 				glog.Errorf("JumioVerifiedHandler: Error adding to the index of users who were referred by a given referral code")
 			}
 
-			// Calculate how much to pay the referrer
-			referrerDeSoNanos := fes.GetNanosFromUSDCents(float64(referralInfo.ReferrerAmountUSDCents), 0)
 			if referralInfo.TotalReferrals >= referralInfo.MaxReferrals && referralInfo.MaxReferrals > 0 {
 				return userMetadata, nil
 			}
 			// Check the balance of the starter deso seed compared to the referrer deso nanos.
 			var balanceInsufficientForReferrer bool
-			balanceInsufficientForReferrer, err = fes.ExceedsDeSoBalance(referrerDeSoNanos, fes.Config.StarterDESOSeed)
+			balanceInsufficientForReferrer, err = fes.ExceedsDeSoBalance(kickbackAmountDeSoNanos, fes.Config.StarterDESOSeed)
 			if err != nil {
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error checking if send deso balance is sufficient: %v", err)
 			}
@@ -947,26 +1039,26 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			// Increment JumioSuccesses, TotalReferrals and add to TotralRefereeDeSoNanos and TotalReferrerDeSoNanos
 			referralInfo.NumJumioSuccesses++
 			referralInfo.TotalReferrals++
-			referralInfo.TotalRefereeDeSoNanos += desoNanos
-			referralInfo.TotalReferrerDeSoNanos += referrerDeSoNanos
+			referralInfo.TotalRefereeDeSoNanos += refereeSignUpBonusDeSoNanos
+			referralInfo.TotalReferrerDeSoNanos += kickbackAmountDeSoNanos
 
 			// Update the referral info in global state.
 			if err = fes.putReferralHashWithInfo(userMetadata.ReferralHashBase58Check, referralInfo); err != nil {
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error updating referral info. Skipping paying referrer: %v", err)
 			}
-			// Bail if there referrer gets nothing
-			if referrerDeSoNanos == 0 {
+			// Check that we actually have to pay the referrer before proceeding
+			if kickbackAmountDeSoNanos == 0 {
 				return userMetadata, nil
 			}
 			// Send the referrer money
 			var referrerTxnHash *lib.BlockHash
-			referrerTxnHash, err = fes.SendSeedDeSo(referrerPublicKeyBytes, referrerDeSoNanos, false)
+			referrerTxnHash, err = fes.SendSeedDeSo(referrerPublicKeyBytes, kickbackAmountDeSoNanos, false)
 			if err != nil {
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Error sending DESO to referrer: %v", err)
 			}
 			// Log payout to referee in amplitude
 			eventDataMap := make(map[string]interface{})
-			eventDataMap["amountNanos"] = referrerDeSoNanos
+			eventDataMap["amountNanos"] = kickbackAmountDeSoNanos
 			eventDataMap["txnHashHex"] = referrerTxnHash.String()
 			eventDataMap["referralCode"] = userMetadata.ReferralHashBase58Check
 			eventDataMap["refereePublicKey"] = lib.PkToString(publicKeyBytes, fes.Params)
@@ -982,16 +1074,21 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 	return userMetadata, nil
 }
 
-func (fes *APIServer) GetJumioDeSoNanos() uint64 {
-	val, err := fes.GlobalStateGet(GlobalStateKeyForJumioDeSoNanos())
+// Get JumioUSDCents returns the default amount a user receives for verifying with Jumio without a referral code.
+func (fes *APIServer) GetJumioUSDCents() uint64 {
+	val, err := fes.GlobalState.Get(GlobalStateKeyForJumioUSDCents())
 	if err != nil {
 		return 0
 	}
-	jumioDeSoNanos, bytesRead := lib.Uvarint(val)
+	jumioUSDCents, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {
 		return 0
 	}
-	return jumioDeSoNanos
+	return jumioUSDCents
+}
+
+func (fes *APIServer) GetJumioDeSoNanos() uint64 {
+	return fes.GetNanosFromUSDCents(float64(fes.GetJumioUSDCents()), 0)
 }
 
 type GetJumioStatusForPublicKeyRequest struct {

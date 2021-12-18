@@ -78,6 +78,7 @@ const (
 	RoutePathIsHodlingPublicKey          = "/api/v0/is-hodling-public-key"
 	RoutePathGetUserDerivedKeys          = "/api/v0/get-user-derived-keys"
 	RoutePathDeletePII                   = "/api/v0/delete-pii"
+	RoutePathGetUserMetadata             = "/api/v0/get-user-metadata"
 
 	// post.go
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
@@ -93,20 +94,21 @@ const (
 	RoutePathGetHotFeed = "/api/v0/get-hot-feed"
 
 	// nft.go
-	RoutePathCreateNFT                = "/api/v0/create-nft"
-	RoutePathUpdateNFT                = "/api/v0/update-nft"
-	RoutePathGetNFTsForUser           = "/api/v0/get-nfts-for-user"
-	RoutePathGetNFTBidsForUser        = "/api/v0/get-nft-bids-for-user"
-	RoutePathCreateNFTBid             = "/api/v0/create-nft-bid"
-	RoutePathAcceptNFTBid             = "/api/v0/accept-nft-bid"
-	RoutePathGetNFTBidsForNFTPost     = "/api/v0/get-nft-bids-for-nft-post"
-	RoutePathGetNFTShowcase           = "/api/v0/get-nft-showcase"
-	RoutePathGetNextNFTShowcase       = "/api/v0/get-next-nft-showcase"
-	RoutePathGetNFTCollectionSummary  = "/api/v0/get-nft-collection-summary"
-	RoutePathGetNFTEntriesForPostHash = "/api/v0/get-nft-entries-for-nft-post"
-	RoutePathTransferNFT              = "/api/v0/transfer-nft"
-	RoutePathAcceptNFTTransfer        = "/api/v0/accept-nft-transfer"
-	RoutePathBurnNFT                  = "/api/v0/burn-nft"
+	RoutePathCreateNFT                 = "/api/v0/create-nft"
+	RoutePathUpdateNFT                 = "/api/v0/update-nft"
+	RoutePathGetNFTsForUser            = "/api/v0/get-nfts-for-user"
+	RoutePathGetNFTBidsForUser         = "/api/v0/get-nft-bids-for-user"
+	RoutePathCreateNFTBid              = "/api/v0/create-nft-bid"
+	RoutePathAcceptNFTBid              = "/api/v0/accept-nft-bid"
+	RoutePathGetNFTBidsForNFTPost      = "/api/v0/get-nft-bids-for-nft-post"
+	RoutePathGetNFTShowcase            = "/api/v0/get-nft-showcase"
+	RoutePathGetNextNFTShowcase        = "/api/v0/get-next-nft-showcase"
+	RoutePathGetNFTCollectionSummary   = "/api/v0/get-nft-collection-summary"
+	RoutePathGetNFTEntriesForPostHash  = "/api/v0/get-nft-entries-for-nft-post"
+	RoutePathGetNFTsCreatedByPublicKey = "/api/v0/get-nfts-created-by-public-key"
+	RoutePathTransferNFT               = "/api/v0/transfer-nft"
+	RoutePathAcceptNFTTransfer         = "/api/v0/accept-nft-transfer"
+	RoutePathBurnNFT                   = "/api/v0/burn-nft"
 
 	// media.go
 	RoutePathUploadImage      = "/api/v0/upload-image"
@@ -206,9 +208,12 @@ const (
 	RoutePathAdminUpdateNFTDrop = "/api/v0/admin/update-nft-drop"
 
 	// admin_jumio.go
-	RoutePathAdminResetJumioForPublicKey = "/api/v0/admin/reset-jumio-for-public-key"
-	RoutePathAdminUpdateJumioDeSo        = "/api/v0/admin/update-jumio-deso"
-	RoutePathAdminJumioCallback          = "/api/v0/admin/jumio-callback"
+	RoutePathAdminResetJumioForPublicKey          = "/api/v0/admin/reset-jumio-for-public-key"
+	RoutePathAdminUpdateJumioDeSo                 = "/api/v0/admin/update-jumio-deso"
+	RoutePathAdminUpdateJumioUSDCents             = "/api/v0/admin/update-jumio-usd-cents"
+	RoutePathAdminJumioCallback                   = "/api/v0/admin/jumio-callback"
+	RoutePathAdminUpdateJumioCountrySignUpBonus   = "/api/v0/admin/update-jumio-country-sign-up-bonus"
+	RoutePathAdminGetAllCountryLevelSignUpBonuses = "/api/v0/admin/get-all-country-level-sign-up-bonuses"
 
 	// admin_referrals.go
 	RoutePathAdminCreateReferralHash        = "/api/v0/admin/create-referral-hash"
@@ -232,6 +237,10 @@ const (
 	RoutePathGetBlacklistedPublicKeys = "/api/v0/get-blacklisted-public-keys"
 	RoutePathGetGraylistedPublicKeys  = "/api/v0/get-graylisted-public-keys"
 	RoutePathGetGlobalFeed            = "/api/v0/get-global-feed"
+
+	// supply.go
+	RoutePathGetTotalSupply = "/api/v0/total-supply"
+	RoutePathGetRichList    = "/api/v0/rich-list"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -256,7 +265,7 @@ type APIServer struct {
 	// a remote node is set-- not both. When a remote node is set, global state
 	// is set and fetched from that node. Otherwise, it is set/fetched from the
 	// db. This makes it easy to run a local node in development.
-	GlobalStateDB *badger.DB
+	GlobalState *GlobalState
 
 	// Optional, may be empty. Used for Twilio integration
 	Twilio *twilio.Client
@@ -330,6 +339,14 @@ type APIServer struct {
 	// GlobalFeedPostHashes is a slice of BlockHashes representing the state of posts on the global feed on this node.
 	GlobalFeedPostHashes []*lib.BlockHash
 
+	// Cache of Total Supply and Rich List
+	TotalSupplyNanos uint64
+	TotalSupplyDESO  float64
+	RichList         []RichListEntryResponse
+
+	// map of country name to sign up bonus data
+	AllCountryLevelSignUpBonuses map[string]CountrySignUpBonusResponse
+
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
 }
@@ -354,7 +371,13 @@ func NewAPIServer(
 	blockCypherAPIKey string,
 ) (*APIServer, error) {
 
-	if globalStateDB == nil && config.GlobalStateRemoteNode == "" {
+	globalState := &GlobalState{
+		GlobalStateRemoteSecret: config.GlobalStateRemoteSecret,
+		GlobalStateRemoteNode:   config.GlobalStateRemoteNode,
+		GlobalStateDB:           globalStateDB,
+	}
+
+	if globalStateDB == nil && globalState.GlobalStateRemoteNode == "" {
 		return nil, fmt.Errorf(
 			"NewAPIServer: Error: A globalStateDB or a globalStateRemoteNode is required")
 	}
@@ -373,15 +396,16 @@ func NewAPIServer(
 		TXIndex:                   txIndex,
 		Params:                    params,
 		Config:                    config,
-		GlobalStateDB:             globalStateDB,
 		Twilio:                    twilio,
 		BlockCypherAPIKey:         blockCypherAPIKey,
+		GlobalState:               globalState,
 		LastTradeDeSoPriceHistory: []LastTradePriceHistoryItem{},
 		PublicKeyBase58Prefix:     publicKeyBase58Prefix,
 		// We consider last trade prices from the last hour when determining the current price of DeSo.
 		// This helps prevents attacks that attempt to purchase $DESO at below market value.
-		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
-		quit:                   make(chan struct{}),
+		LastTradePriceLookback:       uint64(time.Hour.Nanoseconds()),
+		AllCountryLevelSignUpBonuses: make(map[string]CountrySignUpBonusResponse),
+		quit:                         make(chan struct{}),
 	}
 
 	fes.StartSeedBalancesMonitoring()
@@ -401,6 +425,10 @@ func NewAPIServer(
 
 	if fes.Config.RunHotFeedRoutine {
 		fes.StartHotFeedRoutine()
+	}
+
+	if fes.Config.RunSupplyMonitoringRoutine {
+		fes.StartSupplyMonitoring()
 	}
 
 	fes.SetGlobalStateCache()
@@ -723,6 +751,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"GetNFTsCreatedByPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTsCreatedByPublicKey,
+			fes.GetNFTsCreatedByPublicKey,
+			PublicAccess,
+		},
+		{
 			"GetHodlersForPublicKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetHodlersForPublicKey,
@@ -902,6 +937,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathDeletePII,
 			fes.DeletePII,
+			PublicAccess,
+		},
+		{
+			"GetUserMetadata",
+			[]string{"GET"},
+			RoutePathGetUserMetadata + "/{publicKeyBase58Check:[0-9a-zA-Z]{54,55}}",
+			fes.GetUserMetadata,
 			PublicAccess,
 		},
 		// Jumio Routes
@@ -1207,6 +1249,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			SuperAdminAccess,
 		},
 		{
+			"AdminUpdateJumioUSDCents",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateJumioUSDCents,
+			fes.AdminUpdateJumioUSDCents,
+			SuperAdminAccess,
+		},
+		{
 			"AdminTestSignTransactionWithDerivedKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathTestSignTransactionWithDerivedKey,
@@ -1219,6 +1268,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			RoutePathAdminJumioCallback,
 			fes.AdminJumioCallback,
 			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateJumioCountrySignUpBonus",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateJumioCountrySignUpBonus,
+			fes.AdminUpdateJumioCountrySignUpBonus,
+			SuperAdminAccess,
+		},
+		{
+			"AdminGetAllCountryLevelSignUpBonuses",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetAllCountryLevelSignUpBonuses,
+			fes.AdminGetAllCountryLevelSignUpBonuses,
+			AdminAccess,
 		},
 		{
 			"AdminCreateReferralHash",
@@ -1474,6 +1537,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetGlobalFeed,
 			PublicAccess,
 		},
+		{
+			"GetTotalSupply",
+			[]string{"GET"},
+			RoutePathGetTotalSupply,
+			fes.GetTotalSupply,
+			PublicAccess,
+		},
+		{
+			"GetRichList",
+			[]string{"GET"},
+			RoutePathGetRichList,
+			fes.GetRichList,
+			PublicAccess,
+		},
 	}
 
 	router := muxtrace.NewRouter().StrictSlash(true)
@@ -1489,7 +1566,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 	// We serve multiple groups of routes from this endpoint.
 	fullRouteList := append([]Route{}, FrontendRoutes...)
 	fullRouteList = append(fullRouteList, fes.APIRoutes()...)
-	fullRouteList = append(fullRouteList, fes.GlobalStateRoutes()...)
+	fullRouteList = append(fullRouteList, fes.GlobalState.GlobalStateRoutes()...)
 
 	for _, route := range fullRouteList {
 		var handler http.Handler
@@ -1537,7 +1614,7 @@ func Logger(inner http.Handler, name string) http.Handler {
 
 		inner.ServeHTTP(w, r)
 
-		glog.Tracef(
+		glog.V(2).Infof(
 			"%s\t%s\t%s\t%s",
 			r.Method,
 			r.RequestURI,
@@ -1557,6 +1634,10 @@ var publicRoutes = map[string]interface{}{
 	RoutePathGetGraylistedPublicKeys:        nil,
 	RoutePathGetGlobalFeed:                  nil,
 	RoutePathDeletePII:                      nil,
+	RoutePathGetUserMetadata:                nil,
+	RoutePathSubmitTransaction:              nil,
+	RoutePathGetTxn:                         nil,
+	RoutePathUpdateProfile:                  nil,
 }
 
 // AddHeaders ...
@@ -1615,8 +1696,9 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 			// This allows third-party frontends to access this endpoint
 			match = true
 			actualOrigin = "*"
-		} else if strings.HasPrefix(r.RequestURI, RoutePathGetVideoStatus) {
-			// We don't match the get video status path exactly since there is a variable param. Check for the prefix.
+		} else if strings.HasPrefix(r.RequestURI, RoutePathGetVideoStatus) || strings.HasPrefix(r.RequestURI, RoutePathGetUserMetadata) {
+			// We don't match the RoutePathGetVideoStatus and RoutePathGetUserMetadata paths exactly since there is a
+			// variable param. Check for the prefix instead.
 			match = true
 			actualOrigin = "*"
 		} else if r.Method == "POST" && mediaType != "application/json" && r.RequestURI != RoutePathJumioCallback {
@@ -1948,6 +2030,7 @@ func (fes *APIServer) SetGlobalStateCache() {
 	fes.SetBlacklistedPKIDMap(utxoView)
 	fes.SetGraylistedPKIDMap(utxoView)
 	fes.SetGlobalFeedPostHashes()
+	fes.SetAllCountrySignUpBonusMetadata()
 }
 
 func (fes *APIServer) SetVerifiedUsernameMap() {

@@ -176,7 +176,7 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 	// ChainLock, which is what Bitcoin Core does.
 	isMainChain, isOrphan, err := fes.blockchain.ProcessBlock(
 		blockFound, true /*verifySignatures*/)
-	glog.Debugf("Called ProcessBlock: isMainChain=(%v), isOrphan=(%v), err=(%v)",
+	glog.V(1).Infof("Called ProcessBlock: isMainChain=(%v), isOrphan=(%v), err=(%v)",
 		isMainChain, isOrphan, err)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("ERROR calling ProcessBlock: isMainChain=(%v), isOrphan=(%v), err=(%v)",

@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"github.com/deso-protocol/backend/miner"
-	"log"
 
 	"github.com/golang/glog"
 )
@@ -33,13 +32,9 @@ var (
 )
 
 func main() {
-	flag.Parse()
-
 	// Set up logging.
-	glog.Init()
-	log.Printf("Logging to folder: %s", glog.GlogFlags.LogDir)
-	log.Printf("Symlink to latest: %s", glog.GlogFlags.Symlink)
-	log.Println("To log output on commandline, run with -alsologtostderr")
+	flag.Set("alsologtostderr", "true")
+	flag.Parse()
 	glog.CopyStandardLogTo("INFO")
 
 	if *flagMinerPublicKey == "" {

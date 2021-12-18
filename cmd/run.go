@@ -160,6 +160,9 @@ func init() {
 	// Hyper Sync
 	runCmd.PersistentFlags().Bool("hyper-sync", true, "Use hyper sync protocol for faster block syncing")
 
+	// Run Supply Monitoring Routine
+	runCmd.PersistentFlags().Bool("run-supply-monitoring-routine", false, "Run a goroutine to monitor total supply and rich list")
+
 	runCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
 		viper.BindPFlag(flag.Name, flag)
 	})

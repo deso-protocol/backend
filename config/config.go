@@ -73,6 +73,9 @@ type Config struct {
 	// Global State
 	ExposeGlobalState bool
 	GlobalStateAPIUrl string
+
+	// Supply Monitoring Routine
+	RunSupplyMonitoringRoutine bool
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -162,5 +165,9 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	// Global State
 	config.ExposeGlobalState = viper.GetBool("expose-global-state")
 	config.GlobalStateAPIUrl = viper.GetString("global-state-api-url")
+
+	// Supply Monitoring Routine
+	config.RunSupplyMonitoringRoutine = viper.GetBool("run-supply-monitoring-routine")
+
 	return &config
 }
