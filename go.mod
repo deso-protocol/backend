@@ -17,6 +17,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/deso-protocol/core v0.0.0-00010101000000-000000000000
 	github.com/dgraph-io/badger/v3 v3.2103.0
+	github.com/elliotchance/orderedmap v1.4.0 // indirect
 	github.com/fatih/structs v1.1.0
 	github.com/gofrs/uuid v4.0.0+incompatible // indirect
 	github.com/golang-jwt/jwt/v4 v4.1.0
