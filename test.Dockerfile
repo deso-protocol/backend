@@ -16,12 +16,12 @@ WORKDIR /deso/src/backend
 RUN go mod download
 
 # include backend src
-COPY backend/apis    apis
-COPY backend/cmd     cmd
-COPY backend/miner   miner
-COPY backend/routes  routes
-COPY backend/utils   utils
-COPY backend/main.go .
+COPY backend/apis      apis
+COPY backend/cmd       cmd
+COPY backend/miner     miner
+COPY backend/routes    routes
+COPY backend/countries countries
+COPY backend/main.go   .
 
 # include core src
 COPY core/desohash ../core/desohash

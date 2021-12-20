@@ -1,12 +1,12 @@
-package utils
+package countries
 
-type CountryCodeDetails struct {
+type Alpha3CountryCodeDetails struct {
 	CountryCode string
 	Name        string
 	Alpha3      string
 }
 
-var CountryCodes = map[string]CountryCodeDetails{
+var Alpha3CountryCodes = map[string]Alpha3CountryCodeDetails{
 	"DZA": {
 		Alpha3:      "DZA",
 		Name:        "Algeria",

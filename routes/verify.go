@@ -6,6 +6,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/backend/countries"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -911,6 +912,29 @@ func (fes *APIServer) GetJumioCountrySignUpBonus(countryCode string) (_signUpBon
 		// We were unable to find a country, return the default
 		return fes.GetDefaultJumioCountrySignUpBonus(), nil
 	}
+}
+
+func (fes *APIServer) GetCountryLevelSignUpBonusFromHeader(req *http.Request) (_signUpBonus CountryLevelSignUpBonus) {
+	// Extract CF-IPCountry header
+	countryCodeAlpha2 := req.Header.Get("CF-IPCountry")
+
+	// If we have a valid country code alpha 2 value, look up the sign up bonus config for the alpha2 code
+	// Note: XX is used for clients without country code data
+	// Note: T1 is used for clients using the tor network
+	if countryCodeAlpha2 != "" && countryCodeAlpha2 != "XX" && countryCodeAlpha2 != "T1" {
+		return fes.GetCountryLevelSignUpBonusFromAlpha2(countryCodeAlpha2)
+	}
+	return fes.GetDefaultJumioCountrySignUpBonus()
+}
+
+func (fes *APIServer) GetCountryLevelSignUpBonusFromAlpha2(countryCodeAlpha2 string) (_signUpBonus CountryLevelSignUpBonus) {
+	countrySignUpBonus := fes.GetDefaultJumioCountrySignUpBonus()
+
+	if alpha3, exists := countries.Alpha2ToAlpha3[countryCodeAlpha2]; exists {
+		countrySignUpBonus = fes.GetSingleCountrySignUpBonus(alpha3)
+	}
+
+	return countrySignUpBonus
 }
 
 // GetRefereeSignUpBonusAmount gets the amount the referee should get a sign-up bonus for verifying with Jumio based on
