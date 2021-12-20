@@ -2237,6 +2237,15 @@ type AuthorizeDerivedKeyRequest struct {
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
 
+	// MessagingPublicKey is the public key of the new messaging key.
+	MessagingPublicKey string `safeForLogging:"true"`
+
+	// MessagingKeyName is the name of the new messaging key.
+	MessagingKeyName string `safeForLogging:"true"`
+
+	// MessagingKeySignature
+	MessagingKeySignature string `safeForLogging:"true"`
+
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 }
 
@@ -2311,6 +2320,9 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		accessSignature,
 		requestData.DeleteKey,
 		requestData.DerivedKeySignature,
+		requestData.MessagingPublicKey,
+		requestData.MessagingKeyName,
+		requestData.MessagingKeySignature,
 		// Standard transaction fields
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
