@@ -718,3 +718,87 @@ func (fes *APIServer) getUserContactMostRecentReadTime(userPublicKeyBytes []byte
 	}
 	return tStampNanos, nil
 }
+
+type CheckPartyMessagingKeysRequest struct {
+	SenderPublicKey             string
+	RecipientPublicKey          string
+	SenderMessagingPublicKey    string
+	SenderMessagingKeyName      string
+	RecipientMessagingPublicKey string
+	RecipientMessagingKeyName   string
+}
+
+type CheckPartyMessagingKeysResponse struct {
+	SenderPublicKey    string
+	RecipientPublicKey string
+}
+
+func (fes *APIServer) CheckPartyMessagingKeys(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := CheckPartyMessagingKeysRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem parsing request body: %v", err))
+		return
+	}
+
+	// The publicKey Utxo doesn't work currently so doesn't matter if we call it with []byte{}
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUtxoViewForPublicKey([]byte{}, nil)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem getting utxoView: %v", err))
+		return
+	}
+
+	response := CheckPartyMessagingKeysResponse{
+		SenderPublicKey:    requestData.SenderPublicKey,
+		RecipientPublicKey: requestData.RecipientMessagingPublicKey,
+	}
+
+	if requestData.SenderMessagingPublicKey != "" && requestData.SenderMessagingKeyName != "" {
+		senderPkBytes, err := hex.DecodeString(requestData.SenderPublicKey)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem parsing SenderPublicKey: %v", err))
+			return
+		}
+
+		senderMsgPkBytes, err := hex.DecodeString(requestData.SenderMessagingPublicKey)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem parsing SenderMessagingPublicKey: %v", err))
+			return
+		}
+
+		err = utxoView.ValidateKeyAndNameWithUtxo(senderPkBytes, senderMsgPkBytes, []byte(requestData.SenderMessagingKeyName))
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem validating public key and key name: %v", err))
+			response.SenderPublicKey = requestData.SenderPublicKey
+		} else {
+			response.SenderPublicKey = requestData.SenderMessagingPublicKey
+		}
+	}
+
+	if requestData.RecipientMessagingPublicKey != "" && requestData.RecipientMessagingKeyName != "" {
+		recipientPkBytes, err := hex.DecodeString(requestData.RecipientPublicKey)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem parsing RecipientMessagingPublicKey: %v", err))
+			return
+		}
+
+		recipientMsgPkBytes, err := hex.DecodeString(requestData.RecipientMessagingPublicKey)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem parsing RecipientMessagingPublicKey: %v", err))
+			return
+		}
+
+		err = utxoView.ValidateKeyAndNameWithUtxo(recipientPkBytes, recipientMsgPkBytes, []byte(requestData.RecipientMessagingKeyName))
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem validating public key and key name: %v", err))
+			response.RecipientPublicKey = requestData.RecipientPublicKey
+		} else {
+			response.RecipientPublicKey = requestData.RecipientMessagingPublicKey
+		}
+	}
+
+	if err := json.NewEncoder(ww).Encode(response); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
