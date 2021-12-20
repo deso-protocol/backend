@@ -87,7 +87,12 @@ func (fes *APIServer) StartSupplyMonitoring() {
 					return richList[ii].BalanceNanos > richList[jj].BalanceNanos
 				})
 
-				richList = richList[:richListLength]
+				endIdx := richListLength
+				if len(richList) < richListLength {
+					endIdx = len(richList)
+				}
+
+				richList = richList[:endIdx]
 
 				// Convert RichListEntries to RichListEntryResponses
 				var richListResponses []RichListEntryResponse
