@@ -1309,7 +1309,10 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUploadReferralCSV,
 			fes.AdminUploadReferralCSV,
-			SuperAdminAccess,
+			// Although this says public access here, we validate that the user is indeed a super admin in the handler.
+			// This is to avoid making changes to the existing CheckAdminPublicKey function to support multipart form
+			// content types.
+			PublicAccess,
 		},
 		{
 			"AdminDownloadReferralCSV",
@@ -1688,7 +1691,8 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 
 		invalidPostRequest := false
 		// upload-image endpoint is the only one allowed to use multipart/form-data
-		if r.RequestURI == RoutePathUploadImage && mediaType == "multipart/form-data" {
+		if (r.RequestURI == RoutePathUploadImage || r.RequestURI == RoutePathAdminUploadReferralCSV) &&
+			mediaType == "multipart/form-data" {
 			match = true
 			actualOrigin = "*"
 		} else if _, exists := publicRoutes[r.RequestURI]; exists {
