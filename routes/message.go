@@ -460,6 +460,10 @@ type SendMessageStatelessRequest struct {
 	EncryptedMessageText          string
 	MinFeeRateNanosPerKB          uint64 `safeForLogging:"true"`
 
+	SenderMessagingPublicKey    string
+	SenderMessagingKeyName      string
+	RecipientMessagingPublicKey string
+	RecipientMessagingKeyName   string
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
@@ -508,11 +512,48 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
+	var senderMessagingPublicKey, senderMessagingKeyName, recipientMessagingPublicKey, recipientMessagingKeyName []byte
+	if requestData.SenderMessagingPublicKey != "" {
+		if requestData.SenderMessagingKeyName == "" {
+			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Error, sender messaging key name doesn't exst"))
+			return
+		}
+		senderMessagingPublicKey, err = hex.DecodeString(requestData.SenderMessagingPublicKey)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem decoding sender messaging key %v", err))
+			return
+		}
+		senderMessagingKeyName, err = hex.DecodeString(requestData.SenderMessagingKeyName)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem decoding sender messaging key name %v", err))
+			return
+		}
+	}
+
+	if requestData.RecipientMessagingPublicKey != "" {
+		if requestData.SenderMessagingKeyName == "" {
+			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Error, recipient messaging key name doesn't exst"))
+			return
+		}
+		recipientMessagingPublicKey, err = hex.DecodeString(requestData.RecipientMessagingPublicKey)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem decoding recipient messaging key %v", err))
+			return
+		}
+		recipientMessagingKeyName, err = hex.DecodeString(requestData.RecipientMessagingKeyName)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem decoding recipient messaging key name %v", err))
+			return
+		}
+	}
+
 	// Try and create the message for the user.
 	tstamp := uint64(time.Now().UnixNano())
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreatePrivateMessageTxn(
 		senderPkBytes, recipientPkBytes,
 		requestData.MessageText, requestData.EncryptedMessageText,
+		senderMessagingPublicKey, senderMessagingKeyName,
+		recipientMessagingPublicKey, recipientMessagingKeyName,
 		tstamp,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
