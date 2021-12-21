@@ -882,7 +882,7 @@ func (fes *APIServer) GetDefaultJumioCountrySignUpBonus() CountryLevelSignUpBonu
 		AllowCustomKickbackAmount:      false,
 		AllowCustomReferralAmount:      false,
 		ReferralAmountOverrideUSDCents: fes.GetJumioUSDCents(),
-		KickbackAmountOverrideUSDCents: 0,
+		KickbackAmountOverrideUSDCents: fes.GetJumioKickbackUSDCents(),
 	}
 }
 
@@ -951,7 +951,7 @@ func (fes *APIServer) GetRefereeSignUpBonusAmount(signUpBonus CountryLevelSignUp
 // on the country from which the referee signed up.
 func (fes *APIServer) GetReferrerSignUpBonusAmount(signUpBonus CountryLevelSignUpBonus, referralCodeUSDCents uint64) uint64 {
 	amount := signUpBonus.KickbackAmountOverrideUSDCents
-	if signUpBonus.AllowCustomReferralAmount && referralCodeUSDCents > amount {
+	if signUpBonus.AllowCustomKickbackAmount && referralCodeUSDCents > amount {
 		amount = referralCodeUSDCents
 	}
 	return fes.GetNanosFromUSDCents(float64(amount), 0)
@@ -1113,6 +1113,18 @@ func (fes *APIServer) GetJumioUSDCents() uint64 {
 
 func (fes *APIServer) GetJumioDeSoNanos() uint64 {
 	return fes.GetNanosFromUSDCents(float64(fes.GetJumioUSDCents()), 0)
+}
+
+func (fes *APIServer) GetJumioKickbackUSDCents() uint64 {
+	val, err := fes.GlobalState.Get(GlobalStateKeyForJumioKickbackUSDCents())
+	if err != nil {
+		return 0
+	}
+	jumioKickbackUSDCents, bytesRead := lib.Uvarint(val)
+	if bytesRead <= 0 {
+		return 0
+	}
+	return jumioKickbackUSDCents
 }
 
 type GetJumioStatusForPublicKeyRequest struct {
