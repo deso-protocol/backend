@@ -208,9 +208,13 @@ const (
 	RoutePathAdminUpdateNFTDrop = "/api/v0/admin/update-nft-drop"
 
 	// admin_jumio.go
-	RoutePathAdminResetJumioForPublicKey = "/api/v0/admin/reset-jumio-for-public-key"
-	RoutePathAdminUpdateJumioDeSo        = "/api/v0/admin/update-jumio-deso"
-	RoutePathAdminJumioCallback          = "/api/v0/admin/jumio-callback"
+	RoutePathAdminResetJumioForPublicKey          = "/api/v0/admin/reset-jumio-for-public-key"
+	RoutePathAdminUpdateJumioDeSo                 = "/api/v0/admin/update-jumio-deso"
+	RoutePathAdminUpdateJumioUSDCents             = "/api/v0/admin/update-jumio-usd-cents"
+	RoutePathAdminUpdateJumioKickbackUSDCents     = "/api/v0/admin/update-jumio-kickback-usd-cents"
+	RoutePathAdminJumioCallback                   = "/api/v0/admin/jumio-callback"
+	RoutePathAdminUpdateJumioCountrySignUpBonus   = "/api/v0/admin/update-jumio-country-sign-up-bonus"
+	RoutePathAdminGetAllCountryLevelSignUpBonuses = "/api/v0/admin/get-all-country-level-sign-up-bonuses"
 
 	// admin_referrals.go
 	RoutePathAdminCreateReferralHash        = "/api/v0/admin/create-referral-hash"
@@ -234,6 +238,10 @@ const (
 	RoutePathGetBlacklistedPublicKeys = "/api/v0/get-blacklisted-public-keys"
 	RoutePathGetGraylistedPublicKeys  = "/api/v0/get-graylisted-public-keys"
 	RoutePathGetGlobalFeed            = "/api/v0/get-global-feed"
+
+	// supply.go
+	RoutePathGetTotalSupply = "/api/v0/total-supply"
+	RoutePathGetRichList    = "/api/v0/rich-list"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -332,6 +340,14 @@ type APIServer struct {
 	// GlobalFeedPostHashes is a slice of BlockHashes representing the state of posts on the global feed on this node.
 	GlobalFeedPostHashes []*lib.BlockHash
 
+	// Cache of Total Supply and Rich List
+	TotalSupplyNanos uint64
+	TotalSupplyDESO  float64
+	RichList         []RichListEntryResponse
+
+	// map of country name to sign up bonus data
+	AllCountryLevelSignUpBonuses map[string]CountrySignUpBonusResponse
+
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
 }
@@ -388,8 +404,9 @@ func NewAPIServer(
 		PublicKeyBase58Prefix:     publicKeyBase58Prefix,
 		// We consider last trade prices from the last hour when determining the current price of DeSo.
 		// This helps prevents attacks that attempt to purchase $DESO at below market value.
-		LastTradePriceLookback: uint64(time.Hour.Nanoseconds()),
-		quit:                   make(chan struct{}),
+		LastTradePriceLookback:       uint64(time.Hour.Nanoseconds()),
+		AllCountryLevelSignUpBonuses: make(map[string]CountrySignUpBonusResponse),
+		quit:                         make(chan struct{}),
 	}
 
 	fes.StartSeedBalancesMonitoring()
@@ -409,6 +426,10 @@ func NewAPIServer(
 
 	if fes.Config.RunHotFeedRoutine {
 		fes.StartHotFeedRoutine()
+	}
+
+	if fes.Config.RunSupplyMonitoringRoutine {
+		fes.StartSupplyMonitoring()
 	}
 
 	fes.SetGlobalStateCache()
@@ -1229,6 +1250,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			SuperAdminAccess,
 		},
 		{
+			"AdminUpdateJumioUSDCents",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateJumioUSDCents,
+			fes.AdminUpdateJumioUSDCents,
+			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateJumioKickbackUSDCents",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateJumioKickbackUSDCents,
+			fes.AdminUpdateJumioKickbackUSDCents,
+			SuperAdminAccess,
+		},
+		{
 			"AdminTestSignTransactionWithDerivedKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathTestSignTransactionWithDerivedKey,
@@ -1241,6 +1276,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			RoutePathAdminJumioCallback,
 			fes.AdminJumioCallback,
 			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateJumioCountrySignUpBonus",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateJumioCountrySignUpBonus,
+			fes.AdminUpdateJumioCountrySignUpBonus,
+			SuperAdminAccess,
+		},
+		{
+			"AdminGetAllCountryLevelSignUpBonuses",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminGetAllCountryLevelSignUpBonuses,
+			fes.AdminGetAllCountryLevelSignUpBonuses,
+			AdminAccess,
 		},
 		{
 			"AdminCreateReferralHash",
@@ -1268,7 +1317,10 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUploadReferralCSV,
 			fes.AdminUploadReferralCSV,
-			SuperAdminAccess,
+			// Although this says public access here, we validate that the user is indeed a super admin in the handler.
+			// This is to avoid making changes to the existing CheckAdminPublicKey function to support multipart form
+			// content types.
+			PublicAccess,
 		},
 		{
 			"AdminDownloadReferralCSV",
@@ -1496,6 +1548,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetGlobalFeed,
 			PublicAccess,
 		},
+		{
+			"GetTotalSupply",
+			[]string{"GET"},
+			RoutePathGetTotalSupply,
+			fes.GetTotalSupply,
+			PublicAccess,
+		},
+		{
+			"GetRichList",
+			[]string{"GET"},
+			RoutePathGetRichList,
+			fes.GetRichList,
+			PublicAccess,
+		},
 	}
 
 	router := muxtrace.NewRouter().StrictSlash(true)
@@ -1633,7 +1699,8 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 
 		invalidPostRequest := false
 		// upload-image endpoint is the only one allowed to use multipart/form-data
-		if r.RequestURI == RoutePathUploadImage && mediaType == "multipart/form-data" {
+		if (r.RequestURI == RoutePathUploadImage || r.RequestURI == RoutePathAdminUploadReferralCSV) &&
+			mediaType == "multipart/form-data" {
 			match = true
 			actualOrigin = "*"
 		} else if _, exists := publicRoutes[r.RequestURI]; exists {
@@ -1975,6 +2042,7 @@ func (fes *APIServer) SetGlobalStateCache() {
 	fes.SetBlacklistedPKIDMap(utxoView)
 	fes.SetGraylistedPKIDMap(utxoView)
 	fes.SetGlobalFeedPostHashes()
+	fes.SetAllCountrySignUpBonusMetadata()
 }
 
 func (fes *APIServer) SetVerifiedUsernameMap() {
