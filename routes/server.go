@@ -211,6 +211,7 @@ const (
 	RoutePathAdminResetJumioForPublicKey          = "/api/v0/admin/reset-jumio-for-public-key"
 	RoutePathAdminUpdateJumioDeSo                 = "/api/v0/admin/update-jumio-deso"
 	RoutePathAdminUpdateJumioUSDCents             = "/api/v0/admin/update-jumio-usd-cents"
+	RoutePathAdminUpdateJumioKickbackUSDCents     = "/api/v0/admin/update-jumio-kickback-usd-cents"
 	RoutePathAdminJumioCallback                   = "/api/v0/admin/jumio-callback"
 	RoutePathAdminUpdateJumioCountrySignUpBonus   = "/api/v0/admin/update-jumio-country-sign-up-bonus"
 	RoutePathAdminGetAllCountryLevelSignUpBonuses = "/api/v0/admin/get-all-country-level-sign-up-bonuses"
@@ -1253,6 +1254,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateJumioUSDCents,
 			fes.AdminUpdateJumioUSDCents,
+			SuperAdminAccess,
+		},
+		{
+			"AdminUpdateJumioKickbackUSDCents",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateJumioKickbackUSDCents,
+			fes.AdminUpdateJumioKickbackUSDCents,
 			SuperAdminAccess,
 		},
 		{
