@@ -75,10 +75,19 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	//
 	// TODO: The timestamp is spoofable, but it's not a big deal. See comment on MessageEntry
 	// for more insight on this.
-	messageEntries, err := utxoView.GetLimitedMessagesForUser(publicKeyBytes)
+	messageEntries, messageParties, err := utxoView.GetLimitedMessagesForUser(publicKeyBytes)
 	if err != nil {
 		return nil, nil, nil, 0, errors.Wrapf(
 			err, "getMessagesStateless: Problem fetching MessageEntries from augmented UtxoView: ")
+	}
+
+	// We will do all the sorting on messageEntries and just keep messageParties around as a map to add at the end.
+	messagePartyMap := make(map[lib.MessageKey]*lib.MessageParty)
+	for _, party := range messageParties {
+		if party == nil {
+			continue
+		}
+		messagePartyMap[lib.MakeMessageKey(publicKeyBytes, party.TstampNanos)] = party
 	}
 
 	// We sort the messages to be sure they're in the correct order for filtering out selected threads.
@@ -320,8 +329,18 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			EncryptedText:                 hex.EncodeToString(messageEntry.EncryptedText),
 			TstampNanos:                   messageEntry.TstampNanos,
 			IsSender:                      !reflect.DeepEqual(messageEntry.RecipientPublicKey, publicKeyBytes),
-			V2:                            V2,
+			V2:                            V2, /* DEPRECATED */
 		}
+
+		// DeSo V3 Messages fields.
+		if party, exists := messagePartyMap[lib.MakeMessageKey(publicKeyBytes, messageEntry.TstampNanos)]; exists {
+			messageEntryRes.Version = 3
+			messageEntryRes.SenderMessagingPublicKey = hex.EncodeToString((*party.SenderMessagingPublicKey)[:])
+			messageEntryRes.SenderMessagingKeyName = string((*party.SenderMessagingKeyName)[:])
+			messageEntryRes.RecipientMessagingPublicKey = hex.EncodeToString((*party.RecipientMessagingPublicKey)[:])
+			messageEntryRes.RecipientMessagingKeyName = string((*party.RecipientMessagingKeyName)[:])
+		}
+
 		contactEntry, _ := contactMap[lib.PkToString(otherPartyPublicKeyBytes, fes.Params)]
 		contactEntry.Messages = append(contactEntry.Messages, messageEntryRes)
 	}
@@ -458,12 +477,12 @@ type SendMessageStatelessRequest struct {
 	RecipientPublicKeyBase58Check string `safeForLogging:"true"`
 	MessageText                   string
 	EncryptedMessageText          string
+	SenderMessagingPublicKey      string `safeForLogging:"true"`
+	SenderMessagingKeyName        string `safeForLogging:"true"`
+	RecipientMessagingPublicKey   string `safeForLogging:"true"`
+	RecipientMessagingKeyName     string `safeForLogging:"true"`
 	MinFeeRateNanosPerKB          uint64 `safeForLogging:"true"`
 
-	SenderMessagingPublicKey    string
-	SenderMessagingKeyName      string
-	RecipientMessagingPublicKey string
-	RecipientMessagingKeyName   string
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
@@ -523,15 +542,16 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem decoding sender messaging key %v", err))
 			return
 		}
-		senderMessagingKeyName, err = hex.DecodeString(requestData.SenderMessagingKeyName)
+		senderMessagingKeyName = []byte(requestData.SenderMessagingKeyName)
+		err = lib.ValidateKeyAndName(senderMessagingPublicKey, senderMessagingKeyName)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem decoding sender messaging key name %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem validating sender messaging public key and name %v", err))
 			return
 		}
 	}
 
 	if requestData.RecipientMessagingPublicKey != "" {
-		if requestData.SenderMessagingKeyName == "" {
+		if requestData.RecipientMessagingKeyName == "" {
 			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Error, recipient messaging key name doesn't exst"))
 			return
 		}
@@ -540,9 +560,10 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem decoding recipient messaging key %v", err))
 			return
 		}
-		recipientMessagingKeyName, err = hex.DecodeString(requestData.RecipientMessagingKeyName)
+		recipientMessagingKeyName = []byte(requestData.RecipientMessagingKeyName)
+		err = lib.ValidateKeyAndName(recipientMessagingPublicKey, recipientMessagingKeyName)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem decoding recipient messaging key name %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem validating recipient messaging public key and name %v", err))
 			return
 		}
 	}

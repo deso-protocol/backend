@@ -66,7 +66,28 @@ type MessageEntryResponse struct {
 	IsSender bool
 
 	// Indicate if message was encrypted using shared secret
-	V2 bool
+	V2 bool // DEPRECATED
+
+	// Indicate message version
+	Version uint32
+
+	// ---------------------------------------------------------
+	// DeSo V3 Messages Fields
+	// ---------------------------------------------------------
+
+	// SenderMessagingPublicKey is the sender's messaging public key that was used
+	// to encrypt the corresponding message.
+	SenderMessagingPublicKey string
+
+	// SenderMessagingKeyName is the sender's key name of SenderMessagingPublicKey
+	SenderMessagingKeyName string
+
+	// RecipientMessagingPublicKey is the recipient's messaging public key that was
+	// used to encrypt the corresponding message.
+	RecipientMessagingPublicKey string
+
+	// RecipientMessagingKeyName is the recipient's key name of RecipientMessagingPublicKey
+	RecipientMessagingKeyName string
 }
 
 type MessageContactResponse struct {
@@ -114,9 +135,9 @@ type User struct {
 	// JumioFinishedTime = Time user completed flow in Jumio
 	JumioFinishedTime uint64
 	// JumioVerified = user was verified from Jumio flow
-	JumioVerified    bool
+	JumioVerified bool
 	// JumioReturned = jumio webhook called
-	JumioReturned    bool
+	JumioReturned bool
 
 	// Is this user an admin
 	IsAdmin bool
