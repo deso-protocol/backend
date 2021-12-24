@@ -335,10 +335,13 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 		// DeSo V3 Messages fields.
 		if party, exists := messagePartyMap[lib.MakeMessageKey(publicKeyBytes, messageEntry.TstampNanos)]; exists {
 			messageEntryRes.Version = 3
+			senderDecodedKeyName := lib.MessagingKeyNameDecode(party.SenderMessagingKeyName)
+			recipientDecodedKeyName := lib.MessagingKeyNameDecode(party.RecipientMessagingKeyName)
+
 			messageEntryRes.SenderMessagingPublicKey = hex.EncodeToString((*party.SenderMessagingPublicKey)[:])
-			messageEntryRes.SenderMessagingKeyName = string((*party.SenderMessagingKeyName)[:])
+			messageEntryRes.SenderMessagingKeyName = string(senderDecodedKeyName)
 			messageEntryRes.RecipientMessagingPublicKey = hex.EncodeToString((*party.RecipientMessagingPublicKey)[:])
-			messageEntryRes.RecipientMessagingKeyName = string((*party.RecipientMessagingKeyName)[:])
+			messageEntryRes.RecipientMessagingKeyName = string(recipientDecodedKeyName)
 		}
 
 		contactEntry, _ := contactMap[lib.PkToString(otherPartyPublicKeyBytes, fes.Params)]
@@ -741,17 +744,19 @@ func (fes *APIServer) getUserContactMostRecentReadTime(userPublicKeyBytes []byte
 }
 
 type CheckPartyMessagingKeysRequest struct {
-	SenderPublicKey             string
-	RecipientPublicKey          string
-	SenderMessagingPublicKey    string
-	SenderMessagingKeyName      string
-	RecipientMessagingPublicKey string
-	RecipientMessagingKeyName   string
+	SenderPublicKeyBase58Check    string
+	SenderMessagingKeyName        string
+	RecipientPublicKeyBase58Check string
+	RecipientMessagingKeyName     string
 }
 
 type CheckPartyMessagingKeysResponse struct {
-	SenderPublicKey    string
-	RecipientPublicKey string
+	SenderMessagingPublicKey    string
+	IsSenderMessagingKey        bool
+	SenderMessagingKeyName      string
+	RecipientMessagingPublicKey string
+	IsRecipientMessagingKey     bool
+	RecipientMessagingKeyName   string
 }
 
 func (fes *APIServer) CheckPartyMessagingKeys(ww http.ResponseWriter, req *http.Request) {
@@ -762,59 +767,54 @@ func (fes *APIServer) CheckPartyMessagingKeys(ww http.ResponseWriter, req *http.
 		return
 	}
 
+	senderPublicKey, _, err := lib.Base58CheckDecode(requestData.SenderPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem decoding sender public key: %v", err))
+		return
+	}
+	recipientPublicKey, _, err := lib.Base58CheckDecode(requestData.RecipientPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem decoding sender public key: %v", err))
+		return
+	}
+	response := CheckPartyMessagingKeysResponse{
+		SenderMessagingPublicKey:    hex.EncodeToString(senderPublicKey),
+		IsSenderMessagingKey:        false,
+		SenderMessagingKeyName:      "",
+		RecipientMessagingPublicKey: hex.EncodeToString(recipientPublicKey),
+		IsRecipientMessagingKey:     false,
+		RecipientMessagingKeyName:   "",
+	}
+
 	// The publicKey Utxo doesn't work currently so doesn't matter if we call it with []byte{}
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUtxoViewForPublicKey([]byte{}, nil)
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem getting utxoView: %v", err))
 		return
 	}
 
-	response := CheckPartyMessagingKeysResponse{
-		SenderPublicKey:    requestData.SenderPublicKey,
-		RecipientPublicKey: requestData.RecipientMessagingPublicKey,
-	}
-
-	if requestData.SenderMessagingPublicKey != "" && requestData.SenderMessagingKeyName != "" {
-		senderPkBytes, err := hex.DecodeString(requestData.SenderPublicKey)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem parsing SenderPublicKey: %v", err))
-			return
-		}
-
-		senderMsgPkBytes, err := hex.DecodeString(requestData.SenderMessagingPublicKey)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem parsing SenderMessagingPublicKey: %v", err))
-			return
-		}
-
-		err = utxoView.ValidateKeyAndNameWithUtxo(senderPkBytes, senderMsgPkBytes, []byte(requestData.SenderMessagingKeyName))
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem validating public key and key name: %v", err))
-			response.SenderPublicKey = requestData.SenderPublicKey
-		} else {
-			response.SenderPublicKey = requestData.SenderMessagingPublicKey
+	if requestData.SenderMessagingKeyName != "" {
+		messagingKey := lib.NewMessagingKey(lib.NewPublicKey(senderPublicKey), []byte(requestData.SenderMessagingKeyName))
+		messagingEntry := utxoView.GetMessagingKeyToMessagingKeyEntryMapping(messagingKey)
+		//if messagingEntry == nil {
+		//	_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem fetching messaging key for sender %v "+
+		//		"and key name: %v", requestData.SenderPublicKeyBase58Check, requestData.SenderMessagingKeyName))
+		if messagingEntry != nil {
+			response.SenderMessagingPublicKey = hex.EncodeToString(messagingEntry.MessagingPublicKey[:])
+			response.IsSenderMessagingKey = true
+			response.SenderMessagingKeyName = requestData.SenderMessagingKeyName
 		}
 	}
-
-	if requestData.RecipientMessagingPublicKey != "" && requestData.RecipientMessagingKeyName != "" {
-		recipientPkBytes, err := hex.DecodeString(requestData.RecipientPublicKey)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem parsing RecipientMessagingPublicKey: %v", err))
-			return
-		}
-
-		recipientMsgPkBytes, err := hex.DecodeString(requestData.RecipientMessagingPublicKey)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem parsing RecipientMessagingPublicKey: %v", err))
-			return
-		}
-
-		err = utxoView.ValidateKeyAndNameWithUtxo(recipientPkBytes, recipientMsgPkBytes, []byte(requestData.RecipientMessagingKeyName))
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem validating public key and key name: %v", err))
-			response.RecipientPublicKey = requestData.RecipientPublicKey
-		} else {
-			response.RecipientPublicKey = requestData.RecipientMessagingPublicKey
+	if requestData.RecipientMessagingKeyName != "" {
+		messagingKey := lib.NewMessagingKey(lib.NewPublicKey(recipientPublicKey), []byte(requestData.RecipientMessagingKeyName))
+		messagingEntry := utxoView.GetMessagingKeyToMessagingKeyEntryMapping(messagingKey)
+		//if messagingEntry == nil {
+		//	_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem fetching messaging key for recipient %v "+
+		//		"and key name: %v", requestData.RecipientPublicKeyBase58Check, requestData.RecipientMessagingKeyName))
+		if messagingEntry != nil {
+			response.RecipientMessagingPublicKey = hex.EncodeToString(messagingEntry.MessagingPublicKey[:])
+			response.IsRecipientMessagingKey = true
+			response.RecipientMessagingKeyName = requestData.RecipientMessagingKeyName
 		}
 	}
 
