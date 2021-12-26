@@ -36,6 +36,7 @@ func (fes *APIServer) StartSupplyMonitoring() {
 			select {
 			case <-time.After(10 * time.Minute):
 				totalSupply := uint64(0)
+				totalKeysWithDESO := uint64(0)
 				// Get all the balances from the DB
 				startPrefix := lib.DbGetPrefixForPublicKeyToDesoBalanceNanos()
 				validForPrefix := lib.DbGetPrefixForPublicKeyToDesoBalanceNanos()
@@ -54,6 +55,9 @@ func (fes *APIServer) StartSupplyMonitoring() {
 				for keyIndex, key := range keysFound {
 					balanceNanos := lib.DecodeUint64(valsFound[keyIndex])
 					totalSupply += balanceNanos
+					if balanceNanos > 0 {
+						totalKeysWithDESO++
+					}
 					// We don't need to keep all of the balances, just the top ones so let's skip adding items
 					// if we know they won't make the cut.
 					if balanceNanos >= richListMin {
@@ -63,6 +67,8 @@ func (fes *APIServer) StartSupplyMonitoring() {
 						})
 					}
 				}
+
+				fes.CountKeysWithDESO = totalKeysWithDESO
 
 				// Get all the keys for the Prefix that is ordered by DESO locked in creator coins
 				uint64BytesLen := 8
@@ -132,6 +138,17 @@ func (fes *APIServer) GetRichList(ww http.ResponseWriter, req *http.Request) {
 	}
 	if err := json.NewEncoder(ww).Encode(fes.RichList); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetRichList: Error encoding response: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) GetCountKeysWithDESO(ww http.ResponseWriter, req *http.Request) {
+	if !fes.Config.RunSupplyMonitoringRoutine {
+		_AddBadRequestError(ww, fmt.Sprintf("Supply Monitoring is not enabled on this node"))
+		return
+	}
+	if err := json.NewEncoder(ww).Encode(fes.CountKeysWithDESO); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetCountKeysWithDESO: Error encoding response: %v", err))
 		return
 	}
 }
