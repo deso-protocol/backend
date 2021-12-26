@@ -240,8 +240,9 @@ const (
 	RoutePathGetGlobalFeed            = "/api/v0/get-global-feed"
 
 	// supply.go
-	RoutePathGetTotalSupply = "/api/v0/total-supply"
-	RoutePathGetRichList    = "/api/v0/rich-list"
+	RoutePathGetTotalSupply       = "/api/v0/total-supply"
+	RoutePathGetRichList          = "/api/v0/rich-list"
+	RoutePathGetCountKeysWithDESO = "/api/v0/count-keys-with-deso"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -341,9 +342,10 @@ type APIServer struct {
 	GlobalFeedPostHashes []*lib.BlockHash
 
 	// Cache of Total Supply and Rich List
-	TotalSupplyNanos uint64
-	TotalSupplyDESO  float64
-	RichList         []RichListEntryResponse
+	TotalSupplyNanos  uint64
+	TotalSupplyDESO   float64
+	RichList          []RichListEntryResponse
+	CountKeysWithDESO uint64
 
 	// map of country name to sign up bonus data
 	AllCountryLevelSignUpBonuses map[string]CountrySignUpBonusResponse
@@ -1560,6 +1562,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetRichList,
 			fes.GetRichList,
+			PublicAccess,
+		},
+		{
+			"GetCountKeysWithDESO",
+			[]string{"GET"},
+			RoutePathGetCountKeysWithDESO,
+			fes.GetCountKeysWithDESO,
 			PublicAccess,
 		},
 	}
