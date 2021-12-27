@@ -432,6 +432,7 @@ func NewAPIServer(
 
 	if fes.Config.RunSupplyMonitoringRoutine {
 		fes.StartSupplyMonitoring()
+		fes.UpdateSupplyStats()
 	}
 
 	fes.SetGlobalStateCache()

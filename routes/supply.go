@@ -35,89 +35,93 @@ func (fes *APIServer) StartSupplyMonitoring() {
 		for {
 			select {
 			case <-time.After(10 * time.Minute):
-				totalSupply := uint64(0)
-				totalKeysWithDESO := uint64(0)
-				// Get all the balances from the DB
-				startPrefix := lib.DbGetPrefixForPublicKeyToDesoBalanceNanos()
-				validForPrefix := lib.DbGetPrefixForPublicKeyToDesoBalanceNanos()
-
-				keysFound, valsFound, err := lib.DBGetPaginatedKeysAndValuesForPrefix(
-					fes.TXIndex.TXIndexChain.DB(), startPrefix, validForPrefix,
-					0, -1, false, true)
-				if err != nil {
-					glog.Errorf("StartSupplyMonitoring: Error getting all balances")
-				}
-
-				var richList []RichListEntry
-				// For each key-value pair from the list of all DESO balances, if the balance is high enough to be in
-				// the rich list at the current state, add it to our temporary rich list.
-				// NOTE: this would be more performance if we kept some sort of priority queue
-				for keyIndex, key := range keysFound {
-					balanceNanos := lib.DecodeUint64(valsFound[keyIndex])
-					totalSupply += balanceNanos
-					if balanceNanos > 0 {
-						totalKeysWithDESO++
-					}
-					// We don't need to keep all of the balances, just the top ones so let's skip adding items
-					// if we know they won't make the cut.
-					if balanceNanos >= richListMin {
-						richList = append(richList, RichListEntry{
-							KeyBytes:     key,
-							BalanceNanos: balanceNanos,
-						})
-					}
-				}
-
-				fes.CountKeysWithDESO = totalKeysWithDESO
-
-				// Get all the keys for the Prefix that is ordered by DESO locked in creator coins
-				uint64BytesLen := 8
-				ccStartPrefix := lib.DbPrefixForCreatorDeSoLockedNanosCreatorPKID()
-				ccValidForPrefix := lib.DbPrefixForCreatorDeSoLockedNanosCreatorPKID()
-				ccKeysFound, _, err := lib.DBGetPaginatedKeysAndValuesForPrefix(
-					fes.TXIndex.TXIndexChain.DB(), ccStartPrefix, ccValidForPrefix,
-					0, -1, false, false)
-				if err != nil {
-					glog.Errorf("StartSupplyMonitoring: Error getting all DESO locked in CCs")
-				}
-
-				// For each key, extract the DESO locked and add it to the total supply
-				for _, ccKey := range ccKeysFound {
-					totalSupply += lib.DecodeUint64(ccKey[1 : 1+uint64BytesLen])
-				}
-
-				fes.TotalSupplyNanos = totalSupply
-				fes.TotalSupplyDESO = float64(totalSupply) / float64(lib.NanosPerUnit)
-
-				sort.Slice(richList, func(ii, jj int) bool {
-					return richList[ii].BalanceNanos > richList[jj].BalanceNanos
-				})
-
-				endIdx := richListLength
-				if len(richList) < richListLength {
-					endIdx = len(richList)
-				}
-
-				richList = richList[:endIdx]
-
-				// Convert RichListEntries to RichListEntryResponses
-				var richListResponses []RichListEntryResponse
-				for _, item := range richList {
-					richListResponses = append(richListResponses, RichListEntryResponse{
-						PublicKeyBase58Check: lib.PkToString(item.KeyBytes[1:], fes.Params),
-						BalanceNanos:         item.BalanceNanos,
-						BalanceDESO:          float64(item.BalanceNanos) / float64(lib.NanosPerUnit),
-						Value:                fes.GetUSDFromNanos(item.BalanceNanos),
-						Percentage:           float64(item.BalanceNanos) / float64(totalSupply),
-					})
-				}
-
-				fes.RichList = richListResponses
+				fes.UpdateSupplyStats()
 			case <-fes.quit:
 				break out
 			}
 		}
 	}()
+}
+
+func (fes *APIServer) UpdateSupplyStats() {
+	totalSupply := uint64(0)
+	totalKeysWithDESO := uint64(0)
+	// Get all the balances from the DB
+	startPrefix := lib.DbGetPrefixForPublicKeyToDesoBalanceNanos()
+	validForPrefix := lib.DbGetPrefixForPublicKeyToDesoBalanceNanos()
+
+	keysFound, valsFound, err := lib.DBGetPaginatedKeysAndValuesForPrefix(
+		fes.TXIndex.TXIndexChain.DB(), startPrefix, validForPrefix,
+		0, -1, false, true)
+	if err != nil {
+		glog.Errorf("StartSupplyMonitoring: Error getting all balances")
+	}
+
+	var richList []RichListEntry
+	// For each key-value pair from the list of all DESO balances, if the balance is high enough to be in
+	// the rich list at the current state, add it to our temporary rich list.
+	// NOTE: this would be more performance if we kept some sort of priority queue
+	for keyIndex, key := range keysFound {
+		balanceNanos := lib.DecodeUint64(valsFound[keyIndex])
+		totalSupply += balanceNanos
+		if balanceNanos > 0 {
+			totalKeysWithDESO++
+		}
+		// We don't need to keep all of the balances, just the top ones so let's skip adding items
+		// if we know they won't make the cut.
+		if balanceNanos >= richListMin {
+			richList = append(richList, RichListEntry{
+				KeyBytes:     key,
+				BalanceNanos: balanceNanos,
+			})
+		}
+	}
+
+	fes.CountKeysWithDESO = totalKeysWithDESO
+
+	// Get all the keys for the Prefix that is ordered by DESO locked in creator coins
+	uint64BytesLen := 8
+	ccStartPrefix := lib.DbPrefixForCreatorDeSoLockedNanosCreatorPKID()
+	ccValidForPrefix := lib.DbPrefixForCreatorDeSoLockedNanosCreatorPKID()
+	ccKeysFound, _, err := lib.DBGetPaginatedKeysAndValuesForPrefix(
+		fes.TXIndex.TXIndexChain.DB(), ccStartPrefix, ccValidForPrefix,
+		0, -1, false, false)
+	if err != nil {
+		glog.Errorf("StartSupplyMonitoring: Error getting all DESO locked in CCs")
+	}
+
+	// For each key, extract the DESO locked and add it to the total supply
+	for _, ccKey := range ccKeysFound {
+		totalSupply += lib.DecodeUint64(ccKey[1 : 1+uint64BytesLen])
+	}
+
+	fes.TotalSupplyNanos = totalSupply
+	fes.TotalSupplyDESO = float64(totalSupply) / float64(lib.NanosPerUnit)
+
+	sort.Slice(richList, func(ii, jj int) bool {
+		return richList[ii].BalanceNanos > richList[jj].BalanceNanos
+	})
+
+	endIdx := richListLength
+	if len(richList) < richListLength {
+		endIdx = len(richList)
+	}
+
+	richList = richList[:endIdx]
+
+	// Convert RichListEntries to RichListEntryResponses
+	var richListResponses []RichListEntryResponse
+	for _, item := range richList {
+		richListResponses = append(richListResponses, RichListEntryResponse{
+			PublicKeyBase58Check: lib.PkToString(item.KeyBytes[1:], fes.Params),
+			BalanceNanos:         item.BalanceNanos,
+			BalanceDESO:          float64(item.BalanceNanos) / float64(lib.NanosPerUnit),
+			Value:                fes.GetUSDFromNanos(item.BalanceNanos),
+			Percentage:           float64(item.BalanceNanos) / float64(totalSupply),
+		})
+	}
+
+	fes.RichList = richListResponses
 }
 
 func (fes *APIServer) GetTotalSupply(ww http.ResponseWriter, req *http.Request) {
