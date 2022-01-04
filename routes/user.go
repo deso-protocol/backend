@@ -25,6 +25,7 @@ import (
 type GetUsersStatelessRequest struct {
 	PublicKeysBase58Check []string `safeForLogging:"true"`
 	SkipForLeaderboard    bool     `safeForLogging:"true"`
+	GetUnminedBalance     bool     `safeForLogging:"true"`
 }
 
 // GetUsersResponse ...
@@ -52,7 +53,8 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 		userList = append(userList, currentUser)
 	}
 
-	globalParams, err := fes.updateUsersStateless(userList, getUsersRequest.SkipForLeaderboard)
+	globalParams, err := fes.updateUsersStateless(userList, getUsersRequest.SkipForLeaderboard,
+		getUsersRequest.GetUnminedBalance)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUsersStateless: Error fetching data for user: %v", err))
 		return
@@ -82,7 +84,8 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 	}
 }
 
-func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard bool) (*lib.GlobalParamsEntry, error) {
+func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard bool, getUnminedBalance bool) (
+	*lib.GlobalParamsEntry, error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return nil, fmt.Errorf("updateUserFields: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
@@ -90,7 +93,7 @@ func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard 
 	globalParams := utxoView.GlobalParamsEntry
 	for _, user := range userList {
 		// If we get an error updating the user, log it but don't stop the show.
-		if err = fes.updateUserFieldsStateless(user, utxoView, skipForLeaderboard); err != nil {
+		if err = fes.updateUserFieldsStateless(user, utxoView, skipForLeaderboard, getUnminedBalance); err != nil {
 			glog.Errorf(fmt.Sprintf("updateUsers: Problem updating user with pk %s: %v", user.PublicKeyBase58Check, err))
 		}
 	}
@@ -98,7 +101,8 @@ func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard 
 	return globalParams, nil
 }
 
-func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoView, skipForLeaderboard bool) error {
+func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoView, skipForLeaderboard bool,
+	getUnminedBalance bool) error {
 	// If there's no public key, then return an error. We need a public key on
 	// the user object in order to be able to update the fields.
 	if user.PublicKeyBase58Check == "" {
@@ -122,23 +126,31 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 
 	// We do not need a user's balance for the leaderboard
 	if !skipForLeaderboard {
-		// Get the UtxoEntries from the augmented view
-		utxoEntries, err := fes.blockchain.GetSpendableUtxosForPublicKey(
-			publicKeyBytes, fes.backendServer.GetMempool(), utxoView)
-		if err != nil {
-			return errors.Wrapf(err, "updateUserFields: Problem getting utxos from view: ")
-		}
-		totalBalanceNanos := uint64(0)
-		unminedBalanceNanos := uint64(0)
-		for _, utxoEntry := range utxoEntries {
-			totalBalanceNanos += utxoEntry.AmountNanos
-			if utxoEntry.BlockHeight > fes.blockchain.BlockTip().Height {
-				unminedBalanceNanos += utxoEntry.AmountNanos
+		if getUnminedBalance {
+			// Get the UtxoEntries from the augmented view
+			utxoEntries, err := fes.blockchain.GetSpendableUtxosForPublicKey(
+				publicKeyBytes, fes.backendServer.GetMempool(), utxoView)
+			if err != nil {
+				return errors.Wrapf(err, "updateUserFields: Problem getting utxos from view: ")
 			}
+			totalBalanceNanos := uint64(0)
+			unminedBalanceNanos := uint64(0)
+			for _, utxoEntry := range utxoEntries {
+				totalBalanceNanos += utxoEntry.AmountNanos
+				if utxoEntry.BlockHeight > fes.blockchain.BlockTip().Height {
+					unminedBalanceNanos += utxoEntry.AmountNanos
+				}
+			}
+			// Set the user's balance.
+			user.BalanceNanos = totalBalanceNanos
+			user.UnminedBalanceNanos = unminedBalanceNanos
+		} else {
+			balanceNanos, err := utxoView.GetDeSoBalanceNanosForPublicKey(publicKeyBytes)
+			if err != nil {
+				glog.Errorf("updateUserFields: Error getting balance nanos for public key: %v", err)
+			}
+			user.BalanceNanos = balanceNanos
 		}
-		// Set the user's balance.
-		user.BalanceNanos = totalBalanceNanos
-		user.UnminedBalanceNanos = unminedBalanceNanos
 	}
 
 	// We do not need follows for the leaderboard
@@ -184,7 +196,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		})
 
 		var hodlYouMap map[string]*BalanceEntryResponse
-		hodlYouMap, err = fes.GetHodlYouMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView)
+		hodlYouMap, err = fes.GetHodlYouMap(pkid, false, utxoView)
 		// Assign the new hodl lists to the user object
 		user.UsersYouHODL = youHodlList
 		user.UsersWhoHODLYouCount = len(hodlYouMap)
