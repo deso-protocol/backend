@@ -21,6 +21,7 @@ type NFTEntryResponse struct {
 	IsForSale                  bool                  `safeForLogging:"true"`
 	IsPending                  bool                  `safeForLogging:"true"`
 	IsBuyNow                   bool                  `safeForLogging:"true"`
+	BuyNowPriceNanos           uint64                `safeForLogging:"true"`
 	MinBidAmountNanos          uint64                `safeForLogging:"true"`
 	LastAcceptedBidAmountNanos uint64                `safeForLogging:"true"`
 
@@ -32,12 +33,15 @@ type NFTEntryResponse struct {
 }
 
 type NFTCollectionResponse struct {
-	ProfileEntryResponse   *ProfileEntryResponse `json:",omitempty"`
-	PostEntryResponse      *PostEntryResponse    `json:",omitempty"`
-	HighestBidAmountNanos  uint64                `safeForLogging:"true"`
-	LowestBidAmountNanos   uint64                `safeForLogging:"true"`
-	NumCopiesForSale       uint64                `safeForLogging:"true"`
-	AvailableSerialNumbers []uint64              `safeForLogging:"true"`
+	ProfileEntryResponse    *ProfileEntryResponse `json:",omitempty"`
+	PostEntryResponse       *PostEntryResponse    `json:",omitempty"`
+	HighestBidAmountNanos   uint64                `safeForLogging:"true"`
+	LowestBidAmountNanos    uint64                `safeForLogging:"true"`
+	HighestBuyNowPriceNanos *uint64               `safeForLogging:"true"`
+	LowestBuyNowPriceNanos  *uint64               `safeForLogging:"true"`
+	NumCopiesForSale        uint64                `safeForLogging:"true"`
+	NumCopiesBuyNow         uint64                `safeForLogging:"true"`
+	AvailableSerialNumbers  []uint64              `safeForLogging:"true"`
 }
 
 type NFTBidEntryResponse struct {
@@ -1299,9 +1303,9 @@ func (fes *APIServer) _nftEntryToResponse(nftEntry *lib.NFTEntry, postEntryRespo
 		IsPending:                 nftEntry.IsPending,
 		IsBuyNow:                  nftEntry.IsBuyNow,
 		MinBidAmountNanos:         nftEntry.MinBidAmountNanos,
-
-		HighestBidAmountNanos: highBid,
-		LowestBidAmountNanos:  lowBid,
+		BuyNowPriceNanos:          nftEntry.BuyNowPriceNanos,
+		HighestBidAmountNanos:     highBid,
+		LowestBidAmountNanos:      lowBid,
 
 		EncryptedUnlockableText:       encryptedUnlockableText,
 		LastOwnerPublicKeyBase58Check: lastOwnerPublicKeyBase58Check,
@@ -1326,6 +1330,9 @@ func (fes *APIServer) _nftEntryToNFTCollectionResponse(
 	postEntryResponse.ProfileEntryResponse = profileEntryResponse
 
 	var numCopiesForSale uint64
+	var numCopiesBuyNow uint64
+	var highBuyNowPriceNanos *uint64
+	var lowBuyNowPriceNanos *uint64
 	serialNumbersForSale := []uint64{}
 	for ii := uint64(1); ii <= postEntryResponse.NumNFTCopies; ii++ {
 		nftKey := lib.MakeNFTKey(nftEntry.NFTPostHash, ii)
@@ -1333,6 +1340,17 @@ func (fes *APIServer) _nftEntryToNFTCollectionResponse(
 		if nftEntryii != nil && nftEntryii.IsForSale {
 			if nftEntryii.OwnerPKID != readerPKID {
 				serialNumbersForSale = append(serialNumbersForSale, ii)
+				if nftEntryii.IsBuyNow {
+					if highBuyNowPriceNanos == nil || nftEntryii.BuyNowPriceNanos > *highBuyNowPriceNanos {
+						highBuyNowPriceNanos = &nftEntryii.BuyNowPriceNanos
+					}
+					if lowBuyNowPriceNanos == nil || nftEntryii.BuyNowPriceNanos < *lowBuyNowPriceNanos {
+						lowBuyNowPriceNanos = &nftEntryii.BuyNowPriceNanos
+					}
+				}
+			}
+			if nftEntryii.IsBuyNow {
+				numCopiesBuyNow++
 			}
 			numCopiesForSale++
 		}
@@ -1342,12 +1360,15 @@ func (fes *APIServer) _nftEntryToNFTCollectionResponse(
 		nftEntry.NFTPostHash)
 
 	return &NFTCollectionResponse{
-		ProfileEntryResponse:   profileEntryResponse,
-		PostEntryResponse:      postEntryResponse,
-		HighestBidAmountNanos:  highestBidAmountNanos,
-		LowestBidAmountNanos:   lowestBidAmountNanos,
-		NumCopiesForSale:       numCopiesForSale,
-		AvailableSerialNumbers: serialNumbersForSale,
+		ProfileEntryResponse:    profileEntryResponse,
+		PostEntryResponse:       postEntryResponse,
+		HighestBidAmountNanos:   highestBidAmountNanos,
+		LowestBidAmountNanos:    lowestBidAmountNanos,
+		HighestBuyNowPriceNanos: highBuyNowPriceNanos,
+		LowestBuyNowPriceNanos:  lowBuyNowPriceNanos,
+		NumCopiesForSale:        numCopiesForSale,
+		NumCopiesBuyNow:         numCopiesBuyNow,
+		AvailableSerialNumbers:  serialNumbersForSale,
 	}
 }
 
