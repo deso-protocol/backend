@@ -126,7 +126,7 @@ func (fes *APIServer) canUserCreateProfile(userMetadata *UserMetadata, utxoView 
 		return true, nil
 	}
 
-	totalBalanceNanos, err := fes.GetBalanceForPublicKey(userMetadata.PublicKey)
+	totalBalanceNanos, err := utxoView.GetDeSoBalanceNanosForPublicKey(userMetadata.PublicKey)
 	if err != nil {
 		return false, err
 	}
