@@ -2297,6 +2297,11 @@ func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest,
 				if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
 					continue
 				}
+				// Skip blacklisted public keys
+				transactorPKID := utxoView.GetPKIDForPublicKey(transactorPkBytes)
+				if transactorPKID == nil || fes.IsUserBlacklisted(transactorPKID.PKID) {
+					continue
+				}
 
 				// Skip transactions when notification should not be included based on filter
 				if !NotificationTxnShouldBeIncluded(txnMeta, &filteredOutCategories) {
