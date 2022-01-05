@@ -25,6 +25,7 @@ import (
 type GetUsersStatelessRequest struct {
 	PublicKeysBase58Check []string `safeForLogging:"true"`
 	SkipForLeaderboard    bool     `safeForLogging:"true"`
+	GetUnminedBalance     bool     `safeForLogging:"true"`
 }
 
 // GetUsersResponse ...
@@ -52,7 +53,8 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 		userList = append(userList, currentUser)
 	}
 
-	globalParams, err := fes.updateUsersStateless(userList, getUsersRequest.SkipForLeaderboard)
+	globalParams, err := fes.updateUsersStateless(userList, getUsersRequest.SkipForLeaderboard,
+		getUsersRequest.GetUnminedBalance)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUsersStateless: Error fetching data for user: %v", err))
 		return
@@ -82,7 +84,8 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 	}
 }
 
-func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard bool) (*lib.GlobalParamsEntry, error) {
+func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard bool, getUnminedBalance bool) (
+	*lib.GlobalParamsEntry, error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return nil, fmt.Errorf("updateUserFields: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
@@ -90,7 +93,7 @@ func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard 
 	globalParams := utxoView.GlobalParamsEntry
 	for _, user := range userList {
 		// If we get an error updating the user, log it but don't stop the show.
-		if err = fes.updateUserFieldsStateless(user, utxoView, skipForLeaderboard); err != nil {
+		if err = fes.updateUserFieldsStateless(user, utxoView, skipForLeaderboard, getUnminedBalance); err != nil {
 			glog.Errorf(fmt.Sprintf("updateUsers: Problem updating user with pk %s: %v", user.PublicKeyBase58Check, err))
 		}
 	}
@@ -98,7 +101,8 @@ func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard 
 	return globalParams, nil
 }
 
-func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoView, skipForLeaderboard bool) error {
+func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoView, skipForLeaderboard bool,
+	getUnminedBalance bool) error {
 	// If there's no public key, then return an error. We need a public key on
 	// the user object in order to be able to update the fields.
 	if user.PublicKeyBase58Check == "" {
@@ -122,23 +126,31 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 
 	// We do not need a user's balance for the leaderboard
 	if !skipForLeaderboard {
-		// Get the UtxoEntries from the augmented view
-		utxoEntries, err := fes.blockchain.GetSpendableUtxosForPublicKey(
-			publicKeyBytes, fes.backendServer.GetMempool(), utxoView)
-		if err != nil {
-			return errors.Wrapf(err, "updateUserFields: Problem getting utxos from view: ")
-		}
-		totalBalanceNanos := uint64(0)
-		unminedBalanceNanos := uint64(0)
-		for _, utxoEntry := range utxoEntries {
-			totalBalanceNanos += utxoEntry.AmountNanos
-			if utxoEntry.BlockHeight > fes.blockchain.BlockTip().Height {
-				unminedBalanceNanos += utxoEntry.AmountNanos
+		if getUnminedBalance {
+			// Get the UtxoEntries from the augmented view
+			utxoEntries, err := fes.blockchain.GetSpendableUtxosForPublicKey(
+				publicKeyBytes, fes.backendServer.GetMempool(), utxoView)
+			if err != nil {
+				return errors.Wrapf(err, "updateUserFields: Problem getting utxos from view: ")
 			}
+			totalBalanceNanos := uint64(0)
+			unminedBalanceNanos := uint64(0)
+			for _, utxoEntry := range utxoEntries {
+				totalBalanceNanos += utxoEntry.AmountNanos
+				if utxoEntry.BlockHeight > fes.blockchain.BlockTip().Height {
+					unminedBalanceNanos += utxoEntry.AmountNanos
+				}
+			}
+			// Set the user's balance.
+			user.BalanceNanos = totalBalanceNanos
+			user.UnminedBalanceNanos = unminedBalanceNanos
+		} else {
+			balanceNanos, err := utxoView.GetDeSoBalanceNanosForPublicKey(publicKeyBytes)
+			if err != nil {
+				glog.Errorf("updateUserFields: Error getting balance nanos for public key: %v", err)
+			}
+			user.BalanceNanos = balanceNanos
 		}
-		// Set the user's balance.
-		user.BalanceNanos = totalBalanceNanos
-		user.UnminedBalanceNanos = unminedBalanceNanos
 	}
 
 	// We do not need follows for the leaderboard
@@ -184,7 +196,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		})
 
 		var hodlYouMap map[string]*BalanceEntryResponse
-		hodlYouMap, err = fes.GetHodlYouMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView)
+		hodlYouMap, err = fes.GetHodlYouMap(pkid, false, utxoView)
 		// Assign the new hodl lists to the user object
 		user.UsersYouHODL = youHodlList
 		user.UsersWhoHODLYouCount = len(hodlYouMap)
@@ -413,6 +425,81 @@ func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, utx
 		}
 	}
 	return hodlYouMap, nil
+}
+
+type GetUserMetadataRequest struct {
+	PublicKeyBase58Check string
+}
+
+type GetUserMetadataResponse struct {
+	HasPhoneNumber   bool
+	CanCreateProfile bool
+	BlockedPubKeys   map[string]struct{}
+	HasEmail         bool
+	EmailVerified    bool
+	// JumioFinishedTime = Time user completed flow in Jumio
+	JumioFinishedTime uint64
+	// JumioVerified = user was verified from Jumio flow
+	JumioVerified bool
+	// JumioReturned = jumio webhook called
+	JumioReturned bool
+}
+
+// GetUserMetadata ...
+func (fes *APIServer) GetUserMetadata(ww http.ResponseWriter, req *http.Request) {
+	if !fes.Config.ExposeGlobalState {
+		_AddNotFoundError(ww, fmt.Sprintf("Global state not exposed"))
+		return
+	}
+	vars := mux.Vars(req)
+	publicKeyBase58Check, publicKeyBase58CheckExists := vars["publicKeyBase58Check"]
+	if !publicKeyBase58CheckExists {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: Missing public key base 58 check"))
+		return
+	}
+
+	// Decode the public key into bytes.
+	publicKeyBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: error decoding public key: %v", err))
+		return
+	}
+
+	userMetadata, err := fes.getUserMetadataFromGlobalStateByPublicKeyBytes(publicKeyBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: error getting user metadata from global state: %v", err))
+		return
+	}
+
+	res := GetUserMetadataResponse{}
+	res.HasPhoneNumber = userMetadata.PhoneNumber != ""
+	res.HasEmail = userMetadata.Email != ""
+	res.EmailVerified = userMetadata.EmailVerified
+	res.JumioVerified = userMetadata.JumioVerified
+	res.JumioReturned = userMetadata.JumioReturned
+	res.JumioFinishedTime = userMetadata.JumioFinishedTime
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: error getting utxoview: %v", err))
+		return
+	}
+	if res.CanCreateProfile, err = fes.canUserCreateProfile(userMetadata, utxoView); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: error getting CanCreateProfile: %v", err))
+		return
+	}
+
+	// Get map of public keys user has blocked
+	if res.BlockedPubKeys, err = fes.GetBlockedPubKeysForUser(publicKeyBytes); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: error getting blocked public keys: %v", err))
+		return
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserMetadata: Problem encoding response as JSON: %v", err))
+		return
+	}
+
 }
 
 type DeleteIdentityRequest struct{}
@@ -1705,6 +1792,79 @@ func (fes *APIServer) UpdateUserGlobalMetadata(ww http.ResponseWriter, req *http
 	}
 }
 
+type GetNotificationsCountRequest struct {
+	PublicKeyBase58Check string
+}
+
+type GetNotificationsCountResponse struct {
+	NotificationsCount          uint64
+	LastUnreadNotificationIndex uint64
+	// Whether new unread notifications were added and the user metadata should be updated
+	UpdateMetadata bool
+}
+
+func (fes *APIServer) GetNotificationsCount(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetNotificationsCountRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetNotificationsCount: Problem parsing request body: %v", err))
+		return
+	}
+
+	userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.PublicKeyBase58Check)
+
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNotificationsCount: Error getting user metadata from global state: %v", err))
+		return
+	}
+
+	var fetchStartIndex int64
+
+	if userMetadata.LatestUnreadNotificationIndex > 0 {
+		fetchStartIndex = userMetadata.LatestUnreadNotificationIndex + 1
+	} else if userMetadata.NotificationLastSeenIndex > 0 {
+		fetchStartIndex = userMetadata.NotificationLastSeenIndex + 1
+	}
+
+	notificationsRequestData := GetNotificationsRequest{
+		PublicKeyBase58Check: requestData.PublicKeyBase58Check,
+		// Only count the notifications that haven't previously been iterated over
+		FetchStartIndex: fetchStartIndex,
+		// If notifications are > 100, we show a "99+" message on the front end.
+		NumToFetch: 100,
+	}
+
+	newNotificationsCount, newNotificationsStartIndex, err := fes._getNotificationsCount(&notificationsRequestData)
+
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNotificationsCount: Error getting notifications: %v", err))
+		return
+	}
+
+	notificationsCount := newNotificationsCount + userMetadata.UnreadNotifications
+	notificationStartIndex := userMetadata.LatestUnreadNotificationIndex
+	updateMetadata := false
+
+	// Save the new latest unread notification index, so that notifications aren't scanned twice. Only do this when new notifications are added.
+	if newNotificationsCount > 0 {
+		notificationStartIndex = newNotificationsStartIndex
+		updateMetadata = true
+	}
+
+	res := &GetNotificationsCountResponse{
+		NotificationsCount:          notificationsCount,
+		LastUnreadNotificationIndex: uint64(notificationStartIndex),
+		UpdateMetadata:              updateMetadata,
+	}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetNotificationsCount: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
 type GetNotificationsRequest struct {
 	// This is the index of the notification we want to start our paginated lookup at. We
 	// will fetch up to "NumToFetch" notifications after it, ordered by index.  If no
@@ -1722,6 +1882,7 @@ type GetNotificationsResponse struct {
 	Notifications       []*TransactionMetadataResponse
 	ProfilesByPublicKey map[string]*ProfileEntryResponse
 	PostsByHash         map[string]*PostEntryResponse
+	LastSeenIndex       int64
 }
 
 func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request) {
@@ -1829,6 +1990,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		transferCreatorCoinMetadata := txnMeta.Metadata.CreatorCoinTransferTxindexMetadata
 		nftBidMetadata := txnMeta.Metadata.NFTBidTxindexMetadata
 		acceptNFTBidMetadata := txnMeta.Metadata.AcceptNFTBidTxindexMetadata
+		nftTransferMetadata := txnMeta.Metadata.NFTTransferTxindexMetadata
 		basicTransferMetadata := txnMeta.Metadata.BasicTransferTxindexMetadata
 
 		if postMetadata != nil {
@@ -1844,6 +2006,8 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 			addPostForHash(nftBidMetadata.NFTPostHashHex, userPublicKeyBytes, false)
 		} else if acceptNFTBidMetadata != nil {
 			addPostForHash(acceptNFTBidMetadata.NFTPostHashHex, userPublicKeyBytes, false)
+		} else if nftTransferMetadata != nil {
+			addPostForHash(nftTransferMetadata.NFTPostHashHex, userPublicKeyBytes, false)
 		} else if basicTransferMetadata != nil {
 			txnOutputs := txnMeta.Metadata.TxnOutputs
 			for _, output := range txnOutputs {
@@ -1860,36 +2024,11 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		}
 	}
 
-	// save the most recent notification into global state so we know
-	// if we have any unread notifications later
-	//
-	// only try to update the index if we're requesting the first page of results
-	// and we have at least one notification
+	var lastSeenIndex int64
 	if requestData.FetchStartIndex < 0 && len(finalTxnMetadataList) > 0 {
-		// global state does not have good support for concurrency. if someone
-		// else fetches this user's data and writes at the same time we could
-		// overwrite each other. there's a task in jira to investigate concurrency
-		// issues with global state.
-		userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"GetNotifications: Problem getting metadata from global state: %v", err))
-			return
-		}
-
-		// only update the index if it's greater than the current index we have stored
-		lastSeenIndex := finalTxnMetadataList[0].Index
-		if lastSeenIndex > userMetadata.NotificationLastSeenIndex {
-			userMetadata.NotificationLastSeenIndex = lastSeenIndex
-
-			// Place the update metadata into the global state
-			err = fes.putUserMetadataInGlobalState(userMetadata)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf(
-					"GetNotifications: Problem putting updated user metadata: %v", err))
-				return
-			}
-		}
+		lastSeenIndex = finalTxnMetadataList[0].Index
+	} else {
+		lastSeenIndex = -1
 	}
 
 	// At this point, we should have all the profiles and all the notifications
@@ -1898,6 +2037,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		Notifications:       finalTxnMetadataList,
 		ProfilesByPublicKey: profileEntryResponses,
 		PostsByHash:         postEntryResponses,
+		LastSeenIndex:       lastSeenIndex,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
@@ -1906,36 +2046,86 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	}
 }
 
-func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*TransactionMetadataResponse, *lib.UtxoView, error) {
-	// If the TxIndex flag was not passed to this node then we can't compute
-	// notifications.
-	if fes.TXIndex == nil {
-		return nil, nil, errors.Errorf(
-			"GetNotifications: Cannot be called when TXIndexChain " +
-				"is nil. This error occurs when --txindex was not passed to the program " +
-				"on startup")
+type SetNotificationMetadataRequest struct {
+	PublicKeyBase58Check string
+	// The last notification index the user has seen
+	LastSeenIndex int64
+	// The last notification index that has been scanned
+	LastUnreadNotificationIndex int64
+	// The total count of unread notifications
+	UnreadNotifications int64
+	// JWT token
+	JWT string
+}
+
+func (fes *APIServer) SetNotificationMetadata(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := SetNotificationMetadataRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"SetNotificationMetadata: Problem parsing request body: %v", err))
+		return
+	}
+	var userPublicKeyBytes []byte
+	var err error
+	userPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+	if err != nil || len(userPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"SetNotificationMetadata: Problem decoding updater public key %s: %v",
+			requestData.PublicKeyBase58Check, err))
+		return
 	}
 
+	// Validate the JWT is legit.
+	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SetNotificationMetadata: Error validating JWT: %v", err))
+		return
+	}
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("SetNotificationMetadata: Invalid token: %v", err))
+		return
+	}
+
+	// global state does not have good support for concurrency. if someone
+	// else fetches this user's data and writes at the same time we could
+	// overwrite each other. there's a task in jira to investigate concurrency
+	// issues with global state.
+	userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(userPublicKeyBytes, fes.Params))
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"SetNotificationMetadata: Problem getting metadata from global state: %v", err))
+		return
+	}
+
+	lastSeenIndex := requestData.LastSeenIndex
+
+	// only update the index if it's greater than the current index we have stored
+	if lastSeenIndex > userMetadata.NotificationLastSeenIndex && lastSeenIndex > 0 {
+		userMetadata.NotificationLastSeenIndex = lastSeenIndex
+	}
+	// Update user metadata with new unread notification count.
+	userMetadata.UnreadNotifications = uint64(requestData.UnreadNotifications)
+	// Save the new latest unread notification index, so that notifications aren't scanned twice.
+	userMetadata.LatestUnreadNotificationIndex = requestData.LastUnreadNotificationIndex
+	// Place the update metadata into the global state
+	err = fes.putUserMetadataInGlobalState(userMetadata)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"SetNotificationMetadata: Problem putting updated user metadata: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, blockedPubKeys map[string]struct{}, utxoView *lib.UtxoView, iterateReverse bool) ([]*TransactionMetadataResponse, error) {
 	filteredOutCategories := request.FilteredOutNotificationCategories
 
 	pkBytes, _, err := lib.Base58CheckDecode(request.PublicKeyBase58Check)
 	if err != nil {
-		return nil, nil, errors.Errorf("GetNotifications: Problem parsing public key: %v", err)
+		return nil, errors.Errorf("GetNotifications: Problem parsing public key: %v", err)
 	}
 
-	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(pkBytes)
-	if err != nil {
-		return nil, nil, errors.Errorf("GetNotifications: Error getting blocked public keys for user: %v", err)
-	}
-
-	// A valid mempool object is used to compute the TransactionMetadata for the mempool
-	// and to allow for things like: filtering notifications for a hidden post.
-	utxoView, err := fes.mempool.GetAugmentedUniversalView()
-	if err != nil {
-		return nil, nil, errors.Errorf("GetNotifications: Problem getting view: %v", err)
-	}
-
-	// Iterate backward over the database to find as many keys as we can.
+	// Iterate over the database to find as many keys as we can.
 	//
 	// Start by constructing the validForPrefix. It's just the public key.
 	validForPrefix := lib.DbTxindexPublicKeyPrefix(pkBytes)
@@ -1958,10 +2148,10 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 	for {
 		keysFound, valsFound, err := lib.DBGetPaginatedKeysAndValuesForPrefix(
 			fes.TXIndex.TXIndexChain.DB(), startPrefix, validForPrefix,
-			maxKeyLen, int(request.NumToFetch), true, /*reverse*/
+			maxKeyLen, int(request.NumToFetch), iterateReverse, /*reverse*/
 			true /*fetchValues*/)
 		if err != nil {
-			return nil, nil, errors.Errorf(
+			return nil, errors.Errorf(
 				"GetNotifications: Error fetching paginated TransactionMetadata for notifications: %v", err)
 		}
 
@@ -1989,6 +2179,11 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 			}
 			// Skip transactions from blocked users.
 			if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
+				continue
+			}
+			// Skip transactions from blacklisted public keys
+			transactorPKID := utxoView.GetPKIDForPublicKey(transactorPkBytes)
+			if transactorPKID == nil || fes.IsUserBlacklisted(transactorPKID.PKID) {
 				continue
 			}
 			currentIndexBytes := keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]
@@ -2025,23 +2220,38 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 		// If we get here it means that we don't have enough transactions yet *and*
 		// there are more keys to seek. It also means that the lastKeyIndex > 0. So
 		// update the startPrefix to place it right after the index of the last key.
+		var nextPagePrefixIdx uint32
+		if iterateReverse {
+			nextPagePrefixIdx = uint32(lastKeyIndex - 1)
+		} else {
+			nextPagePrefixIdx = uint32(lastKeyIndex + 1)
+		}
 		startPrefix = lib.DbTxindexPublicKeyIndexToTxnKey(
-			pkBytes, uint32(lastKeyIndex-1))
+			pkBytes, nextPagePrefixIdx)
 	}
+	return dbTxnMetadataFound, nil
+}
 
+func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest, blockedPubKeys map[string]struct{}, utxoView *lib.UtxoView, iterateReverse bool) ([]*TransactionMetadataResponse, error) {
+	filteredOutCategories := request.FilteredOutNotificationCategories
+
+	pkBytes, _, err := lib.Base58CheckDecode(request.PublicKeyBase58Check)
+	if err != nil {
+		return nil, errors.Errorf("GetMempoolNotifications: Problem parsing public key: %v", err)
+	}
 	// Get the NextIndex from the db. This will be used to determine whether
 	// or not it's appropriate to fetch txns from the mempool. It will also be
 	// used to assign consistent index values to memppool txns.
 	NextIndexVal := lib.DbGetTxindexNextIndexForPublicKey(fes.TXIndex.TXIndexChain.DB(), pkBytes)
 	if NextIndexVal == nil {
-		return nil, nil, fmt.Errorf("Unable to get next index for public key: %v", request.PublicKeyBase58Check)
+		return nil, fmt.Errorf("Unable to get next index for public key: %v", request.PublicKeyBase58Check)
 	}
 	NextIndex := int64(*NextIndexVal)
 	// If the FetchStartIndex is unset *or* if it's set to a value that is larger
 	// than what we have in the db then it means we need to augment our list with
 	// txns from the mempool.
 	combinedMempoolDBTxnMetadata := []*TransactionMetadataResponse{}
-	if request.FetchStartIndex < 0 || request.FetchStartIndex >= NextIndex {
+	if !iterateReverse || (request.FetchStartIndex < 0 || request.FetchStartIndex >= NextIndex) {
 		// At this point we should have zero or more TransactionMetadata objects from
 		// the database that could trigger a notification for the user.
 		//
@@ -2054,7 +2264,7 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 		// in the mempool by public key and only look up transactions that are relevant to this public key.
 		poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
 		if err != nil {
-			return nil, nil, errors.Errorf("APITransactionInfo: Error getting txns from mempool: %v", err)
+			return nil, errors.Errorf("APITransactionInfo: Error getting txns from mempool: %v", err)
 		}
 
 		mempoolTxnMetadata := []*TransactionMetadataResponse{}
@@ -2087,16 +2297,24 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 				if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
 					continue
 				}
+				// Skip blacklisted public keys
+				transactorPKID := utxoView.GetPKIDForPublicKey(transactorPkBytes)
+				if transactorPKID == nil || fes.IsUserBlacklisted(transactorPKID.PKID) {
+					continue
+				}
 
 				// Skip transactions when notification should not be included based on filter
 				if !NotificationTxnShouldBeIncluded(txnMeta, &filteredOutCategories) {
 					continue
 				}
 
-				mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
-					Metadata: txnMeta,
-					Index:    currentIndex,
-				})
+				// Only include transactions that occur on or after the start index, if defined
+				if request.FetchStartIndex < 0 || (request.FetchStartIndex >= currentIndex && iterateReverse) || (request.FetchStartIndex <= currentIndex && !iterateReverse) {
+					mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
+						Metadata: txnMeta,
+						Index:    currentIndex,
+					})
+				}
 			}
 
 			// TODO: Commenting this out for now because it causes incorrect behavior
@@ -2117,13 +2335,108 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 			combinedMempoolDBTxnMetadata = append(combinedMempoolDBTxnMetadata, currentMempoolTxnMetadata)
 		}
 	}
+	return combinedMempoolDBTxnMetadata, nil
+}
+
+// Return the number of unread notifications, and the last index scanned
+func (fes *APIServer) _getNotificationsCount(request *GetNotificationsRequest) (uint64, int64, error) {
+	// If the TxIndex flag was not passed to this node then we can't compute
+	// notifications.
+	if fes.TXIndex == nil {
+		return 0, 0, errors.Errorf(
+			"GetNotifications: Cannot be called when TXIndexChain " +
+				"is nil. This error occurs when --txindex was not passed to the program " +
+				"on startup")
+	}
+
+	pkBytes, _, err := lib.Base58CheckDecode(request.PublicKeyBase58Check)
+	if err != nil {
+		return 0, 0, errors.Errorf("GetNotifications: Problem parsing public key: %v", err)
+	}
+
+	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(pkBytes)
+	if err != nil {
+		return 0, 0, errors.Errorf("GetNotifications: Error getting blocked public keys for user: %v", err)
+	}
+
+	// A valid mempool object is used to compute the TransactionMetadata for the mempool
+	// and to allow for things like: filtering notifications for a hidden post.
+	utxoView, err := fes.mempool.GetAugmentedUniversalView()
+	if err != nil {
+		return 0, 0, errors.Errorf("GetNotifications: Problem getting view: %v", err)
+	}
+
+	var notificationsCount uint64 = 0
+	var nextNotificationStartIndex int64 = -1
+
+	// Get notifications from the db
+	dbTxnMetadataFound, err := fes._getDBNotifications(request, blockedPubKeys, utxoView, false)
+	if err != nil {
+		return 0, 0, fmt.Errorf("Error getting DB Notifications: %v", err)
+	}
+	if dbTxnMetadataFound != nil && len(dbTxnMetadataFound) > 0 {
+		notificationsCount += uint64(len(dbTxnMetadataFound))
+		nextNotificationStartIndex = dbTxnMetadataFound[len(dbTxnMetadataFound)-1].Index
+	}
+
+	// Get notifications from the db
+	mempoolTxnMetadataFound, err := fes._getMempoolNotifications(request, blockedPubKeys, utxoView, false)
+	if err != nil {
+		return 0, 0, fmt.Errorf("Error getting DB Notifications: %v", err)
+	}
+
+	if mempoolTxnMetadataFound != nil && len(mempoolTxnMetadataFound) > 0 {
+		notificationsCount += uint64(len(mempoolTxnMetadataFound))
+		nextNotificationStartIndex = mempoolTxnMetadataFound[0].Index
+	}
+
+	return notificationsCount, nextNotificationStartIndex, nil
+}
+
+func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*TransactionMetadataResponse, *lib.UtxoView, error) {
+	// If the TxIndex flag was not passed to this node then we can't compute
+	// notifications.
+	if fes.TXIndex == nil {
+		return nil, nil, errors.Errorf(
+			"GetNotifications: Cannot be called when TXIndexChain " +
+				"is nil. This error occurs when --txindex was not passed to the program " +
+				"on startup")
+	}
+
+	pkBytes, _, err := lib.Base58CheckDecode(request.PublicKeyBase58Check)
+	if err != nil {
+		return nil, nil, errors.Errorf("GetNotifications: Problem parsing public key: %v", err)
+	}
+
+	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(pkBytes)
+	if err != nil {
+		return nil, nil, errors.Errorf("GetNotifications: Error getting blocked public keys for user: %v", err)
+	}
+
+	// A valid mempool object is used to compute the TransactionMetadata for the mempool
+	// and to allow for things like: filtering notifications for a hidden post.
+	utxoView, err := fes.mempool.GetAugmentedUniversalView()
+	if err != nil {
+		return nil, nil, errors.Errorf("GetNotifications: Problem getting view: %v", err)
+	}
+
+	// Get notifications from the db
+	dbTxnMetadataFound, err := fes._getDBNotifications(request, blockedPubKeys, utxoView, true)
+	if err != nil {
+		return nil, nil, fmt.Errorf("Error getting DB Notifications: %v", err)
+	}
+
+	mempoolTxnMetadataFound, err := fes._getMempoolNotifications(request, blockedPubKeys, utxoView, true)
+	if err != nil {
+		return nil, nil, fmt.Errorf("Error getting mempool Notifications: %v", err)
+	}
 
 	// At this point, the combinedMempoolDBTxnMetadata either contains the latest transactions
 	// from the mempool *or* it's empty. The latter occurs when the FetchStartIndex
 	// is set to a value below the smallest index of any transaction in the mempool.
 	// In either case, appending the transactions we found in the db is the correct
 	// thing to do.
-	combinedMempoolDBTxnMetadata = append(combinedMempoolDBTxnMetadata, dbTxnMetadataFound...)
+	combinedMempoolDBTxnMetadata := append(mempoolTxnMetadataFound, dbTxnMetadataFound...)
 
 	// If a start index was set, then only consider transactions whose indes is <=
 	// this start index. This loop also enforces the final NumToFetch constraint.
@@ -2176,7 +2489,7 @@ func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredO
 		return !filteredOutCategories["follow"]
 	} else if txnMeta.TxnType == lib.TxnTypeLike.String() {
 		return !filteredOutCategories["like"]
-	} else if txnMeta.TxnType == lib.TxnTypeNFTBid.String() || txnMeta.TxnType == lib.TxnTypeAcceptNFTBid.String() {
+	} else if txnMeta.TxnType == lib.TxnTypeNFTBid.String() || txnMeta.TxnType == lib.TxnTypeAcceptNFTBid.String() || txnMeta.TxnType == lib.TxnTypeNFTTransfer.String() {
 		return !filteredOutCategories["nft"]
 	}
 	// If the transaction type doesn't fall into any of the previous steps, we don't want it
@@ -2195,6 +2508,11 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 	publicKeyIsAffected := false
 	for _, affectedObj := range txnMeta.AffectedPublicKeys {
 		if affectedObj.PublicKeyBase58Check == publicKeyBase58Check {
+			// We don't want to send notifications if a user received an output as a result of a fee on a
+			// non-Basic Transfer transaction.
+			if affectedObj.Metadata == "BasicTransferOutput" && txnMeta.TxnType != string(lib.TxnStringBasicTransfer) {
+				continue
+			}
 			publicKeyIsAffected = true
 			break
 		}
@@ -2240,6 +2558,9 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 		return true
 	} else if txnMeta.AcceptNFTBidTxindexMetadata != nil {
 		// Someone accepted your bid for an NFT
+		return true
+	} else if txnMeta.NFTTransferTxindexMetadata != nil {
+		// Someone transferred you an NFT
 		return true
 	} else if txnMeta.TxnType == lib.TxnTypeBasicTransfer.String() {
 		// Someone paid you
@@ -2647,7 +2968,7 @@ func (fes *APIServer) DeletePII(ww http.ResponseWriter, rr *http.Request) {
 
 // IsUserGraylisted returns true if the user is graylisted based on the current Graylist state.
 func (fes *APIServer) IsUserGraylisted(pkid *lib.PKID) bool {
-	return reflect.DeepEqual(fes.GetGraylistState(pkid), lib.IsGraylisted)
+	return reflect.DeepEqual(fes.GetGraylistState(pkid), IsGraylisted)
 }
 
 // GetGraylistState returns the graylist state bytes based on the current Graylist state.
@@ -2657,7 +2978,7 @@ func (fes *APIServer) GetGraylistState(pkid *lib.PKID) []byte {
 
 // IsUserBlacklisted returns true if the user is blacklisted based on the current Blacklist state.
 func (fes *APIServer) IsUserBlacklisted(pkid *lib.PKID) bool {
-	return reflect.DeepEqual(fes.GetBlacklistState(pkid), lib.IsBlacklisted)
+	return reflect.DeepEqual(fes.GetBlacklistState(pkid), IsBlacklisted)
 }
 
 // GetBlacklistState returns the blacklist state bytes based on the current Blacklist state.

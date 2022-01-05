@@ -3,6 +3,7 @@ package routes
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/csv"
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
@@ -45,7 +46,7 @@ func (fes *APIServer) putReferralHashWithInfo(
 	// Encode the updated entry and stick it in the database.
 	referralInfoDataBuf := bytes.NewBuffer([]byte{})
 	gob.NewEncoder(referralInfoDataBuf).Encode(referralInfo)
-	err := fes.GlobalStatePut(dbKey, referralInfoDataBuf.Bytes())
+	err := fes.GlobalState.Put(dbKey, referralInfoDataBuf.Bytes())
 	if err != nil {
 		return errors.Wrap(fmt.Errorf(
 			"putReferralHashWithInfo: Problem putting updated referralInfo: %v", err), "")
@@ -62,7 +63,7 @@ func (fes *APIServer) getInfoForReferralHashBase58(
 	dbKey := GlobalStateKeyForReferralHashToReferralInfo(referralHashBytes)
 
 	// Get the entry and decode the bytes.
-	referralInfoBytes, err := fes.GlobalStateGet(dbKey)
+	referralInfoBytes, err := fes.GlobalState.Get(dbKey)
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf(
 			"getInfoForReferralHash: Problem putting updated referralInfo: %v", err), "")
@@ -88,7 +89,7 @@ func (fes *APIServer) getReferralHashStatus(pkid *lib.PKID, referralHashBase58 s
 
 	dbKey := GlobalStateKeyForPKIDReferralHashToIsActive(pkid, referralHashBytes)
 
-	val, err := fes.GlobalStateGet(dbKey)
+	val, err := fes.GlobalState.Get(dbKey)
 	if err != nil {
 		return false
 	}
@@ -103,7 +104,7 @@ func (fes *APIServer) setReferralHashStatusForPKID(
 	dbKey := GlobalStateKeyForPKIDReferralHashToIsActive(pkid, referralHashBytes)
 
 	// Encode the updated entry and stick it in the database.
-	err := fes.GlobalStatePut(dbKey, []byte{lib.BoolToByte(isActive)})
+	err := fes.GlobalState.Put(dbKey, []byte{lib.BoolToByte(isActive)})
 	if err != nil {
 		return errors.Wrap(fmt.Errorf(
 			"putReferralHashWithInfo: Problem putting updated referralInfo: %v", err), "")
@@ -373,7 +374,7 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeR
 
 	// Build a key to seek all of the referral hashes for this PKID.
 	dbSeekKey := GlobalStateSeekKeyForPKIDReferralHashes(referrerPKID.PKID)
-	keysFound, valsFound, err := fes.GlobalStateSeek(
+	keysFound, valsFound, err := fes.GlobalState.Seek(
 		dbSeekKey, dbSeekKey, 0, 0, false /*reverse*/, true /*fetchValue*/)
 
 	referralHashStartIndex := 1 + len(referrerPKID.PKID)
@@ -392,7 +393,7 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeR
 
 		// Look up and decode the referral info for the hash.
 		dbKey := GlobalStateKeyForReferralHashToReferralInfo(referralHashBytes)
-		referralInfoBytes, err := fes.GlobalStateGet(dbKey)
+		referralInfoBytes, err := fes.GlobalState.Get(dbKey)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"fes.getReferralInfoResponsesForPubKey: error getting referral info (%s): %v",
@@ -413,7 +414,7 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeR
 			// Look up all of the users referred by this referral hash.
 			refereeSeekKey := GlobalStateSeekKeyForPKIDReferralHashRefereePKIDs(
 				referrerPKID.PKID, referralHashBytes)
-			refereeKeys, _, err := fes.GlobalStateSeek(refereeSeekKey, refereeSeekKey, 0, 0, false, false)
+			refereeKeys, _, err := fes.GlobalState.Seek(refereeSeekKey, refereeSeekKey, 0, 0, false, false)
 			if err != nil {
 				return nil, fmt.Errorf(
 					"getReferralInfoResponsesForPubKey: Failed to get referees (%s): %v",
@@ -518,7 +519,7 @@ func (fes *APIServer) getAllReferralInfos() (
 	_referralInfos []ReferralInfo, _err error) {
 
 	dbSeekKey := _GlobalStatePrefixReferralHashToReferralInfo
-	_, valsFound, err := fes.GlobalStateSeek(
+	_, valsFound, err := fes.GlobalState.Seek(
 		dbSeekKey, dbSeekKey, 0, 0, false /*reverse*/, true /*fetchValue*/)
 
 	var referralInfos []ReferralInfo
@@ -610,7 +611,7 @@ func (fes *APIServer) AdminDownloadReferralCSV(ww http.ResponseWriter, req *http
 		activeStatusKeys = append(activeStatusKeys, activeStatusKey)
 	}
 
-	statusVals, err := fes.GlobalStateBatchGet(activeStatusKeys)
+	statusVals, err := fes.GlobalState.BatchGet(activeStatusKeys)
 	if err != nil {
 		_AddInternalServerError(
 			ww, fmt.Sprintf("AdminDownloadReferralCSV: problem getting referralInfo status: %v", err))
@@ -694,11 +695,13 @@ func (fes *APIServer) updateOrCreateReferralInfoFromCSVRow(row []string) (_err e
 
 	tstampNanos := uint64(time.Now().UnixNano())
 	if len(row[CSVColumnTstampNanos]) > 0 {
-		tstampNanos, err = strconv.ParseUint(row[CSVColumnTstampNanos], 10, 64)
+		var tstampFloat float64
+		tstampFloat, err = strconv.ParseFloat(row[CSVColumnTstampNanos], 10)
 		if err != nil {
 			return fmt.Errorf(
 				"updateOrCreateReferralInfoFromCSVRow: error parsing tstamp nanos (%s): %v", row[10], err)
 		}
+		tstampNanos = uint64(tstampFloat)
 	}
 	referralInfo.DateCreatedTStampNanos = tstampNanos
 
@@ -734,11 +737,67 @@ type AdminUploadReferralCSVResponse struct {
 }
 
 func (fes *APIServer) AdminUploadReferralCSV(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := AdminUploadReferralCSVRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"AdminUploadReferralCSV: Problem parsing request body: %v", err))
+	err := req.ParseMultipartForm(10 << 20)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUploadReferralCSV: Problem parsing multipart form data: %v", err))
+		return
+	}
+
+	JWTs := req.Form["JWT"]
+	userPublicKeys := req.Form["UserPublicKeyBase58Check"]
+	if len(JWTs) == 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("No JWT provided"))
+		return
+	}
+	JWT := JWTs[0]
+	if len(userPublicKeys) == 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("No public key provided"))
+		return
+	}
+	userPublicKey := userPublicKeys[0]
+	isValid, err := fes.ValidateJWT(userPublicKey, JWT)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUploadReferralCSV: Error validating JWT: %v", err))
+		return
+	}
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUploadReferralCSV: Invalid token: %v", err))
+		return
+	}
+	isSuperAdmin := false
+	for _, superAdminPubKey := range fes.Config.SuperAdminPublicKeys {
+		if superAdminPubKey == userPublicKey {
+			// We found a match, break and set isSuperAdmin to true
+			isSuperAdmin = true
+			break
+		}
+	}
+	if !isSuperAdmin {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUploadReferralCSV: User is not a super admin: %s", userPublicKey))
+		return
+	}
+
+	file, fileHeader, err := req.FormFile("file")
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUploadReferralCSV: Problem getting file from form data: %v", err))
+		return
+	}
+	if file != nil {
+		defer file.Close()
+	} else {
+		_AddBadRequestError(ww, fmt.Sprint("AdminUploadReferralCSV: File is nil"))
+		return
+	}
+	if contentType := fileHeader.Header.Get("Content-Type"); contentType != "text/csv" {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUploadReferralCSV: Invalid content type for file: %s",
+			contentType))
+		return
+	}
+
+	csvReader := csv.NewReader(file)
+	rows, err := csvReader.ReadAll()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUploadReferralCSV: Error reading CSV: %v", err))
 		return
 	}
 
@@ -746,7 +805,7 @@ func (fes *APIServer) AdminUploadReferralCSV(ww http.ResponseWriter, req *http.R
 	numLinksUpdated := uint64(0)
 
 	// Iterate over the rows and and collect updated+created referralInfos.
-	for rowIdx, row := range requestData.CSVRows {
+	for rowIdx, row := range rows {
 		// All of the rows should have the same length.
 		if len(row) < 11 {
 			_AddBadRequestError(ww, fmt.Sprintf(
@@ -774,8 +833,7 @@ func (fes *APIServer) AdminUploadReferralCSV(ww http.ResponseWriter, req *http.R
 				return
 			}
 
-			err := fes.updateOrCreateReferralInfoFromCSVRow(row)
-			if err != nil {
+			if err = fes.updateOrCreateReferralInfoFromCSVRow(row); err != nil {
 				_AddInternalServerError(ww, fmt.Sprintf(
 					"AdminUploadReferralCSV: Problem updating idx %d: %v", rowIdx, err))
 				return
@@ -830,7 +888,7 @@ func (fes *APIServer) AdminDownloadRefereeCSV(ww http.ResponseWriter, req *http.
 	csvRows := [][]string{RefereeCSVHeaders()}
 
 	// Get all of the referee logs.
-	keysFound, _, err := fes.GlobalStateSeek(
+	keysFound, _, err := fes.GlobalState.Seek(
 		_GlobalStatePrefixPKIDReferralHashRefereePKID,
 		_GlobalStatePrefixPKIDReferralHashRefereePKID,
 		0, 0, false /*reverse*/, false /*fetchValue*/)
@@ -886,7 +944,7 @@ func (fes *APIServer) AdminDownloadRefereeCSV(ww http.ResponseWriter, req *http.
 		// it is not critical.
 		refereePostsLen := int64(-1)
 		refereePostEntries, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(
-			refereePKID[:], nil, 1000, false)
+			refereePKID[:], nil, 1000, false, false)
 		if err == nil {
 			refereePostsLen = int64(len(refereePostEntries))
 		}

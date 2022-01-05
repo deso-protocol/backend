@@ -653,7 +653,7 @@ func (fes *APIServer) markContactMessagesRead(userPublicKeyBytes []byte, contact
 	tStampNanosBytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(tStampNanosBytes, tStampNanos)
 
-	err := fes.GlobalStatePut(dbKey, tStampNanosBytes)
+	err := fes.GlobalState.Put(dbKey, tStampNanosBytes)
 	if err != nil {
 		return errors.Wrap(fmt.Errorf(
 			"putUserContactMostRecentReadTime: Problem putting updated tStampNanosBytes: %v", err), "")
@@ -665,7 +665,7 @@ func (fes *APIServer) markContactMessagesRead(userPublicKeyBytes []byte, contact
 // getUserContactMostRecentReadTime...
 func (fes *APIServer) getUserContactMostRecentReadTime(userPublicKeyBytes []byte, contactPublicKeyBytes []byte) (uint64, error) {
 	dbKey := GlobalStateKeyForUserPkContactPkToMostRecentReadTstampNanos(userPublicKeyBytes, contactPublicKeyBytes)
-	tStampNanosBytes, err := fes.GlobalStateGet(dbKey)
+	tStampNanosBytes, err := fes.GlobalState.Get(dbKey)
 	if err != nil {
 		// If the key errors, we return 0.
 		return 0, nil

@@ -10,19 +10,19 @@ COPY backend/go.mod backend/
 COPY backend/go.sum backend/
 COPY core/go.mod core/
 COPY core/go.sum core/
-COPY core/third_party/ core/third_party/
 
 WORKDIR /deso/src/backend
 
 RUN go mod download
 
 # include backend src
-COPY backend/apis    apis
-COPY backend/config  config
-COPY backend/cmd     cmd
-COPY backend/miner   miner
-COPY backend/routes  routes
-COPY backend/main.go .
+COPY backend/apis      apis
+COPY backend/config    config
+COPY backend/cmd       cmd
+COPY backend/miner     miner
+COPY backend/routes    routes
+COPY backend/countries countries
+COPY backend/main.go   .
 
 # include core src
 COPY core/desohash ../core/desohash

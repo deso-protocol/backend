@@ -28,7 +28,7 @@ type AdminGetNFTDropResponse struct {
 func (fes *APIServer) GetLatestNFTDropEntry() (_dropEntry *NFTDropEntry, _err error) {
 	seekKey := _GlobalStatePrefixNFTDropNumberToNFTDropEntry
 	maxKeyLen := 9 // These keys are 1 prefix byte + 8 bytes for the uint64 drop number.
-	_, vals, err := fes.GlobalStateSeek(seekKey, seekKey, maxKeyLen, 1, true, true)
+	_, vals, err := fes.GlobalState.Seek(seekKey, seekKey, maxKeyLen, 1, true, true)
 	if err != nil {
 		return nil, fmt.Errorf("AdminGetNFTDrop: Error getting latest drop: %v", err)
 	}
@@ -53,7 +53,7 @@ func (fes *APIServer) GetLatestNFTDropEntry() (_dropEntry *NFTDropEntry, _err er
 
 func (fes *APIServer) GetNFTDropEntry(nftDropNumber uint64) (_dropEntry *NFTDropEntry, _err error) {
 	keyBytes := GlobalStateKeyForNFTDropEntry(uint64(nftDropNumber))
-	dropEntryBytes, err := fes.GlobalStateGet(keyBytes)
+	dropEntryBytes, err := fes.GlobalState.Get(keyBytes)
 	if err != nil {
 		return nil, fmt.Errorf("GetNFTDropEntry: %v", err)
 	}
@@ -323,7 +323,7 @@ func (fes *APIServer) AdminUpdateNFTDrop(ww http.ResponseWriter, req *http.Reque
 	globalStateKey := GlobalStateKeyForNFTDropEntry(uint64(requestData.DropNumber))
 	updatedDropEntryBuf := bytes.NewBuffer([]byte{})
 	gob.NewEncoder(updatedDropEntryBuf).Encode(updatedDropEntry)
-	err = fes.GlobalStatePut(globalStateKey, updatedDropEntryBuf.Bytes())
+	err = fes.GlobalState.Put(globalStateKey, updatedDropEntryBuf.Bytes())
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateNFTDrop: Error encoding updated drop: %v", err))
 		return

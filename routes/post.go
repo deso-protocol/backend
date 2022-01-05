@@ -236,7 +236,7 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 	if addGlobalFeedBool {
 		inGlobalFeed := false
 		dbKey := GlobalStateKeyForTstampPostHash(postEntry.TimestampNanos, postEntry.PostHash)
-		globalStateVal, err := fes.GlobalStateGet(dbKey)
+		globalStateVal, err := fes.GlobalState.Get(dbKey)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"_postEntryToResponse: Error fetching from global state: %v", err)
@@ -653,7 +653,7 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 			// Get all pinned posts and prepend them to the list of postEntries
 			pinnedStartKey := _GlobalStatePrefixTstampNanosPinnedPostHash
 			// todo: how many posts can we really pin?
-			keys, _, err := fes.GlobalStateSeek(pinnedStartKey, pinnedStartKey, maxKeyLen, 10, true, false)
+			keys, _, err := fes.GlobalState.Seek(pinnedStartKey, pinnedStartKey, maxKeyLen, 10, true, false)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("GetPostEntriesForWhitelist: Getting pinned posts: %v", err)
 			}
@@ -696,7 +696,7 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 	return postEntries, profileEntries, postEntryReaderStates, nil
 }
 
-func (fes *APIServer) GetGlobalFeedPostHashesForLastWeek() (_postHashes []*lib.BlockHash, _err error){
+func (fes *APIServer) GetGlobalFeedPostHashesForLastWeek() (_postHashes []*lib.BlockHash, _err error) {
 	minTimestampNanos := uint64(time.Now().UTC().AddDate(0, 0, -7).UnixNano()) // 1 week ago
 
 	seekStartKey := GlobalStateSeekKeyForTstampPostHash(minTimestampNanos)
@@ -707,7 +707,7 @@ func (fes *APIServer) GetGlobalFeedPostHashesForLastWeek() (_postHashes []*lib.B
 
 	var postHashes []*lib.BlockHash
 
-	keys, _, err := fes.GlobalStateSeek(seekStartKey /*startPrefix*/, validForPrefix, /*validForPrefix*/
+	keys, _, err := fes.GlobalState.Seek(seekStartKey /*startPrefix*/, validForPrefix, /*validForPrefix*/
 		maxKeyLen /*maxKeyLen -- ignored since reverse is false*/, 0, false, /*reverse*/
 		false /*fetchValues*/)
 	if err != nil {
@@ -1055,7 +1055,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		currentPosterUserMetadataKey := append([]byte{}, _GlobalStatePrefixPublicKeyToUserMetadata...)
 		currentPosterUserMetadataKey = append(currentPosterUserMetadataKey, postEntry.PosterPublicKey...)
 		var currentPosterUserMetadataBytes []byte
-		currentPosterUserMetadataBytes, err = fes.GlobalStateGet(currentPosterUserMetadataKey)
+		currentPosterUserMetadataBytes, err = fes.GlobalState.Get(currentPosterUserMetadataKey)
 		if err != nil {
 			_AddBadRequestError(ww,
 				fmt.Sprintf("GetSinglePost: Problem getting currentPoster uset metadata from global state: %v", err))
@@ -1274,7 +1274,7 @@ type GetPostsForPublicKeyResponse struct {
 	LastPostHashHex string               `safeForLogging:"true"`
 }
 
-// GetPostsForPublicKey... Get paginated posts for a public key or username.
+// GetPostsForPublicKey gets paginated posts for a public key or username.
 func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetPostsForPublicKeyRequest{}
@@ -1330,7 +1330,7 @@ func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Req
 	}
 
 	// Get Posts Ordered by time.
-	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash, requestData.NumToFetch, requestData.MediaRequired)
+	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash, requestData.NumToFetch, requestData.MediaRequired, false)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPostsForPublicKey: Problem getting paginated posts: %v", err))
 		return
@@ -1480,11 +1480,14 @@ func (fes *APIServer) GetDiamondedPosts(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	// Decode the reader public key.
-	readerPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetDiamondedPosts: Problem decoding reader public key: %v", err))
-		return
+	var readerPublicKeyBytes []byte
+	if requestData.ReaderPublicKeyBase58Check != "" {
+		// Decode the reader public key.
+		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetDiamondedPosts: Problem decoding reader public key: %v", err))
+			return
+		}
 	}
 
 	// Get the DiamondEntries for this receiver-sender pair of public keys.

@@ -51,7 +51,7 @@ func (fes *APIServer) WriteGlobalStateDataToResponse(data interface{}, functionN
 
 func (fes *APIServer) GetVerifiedUsernameMap() (
 	_verifiedUsernameToPKID map[string]*lib.PKID, _err error,
-){
+) {
 	verifiedUsernameMap := make(map[string]*lib.PKID)
 	var err error
 	// If there is an external global state specified, fetch the verified username map from there.
@@ -60,12 +60,12 @@ func (fes *APIServer) GetVerifiedUsernameMap() (
 		var mapBytes []byte
 		mapBytes, err = fes.FetchFromExternalGlobalState(RoutePathGetVerifiedUsernames)
 		if err != nil {
-			return  nil, fmt.Errorf("GetVerifiedUsernameMap: Error fetching map from external global state: %v", err)
+			return nil, fmt.Errorf("GetVerifiedUsernameMap: Error fetching map from external global state: %v", err)
 		}
 		// Decode the response into the appropriate struct.
 		decoder := json.NewDecoder(bytes.NewReader(mapBytes))
 		if err = decoder.Decode(&verifiedUsernameMap); err != nil {
-			return  nil, fmt.Errorf("GetVerifiedUsernameMap: Error decoding bytes: %v", err)
+			return nil, fmt.Errorf("GetVerifiedUsernameMap: Error decoding bytes: %v", err)
 		}
 	}
 	verifiedUsernameMapLocal := make(map[string]*lib.PKID)
@@ -135,10 +135,10 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, utxoView *lib.UtxoV
 	publicKeys, states, err := fes.GlobalStateSeek(
 		prefix,
 		prefix, /*validForPrefix*/
-		0,     /*maxKeyLen -- ignored since reverse is false*/
-		0,     /*numToFetch -- 0 is ignored*/
-		false, /*reverse*/
-		true,  /*fetchValues*/
+		0,      /*maxKeyLen -- ignored since reverse is false*/
+		0,      /*numToFetch -- 0 is ignored*/
+		false,  /*reverse*/
+		true,   /*fetchValues*/
 	)
 	if err != nil {
 		return nil, err
@@ -188,7 +188,7 @@ func (fes *APIServer) GetGlobalFeedCache(utxoView *lib.UtxoView) (_postHashes []
 
 // FetchFromExternalGlobalState hits an endpoint at the configured GlobalStateAPIUrl and returns the bytes read from
 // the response body.
-func (fes *APIServer) FetchFromExternalGlobalState(routePath string) (_body []byte, _err error){
+func (fes *APIServer) FetchFromExternalGlobalState(routePath string) (_body []byte, _err error) {
 	URL := fmt.Sprintf("%v%v", fes.Config.GlobalStateAPIUrl, routePath)
 	req, _ := http.NewRequest("GET", URL, nil)
 

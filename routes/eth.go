@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/mitchellh/mapstructure"
@@ -13,7 +14,6 @@ import (
 	"io/ioutil"
 	"math/big"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -73,15 +73,33 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if err := fes.validateETHDepositAddress(requestData.Tx.To); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to validate transaction: %v", err))
+		return
+	}
+
+	nanosPurchased, err := fes.CalculateNanosPurchasedFromWei(requestData.Tx.Value)
+
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Unable to calculate nanos purchasd from eth tx: %v", err))
+		return
+	}
+
+	var balanceInsufficient bool
+	balanceInsufficient, err = fes.ExceedsDeSoBalance(nanosPurchased, fes.Config.BuyDESOSeed)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error checking if send deso balance is sufficient: %v", err))
+		return
+	}
+	if balanceInsufficient {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: SendDeSo wallet balance is below nanos purchased"))
+		return
+	}
+
 	// Parse the public key
 	pkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Invalid public key: %v", err))
-		return
-	}
-
-	if err = fes.validateETHDepositAddress(requestData.Tx.To); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to validate transaction: %v", err))
 		return
 	}
 
@@ -108,11 +126,10 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed to encode ETH transaction: %v", err))
 		return
 	}
-	if err = fes.GlobalStatePut(globalStateKey, globalStateVal.Bytes()); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error processing GlobalStatePut: %v", err))
+	if err = fes.GlobalState.Put(globalStateKey, globalStateVal.Bytes()); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error processing Put: %v", err))
 		return
 	}
-
 
 	// Wait up to 10 minutes
 	// TODO: Long running requests are bad. Replace this with polling (or websockets etc)
@@ -122,7 +139,7 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		time.Sleep(10 * time.Second)
 
 		ethTx, err = fes.GetETHTransactionByHash(hash)
-		if err != nil  {
+		if err != nil {
 			glog.Errorf("GetETHTransactionByHash: %v", err)
 			continue
 		}
@@ -136,7 +153,7 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 			break
 		}
 	}
-	// The transaction has mined so we finish by validating the transaction again and paying the user.
+	// The transaction has mined or we've waited for 10 minutes so we finish by validating the transaction and paying the user.
 	desoTxHash, err := fes.finishETHTx(ethTx, ethTxLog)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Failed: %v", err))
@@ -153,45 +170,38 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
-// 1. Validate the transaction mined
+// 1. Validate the transaction mined and sends money to the correct address
 // 2. Calculate the nanos to send
 // 3. Send the nanos
 // 4. Record the successful send
-func (fes *APIServer) finishETHTx(ethTxIn *InfuraTx, ethTxLog *ETHTxLog) (desoTxHash *lib.BlockHash, _err error) {
-	ethTx, err := fes.GetETHTransactionByHash(ethTxIn.Hash)
-	if err != nil  {
-		return nil, errors.New(fmt.Sprintf("Failed to get eth transaction: %v", err))
+func (fes *APIServer) finishETHTx(ethTx *InfuraTx, ethTxLog *ETHTxLog) (desoTxHash *lib.BlockHash, _err error) {
+	if ethTx == nil {
+		return nil, errors.New("ETHTx provided is nil")
 	}
 
-	// Ensure the transaction mined
+	glog.Info("finishETHTx - ETH tx provided: ", spew.Sdump(ethTx))
+
 	if ethTx.BlockNumber == nil {
-		return nil, errors.New("Transaction failed to mine")
+		return nil, errors.New(fmt.Sprintf("Transaction failed to mine: %v", ethTx.Hash))
 	}
 
-	if err = fes.validateETHDepositAddress(*ethTx.To); err != nil {
+	if err := fes.validateETHDepositAddress(*ethTx.To); err != nil {
 		return nil, errors.New(fmt.Sprintf("Error validating Infura ETH Tx: %v", err))
-
 	}
 
-	// Fetch buy DESO basis points fee
-	feeBasisPoints, err := fes.GetBuyDeSoFeeBasisPointsResponseFromGlobalState()
+	nanosPurchased, err := fes.CalculateNanosPurchasedFromWei(ethTx.Value)
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Error getting buy fee basis points: %v", err))
+		return nil, errors.New(fmt.Sprintf("finishETHTx: Error calculating NanosPurchasedFromWei: %v", err))
 	}
 
-	// Calculate nanos purchased
-	var weiSent uint64
-	// Strip the 0x prefix from the value attribute and parse hex string to uint64
-	hexValueString := strings.Replace(ethTx.Value, "0x", "", -1)
-	weiSent, err = strconv.ParseUint(hexValueString, 16, 64)
+	var balanceInsufficient bool
+	balanceInsufficient, err = fes.ExceedsDeSoBalance(nanosPurchased, fes.Config.BuyDESOSeed)
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Failed to convert wei hex to uint64: %v", err))
+		return nil, errors.New(fmt.Sprintf("finishETHTx: Error checking if send deso balance is sufficient: %v", err))
 	}
-
-	// Use big number math to convert wei to eth and then compute DESO nanos purchased.
-	totalWei := big.NewFloat(0).SetInt64(int64(weiSent))
-	totalEth := big.NewFloat(0).Quo(totalWei, big.NewFloat(1e18))
-	nanosPurchased := fes.GetNanosFromETH(totalEth, feeBasisPoints)
+	if balanceInsufficient {
+		return nil, errors.New("finishETHTx: SendDeSo wallet balance is below nanos purchased")
+	}
 
 	// Send the DESO and get the hash of that transaction
 	desoTxHash, err = fes.SendSeedDeSo(ethTxLog.PublicKey, nanosPurchased, true)
@@ -209,11 +219,32 @@ func (fes *APIServer) finishETHTx(ethTxIn *InfuraTx, ethTxLog *ETHTxLog) (desoTx
 		return nil, errors.New(fmt.Sprintf("Failed to encode ETH transaction: %v", err))
 	}
 
-	if err = fes.GlobalStatePut(globalStateKey, globalStateVal.Bytes()); err != nil {
-		return nil, errors.New(fmt.Sprintf("Error processing GlobalStatePut: %v", err))
+	if err = fes.GlobalState.Put(globalStateKey, globalStateVal.Bytes()); err != nil {
+		return nil, errors.New(fmt.Sprintf("Error processing Put: %v", err))
 	}
 
 	return desoTxHash, nil
+}
+
+func (fes *APIServer) CalculateNanosPurchasedFromWei(value string) (_nanosPurchased uint64, _err error) {
+	// Fetch buy DESO basis points fee
+	feeBasisPoints, err := fes.GetBuyDeSoFeeBasisPointsResponseFromGlobalState()
+	if err != nil {
+		return 0, errors.New(fmt.Sprintf("Error getting buy fee basis points: %v", err))
+	}
+
+	// Calculate nanos purchased
+	// Strip the 0x prefix from the value attribute and parse hex string to uint64
+	hexValueString := strings.Replace(value, "0x", "", -1)
+	weiSentBigint, success := big.NewInt(0).SetString(hexValueString, 16)
+	if !success {
+		return 0, errors.New(fmt.Sprintf("Failed to convert wei hex to uint64"))
+	}
+
+	// Use big number math to convert wei to eth and then compute DESO nanos purchased.
+	totalWei := big.NewFloat(0).SetInt(weiSentBigint)
+	totalEth := big.NewFloat(0).Quo(totalWei, big.NewFloat(1e18))
+	return fes.GetNanosFromETH(totalEth, feeBasisPoints), nil
 }
 
 type AdminProcessETHTxRequest struct {
@@ -239,9 +270,9 @@ func (fes *APIServer) AdminProcessETHTx(ww http.ResponseWriter, req *http.Reques
 
 	// Fetch the log data from global state
 	globalStateKey := GlobalStateKeyETHPurchases(requestData.ETHTxHash)
-	globalStateLog, err := fes.GlobalStateGet(globalStateKey)
+	globalStateLog, err := fes.GlobalState.Get(globalStateKey)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Error processing GlobalStateGet: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("AdminProcessETHTx: Error processing Get: %v", err))
 		return
 	}
 
@@ -291,30 +322,30 @@ type InfuraRequest struct {
 }
 
 type InfuraResponse struct {
-	Id      uint64 `json:"id"`
-	JSONRPC string `json:"jsonrpc"`
+	Id      uint64      `json:"id"`
+	JSONRPC string      `json:"jsonrpc"`
 	Result  interface{} `json:"result"`
 	Error   struct {
-		Code float64 `json:"code"`
-		Message string `json:"message"`
-	}`json:"error"`
+		Code    float64 `json:"code"`
+		Message string  `json:"message"`
+	} `json:"error"`
 }
 
 type InfuraTx struct {
 	BlockHash        *string `json:"blockHash"`
 	BlockNumber      *string `json:"blockNumber"`
-	From             string `json:"from"`
-	Gas              string `json:"gas"`
-	GasPrice         string `json:"gasPrice"`
-	Hash             string `json:"hash"`
-	Input            string `json:"input"`
-	Nonce            string `json:"nonce"`
+	From             string  `json:"from"`
+	Gas              string  `json:"gas"`
+	GasPrice         string  `json:"gasPrice"`
+	Hash             string  `json:"hash"`
+	Input            string  `json:"input"`
+	Nonce            string  `json:"nonce"`
 	To               *string `json:"to"`
 	TransactionIndex *string `json:"transactionIndex"`
-	Value            string `json:"value"`
-	V                string `json:"v"`
-	R                string `json:"r"`
-	S                string `json:"s"`
+	Value            string  `json:"value"`
+	V                string  `json:"v"`
+	R                string  `json:"r"`
+	S                string  `json:"s"`
 }
 
 type QueryETHRPCRequest struct {
