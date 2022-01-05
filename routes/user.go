@@ -2181,6 +2181,11 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 			if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
 				continue
 			}
+			// Skip transactions from blacklisted public keys
+			transactorPKID := utxoView.GetPKIDForPublicKey(transactorPkBytes)
+			if transactorPKID == nil || fes.IsUserBlacklisted(transactorPKID.PKID) {
+				continue
+			}
 			currentIndexBytes := keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]
 			res := &TransactionMetadataResponse{
 				Metadata: txnMeta,
@@ -2290,6 +2295,11 @@ func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest,
 
 				// Skip transactions from blocked users.
 				if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
+					continue
+				}
+				// Skip blacklisted public keys
+				transactorPKID := utxoView.GetPKIDForPublicKey(transactorPkBytes)
+				if transactorPKID == nil || fes.IsUserBlacklisted(transactorPKID.PKID) {
 					continue
 				}
 
