@@ -11,6 +11,7 @@ func OpenDataDir(dataDir string) (*badger.DB, error){
 	dir := lib.GetBadgerDbPath(dataDir)
 	opts := badger.DefaultOptions(dir)
 	opts.ValueDir = lib.GetBadgerDbPath(dataDir)
+	opts.MemTableSize = 2000 << 20
 	db, err := badger.Open(opts)
 	if err != nil { return nil, errors.Wrap(err, "OpenBadgerDB() failed to open badger") }
 	return db, nil
@@ -18,7 +19,7 @@ func OpenDataDir(dataDir string) (*badger.DB, error){
 
 // Returns the best chain associated with a badgerDB handle.
 func GetBestChainFromBadger(syncedDBHandle *badger.DB) ([]*lib.BlockNode, error) {
-	bestBlockHash := lib.DbGetBestHash(syncedDBHandle, lib.ChainTypeDeSoBlock)
+	bestBlockHash := lib.DbGetBestHash(syncedDBHandle, nil, lib.ChainTypeDeSoBlock)
 	if bestBlockHash == nil {
 		return nil, errors.Errorf("GetBestChainFromBadger() could not find a blockchain in the provided db")
 	}
