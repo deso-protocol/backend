@@ -88,6 +88,9 @@ type MessageEntryResponse struct {
 
 	// RecipientMessagingKeyName is the recipient's key name of RecipientMessagingPublicKey
 	RecipientMessagingKeyName string
+
+	EncryptedPublicKey string
+	EncryptionKeyName string
 }
 
 type MessageContactResponse struct {
