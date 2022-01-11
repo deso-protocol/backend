@@ -384,7 +384,7 @@ func (fes *APIServer) TestSignTransactionWithDerivedKey(ww http.ResponseWriter, 
 	signedTransactionHex = append(signedTransactionHex, lib.UintToBuf(uint64(len(txnSignatureBytes)))...)
 	signedTransactionHex = append(signedTransactionHex, txnSignatureBytes...)
 	res := TestSignTransactionWithDerivedKeyResponse{
-		TransactionHex:  hex.EncodeToString(signedTransactionHex),
+		TransactionHex: hex.EncodeToString(signedTransactionHex),
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TestSignTransactionWithDerivedKey: Problem encoding response as JSON: %v", err))

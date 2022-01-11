@@ -3,9 +3,9 @@ package toolslib
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/routes"
 	"github.com/deso-protocol/core/lib"
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
@@ -17,10 +17,10 @@ func _generateUnsignedBTCPriceUpdate(updaterPubKey *btcec.PublicKey, newUSDCents
 	endpoint := node + routes.RoutePathUpdateGlobalParams
 
 	// Setup request
-	payload := &routes.UpdateGlobalParamsRequest {
+	payload := &routes.UpdateGlobalParamsRequest{
 		UpdaterPublicKeyBase58Check: lib.PkToString(updaterPubKey.SerializeCompressed(), params),
-		USDCentsPerBitcoin: int64(newUSDCentsPerBitcoin),
-		MinFeeRateNanosPerKB: 1000,
+		USDCentsPerBitcoin:          int64(newUSDCentsPerBitcoin),
+		MinFeeRateNanosPerKB:        1000,
 	}
 	postBody, err := json.Marshal(payload)
 	if err != nil {
@@ -35,7 +35,7 @@ func _generateUnsignedBTCPriceUpdate(updaterPubKey *btcec.PublicKey, newUSDCents
 	}
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := ioutil.ReadAll(resp.Body)
-		return nil, errors.Errorf("_generateUnsignedBTCPriceUpdate(): Received non 200 response code: " +
+		return nil, errors.Errorf("_generateUnsignedBTCPriceUpdate(): Received non 200 response code: "+
 			"Status Code: %v Body: %v", resp.StatusCode, string(bodyBytes))
 	}
 

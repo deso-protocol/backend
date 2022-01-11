@@ -3,24 +3,24 @@ package toolslib
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/routes"
 	"github.com/deso-protocol/core/lib"
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
 )
 
 func _generateUnsignedMessage(senderPubKey *btcec.PublicKey, recipientPubKey *btcec.PublicKey, message string,
-	params *lib.DeSoParams, node string) (*routes.SendMessageStatelessResponse, error){
+	params *lib.DeSoParams, node string) (*routes.SendMessageStatelessResponse, error) {
 	endpoint := node + routes.RoutePathSendMessageStateless
 
 	// Setup request
 	payload := &routes.SendMessageStatelessRequest{
-		SenderPublicKeyBase58Check: lib.PkToString(senderPubKey.SerializeCompressed(), params),
+		SenderPublicKeyBase58Check:    lib.PkToString(senderPubKey.SerializeCompressed(), params),
 		RecipientPublicKeyBase58Check: lib.PkToString(recipientPubKey.SerializeCompressed(), params),
-		MessageText: message,
-		MinFeeRateNanosPerKB: 1000,
+		MessageText:                   message,
+		MinFeeRateNanosPerKB:          1000,
 	}
 	postBody, err := json.Marshal(payload)
 	if err != nil {
@@ -35,7 +35,7 @@ func _generateUnsignedMessage(senderPubKey *btcec.PublicKey, recipientPubKey *bt
 	}
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := ioutil.ReadAll(resp.Body)
-		return nil, errors.Errorf("_generateUnsignedMessage(): Received non 200 response code: " +
+		return nil, errors.Errorf("_generateUnsignedMessage(): Received non 200 response code: "+
 			"Status Code: %v Body: %v", resp.StatusCode, string(bodyBytes))
 	}
 
