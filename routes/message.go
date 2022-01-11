@@ -93,7 +93,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			if _, alreadySeen := publicKeyToDESO[otherPartyPublicKeyBase58Check]; !alreadySeen {
 				otherPartyProfileEntry := utxoView.GetProfileEntryForPublicKey(otherPartyPublicKeyBytes)
 				if otherPartyProfileEntry != nil {
-					publicKeyToDESO[otherPartyPublicKeyBase58Check] = otherPartyProfileEntry.DeSoLockedNanos
+					publicKeyToDESO[otherPartyPublicKeyBase58Check] = otherPartyProfileEntry.CreatorCoinEntry.DeSoLockedNanos
 				} else {
 					publicKeyToDESO[otherPartyPublicKeyBase58Check] = 0
 				}
@@ -130,13 +130,15 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			otherPartyPublicKeyBytes, otherPartyPublicKeyBase58Check := fes.getOtherPartyInThread(messageEntry, publicKeyBytes)
 
 			if _, alreadySeen := publicKeyToNanosUserHeld[otherPartyPublicKeyBase58Check]; !alreadySeen {
-				otherPartyBalanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(otherPartyPublicKeyBytes, publicKeyBytes, utxoView)
+				otherPartyBalanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(
+					otherPartyPublicKeyBytes, publicKeyBytes, utxoView, false)
 				if err != nil {
 					return nil, nil, nil, 0, errors.Wrapf(
 						err, "getMessagesStateless: Problem getting balance entry for public key")
 				}
 				if otherPartyBalanceEntry != nil {
-					publicKeyToNanosUserHeld[otherPartyPublicKeyBase58Check] = otherPartyBalanceEntry.BalanceNanos
+					// CreatorCoins never exceed uint64
+					publicKeyToNanosUserHeld[otherPartyPublicKeyBase58Check] = otherPartyBalanceEntry.BalanceNanos.Uint64()
 				} else {
 					publicKeyToNanosUserHeld[otherPartyPublicKeyBase58Check] = 0
 				}
@@ -208,12 +210,14 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			if holdersOnly {
 				holdsUser, balanceChecked := publicKeyHoldsUser[otherPartyPublicKeyBase58Check]
 				if !balanceChecked {
-					balanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(otherPartyPublicKeyBytes, publicKeyBytes, utxoView)
+					balanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(
+						otherPartyPublicKeyBytes, publicKeyBytes, utxoView, false)
 					if err != nil {
 						return nil, nil, nil, 0, errors.Wrapf(
 							err, "getMessagesStateless: Problem getting balance entry for holder public key %v", otherPartyPublicKeyBase58Check)
 					}
-					holdsUser = balanceEntry != nil && balanceEntry.BalanceNanos > 0
+					// CreatorCoins never exceed Uint64
+					holdsUser = balanceEntry != nil && balanceEntry.BalanceNanos.Uint64() > 0
 					publicKeyHoldsUser[otherPartyPublicKeyBase58Check] = holdsUser
 				}
 				if holdsUser {
@@ -225,12 +229,14 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			if !publicKeyWithinFilters && holdingsOnly {
 				holdsPublicKey, balanceChecked := userHoldsPublicKey[otherPartyPublicKeyBase58Check]
 				if !balanceChecked {
-					balanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(publicKeyBytes, otherPartyPublicKeyBytes, utxoView)
+					balanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(
+						publicKeyBytes, otherPartyPublicKeyBytes, utxoView, false)
 					if err != nil {
 						return nil, nil, nil, 0, errors.Wrapf(
 							err, "getMessagesStateless: Problem getting balance entry for holder public key %v", otherPartyPublicKeyBase58Check)
 					}
-					holdsPublicKey = balanceEntry != nil && balanceEntry.BalanceNanos > 0
+					// CreatorCoins never exceed Uint64
+					holdsPublicKey = balanceEntry != nil && balanceEntry.BalanceNanos.Uint64() > 0
 					userHoldsPublicKey[otherPartyPublicKeyBase58Check] = holdsPublicKey
 				}
 				if holdsPublicKey {

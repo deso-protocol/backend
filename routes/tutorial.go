@@ -173,7 +173,7 @@ func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit 
 		profileEntry := utxoView.GetProfileEntryForPKID(lib.NewPKID(pkidBytes))
 
 		// Only add creator if FR is 10% or less
-		if profileEntry != nil && (profileEntry.CoinEntry.CreatorBasisPoints <= 10*100 || disregardFR) {
+		if profileEntry != nil && (profileEntry.CreatorCoinEntry.CreatorBasisPoints <= 10*100 || disregardFR) {
 			profileEntryResponse := fes._profileEntryToResponse(profileEntry, utxoView)
 			profileEntryResponses = append(profileEntryResponses, *profileEntryResponse)
 		}

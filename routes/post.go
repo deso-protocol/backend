@@ -442,7 +442,7 @@ func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
 
 	// Order the posts by the poster's coin price.
 	sort.Slice(allCorePosts, func(ii, jj int) bool {
-		return profileEntries[lib.MakePkMapKey(allCorePosts[ii].PosterPublicKey)].CoinEntry.DeSoLockedNanos > profileEntries[lib.MakePkMapKey(allCorePosts[jj].PosterPublicKey)].CoinEntry.DeSoLockedNanos
+		return profileEntries[lib.MakePkMapKey(allCorePosts[ii].PosterPublicKey)].CreatorCoinEntry.DeSoLockedNanos > profileEntries[lib.MakePkMapKey(allCorePosts[jj].PosterPublicKey)].CreatorCoinEntry.DeSoLockedNanos
 	})
 	// Select the top numToFetch posts.
 	if len(allCorePosts) > numToFetch {
@@ -1840,8 +1840,8 @@ func (fes *APIServer) GetDiamondsForPost(ww http.ResponseWriter, req *http.Reque
 	sort.Slice(diamondSenders, func(ii, jj int) bool {
 
 		// Attempt to sort on deso locked.
-		iiDeSoLocked := diamondSenders[ii].DeSoLockedNanos
-		jjDeSoLocked := diamondSenders[jj].DeSoLockedNanos
+		iiDeSoLocked := diamondSenders[ii].CreatorCoinEntry.DeSoLockedNanos
+		jjDeSoLocked := diamondSenders[jj].CreatorCoinEntry.DeSoLockedNanos
 		if iiDeSoLocked > jjDeSoLocked {
 			return true
 		} else if iiDeSoLocked < jjDeSoLocked {

@@ -158,22 +158,6 @@ type BalanceEntryResponse struct {
 	ProfileEntryResponse *ProfileEntryResponse `json:",omitempty"`
 }
 
-func (fes *APIServer) GetBalanceForPublicKey(publicKeyBytes []byte) (
-	_balanceNanos uint64, _err error) {
-
-	// Get the UtxoEntries from the augmented view
-	utxoEntries, err := fes.blockchain.GetSpendableUtxosForPublicKey(publicKeyBytes, fes.backendServer.GetMempool(), nil)
-	if err != nil {
-		return 0, fmt.Errorf(
-			"GetBalanceForPublicKey: Problem getting utxos from view: %v", err)
-	}
-	totalBalanceNanos := uint64(0)
-	for _, utxoEntry := range utxoEntries {
-		totalBalanceNanos += utxoEntry.AmountNanos
-	}
-	return totalBalanceNanos, nil
-}
-
 // GetVerifiedUsernameToPKIDMapFromGlobalState
 //
 // Acts as a helper function for dealing with the verified usernames map.
