@@ -704,8 +704,8 @@ type JumioIdentityVerification struct {
 }
 
 type JumioRejectReason struct {
-	RejectReasonCode        string `json:"rejectReasonCode"`
-	RejectReasonDescription string `json:"rejectReasonDescription"`
+	RejectReasonCode        string      `json:"rejectReasonCode"`
+	RejectReasonDescription string      `json:"rejectReasonDescription"`
 	RejectReasonDetails     interface{} `json:"rejectReasonDetails"`
 }
 
@@ -991,8 +991,8 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 		refereeSignUpBonusDeSoNanos := fes.GetRefereeSignUpBonusAmount(signUpBonusMetadata, referralAmountUSDCents)
 
 		publicKeyString := lib.PkToString(publicKeyBytes, fes.Params)
-		glog.Infof("JumioVerifiedHandler: Paying %d nanos to public key %s as referee sign-up bonus. " +
-			"Country code: %s. Country Allow Custom Referral Amount: %t. " +
+		glog.Infof("JumioVerifiedHandler: Paying %d nanos to public key %s as referee sign-up bonus. "+
+			"Country code: %s. Country Allow Custom Referral Amount: %t. "+
 			"Country Referral amount override: %d. Referrer Amount from Referral Code: %d.",
 			refereeSignUpBonusDeSoNanos, publicKeyString, jumioCountryCode,
 			signUpBonusMetadata.AllowCustomReferralAmount, signUpBonusMetadata.ReferralAmountOverrideUSDCents,
@@ -1058,8 +1058,8 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			referrerPKID := referralInfo.ReferrerPKID
 			referrerPublicKeyBytes := utxoView.GetPublicKeyForPKID(referrerPKID)
 			referrerPublicKeyString := lib.PkToString(referrerPublicKeyBytes, fes.Params)
-			glog.Infof("JumioVerifiedHandler: Paying %d nanos to public key %s as referrer kickback. " +
-				"Country code: %s. Country Allow Custom Kickback Amount: %t. " +
+			glog.Infof("JumioVerifiedHandler: Paying %d nanos to public key %s as referrer kickback. "+
+				"Country code: %s. Country Allow Custom Kickback Amount: %t. "+
 				"Country Kickback amount override: %d. Kickback Amount from Referral Code: %d.",
 				kickbackAmountDeSoNanos, referrerPublicKeyString, jumioCountryCode,
 				signUpBonusMetadata.AllowCustomKickbackAmount, signUpBonusMetadata.KickbackAmountOverrideUSDCents,
@@ -1077,7 +1077,6 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 			if balanceInsufficientForReferrer {
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Balance insufficient to pay referrer")
 			}
-
 
 			// Increment JumioSuccesses, TotalReferrals and add to TotralRefereeDeSoNanos and TotalReferrerDeSoNanos
 			referralInfo.NumJumioSuccesses++

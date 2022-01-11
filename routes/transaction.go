@@ -1865,7 +1865,7 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		TxnHashHex:        txn.Hash().String(),
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendMessage: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
@@ -2188,6 +2188,283 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type DAOCoinOperationTypeString string
+
+const (
+	DAOCoinOperationStringMint           DAOCoinOperationTypeString = "mint"
+	DAOCoinOperationStringBurn           DAOCoinOperationTypeString = "burn"
+	DAOCoinOperationStringDisableMinting DAOCoinOperationTypeString = "disable_minting"
+)
+
+// DAOCoinRequest ...
+type DAOCoinRequest struct {
+	// The public key or username of the user who is performing the DAOCoin Txn
+	UpdaterPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+
+	// The public key or username of the profile whose DAO coin the transactor is trying to transact with.
+	ProfilePublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+
+	// Whether this is a "mint", "burn" or "disable_minting" transaction
+	OperationType DAOCoinOperationTypeString `safeForLogging:"true"`
+
+	// Coins
+	CoinsToMintNanos uint64
+
+	CoinsToBurnNanos uint64
+
+	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+}
+
+// DAOCoinResponse ...
+type DAOCoinResponse struct {
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgDeSoTxn
+	TransactionHex    string
+	TxnHashHex        string
+}
+
+// DAOCoin ...
+func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := DAOCoinRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Convert OperationTypeString to DAOCoinOperationType
+	var operationType lib.DAOCoinOperationType
+	if requestData.OperationType == DAOCoinOperationStringMint {
+		operationType = lib.DAOCoinOperationTypeMint
+	} else if requestData.OperationType == DAOCoinOperationStringBurn {
+		operationType = lib.DAOCoinOperationTypeBurn
+	} else if requestData.OperationType == DAOCoinOperationStringDisableMinting {
+		operationType = lib.DAOCoinOperationTypeDisableMinting
+	} else {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: OperationType \"%v\" not supported",
+			requestData.OperationType))
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Problem computing view: %v", err))
+		return
+	}
+	// Decode the updater public key
+	updaterPublicKeyBytes, _, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+		requestData.UpdaterPublicKeyBase58CheckOrUsername, utxoView)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Problem decoding updater public key/username %s: %v",
+			requestData.UpdaterPublicKeyBase58CheckOrUsername, err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeDAOCoin, updaterPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
+	// Get the creator public key and make sure the profile exists
+	creatorPublicKeyBytes, profileEntry, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+		requestData.ProfilePublicKeyBase58CheckOrUsername, utxoView)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: error getting profile or decoding public key for "+
+			"ProfilePublicKeyBase58CheckOrUsername %s: %v", requestData.ProfilePublicKeyBase58CheckOrUsername, err))
+		return
+	}
+
+	if profileEntry == nil || profileEntry.IsDeleted() {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: no profile found for profile public key %v",
+			requestData.ProfilePublicKeyBase58CheckOrUsername))
+		return
+	}
+
+	// Perform some basic sanity checks
+	if (operationType == lib.DAOCoinOperationTypeMint || operationType == lib.DAOCoinOperationTypeDisableMinting) &&
+		!reflect.DeepEqual(updaterPublicKeyBytes, creatorPublicKeyBytes) {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"DAOCoin: Must be profile owner in order to perform %v operation", requestData.OperationType))
+		return
+	}
+
+	if operationType == lib.DAOCoinOperationTypeMint && requestData.CoinsToMintNanos == 0 {
+		_AddBadRequestError(ww, fmt.Sprint("DAOCoin: Cannot mint 0 coins"))
+		return
+	}
+
+	if operationType == lib.DAOCoinOperationTypeBurn && requestData.CoinsToBurnNanos == 0 {
+		_AddBadRequestError(ww, fmt.Sprint("DAOCoin: Cannot burn 0 coins"))
+		return
+	}
+
+	// Try and create the DAOCoin transaction for the user.
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateDAOCoinTxn(
+		updaterPublicKeyBytes,
+		&lib.DAOCoinMetadata{
+			ProfilePublicKey: creatorPublicKeyBytes,
+			CoinsToMintNanos: requestData.CoinsToMintNanos,
+			CoinsToBurnNanos: requestData.CoinsToBurnNanos,
+		},
+		// Standard transaction fields
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Problem adding inputs and change transaction: %v", err))
+		return
+	}
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := DAOCoinResponse{
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+		TxnHashHex:        txn.Hash().String(),
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+// TransferDAOCoinRequest ...
+type TransferDAOCoinRequest struct {
+	// The public key/Username of the user who is making the transfer.
+	SenderPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+
+	// The public key/Username of the profile for the DAO coin that the user is transferring.
+	ProfilePublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+
+	// The public key/username of the user receiving the transferred creator coin.
+	ReceiverPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+
+	// The amount of creator coins to transfer in nanos.
+	DAOCoinToTransferNanos uint64 `safeForLogging:"true"`
+
+	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+}
+
+// TransferDAOCoinResponse ...
+type TransferDAOCoinResponse struct {
+	SpendAmountNanos  uint64
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgDeSoTxn
+	TransactionHex    string
+	TxnHashHex        string
+}
+
+// TransferDAOCoin ...
+func (fes *APIServer) TransferDAOCoin(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := TransferDAOCoinRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem parsing request body: %v", err))
+		return
+	}
+
+	if requestData.SenderPublicKeyBase58CheckOrUsername == "" ||
+		requestData.ProfilePublicKeyBase58CheckOrUsername == "" ||
+		requestData.ReceiverPublicKeyBase58CheckOrUsername == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Must provide a sender, a creator, and a receiver."))
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem fetching utxoView: %v", err))
+		return
+	}
+
+	// Decode the updater public key
+	senderPublicKeyBytes, _, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+		requestData.SenderPublicKeyBase58CheckOrUsername, utxoView)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem decoding sender public key %s: %v",
+			requestData.SenderPublicKeyBase58CheckOrUsername, err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeDAOCoinTransfer, senderPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
+	// Decode the creator public key
+	creatorPublicKeyBytes, _, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+		requestData.ProfilePublicKeyBase58CheckOrUsername, utxoView)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem decoding creator public key %s: %v",
+			requestData.ProfilePublicKeyBase58CheckOrUsername, err))
+		return
+	}
+
+	// Get the public key for the receiver.
+	receiverPublicKeyBytes, _, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+		requestData.ReceiverPublicKeyBase58CheckOrUsername, utxoView)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem decoding reeceiver public key %s: %v",
+			requestData.ReceiverPublicKeyBase58CheckOrUsername, err))
+		return
+	}
+
+	// Try and create the TransferCreatorCoin transaction for the user.
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateDAOCoinTransferTxn(
+		senderPublicKeyBytes,
+		&lib.DAOCoinTransferMetadata{
+			ProfilePublicKey:       creatorPublicKeyBytes,
+			ReceiverPublicKey:      receiverPublicKeyBytes,
+			DAOCoinToTransferNanos: requestData.DAOCoinToTransferNanos,
+		},
+		// Standard transaction fields
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem creating transaction: %v", err))
+		return
+	}
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := TransferDAOCoinResponse{
+		SpendAmountNanos:  totalInput - changeAmount - fees,
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+		TxnHashHex:        txn.Hash().String(),
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem encoding response as JSON: %v", err))
 		return
 	}
 }

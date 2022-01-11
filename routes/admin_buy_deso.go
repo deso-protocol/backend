@@ -10,7 +10,7 @@ import (
 
 type SetUSDCentsToDeSoExchangeRateRequest struct {
 	USDCentsPerDeSo uint64
-	AdminPublicKey      string
+	AdminPublicKey  string
 }
 
 type SetUSDCentsToDeSoExchangeRateResponse struct {
@@ -86,7 +86,7 @@ func (fes *APIServer) GetUSDCentsToDeSoReserveExchangeRateFromGlobalState() (uin
 
 type SetBuyDeSoFeeBasisPointsRequest struct {
 	BuyDeSoFeeBasisPoints uint64
-	AdminPublicKey            string
+	AdminPublicKey        string
 }
 
 type SetBuyDeSoFeeBasisPointsResponse struct {
