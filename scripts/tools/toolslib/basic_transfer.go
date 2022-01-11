@@ -3,9 +3,9 @@ package toolslib
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/routes"
 	"github.com/deso-protocol/core/lib"
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
@@ -18,10 +18,10 @@ func _generateUnsignedSendDeSo(senderPubKey *btcec.PublicKey, recipientPubKey *b
 
 	// Setup request
 	payload := &routes.SendDeSoRequest{
-		SenderPublicKeyBase58Check: lib.PkToString(senderPubKey.SerializeCompressed(), params),
+		SenderPublicKeyBase58Check:   lib.PkToString(senderPubKey.SerializeCompressed(), params),
 		RecipientPublicKeyOrUsername: lib.PkToString(recipientPubKey.SerializeCompressed(), params),
-		AmountNanos: amountNanos,
-		MinFeeRateNanosPerKB: 1000,
+		AmountNanos:                  amountNanos,
+		MinFeeRateNanosPerKB:         1000,
 	}
 	postBody, err := json.Marshal(payload)
 	if err != nil {
@@ -36,7 +36,7 @@ func _generateUnsignedSendDeSo(senderPubKey *btcec.PublicKey, recipientPubKey *b
 	}
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := ioutil.ReadAll(resp.Body)
-		return nil, errors.Errorf("_generateUnsignedSendDeSo(): Received non 200 response code: " +
+		return nil, errors.Errorf("_generateUnsignedSendDeSo(): Received non 200 response code: "+
 			"Status Code: %v Body: %v", resp.StatusCode, string(bodyBytes))
 	}
 

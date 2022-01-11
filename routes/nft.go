@@ -801,7 +801,7 @@ type GetNFTsForUserRequest struct {
 	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
 	IsForSale                  *bool  `safeForLogging:"true"`
 	// Ignored if IsForSale is provided
-	IsPending                  *bool  `safeForLogging:"true"`
+	IsPending *bool `safeForLogging:"true"`
 }
 
 type NFTEntryAndPostEntryResponse struct {
@@ -1820,11 +1820,11 @@ type GetNFTsCreatedByPublicKeyRequest struct {
 	// PostHashHex of the last NFT from the previous page
 	LastPostHashHex string `safeForLogging:"true"`
 	// Number of records to fetch
-	NumToFetch    uint64 `safeForLogging:"true"`
+	NumToFetch uint64 `safeForLogging:"true"`
 }
 
 type NFTDetails struct {
-	NFTEntryResponses []*NFTEntryResponse
+	NFTEntryResponses     []*NFTEntryResponse
 	NFTCollectionResponse *NFTCollectionResponse
 }
 
@@ -1938,7 +1938,7 @@ func (fes *APIServer) GetNFTsCreatedByPublicKey(ww http.ResponseWriter, req *htt
 			nftEntryResponses = append(nftEntryResponses, fes._nftEntryToResponse(nftEntry, nil, utxoView, false, readerPKID))
 		}
 		res.NFTs = append(res.NFTs, NFTDetails{
-			NFTEntryResponses: nftEntryResponses,
+			NFTEntryResponses:     nftEntryResponses,
 			NFTCollectionResponse: fes._nftEntryToNFTCollectionResponse(nftEntries[0], post.PosterPublicKey, postEntryResponse, utxoView, readerPKID),
 		})
 	}
