@@ -1433,7 +1433,7 @@ func (fes *APIServer) GetProfilesByCoinValue(
 
 	var startDeSoLockedNanos uint64
 	if startProfile != nil {
-		startDeSoLockedNanos = startProfile.CoinEntry.DeSoLockedNanos
+		startDeSoLockedNanos = startProfile.CreatorCoinEntry.DeSoLockedNanos
 	}
 
 	// As we fetch from the DB, we filter out moderated / deleted / hidden profiles.

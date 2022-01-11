@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/holiman/uint256"
 	"io"
 	"math/big"
 	"net/http"
@@ -2212,9 +2213,9 @@ type DAOCoinRequest struct {
 	OperationType DAOCoinOperationTypeString `safeForLogging:"true"`
 
 	// Coins
-	CoinsToMintNanos uint64
+	CoinsToMintNanos uint256.Int
 
-	CoinsToBurnNanos uint64
+	CoinsToBurnNanos uint256.Int
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
@@ -2298,13 +2299,13 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 			"DAOCoin: Must be profile owner in order to perform %v operation", requestData.OperationType))
 		return
 	}
-
-	if operationType == lib.DAOCoinOperationTypeMint && requestData.CoinsToMintNanos == 0 {
+	zero := uint256.NewInt()
+	if operationType == lib.DAOCoinOperationTypeMint && requestData.CoinsToMintNanos.Eq(zero) {
 		_AddBadRequestError(ww, fmt.Sprint("DAOCoin: Cannot mint 0 coins"))
 		return
 	}
 
-	if operationType == lib.DAOCoinOperationTypeBurn && requestData.CoinsToBurnNanos == 0 {
+	if operationType == lib.DAOCoinOperationTypeBurn && requestData.CoinsToBurnNanos.Eq(zero) {
 		_AddBadRequestError(ww, fmt.Sprint("DAOCoin: Cannot burn 0 coins"))
 		return
 	}
@@ -2357,7 +2358,7 @@ type TransferDAOCoinRequest struct {
 	ReceiverPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
 
 	// The amount of creator coins to transfer in nanos.
-	DAOCoinToTransferNanos uint64 `safeForLogging:"true"`
+	DAOCoinToTransferNanos uint256.Int `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
