@@ -2293,7 +2293,8 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Perform some basic sanity checks
-	if (operationType == lib.DAOCoinOperationTypeMint || operationType == lib.DAOCoinOperationTypeDisableMinting) &&
+	if (operationType == lib.DAOCoinOperationTypeMint || operationType == lib.DAOCoinOperationTypeDisableMinting ||
+		operationType == lib.DAOCoinOperationTypeUpdateTransferRestrictionStatus) &&
 		!reflect.DeepEqual(updaterPublicKeyBytes, creatorPublicKeyBytes) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"DAOCoin: Must be profile owner in order to perform %v operation", requestData.OperationType))
@@ -2416,11 +2417,17 @@ func (fes *APIServer) TransferDAOCoin(ww http.ResponseWriter, req *http.Request)
 	}
 
 	// Decode the creator public key
-	creatorPublicKeyBytes, _, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+	creatorPublicKeyBytes, creatorProfileEntry, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
 		requestData.ProfilePublicKeyBase58CheckOrUsername, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem decoding creator public key %s: %v",
 			requestData.ProfilePublicKeyBase58CheckOrUsername, err))
+		return
+	}
+
+	if creatorProfileEntry == nil || creatorProfileEntry.IsDeleted() {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: No profile entry found for creator public key %s",
+			requestData.ProfilePublicKeyBase58CheckOrUsername))
 		return
 	}
 
@@ -2430,6 +2437,12 @@ func (fes *APIServer) TransferDAOCoin(ww http.ResponseWriter, req *http.Request)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem decoding reeceiver public key %s: %v",
 			requestData.ReceiverPublicKeyBase58CheckOrUsername, err))
+		return
+	}
+
+	if err = utxoView.IsValidDAOCoinTransfer(
+		creatorProfileEntry, senderPublicKeyBytes, receiverPublicKeyBytes); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Invalid DAOCoinTransfer: %v", err))
 		return
 	}
 
