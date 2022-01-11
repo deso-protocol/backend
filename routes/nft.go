@@ -172,6 +172,8 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		nftFee,
 		uint64(requestData.NFTRoyaltyToCreatorBasisPoints),
 		uint64(requestData.NFTRoyaltyToCoinBasisPoints),
+		false,
+		0,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Problem creating transaction: %v", err))
@@ -307,6 +309,8 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 		uint64(requestData.SerialNumber),
 		requestData.IsForSale,
 		uint64(requestData.MinBidAmountNanos),
+		false,
+		0,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateNFT: Problem creating transaction: %v", err))

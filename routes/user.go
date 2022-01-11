@@ -278,7 +278,8 @@ func (fes *APIServer) GetYouHodlMap(pkid *lib.PKIDEntry, fetchProfiles bool, utx
 	_youHodlMap map[string]*BalanceEntryResponse, _err error) {
 
 	// Get all the hodlings for this user from the db
-	entriesYouHodl, profilesYouHodl, err := utxoView.GetHoldings(pkid.PKID, fetchProfiles)
+	entriesYouHodl, profilesYouHodl, err := utxoView.GetHoldings(
+		pkid.PKID, fetchProfiles, false)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"GetHodlingsForPublicKey: Error looking up balance entries in db: %v", err)
@@ -322,12 +323,13 @@ func (fes *APIServer) getMapFromEntries(entries []*lib.BalanceEntry, profiles []
 		if len(profiles) != 0 {
 			currentProfile = profiles[ii]
 		}
+		// Creator coins can't exceed uint64
 		if useCreatorPKIDAsKey {
 			mapYouHodl[lib.PkToString(entry.CreatorPKID[:], fes.Params)] =
-				fes._balanceEntryToResponse(entry, entry.BalanceNanos /*dbBalanceNanos*/, currentProfile, utxoView)
+				fes._balanceEntryToResponse(entry, entry.BalanceNanos.Uint64() /*dbBalanceNanos*/, currentProfile, utxoView)
 		} else {
 			mapYouHodl[lib.PkToString(entry.HODLerPKID[:], fes.Params)] =
-				fes._balanceEntryToResponse(entry, entry.BalanceNanos /*dbBalanceNanos*/, currentProfile, utxoView)
+				fes._balanceEntryToResponse(entry, entry.BalanceNanos.Uint64() /*dbBalanceNanos*/, currentProfile, utxoView)
 		}
 	}
 	return mapYouHodl
@@ -348,8 +350,9 @@ func (fes *APIServer) _balanceEntryToResponse(
 		HODLerPublicKeyBase58Check:  lib.PkToString(hodlerPk, fes.Params),
 		CreatorPublicKeyBase58Check: lib.PkToString(creatorPk, fes.Params),
 		HasPurchased:                balanceEntry.HasPurchased,
-		BalanceNanos:                balanceEntry.BalanceNanos,
-		NetBalanceInMempool:         int64(balanceEntry.BalanceNanos) - int64(dbBalanceNanos),
+		// CreatorCoins can't exceed uint64
+		BalanceNanos:                balanceEntry.BalanceNanos.Uint64(),
+		NetBalanceInMempool:         int64(balanceEntry.BalanceNanos.Uint64()) - int64(dbBalanceNanos),
 
 		// If the profile is nil, this will be nil
 		ProfileEntryResponse: fes._profileEntryToResponse(profileEntry, utxoView),
@@ -392,7 +395,8 @@ func (fes *APIServer) GetHodlingsForPublicKey(pkid *lib.PKIDEntry, fetchProfiles
 func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, utxoView *lib.UtxoView) (
 	_youHodlMap map[string]*BalanceEntryResponse, _err error) {
 	// Get all the hodlings for this user from the db
-	entriesHodlingYou, profileHodlingYou, err := utxoView.GetHolders(pkid.PKID, fetchProfiles)
+	entriesHodlingYou, profileHodlingYou, err := utxoView.GetHolders(
+		pkid.PKID, fetchProfiles, false)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"GetHodlingsForPublicKey: Error looking up balance entries in db: %v", err)
@@ -906,13 +910,15 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 	}
 
 	coinPriceDeSoNanos := uint64(0)
-	if profileEntry.CoinsInCirculationNanos != 0 {
+	// CreatorCoins can't exceed uint64
+	if profileEntry.CreatorCoinEntry.CoinsInCirculationNanos.Uint64() != 0 {
 		// The price formula is:
 		// coinPriceDeSoNanos = DeSoLockedNanos / (CoinsInCirculationNanos * ReserveRatio) * NanosPerUnit
 		bigNanosPerUnit := lib.NewFloat().SetUint64(lib.NanosPerUnit)
+		// CreatorCoins can't exceed uint64
 		coinPriceDeSoNanos, _ = lib.Mul(lib.Div(
-			lib.Div(lib.NewFloat().SetUint64(profileEntry.DeSoLockedNanos), bigNanosPerUnit),
-			lib.Mul(lib.Div(lib.NewFloat().SetUint64(profileEntry.CoinsInCirculationNanos), bigNanosPerUnit),
+			lib.Div(lib.NewFloat().SetUint64(profileEntry.CreatorCoinEntry.DeSoLockedNanos), bigNanosPerUnit),
+			lib.Mul(lib.Div(lib.NewFloat().SetUint64(profileEntry.CreatorCoinEntry.CoinsInCirculationNanos.Uint64()), bigNanosPerUnit),
 				fes.Params.CreatorCoinReserveRatio)), lib.NewFloat().SetUint64(lib.NanosPerUnit)).Uint64()
 	}
 
@@ -943,12 +949,12 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		Username:             string(profileEntry.Username),
 		Description:          string(profileEntry.Description),
 		CoinEntry: &CoinEntryResponse{
-			CreatorBasisPoints:      profileEntry.CoinEntry.CreatorBasisPoints,
-			DeSoLockedNanos:         profileEntry.CoinEntry.DeSoLockedNanos,
-			NumberOfHolders:         profileEntry.CoinEntry.NumberOfHolders,
-			CoinsInCirculationNanos: profileEntry.CoinEntry.CoinsInCirculationNanos,
-			CoinWatermarkNanos:      profileEntry.CoinEntry.CoinWatermarkNanos,
-			BitCloutLockedNanos:     profileEntry.CoinEntry.DeSoLockedNanos,
+			CreatorBasisPoints:      profileEntry.CreatorCoinEntry.CreatorBasisPoints,
+			DeSoLockedNanos:         profileEntry.CreatorCoinEntry.DeSoLockedNanos,
+			NumberOfHolders:         profileEntry.CreatorCoinEntry.NumberOfHolders,
+			CoinsInCirculationNanos: profileEntry.CreatorCoinEntry.CoinsInCirculationNanos.Uint64(),
+			CoinWatermarkNanos:      profileEntry.CreatorCoinEntry.CoinWatermarkNanos,
+			BitCloutLockedNanos:     profileEntry.CreatorCoinEntry.DeSoLockedNanos,
 		},
 		CoinPriceDeSoNanos:     coinPriceDeSoNanos,
 		CoinPriceBitCloutNanos: coinPriceDeSoNanos,
@@ -1462,7 +1468,7 @@ func (fes *APIServer) sortFollowEntries(followEntryPKIDii *lib.PKID, followEntry
 		}
 		// If both FollowEntries have a profile, compare the two based on coin price.
 		if profileEntryii != nil && profileEntryjj != nil {
-			return profileEntryii.CoinEntry.DeSoLockedNanos > profileEntryjj.CoinEntry.DeSoLockedNanos
+			return profileEntryii.CreatorCoinEntry.DeSoLockedNanos > profileEntryjj.CreatorCoinEntry.DeSoLockedNanos
 		}
 	}
 	// If we're not fetching values (meaning no profiles for public keys) or neither FollowEntry has a profile,
@@ -2781,9 +2787,11 @@ func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Reque
 	var IsHodling = false
 	var BalanceEntry *BalanceEntryResponse
 
-	hodlBalanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(userPublicKeyBytes, isHodlingPublicKeyBytes)
+	hodlBalanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(
+		userPublicKeyBytes, isHodlingPublicKeyBytes, false)
 	if hodlBalanceEntry != nil {
-		BalanceEntry = fes._balanceEntryToResponse(hodlBalanceEntry, hodlBalanceEntry.BalanceNanos, nil, utxoView)
+		BalanceEntry = fes._balanceEntryToResponse(
+			hodlBalanceEntry, hodlBalanceEntry.BalanceNanos.Uint64(), nil, utxoView)
 		IsHodling = true
 	}
 
