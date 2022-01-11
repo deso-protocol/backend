@@ -96,9 +96,9 @@ type PostEntryResponse struct {
 	NFTRoyaltyToCreatorBasisPoints uint64
 	NFTRoyaltyToCoinBasisPoints    uint64
 	// This map specifies royalties that should go to user's  other than the creator
-	AdditionalDESORoyaltiesMap     map[string]uint64
+	AdditionalDESORoyaltiesMap map[string]uint64
 	// This map specifies royalties that should be add to creator coins other than the creator's coin.
-	AdditionalCoinRoyaltiesMap     map[string]uint64
+	AdditionalCoinRoyaltiesMap map[string]uint64
 
 	// Number of diamonds the sender gave this post. Only set when getting diamond posts.
 	DiamondsFromSender uint64
@@ -215,7 +215,6 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 		pkBytes := utxoView.GetPublicKeyForPKID(&additionalCoinRoyaltyPKID)
 		additionalCoinRoyaltyMap[lib.PkToString(pkBytes, fes.Params)] = basisPoints
 	}
-
 
 	res := &PostEntryResponse{
 		PostHashHex:                    hex.EncodeToString(postEntry.PostHash[:]),

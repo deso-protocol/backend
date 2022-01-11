@@ -351,8 +351,8 @@ func (fes *APIServer) _balanceEntryToResponse(
 		CreatorPublicKeyBase58Check: lib.PkToString(creatorPk, fes.Params),
 		HasPurchased:                balanceEntry.HasPurchased,
 		// CreatorCoins can't exceed uint64
-		BalanceNanos:                balanceEntry.BalanceNanos.Uint64(),
-		NetBalanceInMempool:         int64(balanceEntry.BalanceNanos.Uint64()) - int64(dbBalanceNanos),
+		BalanceNanos:        balanceEntry.BalanceNanos.Uint64(),
+		NetBalanceInMempool: int64(balanceEntry.BalanceNanos.Uint64()) - int64(dbBalanceNanos),
 
 		// If the profile is nil, this will be nil
 		ProfileEntryResponse: fes._profileEntryToResponse(profileEntry, utxoView),
