@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/routes"
 	"github.com/deso-protocol/core/lib"
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
@@ -38,7 +38,7 @@ func _generateUnsignedSendDiamonds(senderPubKey *btcec.PublicKey, postHashHex st
 	}
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := ioutil.ReadAll(resp.Body)
-		return nil, errors.Errorf("_generateUnsignedSendDiamonds(): Received non 200 response code: " +
+		return nil, errors.Errorf("_generateUnsignedSendDiamonds(): Received non 200 response code: "+
 			"Status Code: %v Body: %v", resp.StatusCode, string(bodyBytes))
 	}
 

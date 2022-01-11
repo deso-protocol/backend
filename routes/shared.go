@@ -114,9 +114,9 @@ type User struct {
 	// JumioFinishedTime = Time user completed flow in Jumio
 	JumioFinishedTime uint64
 	// JumioVerified = user was verified from Jumio flow
-	JumioVerified    bool
+	JumioVerified bool
 	// JumioReturned = jumio webhook called
-	JumioReturned    bool
+	JumioReturned bool
 
 	// Is this user an admin
 	IsAdmin bool
