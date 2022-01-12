@@ -62,16 +62,18 @@ type NFTBidEntryResponse struct {
 }
 
 type CreateNFTRequest struct {
-	UpdaterPublicKeyBase58Check    string `safeForLogging:"true"`
-	NFTPostHashHex                 string `safeForLogging:"true"`
-	NumCopies                      int    `safeForLogging:"true"`
-	NFTRoyaltyToCreatorBasisPoints int    `safeForLogging:"true"`
-	NFTRoyaltyToCoinBasisPoints    int    `safeForLogging:"true"`
-	HasUnlockable                  bool   `safeForLogging:"true"`
-	IsForSale                      bool   `safeForLogging:"true"`
-	MinBidAmountNanos              int    `safeForLogging:"true"`
-	IsBuyNow                       bool   `safeForLogging:"true"`
-	BuyNowPriceNanos               uint64 `safeForLogging:"true"`
+	UpdaterPublicKeyBase58Check    string            `safeForLogging:"true"`
+	NFTPostHashHex                 string            `safeForLogging:"true"`
+	NumCopies                      int               `safeForLogging:"true"`
+	NFTRoyaltyToCreatorBasisPoints int               `safeForLogging:"true"`
+	NFTRoyaltyToCoinBasisPoints    int               `safeForLogging:"true"`
+	HasUnlockable                  bool              `safeForLogging:"true"`
+	IsForSale                      bool              `safeForLogging:"true"`
+	MinBidAmountNanos              int               `safeForLogging:"true"`
+	IsBuyNow                       bool              `safeForLogging:"true"`
+	BuyNowPriceNanos               uint64            `safeForLogging:"true"`
+	AdditionalDESORoyaltiesMap     map[string]uint64 `safeForLogging:"true"`
+	AdditionalCoinRoyaltiesMap     map[string]uint64 `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
@@ -147,6 +149,59 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprint("CreateNFT: cannot set BuyNowPriceNanos less than MinBidAmountNanos"))
 		return
 	}
+	// Sum basis points for DESO royalties
+	additionalDESORoyaltiesBasisPoints := uint64(0)
+	additionalDESORoyaltiesPubKeyMap := make(map[lib.PublicKey]uint64)
+	for desoRoyaltyPublicKey, basisPoints := range requestData.AdditionalDESORoyaltiesMap {
+		// Check that the public key is valid
+		additionalDESORoyaltyPublicKeyBytes, _, err := lib.Base58CheckDecode(desoRoyaltyPublicKey)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"CreateNFT: Problem decoding Additional DESO Royalty public key %s: %v", desoRoyaltyPublicKey, err))
+			return
+		}
+		// only add this to the map if basis points > 0
+		if basisPoints > 0 {
+			additionalDESORoyaltiesBasisPoints += basisPoints
+			additionalDESORoyaltiesPubKeyMap[*lib.NewPublicKey(additionalDESORoyaltyPublicKeyBytes)] = basisPoints
+		}
+	}
+
+	// Sum basis points for Coin royalties
+	additionalCoinRoyaltiesBasisPoints := uint64(0)
+	additionalCoinRoyaltiesPubKeyMap := make(map[lib.PublicKey]uint64)
+	for coinRoyaltyPublicKey, basisPoints := range requestData.AdditionalCoinRoyaltiesMap {
+		// Check that the public key is valid
+		additionalCoinRoyaltyPublicKeyBytes, _, err := lib.Base58CheckDecode(coinRoyaltyPublicKey)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"CreateNFT: Problem decoding Additional Coin Royalty public key %s: %v", coinRoyaltyPublicKey, err))
+			return
+		}
+		// PKID must map to an existing profile in order for us to give royalties to that coin
+		profileEntry := utxoView.GetProfileEntryForPublicKey(additionalCoinRoyaltyPublicKeyBytes)
+		if profileEntry == nil || profileEntry.IsDeleted() {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"CreateNFT: No profile found for public key %s", coinRoyaltyPublicKey))
+			return
+		}
+		// only add this to the map if basis points > 0
+		if basisPoints > 0 {
+			additionalCoinRoyaltiesBasisPoints += basisPoints
+			additionalCoinRoyaltiesPubKeyMap[*lib.NewPublicKey(additionalCoinRoyaltyPublicKeyBytes)] = basisPoints
+		}
+	}
+
+	if additionalCoinRoyaltiesBasisPoints+additionalDESORoyaltiesBasisPoints+
+		uint64(requestData.NFTRoyaltyToCoinBasisPoints)+uint64(requestData.NFTRoyaltyToCreatorBasisPoints) >
+		fes.Params.MaxNFTRoyaltyBasisPoints {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"CreateNFT: Total royalty basis points too high: creator royalty %d, coin royalty %d, "+
+				"additional DESO royalties %d, additional coin royalties %d",
+			requestData.NFTRoyaltyToCreatorBasisPoints, requestData.NFTRoyaltyToCoinBasisPoints,
+			additionalDESORoyaltiesBasisPoints, additionalCoinRoyaltiesBasisPoints))
+		return
+	}
 
 	// Get the PostHash for the NFT we are creating.
 	nftPostHashBytes, err := hex.DecodeString(requestData.NFTPostHashHex)
@@ -188,6 +243,8 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		uint64(requestData.NFTRoyaltyToCoinBasisPoints),
 		requestData.IsBuyNow,
 		requestData.BuyNowPriceNanos,
+		additionalDESORoyaltiesPubKeyMap,
+		additionalCoinRoyaltiesPubKeyMap,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Problem creating transaction: %v", err))

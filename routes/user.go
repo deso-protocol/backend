@@ -351,8 +351,8 @@ func (fes *APIServer) _balanceEntryToResponse(
 		CreatorPublicKeyBase58Check: lib.PkToString(creatorPk, fes.Params),
 		HasPurchased:                balanceEntry.HasPurchased,
 		// CreatorCoins can't exceed uint64
-		BalanceNanos:                balanceEntry.BalanceNanos.Uint64(),
-		NetBalanceInMempool:         int64(balanceEntry.BalanceNanos.Uint64()) - int64(dbBalanceNanos),
+		BalanceNanos:        balanceEntry.BalanceNanos.Uint64(),
+		NetBalanceInMempool: int64(balanceEntry.BalanceNanos.Uint64()) - int64(dbBalanceNanos),
 
 		// If the profile is nil, this will be nil
 		ProfileEntryResponse: fes._profileEntryToResponse(profileEntry, utxoView),
@@ -2800,11 +2800,73 @@ func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Reque
 		BalanceEntry: BalanceEntry,
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("IsHodlingPublicKey: Problem serializing object to JSON: %v", err))
 		return
 	}
 
+}
+
+// GetUsernameForPublicKey looks up a username given a public key
+func (fes *APIServer) GetUsernameForPublicKey(ww http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	publicKeyBase58Check, publicKeyBase58CheckExists := vars["publicKeyBase58Check"]
+	if !publicKeyBase58CheckExists {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUsernameForPublicKey: Missing public key base 58 check"))
+		return
+	}
+	publicKeyBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUsernameForPublicKey: Problem decoding user public key: %v", err))
+		return
+	}
+
+	var utxoView *lib.UtxoView
+	utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUsernameForPublicKey: Error getting utxoView: %v", err))
+		return
+	}
+
+	profileEntry := utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
+	if profileEntry == nil || profileEntry.IsDeleted() {
+		_AddNotFoundError(ww, fmt.Sprintf(
+			"GetUsernameForPublicKey: no profile found for public key: %v", publicKeyBase58Check))
+		return
+	}
+
+	if err = json.NewEncoder(ww).Encode(profileEntry.Username); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUsernameForPublicKey: Error encoding response: %v", err))
+		return
+	}
+}
+
+// GetPublicKeyForUsername looks up a public key given a username
+func (fes *APIServer) GetPublicKeyForUsername(ww http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	username, usernameExists := vars["username"]
+	if !usernameExists {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPublicKeyForUsername: Missing username"))
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPublicKeyForUsername: Error getting utxoView: %v", err))
+		return
+	}
+
+	profileEntry := utxoView.GetProfileEntryForUsername([]byte(username))
+	if profileEntry == nil || profileEntry.IsDeleted() {
+		_AddNotFoundError(ww, fmt.Sprintf(
+			"GetPublicKeyForUsername: no profile found for username: %v", username))
+		return
+	}
+
+	if err = json.NewEncoder(ww).Encode(lib.PkToString(profileEntry.PublicKey, fes.Params)); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUsernameForPublicKey: Error encoding response: %v", err))
+		return
+	}
 }
 
 // GetUserDerivedKeysRequest ...

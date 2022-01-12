@@ -79,6 +79,8 @@ const (
 	RoutePathGetUserDerivedKeys          = "/api/v0/get-user-derived-keys"
 	RoutePathDeletePII                   = "/api/v0/delete-pii"
 	RoutePathGetUserMetadata             = "/api/v0/get-user-metadata"
+	RoutePathGetUsernameForPublicKey     = "/api/v0/get-user-name-for-public-key"
+	RoutePathGetPublicKeyForUsername     = "/api/v0/get-public-key-for-user-name"
 
 	// post.go
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
@@ -948,6 +950,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetUserMetadata + "/{publicKeyBase58Check:[0-9a-zA-Z]{54,55}}",
 			fes.GetUserMetadata,
+			PublicAccess,
+		},
+		{
+			"GetUsernameForPublicKey",
+			[]string{"GET"},
+			RoutePathGetUsernameForPublicKey + "/{publicKeyBase58Check:[0-9a-zA-Z]{54,55}}",
+			fes.GetUsernameForPublicKey,
+			PublicAccess,
+		},
+		{
+			"GetPublicKeyForUsername",
+			[]string{"GET"},
+			RoutePathGetPublicKeyForUsername + "/{username:[a-zA-Z0-9_]{1,26}",
+			fes.GetPublicKeyForUsername,
 			PublicAccess,
 		},
 		// Jumio Routes

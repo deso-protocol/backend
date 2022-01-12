@@ -95,6 +95,10 @@ type PostEntryResponse struct {
 	HasUnlockable                  bool
 	NFTRoyaltyToCreatorBasisPoints uint64
 	NFTRoyaltyToCoinBasisPoints    uint64
+	// This map specifies royalties that should go to user's  other than the creator
+	AdditionalDESORoyaltiesMap map[string]uint64
+	// This map specifies royalties that should be add to creator coins other than the creator's coin.
+	AdditionalCoinRoyaltiesMap map[string]uint64
 
 	// Number of diamonds the sender gave this post. Only set when getting diamond posts.
 	DiamondsFromSender uint64
@@ -198,6 +202,20 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 		}
 	}
 
+	// convert additional DESO royalties map if applicable
+	additionalDESORoyaltyMap := make(map[string]uint64)
+	for additionalDESORoyaltyPKID, basisPoints := range postEntry.AdditionalNFTRoyaltiesToCreatorsBasisPoints {
+		pkBytes := utxoView.GetPublicKeyForPKID(&additionalDESORoyaltyPKID)
+		additionalDESORoyaltyMap[lib.PkToString(pkBytes, fes.Params)] = basisPoints
+	}
+
+	// convert additional coin royalties map if applicable
+	additionalCoinRoyaltyMap := make(map[string]uint64)
+	for additionalCoinRoyaltyPKID, basisPoints := range postEntry.AdditionalNFTRoyaltiesToCoinsBasisPoints {
+		pkBytes := utxoView.GetPublicKeyForPKID(&additionalCoinRoyaltyPKID)
+		additionalCoinRoyaltyMap[lib.PkToString(pkBytes, fes.Params)] = basisPoints
+	}
+
 	res := &PostEntryResponse{
 		PostHashHex:                    hex.EncodeToString(postEntry.PostHash[:]),
 		PosterPublicKeyBase58Check:     lib.PkToString(postEntry.PosterPublicKey, params),
@@ -225,6 +243,8 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 		HasUnlockable:                  postEntry.HasUnlockable,
 		NFTRoyaltyToCreatorBasisPoints: postEntry.NFTRoyaltyToCreatorBasisPoints,
 		NFTRoyaltyToCoinBasisPoints:    postEntry.NFTRoyaltyToCoinBasisPoints,
+		AdditionalDESORoyaltiesMap:     additionalDESORoyaltyMap,
+		AdditionalCoinRoyaltiesMap:     additionalCoinRoyaltyMap,
 		PostExtraData:                  postEntryResponseExtraData,
 
 		// Deprecated
