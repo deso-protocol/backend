@@ -2358,6 +2358,7 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateDAOCoinTxn(
 		updaterPublicKeyBytes,
 		&lib.DAOCoinMetadata{
+			OperationType:             operationType,
 			ProfilePublicKey:          creatorPublicKeyBytes,
 			CoinsToMintNanos:          requestData.CoinsToMintNanos,
 			CoinsToBurnNanos:          requestData.CoinsToBurnNanos,
