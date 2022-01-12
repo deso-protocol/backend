@@ -2201,6 +2201,15 @@ const (
 	DAOCoinOperationStringDisableMinting DAOCoinOperationTypeString = "disable_minting"
 )
 
+type TransferRestrictionStatusString string
+
+const (
+	TransferRestrictionStatusStringUnrestricted TransferRestrictionStatusString = "unrestricted"
+	TransferRestrictionStatusStringProfileOwnerOnly TransferRestrictionStatusString = "profile_owner_only"
+	TransferRestrictionStatusStringDAOMembersOnly TransferRestrictionStatusString = "dao_members_only"
+	TransferRestrictionStatusStringPermanentlyUnrestricted TransferRestrictionStatusString = "permanently_unrestricted"
+)
+
 // DAOCoinRequest ...
 type DAOCoinRequest struct {
 	// The public key or username of the user who is performing the DAOCoin Txn
@@ -2213,9 +2222,12 @@ type DAOCoinRequest struct {
 	OperationType DAOCoinOperationTypeString `safeForLogging:"true"`
 
 	// Coins
-	CoinsToMintNanos uint256.Int
+	CoinsToMintNanos uint256.Int `safeForLogging:"true"`
 
-	CoinsToBurnNanos uint256.Int
+	CoinsToBurnNanos uint256.Int `safeForLogging:"true"`
+
+	// Transfer Restriction Status
+	TransferRestrictionStatus TransferRestrictionStatusString `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
@@ -2244,13 +2256,14 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 
 	// Convert OperationTypeString to DAOCoinOperationType
 	var operationType lib.DAOCoinOperationType
-	if requestData.OperationType == DAOCoinOperationStringMint {
+	switch requestData.OperationType {
+	case DAOCoinOperationStringMint:
 		operationType = lib.DAOCoinOperationTypeMint
-	} else if requestData.OperationType == DAOCoinOperationStringBurn {
+	case DAOCoinOperationStringBurn:
 		operationType = lib.DAOCoinOperationTypeBurn
-	} else if requestData.OperationType == DAOCoinOperationStringDisableMinting {
+	case DAOCoinOperationStringDisableMinting:
 		operationType = lib.DAOCoinOperationTypeDisableMinting
-	} else {
+	default:
 		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: OperationType \"%v\" not supported",
 			requestData.OperationType))
 		return
@@ -2311,6 +2324,34 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	var transferRestrictionStatus lib.TransferRestrictionStatus
+	if operationType == lib.DAOCoinOperationTypeUpdateTransferRestrictionStatus {
+		if profileEntry.DAOCoinEntry.TransferRestrictionStatus == lib.TransferRestrictionStatusPermanentlyUnrestricted {
+			_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Cannot update TransferRestrictionStatus if current " +
+				"status is Permanently Unrestricted"))
+			return
+		}
+		switch requestData.TransferRestrictionStatus {
+		case TransferRestrictionStatusStringUnrestricted:
+			transferRestrictionStatus = lib.TransferRestrictionStatusUnrestricted
+		case TransferRestrictionStatusStringProfileOwnerOnly:
+			transferRestrictionStatus = lib.TransferRestrictionStatusProfileOwnerOnly
+		case TransferRestrictionStatusStringDAOMembersOnly:
+			transferRestrictionStatus = lib.TransferRestrictionStatusDAOMembersOnly
+		case TransferRestrictionStatusStringPermanentlyUnrestricted:
+			transferRestrictionStatus = lib.TransferRestrictionStatusPermanentlyUnrestricted
+		default:
+			_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: TransferRestrictionStatus \"%v\" not supported",
+				requestData.TransferRestrictionStatus))
+			return
+		}
+		if profileEntry.DAOCoinEntry.TransferRestrictionStatus == transferRestrictionStatus {
+			_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Cannot update transfer restriction status to be the " +
+				"same as the current status"))
+			return
+		}
+	}
+
 	// Try and create the DAOCoin transaction for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateDAOCoinTxn(
 		updaterPublicKeyBytes,
@@ -2318,6 +2359,7 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 			ProfilePublicKey: creatorPublicKeyBytes,
 			CoinsToMintNanos: requestData.CoinsToMintNanos,
 			CoinsToBurnNanos: requestData.CoinsToBurnNanos,
+			TransferRestrictionStatus: transferRestrictionStatus,
 		},
 		// Standard transaction fields
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
