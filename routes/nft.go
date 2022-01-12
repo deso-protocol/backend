@@ -151,7 +151,7 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 	}
 	// Sum basis points for DESO royalties
 	additionalDESORoyaltiesBasisPoints := uint64(0)
-	additionalDESORoyaltiesPKIDMap := make(map[lib.PKID]uint64)
+	additionalDESORoyaltiesPubKeyMap := make(map[lib.PublicKey]uint64)
 	for desoRoyaltyPublicKey, basisPoints := range requestData.AdditionalDESORoyaltiesMap {
 		// Check that the public key is valid
 		additionalDESORoyaltyPublicKeyBytes, _, err := lib.Base58CheckDecode(desoRoyaltyPublicKey)
@@ -160,23 +160,16 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 				"CreateNFT: Problem decoding Additional DESO Royalty public key %s: %v", desoRoyaltyPublicKey, err))
 			return
 		}
-		// Get the pkid
-		pkid := utxoView.GetPKIDForPublicKey(additionalDESORoyaltyPublicKeyBytes)
-		if pkid == nil || pkid.PKID == nil {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"CreateNFT: PKID not found for public key %s: %v", desoRoyaltyPublicKey, err))
-			return
-		}
 		// only add this to the map if basis points > 0
 		if basisPoints > 0 {
 			additionalDESORoyaltiesBasisPoints += basisPoints
-			additionalDESORoyaltiesPKIDMap[*pkid.PKID] = basisPoints
+			additionalDESORoyaltiesPubKeyMap[*lib.NewPublicKey(additionalDESORoyaltyPublicKeyBytes)] = basisPoints
 		}
 	}
 
 	// Sum basis points for Coin royalties
 	additionalCoinRoyaltiesBasisPoints := uint64(0)
-	additionalCoinRoyaltiesPKIDMap := make(map[lib.PKID]uint64)
+	additionalCoinRoyaltiesPubKeyMap := make(map[lib.PublicKey]uint64)
 	for coinRoyaltyPublicKey, basisPoints := range requestData.AdditionalCoinRoyaltiesMap {
 		// Check that the public key is valid
 		additionalCoinRoyaltyPublicKeyBytes, _, err := lib.Base58CheckDecode(coinRoyaltyPublicKey)
@@ -185,15 +178,9 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 				"CreateNFT: Problem decoding Additional Coin Royalty public key %s: %v", coinRoyaltyPublicKey, err))
 			return
 		}
-		// Get the pkid
-		pkid := utxoView.GetPKIDForPublicKey(additionalCoinRoyaltyPublicKeyBytes)
-		if pkid == nil || pkid.PKID == nil || pkid.IsDeleted() {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"CreateNFT: PKID not found for public key %s: %v", coinRoyaltyPublicKey, err))
-			return
-		}
 		// PKID must map to an existing profile in order for us to give royalties to that coin
-		if profileEntry := utxoView.GetProfileEntryForPKID(pkid.PKID); profileEntry == nil || profileEntry.IsDeleted() {
+		profileEntry := utxoView.GetProfileEntryForPublicKey(additionalCoinRoyaltyPublicKeyBytes)
+		if profileEntry == nil || profileEntry.IsDeleted() {
 			_AddBadRequestError(ww, fmt.Sprintf(
 				"CreateNFT: No profile found for public key %s", coinRoyaltyPublicKey))
 			return
@@ -201,7 +188,7 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		// only add this to the map if basis points > 0
 		if basisPoints > 0 {
 			additionalCoinRoyaltiesBasisPoints += basisPoints
-			additionalCoinRoyaltiesPKIDMap[*pkid.PKID] = basisPoints
+			additionalCoinRoyaltiesPubKeyMap[*lib.NewPublicKey(additionalCoinRoyaltyPublicKeyBytes)] = basisPoints
 		}
 	}
 
@@ -256,8 +243,8 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		uint64(requestData.NFTRoyaltyToCoinBasisPoints),
 		requestData.IsBuyNow,
 		requestData.BuyNowPriceNanos,
-		additionalDESORoyaltiesPKIDMap,
-		additionalCoinRoyaltiesPKIDMap,
+		additionalDESORoyaltiesPubKeyMap,
+		additionalCoinRoyaltiesPubKeyMap,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Problem creating transaction: %v", err))
