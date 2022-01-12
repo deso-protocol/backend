@@ -2213,8 +2213,8 @@ const (
 
 // DAOCoinRequest ...
 type DAOCoinRequest struct {
-	// The public key or username of the user who is performing the DAOCoin Txn
-	UpdaterPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+	// The public key of the user who is performing the DAOCoin Txn
+	UpdaterPublicKeyBase58Check string `safeForLogging:"true"`
 
 	// The public key or username of the profile whose DAO coin the transactor is trying to transact with.
 	ProfilePublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
@@ -2278,11 +2278,10 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 	// Decode the updater public key
-	updaterPublicKeyBytes, _, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
-		requestData.UpdaterPublicKeyBase58CheckOrUsername, utxoView)
+	updaterPublicKeyBytes, err := GetPubKeyBytesFromBase58Check(requestData.UpdaterPublicKeyBase58Check)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Problem decoding updater public key/username %s: %v",
-			requestData.UpdaterPublicKeyBase58CheckOrUsername, err))
+			requestData.UpdaterPublicKeyBase58Check, err))
 		return
 	}
 

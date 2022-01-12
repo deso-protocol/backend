@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/holiman/uint256"
 	"io"
 	"net/http"
 	"reflect"
@@ -350,8 +351,8 @@ func (fes *APIServer) _balanceEntryToResponse(
 		CreatorPublicKeyBase58Check: lib.PkToString(creatorPk, fes.Params),
 		HasPurchased:                balanceEntry.HasPurchased,
 		// CreatorCoins can't exceed uint64
-		BalanceNanos:                balanceEntry.BalanceNanos.Uint64(),
-		NetBalanceInMempool:         int64(balanceEntry.BalanceNanos.Uint64()) - int64(dbBalanceNanos),
+		BalanceNanos:        balanceEntry.BalanceNanos.Uint64(),
+		NetBalanceInMempool: int64(balanceEntry.BalanceNanos.Uint64()) - int64(dbBalanceNanos),
 
 		// If the profile is nil, this will be nil
 		ProfileEntryResponse: fes._profileEntryToResponse(profileEntry, utxoView),
@@ -584,6 +585,10 @@ type ProfileEntryResponse struct {
 	Posts                []*PostEntryResponse
 	// Creator coin fields
 	CoinEntry *CoinEntryResponse
+
+	// DAO Coin fields
+	DAOCoinEntry *DAOCoinEntryResponse
+
 	// Include current price for the frontend to display.
 	CoinPriceDeSoNanos     uint64
 	CoinPriceBitCloutNanos uint64 // Deprecated
@@ -598,15 +603,22 @@ type ProfileEntryResponse struct {
 	IsFeaturedTutorialUpAndComingCreator bool
 }
 
-// Deprecated: Temporary to add support for BitCloutLockedNanos
 type CoinEntryResponse struct {
-	CreatorBasisPoints      uint64
-	DeSoLockedNanos         uint64
-	NumberOfHolders         uint64
-	CoinsInCirculationNanos uint64
-	CoinWatermarkNanos      uint64
+	CreatorBasisPoints        uint64
+	DeSoLockedNanos           uint64
+	NumberOfHolders           uint64
+	CoinsInCirculationNanos   uint64
+	CoinWatermarkNanos        uint64
 
+	// Deprecated: Temporary to add support for BitCloutLockedNanos
 	BitCloutLockedNanos uint64 // Deprecated
+}
+
+type DAOCoinEntryResponse struct {
+	NumberOfHolders           uint64
+	CoinsInCirculationNanos   uint256.Int
+	MintingDisabled           bool
+	TransferRestrictionStatus TransferRestrictionStatusString
 }
 
 // GetProfiles ...
@@ -955,6 +967,13 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 			CoinWatermarkNanos:      profileEntry.CreatorCoinEntry.CoinWatermarkNanos,
 			BitCloutLockedNanos:     profileEntry.CreatorCoinEntry.DeSoLockedNanos,
 		},
+		DAOCoinEntry: &DAOCoinEntryResponse{
+			NumberOfHolders:           profileEntry.DAOCoinEntry.NumberOfHolders,
+			CoinsInCirculationNanos:   profileEntry.DAOCoinEntry.CoinsInCirculationNanos,
+			MintingDisabled:           profileEntry.DAOCoinEntry.MintingDisabled,
+			TransferRestrictionStatus: getTransferRestrictionStatusStringFromTransferRestrictionStatus(
+				profileEntry.DAOCoinEntry.TransferRestrictionStatus),
+		},
 		CoinPriceDeSoNanos:     coinPriceDeSoNanos,
 		CoinPriceBitCloutNanos: coinPriceDeSoNanos,
 		IsHidden:               profileEntry.IsHidden,
@@ -963,6 +982,22 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 	}
 
 	return profResponse
+}
+
+func getTransferRestrictionStatusStringFromTransferRestrictionStatus(
+	transferRestrictionStatus lib.TransferRestrictionStatus) TransferRestrictionStatusString {
+	switch transferRestrictionStatus {
+	case lib.TransferRestrictionStatusUnrestricted:
+		return TransferRestrictionStatusStringUnrestricted
+	case lib.TransferRestrictionStatusProfileOwnerOnly:
+		return TransferRestrictionStatusStringProfileOwnerOnly
+	case lib.TransferRestrictionStatusDAOMembersOnly:
+		return TransferRestrictionStatusStringDAOMembersOnly
+	case lib.TransferRestrictionStatusPermanentlyUnrestricted:
+		return TransferRestrictionStatusStringPermanentlyUnrestricted
+	default:
+		return TransferRestrictionStatusStringUnrestricted
+	}
 }
 
 func (fes *APIServer) augmentProfileEntry(
@@ -3004,7 +3039,7 @@ func (fes *APIServer) GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
 	var pubKeyBytes []byte
 	var profileEntry *lib.ProfileEntry
 	var err error
-	if uint64(len(pubKeyOrUsername)) <= fes.Params.MaxUsernameLengthBytes {
+	if !strings.HasPrefix(pubKeyOrUsername, fes.GetPublicKeyPrefix()) {
 		// The receiver string is too short to be a public key.  Lookup the username.
 		profileEntry = utxoView.GetProfileEntryForUsername([]byte(pubKeyOrUsername))
 		if profileEntry == nil {
@@ -3013,11 +3048,27 @@ func (fes *APIServer) GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
 		pubKeyBytes = profileEntry.PublicKey
 	} else {
 		// Decode the public key
-		pubKeyBytes, _, err = lib.Base58CheckDecode(pubKeyOrUsername)
+		pubKeyBytes, err = GetPubKeyBytesFromBase58Check(pubKeyOrUsername)
 		if err != nil || len(pubKeyBytes) != btcec.PubKeyBytesLenCompressed {
 			return nil, nil, fmt.Errorf("Problem decoding public key %s", pubKeyOrUsername)
 		}
 		profileEntry = utxoView.GetProfileEntryForPublicKey(pubKeyBytes)
 	}
 	return pubKeyBytes, profileEntry, nil
+}
+
+func GetPubKeyBytesFromBase58Check(pubKeyBase58Check string) (_pubKeyBytes []byte, _err error) {
+	pubKeyBytes, _, err := lib.Base58CheckDecode(pubKeyBase58Check)
+	if err != nil || len(pubKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		return nil, fmt.Errorf("Problem decoding public key %s: %v", pubKeyBase58Check, err)
+	}
+	return pubKeyBytes, nil
+}
+
+func (fes *APIServer) GetPublicKeyPrefix() string {
+	if fes.Params.NetworkType == lib.NetworkType_MAINNET {
+		return "BC"
+	} else {
+		return "tBC"
+	}
 }
