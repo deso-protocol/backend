@@ -2394,8 +2394,8 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 
 // TransferDAOCoinRequest ...
 type TransferDAOCoinRequest struct {
-	// The public key/Username of the user who is making the transfer.
-	SenderPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+	// The public key of the user who is making the transfer.
+	SenderPublicKeyBase58Check string `safeForLogging:"true"`
 
 	// The public key/Username of the profile for the DAO coin that the user is transferring.
 	ProfilePublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
@@ -2432,7 +2432,7 @@ func (fes *APIServer) TransferDAOCoin(ww http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	if requestData.SenderPublicKeyBase58CheckOrUsername == "" ||
+	if requestData.SenderPublicKeyBase58Check == "" ||
 		requestData.ProfilePublicKeyBase58CheckOrUsername == "" ||
 		requestData.ReceiverPublicKeyBase58CheckOrUsername == "" {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Must provide a sender, a creator, and a receiver."))
@@ -2447,10 +2447,10 @@ func (fes *APIServer) TransferDAOCoin(ww http.ResponseWriter, req *http.Request)
 
 	// Decode the updater public key
 	senderPublicKeyBytes, _, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
-		requestData.SenderPublicKeyBase58CheckOrUsername, utxoView)
+		requestData.SenderPublicKeyBase58Check, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem decoding sender public key %s: %v",
-			requestData.SenderPublicKeyBase58CheckOrUsername, err))
+			requestData.SenderPublicKeyBase58Check, err))
 		return
 	}
 
