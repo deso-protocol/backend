@@ -2196,17 +2196,18 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 type DAOCoinOperationTypeString string
 
 const (
-	DAOCoinOperationStringMint           DAOCoinOperationTypeString = "mint"
-	DAOCoinOperationStringBurn           DAOCoinOperationTypeString = "burn"
-	DAOCoinOperationStringDisableMinting DAOCoinOperationTypeString = "disable_minting"
+	DAOCoinOperationStringMint                            DAOCoinOperationTypeString = "mint"
+	DAOCoinOperationStringBurn                            DAOCoinOperationTypeString = "burn"
+	DAOCoinOperationStringUpdateTransferRestrictionStatus DAOCoinOperationTypeString = "update_transfer_restriction_status"
+	DAOCoinOperationStringDisableMinting                  DAOCoinOperationTypeString = "disable_minting"
 )
 
 type TransferRestrictionStatusString string
 
 const (
-	TransferRestrictionStatusStringUnrestricted TransferRestrictionStatusString = "unrestricted"
-	TransferRestrictionStatusStringProfileOwnerOnly TransferRestrictionStatusString = "profile_owner_only"
-	TransferRestrictionStatusStringDAOMembersOnly TransferRestrictionStatusString = "dao_members_only"
+	TransferRestrictionStatusStringUnrestricted            TransferRestrictionStatusString = "unrestricted"
+	TransferRestrictionStatusStringProfileOwnerOnly        TransferRestrictionStatusString = "profile_owner_only"
+	TransferRestrictionStatusStringDAOMembersOnly          TransferRestrictionStatusString = "dao_members_only"
 	TransferRestrictionStatusStringPermanentlyUnrestricted TransferRestrictionStatusString = "permanently_unrestricted"
 )
 
@@ -2261,6 +2262,8 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 		operationType = lib.DAOCoinOperationTypeMint
 	case DAOCoinOperationStringBurn:
 		operationType = lib.DAOCoinOperationTypeBurn
+	case DAOCoinOperationStringUpdateTransferRestrictionStatus:
+		operationType = lib.DAOCoinOperationTypeUpdateTransferRestrictionStatus
 	case DAOCoinOperationStringDisableMinting:
 		operationType = lib.DAOCoinOperationTypeDisableMinting
 	default:
@@ -2327,7 +2330,7 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 	var transferRestrictionStatus lib.TransferRestrictionStatus
 	if operationType == lib.DAOCoinOperationTypeUpdateTransferRestrictionStatus {
 		if profileEntry.DAOCoinEntry.TransferRestrictionStatus == lib.TransferRestrictionStatusPermanentlyUnrestricted {
-			_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Cannot update TransferRestrictionStatus if current " +
+			_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Cannot update TransferRestrictionStatus if current "+
 				"status is Permanently Unrestricted"))
 			return
 		}
@@ -2346,7 +2349,7 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 			return
 		}
 		if profileEntry.DAOCoinEntry.TransferRestrictionStatus == transferRestrictionStatus {
-			_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Cannot update transfer restriction status to be the " +
+			_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Cannot update transfer restriction status to be the "+
 				"same as the current status"))
 			return
 		}
@@ -2356,9 +2359,9 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateDAOCoinTxn(
 		updaterPublicKeyBytes,
 		&lib.DAOCoinMetadata{
-			ProfilePublicKey: creatorPublicKeyBytes,
-			CoinsToMintNanos: requestData.CoinsToMintNanos,
-			CoinsToBurnNanos: requestData.CoinsToBurnNanos,
+			ProfilePublicKey:          creatorPublicKeyBytes,
+			CoinsToMintNanos:          requestData.CoinsToMintNanos,
+			CoinsToBurnNanos:          requestData.CoinsToBurnNanos,
 			TransferRestrictionStatus: transferRestrictionStatus,
 		},
 		// Standard transaction fields
