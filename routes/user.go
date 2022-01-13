@@ -352,6 +352,8 @@ func (fes *APIServer) _balanceEntryToResponse(
 		HasPurchased:                balanceEntry.HasPurchased,
 		// CreatorCoins can't exceed uint64
 		BalanceNanos:        balanceEntry.BalanceNanos.Uint64(),
+		// Use this value for DAO Coins balances
+		BalanceNanosUint256: balanceEntry.BalanceNanos,
 		NetBalanceInMempool: int64(balanceEntry.BalanceNanos.Uint64()) - int64(dbBalanceNanos),
 
 		// If the profile is nil, this will be nil
