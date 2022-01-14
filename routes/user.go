@@ -2034,6 +2034,10 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 				addPostForHash(basicTransferMetadata.PostHashHex, userPublicKeyBytes, true)
 			}
 		}
+
+		// Delete the UTXO ops because they aren't needed for the frontend
+		basicTransferMetadata.UtxoOps = nil
+		basicTransferMetadata.UtxoOpsDump = ""
 	}
 
 	var lastSeenIndex int64
