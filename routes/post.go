@@ -457,8 +457,8 @@ func (fes *APIServer) GetPostEntriesByTimePaginated(
 	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, err error) {
 
 	postEntries,
-		commentsByPostHash,
-		err := fes.GetPostsByTime(utxoView, startPostHash, readerPK, numToFetch, true /*skipHidden*/, true)
+	commentsByPostHash,
+	err := fes.GetPostsByTime(utxoView, startPostHash, readerPK, numToFetch, true /*skipHidden*/, true)
 
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("GetAllPostEntries: Error fetching posts from view: %v", err)
@@ -975,6 +975,7 @@ type GetSinglePostRequest struct {
 	FetchParents               bool   `safeForLogging:"true"`
 	CommentOffset              uint32 `safeForLogging:"true"`
 	CommentLimit               uint32 `safeForLogging:"true"`
+	ThreadLevelLimit			uint32 `safeForLogging:"true"`
 	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
 
 	// If set to true, then the posts in the response will contain a boolean about whether they're in the global feed
@@ -1086,13 +1087,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	// poster of the single post is blocked, we will want to include the single post, but not any of the comments
 	// created by the poster that are children of this "single post".
 	_, isCurrentPosterBlocked := blockedPublicKeys[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]
-	for _, commentEntry := range commentEntries {
-		pkMapKey := lib.MakePkMapKey(commentEntry.PosterPublicKey)
-		// Remove comments that are blocked by either the reader or the poster of the root post
-		if _, ok := blockedPublicKeys[lib.PkToString(commentEntry.PosterPublicKey, fes.Params)]; !ok && profilePubKeyMap[pkMapKey] == nil {
-			profilePubKeyMap[pkMapKey] = commentEntry.PosterPublicKey
-		}
-	}
+
 	for _, parentPostEntry := range parentPostEntries {
 		pkMapKey := lib.MakePkMapKey(parentPostEntry.PosterPublicKey)
 		// Remove parents that are blocked by either the reader or the poster of the root post
@@ -1200,13 +1195,71 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		parentPostEntryResponseList = append(parentPostEntryResponseList, parentEntryResponse)
 	}
 
+	comments, err := fes.GetSinglePostComments(
+		commentEntries,
+		utxoView,
+		pubKeyToProfileEntryResponseMap,
+		postEntryResponse,
+		isCurrentPosterBlocked,
+		isCurrentPosterGreylisted,
+		ww,
+		requestData,
+		readerPublicKeyBytes,
+		profilePubKeyMap,
+		blockedPublicKeys,
+		0)
+
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error Getting Comments: %v", err))
+		return
+	}
+	postEntryResponse.Comments = comments
+	postEntryResponse.ParentPosts = parentPostEntryResponseList
+
+	// Return the posts found.
+	res := &GetSinglePostResponse{
+		PostFound: postEntryResponse,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetSinglePost: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) GetSinglePostComments(
+	commentEntries []*lib.PostEntry,
+	utxoView *lib.UtxoView,
+	pubKeyToProfileEntryResponseMap map[lib.PkMapKey]*ProfileEntryResponse,
+	postEntryResponse *PostEntryResponse,
+	isCurrentPosterBlocked bool,
+	isCurrentPosterGreylisted bool,
+	ww http.ResponseWriter,
+	requestData GetSinglePostRequest,
+	readerPublicKeyBytes []byte,
+	profilePubKeyMap  map[lib.PkMapKey][]byte,
+	blockedPublicKeys map[string]struct{},
+	commentLevel uint32,
+) ([]*PostEntryResponse, error) {
+
 	// Process the comments into something we can return.
 	commentEntryResponseList := []*PostEntryResponse{}
 	// Create a map from commentEntryPostHashHex to commentEntry to ease look up of public key bytes when sorting
 	commentHashHexToCommentEntry := make(map[string]*lib.PostEntry)
+
+	posterPublicKeyBytes, _, err := lib.Base58CheckDecode(postEntryResponse.PosterPublicKeyBase58Check)
+	if err != nil || len(posterPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		return nil, err
+	}
+
 	for _, commentEntry := range commentEntries {
+		pkMapKey := lib.MakePkMapKey(commentEntry.PosterPublicKey)
+		// Remove comments that are blocked by either the reader or the poster of the root post
+		if _, ok := blockedPublicKeys[lib.PkToString(commentEntry.PosterPublicKey, fes.Params)]; !ok && profilePubKeyMap[pkMapKey] == nil {
+			profilePubKeyMap[pkMapKey] = commentEntry.PosterPublicKey
+		}
 		commentProfileEntryResponse := pubKeyToProfileEntryResponseMap[lib.MakePkMapKey(commentEntry.PosterPublicKey)]
-		commentAuthorIsCurrentPoster := reflect.DeepEqual(commentEntry.PosterPublicKey, postEntry.PosterPublicKey)
+		commentAuthorIsCurrentPoster := reflect.DeepEqual(commentEntry.PosterPublicKey, posterPublicKeyBytes)
 		// Skip comments that:
 		//  - Don't have a profile (it was most likely banned).
 		//	- Are hidden *AND* don't have comments. Keep hidden posts with comments.
@@ -1222,8 +1275,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		// Build the comments entry response and append.
 		commentEntryResponse, err := fes._postEntryToResponse(commentEntry, requestData.AddGlobalFeedBool /*AddGlobalFeed*/, fes.Params, utxoView, readerPublicKeyBytes, 2)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error creating commentEntryResponse: %v", err))
-			return
+			return nil,err
 		}
 		commentEntryResponse.ProfileEntryResponse = commentProfileEntryResponse
 		commentEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPublicKeyBytes, commentEntry)
@@ -1231,7 +1283,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		commentHashHexToCommentEntry[commentEntryResponse.PostHashHex] = commentEntry
 	}
 
-	posterPKID := utxoView.GetPKIDForPublicKey(postEntry.PosterPublicKey)
+	posterPKID := utxoView.GetPKIDForPublicKey(posterPublicKeyBytes)
 	// Almost done. Just need to sort the comments.
 	sort.Slice(commentEntryResponseList, func(ii, jj int) bool {
 		iiCommentEntryResponse := commentEntryResponseList[ii]
@@ -1301,18 +1353,27 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	if commentEntryResponseLength > requestData.CommentOffset {
 		comments = commentEntryResponseList[requestData.CommentOffset:maxIdx]
 	}
-	postEntryResponse.Comments = comments
-	postEntryResponse.ParentPosts = parentPostEntryResponseList
 
-	// Return the posts found.
-	res := &GetSinglePostResponse{
-		PostFound: postEntryResponse,
+	if commentLevel < requestData.ThreadLevelLimit {
+		for _, comment := range comments {
+			fes.GetSinglePostComments(
+				commentEntries,
+				utxoView,
+				pubKeyToProfileEntryResponseMap,
+				comment,
+				isCurrentPosterBlocked,
+				isCurrentPosterGreylisted,
+				ww,
+				requestData,
+				readerPublicKeyBytes,
+				profilePubKeyMap,
+				blockedPublicKeys,
+				commentLevel + 1)
+		}
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetSinglePost: Problem encoding response as JSON: %v", err))
-		return
-	}
+
+	postEntryResponse.Comments = comments
+	return comments, nil
 }
 
 // GetPostsForPublicKeyRequest ...
