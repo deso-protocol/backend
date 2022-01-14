@@ -1354,9 +1354,10 @@ func (fes *APIServer) GetSinglePostComments(
 		comments = commentEntryResponseList[requestData.CommentOffset:maxIdx]
 	}
 
+	// If we haven't yet reached the desired comment thread level, recurse one level deeper and retrieve comments for each comment.
 	if commentLevel < requestData.ThreadLevelLimit {
 		for _, comment := range comments {
-			fes.GetSinglePostComments(
+			commentReplies, err := fes.GetSinglePostComments(
 				commentEntries,
 				utxoView,
 				pubKeyToProfileEntryResponseMap,
@@ -1369,6 +1370,10 @@ func (fes *APIServer) GetSinglePostComments(
 				profilePubKeyMap,
 				blockedPublicKeys,
 				commentLevel + 1)
+			if err != nil {
+				return nil, err
+			}
+			comment.Comments = commentReplies
 		}
 	}
 
