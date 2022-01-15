@@ -2114,7 +2114,7 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 	var changeAmount uint64
 	var fees uint64
 	var additionalOutputs []*lib.DeSoOutput
-	if blockHeight > lib.DeSoDiamondsBlockHeight {
+	if blockHeight > fes.Params.ForkHeights.DeSoDiamondsBlockHeight {
 		// Compute the additional transaction fees as specified by the request body and the node-level fees.
 		additionalOutputs, err = fes.getTransactionFee(lib.TxnTypeBasicTransfer, senderPublicKeyBytes, requestData.TransactionFees)
 		if err != nil {
