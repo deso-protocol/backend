@@ -54,6 +54,7 @@ type GetMessagesResponse struct {
 	OrderedContactsWithMessages []*MessageContactResponse
 	UnreadStateByContact        map[string]bool
 	NumberOfUnreadThreads       int
+	MessagingKeys               []*MessagingKey
 }
 
 func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
@@ -62,11 +63,13 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	_publicKeyToProfileEntry map[string]*ProfileEntryResponse,
 	_orderedContactsWithMessages []*MessageContactResponse,
 	_unreadMessagesByContact map[string]bool,
-	_numOfUnreadThreads int, _err error) {
+	_numOfUnreadThreads int,
+	_messagingKeys []*MessagingKey,
+	_err error) {
 
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUtxoViewForPublicKey(publicKeyBytes, nil)
 	if err != nil {
-		return nil, nil, nil, 0, errors.Wrapf(
+		return nil, nil, nil, 0, nil, errors.Wrapf(
 			err, "getMessagesStateless: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
 	}
 
@@ -75,19 +78,10 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	//
 	// TODO: The timestamp is spoofable, but it's not a big deal. See comment on MessageEntry
 	// for more insight on this.
-	messageEntries, messageParties, err := utxoView.GetLimitedMessagesForUser(publicKeyBytes)
+	messageEntries, messagingKeys, err := utxoView.GetLimitedMessagesForUser(publicKeyBytes, uint64(lib.MessagesToFetchPerInboxCall))
 	if err != nil {
-		return nil, nil, nil, 0, errors.Wrapf(
+		return nil, nil, nil, 0, nil, errors.Wrapf(
 			err, "getMessagesStateless: Problem fetching MessageEntries from augmented UtxoView: ")
-	}
-
-	// We will do all the sorting on messageEntries and just keep messageParties around as a map to add at the end.
-	messagePartyMap := make(map[lib.MessageKey]*lib.MessageParty)
-	for _, party := range messageParties {
-		if party == nil {
-			continue
-		}
-		messagePartyMap[lib.MakeMessageKey(publicKeyBytes, party.TstampNanos)] = party
 	}
 
 	// We sort the messages to be sure they're in the correct order for filtering out selected threads.
@@ -122,7 +116,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 				// TODO: Make an index to quickly lookup how many followers a user has
 				otherPartyFollowers, err := lib.DbGetPKIDsFollowingYou(utxoView.Handle, lib.PublicKeyToPKID(otherPartyPublicKeyBytes))
 				if err != nil {
-					return nil, nil, nil, 0, errors.Wrapf(
+					return nil, nil, nil, 0, nil, errors.Wrapf(
 						err, "getMessagesStateless: Problem getting follows for public key")
 				}
 				publicKeyToNumberOfFollowers[otherPartyPublicKeyBase58Check] = uint64(len(otherPartyFollowers))
@@ -142,7 +136,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 				otherPartyBalanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(
 					otherPartyPublicKeyBytes, publicKeyBytes, utxoView, false)
 				if err != nil {
-					return nil, nil, nil, 0, errors.Wrapf(
+					return nil, nil, nil, 0, nil, errors.Wrapf(
 						err, "getMessagesStateless: Problem getting balance entry for public key")
 				}
 				if otherPartyBalanceEntry != nil {
@@ -186,7 +180,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	uniqueProfilesInPaginatedSetSeen := uint64(0)
 	blockedPubKeysForUser, err := fes.GetBlockedPubKeysForUser(publicKeyBytes)
 	if err != nil {
-		return nil, nil, nil, 0, errors.Wrapf(
+		return nil, nil, nil, 0, nil, errors.Wrapf(
 			err, "getMessagesStateless: Problem getting blocked users for public key")
 	}
 	for _, messageEntry := range messageEntries {
@@ -222,7 +216,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 					balanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(
 						otherPartyPublicKeyBytes, publicKeyBytes, utxoView, false)
 					if err != nil {
-						return nil, nil, nil, 0, errors.Wrapf(
+						return nil, nil, nil, 0, nil, errors.Wrapf(
 							err, "getMessagesStateless: Problem getting balance entry for holder public key %v", otherPartyPublicKeyBase58Check)
 					}
 					// CreatorCoins never exceed Uint64
@@ -241,7 +235,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 					balanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(
 						publicKeyBytes, otherPartyPublicKeyBytes, utxoView, false)
 					if err != nil {
-						return nil, nil, nil, 0, errors.Wrapf(
+						return nil, nil, nil, 0, nil, errors.Wrapf(
 							err, "getMessagesStateless: Problem getting balance entry for holder public key %v", otherPartyPublicKeyBase58Check)
 					}
 					// CreatorCoins never exceed Uint64
@@ -330,26 +324,18 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 
 		// By now we know this messageEntry is meant to be included in the response.
 		messageEntryRes := &MessageEntryResponse{
-			SenderPublicKeyBase58Check:    lib.PkToString(messageEntry.SenderPublicKey, fes.Params),
-			RecipientPublicKeyBase58Check: lib.PkToString(messageEntry.RecipientPublicKey, fes.Params),
+			SenderPublicKeyBase58Check:    lib.PkToString(messageEntry.SenderPublicKey[:], fes.Params),
+			RecipientPublicKeyBase58Check: lib.PkToString(messageEntry.RecipientPublicKey[:], fes.Params),
 			EncryptedText:                 hex.EncodeToString(messageEntry.EncryptedText),
 			TstampNanos:                   messageEntry.TstampNanos,
 			IsSender:                      !reflect.DeepEqual(messageEntry.RecipientPublicKey, publicKeyBytes),
 			V2:                            V2, /* DEPRECATED */
+			Version:                       uint32(messageEntry.Version),
+			SenderMessagingPublicKey:      lib.PkToString(messageEntry.SenderMessagingPublicKey[:], fes.Params),
+			SenderMessagingKeyName:        string(lib.MessagingKeyNameDecode(messageEntry.SenderMessagingKeyName)),
+			RecipientMessagingPublicKey:   lib.PkToString(messageEntry.RecipientMessagingPublicKey[:], fes.Params),
+			RecipientMessagingKeyName:     string(lib.MessagingKeyNameDecode(messageEntry.RecipientMessagingKeyName)),
 		}
-
-		// DeSo V3 Messages fields.
-		if party, exists := messagePartyMap[lib.MakeMessageKey(publicKeyBytes, messageEntry.TstampNanos)]; exists {
-			messageEntryRes.Version = 3
-			senderDecodedKeyName := lib.MessagingKeyNameDecode(party.SenderMessagingKeyName)
-			recipientDecodedKeyName := lib.MessagingKeyNameDecode(party.RecipientMessagingKeyName)
-
-			messageEntryRes.SenderMessagingPublicKey = hex.EncodeToString((*party.SenderMessagingPublicKey)[:])
-			messageEntryRes.SenderMessagingKeyName = string(senderDecodedKeyName)
-			messageEntryRes.RecipientMessagingPublicKey = hex.EncodeToString((*party.RecipientMessagingPublicKey)[:])
-			messageEntryRes.RecipientMessagingKeyName = string(recipientDecodedKeyName)
-		}
-
 		contactEntry, _ := contactMap[lib.PkToString(otherPartyPublicKeyBytes, fes.Params)]
 		contactEntry.Messages = append(contactEntry.Messages, messageEntryRes)
 	}
@@ -391,13 +377,13 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	for _, entry := range newContactEntries {
 		otherUserPublicKeyBytes, _, err := lib.Base58CheckDecode(entry.PublicKeyBase58Check)
 		if err != nil {
-			return nil, nil, nil, 0, errors.Wrapf(err, "getMessagesStateless: Problem decoding "+
+			return nil, nil, nil, 0, nil, errors.Wrapf(err, "getMessagesStateless: Problem decoding "+
 				"contact's public key.")
 		}
 
 		mostRecentReadTstampNanos, err := fes.getUserContactMostRecentReadTime(publicKeyBytes, otherUserPublicKeyBytes)
 		if err != nil {
-			return nil, nil, nil, 0, errors.Wrapf(err, "getMessagesStateless: Problem getting "+
+			return nil, nil, nil, 0, nil, errors.Wrapf(err, "getMessagesStateless: Problem getting "+
 				"contact's most recent read state.")
 		}
 
@@ -417,15 +403,35 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 		}
 	}
 
-	return publicKeyToProfileEntry, newContactEntries, unreadMessagesBycontact, numOfUnreadThreads, nil
+	var userMessagingKeys []*MessagingKey
+	for _, key := range messagingKeys {
+		userMessagingKey := MessagingKey{
+			PublicKeyBase58Check: lib.PkToString(key.PublicKey[:], fes.Params),
+			MessagingPublicKeyBase58Check: lib.PkToString(key.MessagingPublicKey[:], fes.Params),
+			MessagingKeyName: string(lib.MessagingKeyNameDecode(key.MessagingKeyName)),
+			EncryptedKey: hex.EncodeToString(key.EncryptedKey),
+			IsRecipient: key.IsRecipient,
+		}
+		for _, recipient := range key.Recipients {
+			messagingRecipient := MessagingRecipient{
+				RecipientPublicKeyBase58Check: lib.PkToString(recipient.RecipientPublicKey[:], fes.Params),
+				RecipientMessagingKeyName: string(lib.MessagingKeyNameDecode(recipient.RecipientMessagingKeyName)),
+				EncryptedKey: hex.EncodeToString(recipient.EncryptedKey),
+			}
+			userMessagingKey.Recipients = append(userMessagingKey.Recipients, messagingRecipient)
+		}
+		userMessagingKeys = append(userMessagingKeys, &userMessagingKey)
+	}
+
+	return publicKeyToProfileEntry, newContactEntries, unreadMessagesBycontact, numOfUnreadThreads, userMessagingKeys, nil
 }
 
 func (fes *APIServer) getOtherPartyInThread(messageEntry *lib.MessageEntry,
 	readerPublicKeyBytes []byte) (otherPartyPublicKeyBytes []byte, otherPartyPublicKeyBase58Check string) {
 	if reflect.DeepEqual(messageEntry.RecipientPublicKey, readerPublicKeyBytes) {
-		otherPartyPublicKeyBytes = messageEntry.SenderPublicKey
+		otherPartyPublicKeyBytes = messageEntry.SenderPublicKey[:]
 	} else {
-		otherPartyPublicKeyBytes = messageEntry.RecipientPublicKey
+		otherPartyPublicKeyBytes = messageEntry.RecipientPublicKey[:]
 	}
 	otherPartyPublicKeyBase58Check = lib.PkToString(otherPartyPublicKeyBytes, fes.Params)
 	return
@@ -457,7 +463,7 @@ func (fes *APIServer) GetMessagesStateless(ww http.ResponseWriter, rr *http.Requ
 	}
 
 	publicKeyToProfileEntry, orderedContactsWithMessages,
-		unreadStateByContact, numOfUnreadThreads, err := fes.getMessagesStateless(publicKeyBytes, fetchAfterPublicKeyBytes,
+		unreadStateByContact, numOfUnreadThreads, messagingKeys, err := fes.getMessagesStateless(publicKeyBytes, fetchAfterPublicKeyBytes,
 		getMessagesRequest.NumToFetch, getMessagesRequest.HoldersOnly, getMessagesRequest.HoldingsOnly,
 		getMessagesRequest.FollowersOnly, getMessagesRequest.FollowingOnly, getMessagesRequest.SortAlgorithm)
 	if err != nil {
@@ -472,6 +478,7 @@ func (fes *APIServer) GetMessagesStateless(ww http.ResponseWriter, rr *http.Requ
 		OrderedContactsWithMessages: orderedContactsWithMessages,
 		UnreadStateByContact:        unreadStateByContact,
 		NumberOfUnreadThreads:       numOfUnreadThreads,
+		MessagingKeys:               messagingKeys,
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
@@ -691,7 +698,7 @@ func (fes *APIServer) markAllMessagesRead(publicKeyBytes []byte) error {
 		return errors.Wrapf(err, "markAllMessagesRead: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
 	}
 
-	messageEntries, err := utxoView.GetMessagesForUser(publicKeyBytes)
+	messageEntries, _, err := utxoView.GetMessagesForUser(publicKeyBytes)
 	if err != nil {
 		return errors.Wrapf(err, "markAllMessagesRead: Problem fetching MessageEntries from augmented UtxoView: ")
 	}

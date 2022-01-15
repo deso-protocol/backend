@@ -101,6 +101,21 @@ type MessageContactResponse struct {
 	NumMessagesRead int64
 }
 
+type MessagingKey struct {
+	PublicKeyBase58Check string
+	MessagingPublicKeyBase58Check string
+	MessagingKeyName string
+	Recipients []MessagingRecipient
+	EncryptedKey string
+	IsRecipient bool
+}
+
+type MessagingRecipient struct {
+	RecipientPublicKeyBase58Check string
+	RecipientMessagingKeyName string
+	EncryptedKey string
+}
+
 // User ...
 type User struct {
 	// The public key for the user is computed from the seed using the exact
