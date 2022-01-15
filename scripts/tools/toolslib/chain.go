@@ -7,12 +7,14 @@ import (
 )
 
 // Returns the badgerDB handler associated with a dataDir path.
-func OpenDataDir(dataDir string) (*badger.DB, error){
+func OpenDataDir(dataDir string) (*badger.DB, error) {
 	dir := lib.GetBadgerDbPath(dataDir)
 	opts := badger.DefaultOptions(dir)
 	opts.ValueDir = lib.GetBadgerDbPath(dataDir)
 	db, err := badger.Open(opts)
-	if err != nil { return nil, errors.Wrap(err, "OpenBadgerDB() failed to open badger") }
+	if err != nil {
+		return nil, errors.Wrap(err, "OpenBadgerDB() failed to open badger")
+	}
 	return db, nil
 }
 

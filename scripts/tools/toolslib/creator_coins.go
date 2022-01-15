@@ -3,9 +3,9 @@ package toolslib
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/routes"
 	"github.com/deso-protocol/core/lib"
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
@@ -13,20 +13,20 @@ import (
 
 // _generateUnsignedCreatorCoinBuy...
 func _generateUnsignedCreatorCoinBuy(buyerPubKey *btcec.PublicKey, creatorPubKey *btcec.PublicKey,
-	amountNanos uint64, params *lib.DeSoParams, node string) (*routes.BuyOrSellCreatorCoinResponse, error){
+	amountNanos uint64, params *lib.DeSoParams, node string) (*routes.BuyOrSellCreatorCoinResponse, error) {
 	endpoint := node + routes.RoutePathBuyOrSellCreatorCoin
 
 	// Setup request
 	payload := &routes.BuyOrSellCreatorCoinRequest{
 		UpdaterPublicKeyBase58Check: lib.PkToString(buyerPubKey.SerializeCompressed(), params),
 		CreatorPublicKeyBase58Check: lib.PkToString(creatorPubKey.SerializeCompressed(), params),
-		OperationType: "buy",
-		DeSoToSellNanos: amountNanos,
-		CreatorCoinToSellNanos: 0,
-		DeSoToAddNanos: 0,
-		MinDeSoExpectedNanos: 0,
+		OperationType:               "buy",
+		DeSoToSellNanos:             amountNanos,
+		CreatorCoinToSellNanos:      0,
+		DeSoToAddNanos:              0,
+		MinDeSoExpectedNanos:        0,
 		MinCreatorCoinExpectedNanos: 0,
-		MinFeeRateNanosPerKB: 1000,
+		MinFeeRateNanosPerKB:        1000,
 	}
 	postBody, err := json.Marshal(payload)
 	if err != nil {
@@ -41,7 +41,7 @@ func _generateUnsignedCreatorCoinBuy(buyerPubKey *btcec.PublicKey, creatorPubKey
 	}
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := ioutil.ReadAll(resp.Body)
-		return nil, errors.Errorf("_generateUnsignedCreatorCoinBuy(): Received non 200 response code: " +
+		return nil, errors.Errorf("_generateUnsignedCreatorCoinBuy(): Received non 200 response code: "+
 			"Status Code: %v Body: %v", resp.StatusCode, string(bodyBytes))
 	}
 
@@ -64,7 +64,7 @@ func BuyCreator(buyerPubKey *btcec.PublicKey, buyerPrivKey *btcec.PrivateKey, cr
 	amountNanos uint64, params *lib.DeSoParams, node string) error {
 
 	// Request an unsigned transaction from the node
-	unsignedCCBuy, err := _generateUnsignedCreatorCoinBuy(buyerPubKey, creatorPubKey , amountNanos, params, node)
+	unsignedCCBuy, err := _generateUnsignedCreatorCoinBuy(buyerPubKey, creatorPubKey, amountNanos, params, node)
 	if err != nil {
 		return errors.Wrap(err, "BuyCreator() failed to call _generateUnsignedCreatorCoinBuy()")
 	}

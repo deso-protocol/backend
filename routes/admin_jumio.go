@@ -156,7 +156,7 @@ func (fes *APIServer) AdminUpdateJumioUSDCents(ww http.ResponseWriter, req *http
 	if err := fes.GlobalState.Put(
 		GlobalStateKeyForJumioUSDCents(),
 		lib.UintToBuf(requestData.USDCents)); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioDeSo: Problem putting premium basis points in global state: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioDeSo: Problem putting default jumio USD cents in global state: %v", err))
 		return
 	}
 
@@ -169,6 +169,43 @@ func (fes *APIServer) AdminUpdateJumioUSDCents(ww http.ResponseWriter, req *http
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioDeSo: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type AdminUpdateJumioKickbackUSDCentsRequest struct {
+	JWT      string
+	USDCents uint64
+}
+
+type AdminUpdateJumioKickbackUSDCentsResponse struct {
+	USDCents uint64
+}
+
+func (fes *APIServer) AdminUpdateJumioKickbackUSDCents(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminUpdateJumioKickbackUSDCentsRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioKickbackUSDCents: Problem parsing request body: %v", err))
+		return
+	}
+
+	if err := fes.GlobalState.Put(
+		GlobalStateKeyForJumioKickbackUSDCents(),
+		lib.UintToBuf(requestData.USDCents)); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioKickbackUSDCents: Problem putting default jumio kickback USD cents in global state: %v", err))
+		return
+	}
+
+	// Update the cache of all country level sign up bonus metadata explicitly in case
+	// some are using the default amount
+	fes.SetAllCountrySignUpBonusMetadata()
+
+	res := AdminUpdateJumioKickbackUSDCentsResponse{
+		USDCents: requestData.USDCents,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioKickbackUSDCents: Problem encoding response as JSON: %v", err))
 		return
 	}
 }

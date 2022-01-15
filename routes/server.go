@@ -79,6 +79,8 @@ const (
 	RoutePathGetUserDerivedKeys          = "/api/v0/get-user-derived-keys"
 	RoutePathDeletePII                   = "/api/v0/delete-pii"
 	RoutePathGetUserMetadata             = "/api/v0/get-user-metadata"
+	RoutePathGetUsernameForPublicKey     = "/api/v0/get-user-name-for-public-key"
+	RoutePathGetPublicKeyForUsername     = "/api/v0/get-public-key-for-user-name"
 
 	// post.go
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
@@ -212,6 +214,7 @@ const (
 	RoutePathAdminResetJumioForPublicKey          = "/api/v0/admin/reset-jumio-for-public-key"
 	RoutePathAdminUpdateJumioDeSo                 = "/api/v0/admin/update-jumio-deso"
 	RoutePathAdminUpdateJumioUSDCents             = "/api/v0/admin/update-jumio-usd-cents"
+	RoutePathAdminUpdateJumioKickbackUSDCents     = "/api/v0/admin/update-jumio-kickback-usd-cents"
 	RoutePathAdminJumioCallback                   = "/api/v0/admin/jumio-callback"
 	RoutePathAdminUpdateJumioCountrySignUpBonus   = "/api/v0/admin/update-jumio-country-sign-up-bonus"
 	RoutePathAdminGetAllCountryLevelSignUpBonuses = "/api/v0/admin/get-all-country-level-sign-up-bonuses"
@@ -240,8 +243,9 @@ const (
 	RoutePathGetGlobalFeed            = "/api/v0/get-global-feed"
 
 	// supply.go
-	RoutePathGetTotalSupply = "/api/v0/total-supply"
-	RoutePathGetRichList    = "/api/v0/rich-list"
+	RoutePathGetTotalSupply       = "/api/v0/total-supply"
+	RoutePathGetRichList          = "/api/v0/rich-list"
+	RoutePathGetCountKeysWithDESO = "/api/v0/count-keys-with-deso"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -341,9 +345,10 @@ type APIServer struct {
 	GlobalFeedPostHashes []*lib.BlockHash
 
 	// Cache of Total Supply and Rich List
-	TotalSupplyNanos uint64
-	TotalSupplyDESO  float64
-	RichList         []RichListEntryResponse
+	TotalSupplyNanos  uint64
+	TotalSupplyDESO   float64
+	RichList          []RichListEntryResponse
+	CountKeysWithDESO uint64
 
 	// map of country name to sign up bonus data
 	AllCountryLevelSignUpBonuses map[string]CountrySignUpBonusResponse
@@ -430,6 +435,7 @@ func NewAPIServer(
 
 	if fes.Config.RunSupplyMonitoringRoutine {
 		fes.StartSupplyMonitoring()
+		fes.UpdateSupplyStats()
 	}
 
 	fes.SetGlobalStateCache()
@@ -947,6 +953,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetUserMetadata,
 			PublicAccess,
 		},
+		{
+			"GetUsernameForPublicKey",
+			[]string{"GET"},
+			RoutePathGetUsernameForPublicKey + "/{publicKeyBase58Check:[0-9a-zA-Z]{54,55}}",
+			fes.GetUsernameForPublicKey,
+			PublicAccess,
+		},
+		{
+			"GetPublicKeyForUsername",
+			[]string{"GET"},
+			RoutePathGetPublicKeyForUsername + "/{username:[a-zA-Z0-9_]{1,26}",
+			fes.GetPublicKeyForUsername,
+			PublicAccess,
+		},
 		// Jumio Routes
 		{
 			"JumioBegin",
@@ -1257,6 +1277,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			SuperAdminAccess,
 		},
 		{
+			"AdminUpdateJumioKickbackUSDCents",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateJumioKickbackUSDCents,
+			fes.AdminUpdateJumioKickbackUSDCents,
+			SuperAdminAccess,
+		},
+		{
 			"AdminTestSignTransactionWithDerivedKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathTestSignTransactionWithDerivedKey,
@@ -1310,7 +1337,10 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUploadReferralCSV,
 			fes.AdminUploadReferralCSV,
-			SuperAdminAccess,
+			// Although this says public access here, we validate that the user is indeed a super admin in the handler.
+			// This is to avoid making changes to the existing CheckAdminPublicKey function to support multipart form
+			// content types.
+			PublicAccess,
 		},
 		{
 			"AdminDownloadReferralCSV",
@@ -1559,6 +1589,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetRichList,
 			PublicAccess,
 		},
+		{
+			"GetCountKeysWithDESO",
+			[]string{"GET"},
+			RoutePathGetCountKeysWithDESO,
+			fes.GetCountKeysWithDESO,
+			PublicAccess,
+		},
 	}
 
 	router := muxtrace.NewRouter().StrictSlash(true)
@@ -1696,7 +1733,8 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 
 		invalidPostRequest := false
 		// upload-image endpoint is the only one allowed to use multipart/form-data
-		if r.RequestURI == RoutePathUploadImage && mediaType == "multipart/form-data" {
+		if (r.RequestURI == RoutePathUploadImage || r.RequestURI == RoutePathAdminUploadReferralCSV) &&
+			mediaType == "multipart/form-data" {
 			match = true
 			actualOrigin = "*"
 		} else if _, exists := publicRoutes[r.RequestURI]; exists {
