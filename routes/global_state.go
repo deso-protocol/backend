@@ -159,6 +159,9 @@ var (
 	// Jumio USD Cents
 	_GlobalStatePrefixJumioUSDCents = []byte{39}
 
+	// Jumio Kickback USD Cents
+	_GlobalStatePrefixJumioKickbackUSDCents = []byte{40}
+
 	// Tutorial featured well-known creators
 	_GlobalStateKeyWellKnownTutorialCreators = []byte{22}
 
@@ -214,7 +217,7 @@ var (
 	// same ID.
 	//
 
-	// NEXT_TAG: 40
+	// NEXT_TAG: 41
 )
 
 type HotFeedApprovedPostOp struct {
@@ -676,6 +679,11 @@ func GlobalStateKeyForJumioDeSoNanos() []byte {
 
 func GlobalStateKeyForJumioUSDCents() []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixJumioUSDCents...)
+	return prefixCopy
+}
+
+func GlobalStateKeyForJumioKickbackUSDCents() []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixJumioKickbackUSDCents...)
 	return prefixCopy
 }
 

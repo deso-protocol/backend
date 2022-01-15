@@ -1,9 +1,9 @@
 package toolslib
 
 import (
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/core/lib"
 	"github.com/tyler-smith/go-bip39"
-	"github.com/btcsuite/btcd/btcec"
 )
 
 // GenerateMnemonicPublicPrivate,,,

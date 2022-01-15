@@ -318,7 +318,7 @@ func (fes *APIServer) UploadVideo(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: Unable to convert Upload-Length header to int for validation: %v", err))
 		return
 	}
-	if uploadLength > 4 * 1024 * 1024 * 1024 {
+	if uploadLength > 4*1024*1024*1024 {
 		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: Files must be less than 4GB"))
 		return
 	}

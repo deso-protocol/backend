@@ -22,7 +22,6 @@ func SubmitTransactionToNode(txn *lib.MsgDeSoTxn, node string) error {
 	}
 	txnHex := hex.EncodeToString(txnBytes)
 
-
 	// Setup request
 	payload := &routes.SubmitTransactionRequest{txnHex}
 	postBody, err := json.Marshal(payload)
@@ -38,7 +37,7 @@ func SubmitTransactionToNode(txn *lib.MsgDeSoTxn, node string) error {
 	}
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := ioutil.ReadAll(resp.Body)
-		return errors.Errorf("_generateUnsignedUpdateProfile(): Received non 200 response code: " +
+		return errors.Errorf("_generateUnsignedUpdateProfile(): Received non 200 response code: "+
 			"Status Code: %v Body: %v", resp.StatusCode, string(bodyBytes))
 	}
 	return nil

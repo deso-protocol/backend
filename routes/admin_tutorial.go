@@ -9,9 +9,9 @@ import (
 
 type AdminUpdateTutorialCreatorRequest struct {
 	PublicKeyBase58Check string
-	IsRemoval bool
-	IsWellKnown bool
-	JWT       string
+	IsRemoval            bool
+	IsWellKnown          bool
+	JWT                  string
 }
 
 func (fes *APIServer) AdminUpdateTutorialCreator(ww http.ResponseWriter, req *http.Request) {

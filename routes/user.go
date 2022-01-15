@@ -25,6 +25,7 @@ import (
 type GetUsersStatelessRequest struct {
 	PublicKeysBase58Check []string `safeForLogging:"true"`
 	SkipForLeaderboard    bool     `safeForLogging:"true"`
+	GetUnminedBalance     bool     `safeForLogging:"true"`
 }
 
 // GetUsersResponse ...
@@ -52,7 +53,8 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 		userList = append(userList, currentUser)
 	}
 
-	globalParams, err := fes.updateUsersStateless(userList, getUsersRequest.SkipForLeaderboard)
+	globalParams, err := fes.updateUsersStateless(userList, getUsersRequest.SkipForLeaderboard,
+		getUsersRequest.GetUnminedBalance)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUsersStateless: Error fetching data for user: %v", err))
 		return
@@ -82,7 +84,8 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 	}
 }
 
-func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard bool) (*lib.GlobalParamsEntry, error) {
+func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard bool, getUnminedBalance bool) (
+	*lib.GlobalParamsEntry, error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return nil, fmt.Errorf("updateUserFields: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
@@ -90,7 +93,7 @@ func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard 
 	globalParams := utxoView.GlobalParamsEntry
 	for _, user := range userList {
 		// If we get an error updating the user, log it but don't stop the show.
-		if err = fes.updateUserFieldsStateless(user, utxoView, skipForLeaderboard); err != nil {
+		if err = fes.updateUserFieldsStateless(user, utxoView, skipForLeaderboard, getUnminedBalance); err != nil {
 			glog.Errorf(fmt.Sprintf("updateUsers: Problem updating user with pk %s: %v", user.PublicKeyBase58Check, err))
 		}
 	}
@@ -98,7 +101,8 @@ func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard 
 	return globalParams, nil
 }
 
-func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoView, skipForLeaderboard bool) error {
+func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoView, skipForLeaderboard bool,
+	getUnminedBalance bool) error {
 	// If there's no public key, then return an error. We need a public key on
 	// the user object in order to be able to update the fields.
 	if user.PublicKeyBase58Check == "" {
@@ -122,23 +126,31 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 
 	// We do not need a user's balance for the leaderboard
 	if !skipForLeaderboard {
-		// Get the UtxoEntries from the augmented view
-		utxoEntries, err := fes.blockchain.GetSpendableUtxosForPublicKey(
-			publicKeyBytes, fes.backendServer.GetMempool(), utxoView)
-		if err != nil {
-			return errors.Wrapf(err, "updateUserFields: Problem getting utxos from view: ")
-		}
-		totalBalanceNanos := uint64(0)
-		unminedBalanceNanos := uint64(0)
-		for _, utxoEntry := range utxoEntries {
-			totalBalanceNanos += utxoEntry.AmountNanos
-			if utxoEntry.BlockHeight > fes.blockchain.BlockTip().Height {
-				unminedBalanceNanos += utxoEntry.AmountNanos
+		if getUnminedBalance {
+			// Get the UtxoEntries from the augmented view
+			utxoEntries, err := fes.blockchain.GetSpendableUtxosForPublicKey(
+				publicKeyBytes, fes.backendServer.GetMempool(), utxoView)
+			if err != nil {
+				return errors.Wrapf(err, "updateUserFields: Problem getting utxos from view: ")
 			}
+			totalBalanceNanos := uint64(0)
+			unminedBalanceNanos := uint64(0)
+			for _, utxoEntry := range utxoEntries {
+				totalBalanceNanos += utxoEntry.AmountNanos
+				if utxoEntry.BlockHeight > fes.blockchain.BlockTip().Height {
+					unminedBalanceNanos += utxoEntry.AmountNanos
+				}
+			}
+			// Set the user's balance.
+			user.BalanceNanos = totalBalanceNanos
+			user.UnminedBalanceNanos = unminedBalanceNanos
+		} else {
+			balanceNanos, err := utxoView.GetDeSoBalanceNanosForPublicKey(publicKeyBytes)
+			if err != nil {
+				glog.Errorf("updateUserFields: Error getting balance nanos for public key: %v", err)
+			}
+			user.BalanceNanos = balanceNanos
 		}
-		// Set the user's balance.
-		user.BalanceNanos = totalBalanceNanos
-		user.UnminedBalanceNanos = unminedBalanceNanos
 	}
 
 	// We do not need follows for the leaderboard
@@ -184,7 +196,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		})
 
 		var hodlYouMap map[string]*BalanceEntryResponse
-		hodlYouMap, err = fes.GetHodlYouMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView)
+		hodlYouMap, err = fes.GetHodlYouMap(pkid, false, utxoView)
 		// Assign the new hodl lists to the user object
 		user.UsersYouHODL = youHodlList
 		user.UsersWhoHODLYouCount = len(hodlYouMap)
@@ -266,7 +278,8 @@ func (fes *APIServer) GetYouHodlMap(pkid *lib.PKIDEntry, fetchProfiles bool, utx
 	_youHodlMap map[string]*BalanceEntryResponse, _err error) {
 
 	// Get all the hodlings for this user from the db
-	entriesYouHodl, profilesYouHodl, err := utxoView.GetHoldings(pkid.PKID, fetchProfiles)
+	entriesYouHodl, profilesYouHodl, err := utxoView.GetHoldings(
+		pkid.PKID, fetchProfiles, false)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"GetHodlingsForPublicKey: Error looking up balance entries in db: %v", err)
@@ -310,12 +323,13 @@ func (fes *APIServer) getMapFromEntries(entries []*lib.BalanceEntry, profiles []
 		if len(profiles) != 0 {
 			currentProfile = profiles[ii]
 		}
+		// Creator coins can't exceed uint64
 		if useCreatorPKIDAsKey {
 			mapYouHodl[lib.PkToString(entry.CreatorPKID[:], fes.Params)] =
-				fes._balanceEntryToResponse(entry, entry.BalanceNanos /*dbBalanceNanos*/, currentProfile, utxoView)
+				fes._balanceEntryToResponse(entry, entry.BalanceNanos.Uint64() /*dbBalanceNanos*/, currentProfile, utxoView)
 		} else {
 			mapYouHodl[lib.PkToString(entry.HODLerPKID[:], fes.Params)] =
-				fes._balanceEntryToResponse(entry, entry.BalanceNanos /*dbBalanceNanos*/, currentProfile, utxoView)
+				fes._balanceEntryToResponse(entry, entry.BalanceNanos.Uint64() /*dbBalanceNanos*/, currentProfile, utxoView)
 		}
 	}
 	return mapYouHodl
@@ -336,8 +350,9 @@ func (fes *APIServer) _balanceEntryToResponse(
 		HODLerPublicKeyBase58Check:  lib.PkToString(hodlerPk, fes.Params),
 		CreatorPublicKeyBase58Check: lib.PkToString(creatorPk, fes.Params),
 		HasPurchased:                balanceEntry.HasPurchased,
-		BalanceNanos:                balanceEntry.BalanceNanos,
-		NetBalanceInMempool:         int64(balanceEntry.BalanceNanos) - int64(dbBalanceNanos),
+		// CreatorCoins can't exceed uint64
+		BalanceNanos:        balanceEntry.BalanceNanos.Uint64(),
+		NetBalanceInMempool: int64(balanceEntry.BalanceNanos.Uint64()) - int64(dbBalanceNanos),
 
 		// If the profile is nil, this will be nil
 		ProfileEntryResponse: fes._profileEntryToResponse(profileEntry, utxoView),
@@ -380,7 +395,8 @@ func (fes *APIServer) GetHodlingsForPublicKey(pkid *lib.PKIDEntry, fetchProfiles
 func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, utxoView *lib.UtxoView) (
 	_youHodlMap map[string]*BalanceEntryResponse, _err error) {
 	// Get all the hodlings for this user from the db
-	entriesHodlingYou, profileHodlingYou, err := utxoView.GetHolders(pkid.PKID, fetchProfiles)
+	entriesHodlingYou, profileHodlingYou, err := utxoView.GetHolders(
+		pkid.PKID, fetchProfiles, false)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"GetHodlingsForPublicKey: Error looking up balance entries in db: %v", err)
@@ -894,13 +910,15 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 	}
 
 	coinPriceDeSoNanos := uint64(0)
-	if profileEntry.CoinsInCirculationNanos != 0 {
+	// CreatorCoins can't exceed uint64
+	if profileEntry.CreatorCoinEntry.CoinsInCirculationNanos.Uint64() != 0 {
 		// The price formula is:
 		// coinPriceDeSoNanos = DeSoLockedNanos / (CoinsInCirculationNanos * ReserveRatio) * NanosPerUnit
 		bigNanosPerUnit := lib.NewFloat().SetUint64(lib.NanosPerUnit)
+		// CreatorCoins can't exceed uint64
 		coinPriceDeSoNanos, _ = lib.Mul(lib.Div(
-			lib.Div(lib.NewFloat().SetUint64(profileEntry.DeSoLockedNanos), bigNanosPerUnit),
-			lib.Mul(lib.Div(lib.NewFloat().SetUint64(profileEntry.CoinsInCirculationNanos), bigNanosPerUnit),
+			lib.Div(lib.NewFloat().SetUint64(profileEntry.CreatorCoinEntry.DeSoLockedNanos), bigNanosPerUnit),
+			lib.Mul(lib.Div(lib.NewFloat().SetUint64(profileEntry.CreatorCoinEntry.CoinsInCirculationNanos.Uint64()), bigNanosPerUnit),
 				fes.Params.CreatorCoinReserveRatio)), lib.NewFloat().SetUint64(lib.NanosPerUnit)).Uint64()
 	}
 
@@ -931,12 +949,12 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		Username:             string(profileEntry.Username),
 		Description:          string(profileEntry.Description),
 		CoinEntry: &CoinEntryResponse{
-			CreatorBasisPoints:      profileEntry.CoinEntry.CreatorBasisPoints,
-			DeSoLockedNanos:         profileEntry.CoinEntry.DeSoLockedNanos,
-			NumberOfHolders:         profileEntry.CoinEntry.NumberOfHolders,
-			CoinsInCirculationNanos: profileEntry.CoinEntry.CoinsInCirculationNanos,
-			CoinWatermarkNanos:      profileEntry.CoinEntry.CoinWatermarkNanos,
-			BitCloutLockedNanos:     profileEntry.CoinEntry.DeSoLockedNanos,
+			CreatorBasisPoints:      profileEntry.CreatorCoinEntry.CreatorBasisPoints,
+			DeSoLockedNanos:         profileEntry.CreatorCoinEntry.DeSoLockedNanos,
+			NumberOfHolders:         profileEntry.CreatorCoinEntry.NumberOfHolders,
+			CoinsInCirculationNanos: profileEntry.CreatorCoinEntry.CoinsInCirculationNanos.Uint64(),
+			CoinWatermarkNanos:      profileEntry.CreatorCoinEntry.CoinWatermarkNanos,
+			BitCloutLockedNanos:     profileEntry.CreatorCoinEntry.DeSoLockedNanos,
 		},
 		CoinPriceDeSoNanos:     coinPriceDeSoNanos,
 		CoinPriceBitCloutNanos: coinPriceDeSoNanos,
@@ -1450,7 +1468,7 @@ func (fes *APIServer) sortFollowEntries(followEntryPKIDii *lib.PKID, followEntry
 		}
 		// If both FollowEntries have a profile, compare the two based on coin price.
 		if profileEntryii != nil && profileEntryjj != nil {
-			return profileEntryii.CoinEntry.DeSoLockedNanos > profileEntryjj.CoinEntry.DeSoLockedNanos
+			return profileEntryii.CreatorCoinEntry.DeSoLockedNanos > profileEntryjj.CreatorCoinEntry.DeSoLockedNanos
 		}
 	}
 	// If we're not fetching values (meaning no profiles for public keys) or neither FollowEntry has a profile,
@@ -2169,6 +2187,11 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 			if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
 				continue
 			}
+			// Skip transactions from blacklisted public keys
+			transactorPKID := utxoView.GetPKIDForPublicKey(transactorPkBytes)
+			if transactorPKID == nil || fes.IsUserBlacklisted(transactorPKID.PKID) {
+				continue
+			}
 			currentIndexBytes := keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]
 			res := &TransactionMetadataResponse{
 				Metadata: txnMeta,
@@ -2278,6 +2301,11 @@ func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest,
 
 				// Skip transactions from blocked users.
 				if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
+					continue
+				}
+				// Skip blacklisted public keys
+				transactorPKID := utxoView.GetPKIDForPublicKey(transactorPkBytes)
+				if transactorPKID == nil || fes.IsUserBlacklisted(transactorPKID.PKID) {
 					continue
 				}
 
@@ -2759,9 +2787,11 @@ func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Reque
 	var IsHodling = false
 	var BalanceEntry *BalanceEntryResponse
 
-	hodlBalanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(userPublicKeyBytes, isHodlingPublicKeyBytes)
+	hodlBalanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(
+		userPublicKeyBytes, isHodlingPublicKeyBytes, false)
 	if hodlBalanceEntry != nil {
-		BalanceEntry = fes._balanceEntryToResponse(hodlBalanceEntry, hodlBalanceEntry.BalanceNanos, nil, utxoView)
+		BalanceEntry = fes._balanceEntryToResponse(
+			hodlBalanceEntry, hodlBalanceEntry.BalanceNanos.Uint64(), nil, utxoView)
 		IsHodling = true
 	}
 
@@ -2770,11 +2800,73 @@ func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Reque
 		BalanceEntry: BalanceEntry,
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("IsHodlingPublicKey: Problem serializing object to JSON: %v", err))
 		return
 	}
 
+}
+
+// GetUsernameForPublicKey looks up a username given a public key
+func (fes *APIServer) GetUsernameForPublicKey(ww http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	publicKeyBase58Check, publicKeyBase58CheckExists := vars["publicKeyBase58Check"]
+	if !publicKeyBase58CheckExists {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUsernameForPublicKey: Missing public key base 58 check"))
+		return
+	}
+	publicKeyBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUsernameForPublicKey: Problem decoding user public key: %v", err))
+		return
+	}
+
+	var utxoView *lib.UtxoView
+	utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUsernameForPublicKey: Error getting utxoView: %v", err))
+		return
+	}
+
+	profileEntry := utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
+	if profileEntry == nil || profileEntry.IsDeleted() {
+		_AddNotFoundError(ww, fmt.Sprintf(
+			"GetUsernameForPublicKey: no profile found for public key: %v", publicKeyBase58Check))
+		return
+	}
+
+	if err = json.NewEncoder(ww).Encode(profileEntry.Username); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUsernameForPublicKey: Error encoding response: %v", err))
+		return
+	}
+}
+
+// GetPublicKeyForUsername looks up a public key given a username
+func (fes *APIServer) GetPublicKeyForUsername(ww http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	username, usernameExists := vars["username"]
+	if !usernameExists {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPublicKeyForUsername: Missing username"))
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPublicKeyForUsername: Error getting utxoView: %v", err))
+		return
+	}
+
+	profileEntry := utxoView.GetProfileEntryForUsername([]byte(username))
+	if profileEntry == nil || profileEntry.IsDeleted() {
+		_AddNotFoundError(ww, fmt.Sprintf(
+			"GetPublicKeyForUsername: no profile found for username: %v", username))
+		return
+	}
+
+	if err = json.NewEncoder(ww).Encode(lib.PkToString(profileEntry.PublicKey, fes.Params)); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUsernameForPublicKey: Error encoding response: %v", err))
+		return
+	}
 }
 
 // GetUserDerivedKeysRequest ...

@@ -355,6 +355,7 @@ type GetAppStateResponse struct {
 	USDCentsPerDeSoExchangeRate uint64
 	JumioDeSoNanos              uint64 // Deprecated
 	JumioUSDCents               uint64
+	JumioKickbackUSDCents       uint64
 	// CountrySignUpBonus is the sign-up bonus configuration for the country inferred from a request's IP address.
 	CountrySignUpBonus CountryLevelSignUpBonus
 
@@ -408,6 +409,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		USDCentsPerDeSoExchangeRate:         fes.GetExchangeDeSoPrice(),
 		JumioDeSoNanos:                      fes.GetJumioDeSoNanos(), // Deprecated
 		JumioUSDCents:                       fes.GetJumioUSDCents(),
+		JumioKickbackUSDCents:               fes.GetJumioKickbackUSDCents(),
 		CountrySignUpBonus:                  fes.GetCountryLevelSignUpBonusFromHeader(req),
 		DefaultFeeRateNanosPerKB:            defaultFeeRateNanosPerKB,
 		TransactionFeeMap:                   fes.TxnFeeMapToResponse(true),

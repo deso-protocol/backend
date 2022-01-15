@@ -3,6 +3,7 @@ package routes
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/csv"
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
@@ -694,11 +695,13 @@ func (fes *APIServer) updateOrCreateReferralInfoFromCSVRow(row []string) (_err e
 
 	tstampNanos := uint64(time.Now().UnixNano())
 	if len(row[CSVColumnTstampNanos]) > 0 {
-		tstampNanos, err = strconv.ParseUint(row[CSVColumnTstampNanos], 10, 64)
+		var tstampFloat float64
+		tstampFloat, err = strconv.ParseFloat(row[CSVColumnTstampNanos], 10)
 		if err != nil {
 			return fmt.Errorf(
 				"updateOrCreateReferralInfoFromCSVRow: error parsing tstamp nanos (%s): %v", row[10], err)
 		}
+		tstampNanos = uint64(tstampFloat)
 	}
 	referralInfo.DateCreatedTStampNanos = tstampNanos
 
@@ -734,11 +737,67 @@ type AdminUploadReferralCSVResponse struct {
 }
 
 func (fes *APIServer) AdminUploadReferralCSV(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := AdminUploadReferralCSVRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"AdminUploadReferralCSV: Problem parsing request body: %v", err))
+	err := req.ParseMultipartForm(10 << 20)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUploadReferralCSV: Problem parsing multipart form data: %v", err))
+		return
+	}
+
+	JWTs := req.Form["JWT"]
+	userPublicKeys := req.Form["UserPublicKeyBase58Check"]
+	if len(JWTs) == 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("No JWT provided"))
+		return
+	}
+	JWT := JWTs[0]
+	if len(userPublicKeys) == 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("No public key provided"))
+		return
+	}
+	userPublicKey := userPublicKeys[0]
+	isValid, err := fes.ValidateJWT(userPublicKey, JWT)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUploadReferralCSV: Error validating JWT: %v", err))
+		return
+	}
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUploadReferralCSV: Invalid token: %v", err))
+		return
+	}
+	isSuperAdmin := false
+	for _, superAdminPubKey := range fes.Config.SuperAdminPublicKeys {
+		if superAdminPubKey == userPublicKey {
+			// We found a match, break and set isSuperAdmin to true
+			isSuperAdmin = true
+			break
+		}
+	}
+	if !isSuperAdmin {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUploadReferralCSV: User is not a super admin: %s", userPublicKey))
+		return
+	}
+
+	file, fileHeader, err := req.FormFile("file")
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUploadReferralCSV: Problem getting file from form data: %v", err))
+		return
+	}
+	if file != nil {
+		defer file.Close()
+	} else {
+		_AddBadRequestError(ww, fmt.Sprint("AdminUploadReferralCSV: File is nil"))
+		return
+	}
+	if contentType := fileHeader.Header.Get("Content-Type"); contentType != "text/csv" {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUploadReferralCSV: Invalid content type for file: %s",
+			contentType))
+		return
+	}
+
+	csvReader := csv.NewReader(file)
+	rows, err := csvReader.ReadAll()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUploadReferralCSV: Error reading CSV: %v", err))
 		return
 	}
 
@@ -746,7 +805,7 @@ func (fes *APIServer) AdminUploadReferralCSV(ww http.ResponseWriter, req *http.R
 	numLinksUpdated := uint64(0)
 
 	// Iterate over the rows and and collect updated+created referralInfos.
-	for rowIdx, row := range requestData.CSVRows {
+	for rowIdx, row := range rows {
 		// All of the rows should have the same length.
 		if len(row) < 11 {
 			_AddBadRequestError(ww, fmt.Sprintf(
@@ -774,8 +833,7 @@ func (fes *APIServer) AdminUploadReferralCSV(ww http.ResponseWriter, req *http.R
 				return
 			}
 
-			err := fes.updateOrCreateReferralInfoFromCSVRow(row)
-			if err != nil {
+			if err = fes.updateOrCreateReferralInfoFromCSVRow(row); err != nil {
 				_AddInternalServerError(ww, fmt.Sprintf(
 					"AdminUploadReferralCSV: Problem updating idx %d: %v", rowIdx, err))
 				return

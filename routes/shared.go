@@ -104,6 +104,21 @@ type MessageContactResponse struct {
 	NumMessagesRead int64
 }
 
+type MessagingKey struct {
+	PublicKeyBase58Check string
+	MessagingPublicKeyBase58Check string
+	MessagingKeyName string
+	Recipients []MessagingRecipient
+	EncryptedKey string
+	IsRecipient bool
+}
+
+type MessagingRecipient struct {
+	RecipientPublicKeyBase58Check string
+	RecipientMessagingKeyName string
+	EncryptedKey string
+}
+
 // User ...
 type User struct {
 	// The public key for the user is computed from the seed using the exact
@@ -180,22 +195,6 @@ type BalanceEntryResponse struct {
 	NetBalanceInMempool int64
 
 	ProfileEntryResponse *ProfileEntryResponse `json:",omitempty"`
-}
-
-func (fes *APIServer) GetBalanceForPublicKey(publicKeyBytes []byte) (
-	_balanceNanos uint64, _err error) {
-
-	// Get the UtxoEntries from the augmented view
-	utxoEntries, err := fes.blockchain.GetSpendableUtxosForPublicKey(publicKeyBytes, fes.backendServer.GetMempool(), nil)
-	if err != nil {
-		return 0, fmt.Errorf(
-			"GetBalanceForPublicKey: Problem getting utxos from view: %v", err)
-	}
-	totalBalanceNanos := uint64(0)
-	for _, utxoEntry := range utxoEntries {
-		totalBalanceNanos += utxoEntry.AmountNanos
-	}
-	return totalBalanceNanos, nil
 }
 
 // GetVerifiedUsernameToPKIDMapFromGlobalState
