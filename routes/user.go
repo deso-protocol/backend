@@ -2587,7 +2587,7 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 		return true
 	} else if txnMeta.UpdateNFTTxindexMetadata != nil {
 		// Someone put your NFT or an NFT for which you receive royalties on sale
-		return true
+		return txnMeta.UpdateNFTTxindexMetadata.IsForSale
 	} else if txnMeta.DAOCoinTxindexMetadata != nil {
 		// Someone burned your DAO coin
 		return true
