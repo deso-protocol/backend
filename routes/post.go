@@ -204,14 +204,17 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 
 	// convert additional DESO royalties map if applicable
 	additionalDESORoyaltyMap := make(map[string]uint64)
-	for additionalDESORoyaltyPKID, basisPoints := range postEntry.AdditionalNFTRoyaltiesToCreatorsBasisPoints {
+	for pkidIter, basisPoints := range postEntry.AdditionalNFTRoyaltiesToCreatorsBasisPoints {
+		additionalDESORoyaltyPKID := pkidIter
+
 		pkBytes := utxoView.GetPublicKeyForPKID(&additionalDESORoyaltyPKID)
 		additionalDESORoyaltyMap[lib.PkToString(pkBytes, fes.Params)] = basisPoints
 	}
 
 	// convert additional coin royalties map if applicable
 	additionalCoinRoyaltyMap := make(map[string]uint64)
-	for additionalCoinRoyaltyPKID, basisPoints := range postEntry.AdditionalNFTRoyaltiesToCoinsBasisPoints {
+	for pkidIter, basisPoints := range postEntry.AdditionalNFTRoyaltiesToCoinsBasisPoints {
+		additionalCoinRoyaltyPKID := pkidIter
 		pkBytes := utxoView.GetPublicKeyForPKID(&additionalCoinRoyaltyPKID)
 		additionalCoinRoyaltyMap[lib.PkToString(pkBytes, fes.Params)] = basisPoints
 	}
