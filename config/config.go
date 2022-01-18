@@ -76,6 +76,9 @@ type Config struct {
 
 	// Supply Monitoring Routine
 	RunSupplyMonitoringRoutine bool
+
+	// ID to tag node source
+	NodeSource uint64
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -168,6 +171,9 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 
 	// Supply Monitoring Routine
 	config.RunSupplyMonitoringRoutine = viper.GetBool("run-supply-monitoring-routine")
+
+	// Node source ID
+	config.NodeSource = viper.GetUint64("node-source")
 
 	return &config
 }
