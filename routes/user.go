@@ -1921,6 +1921,11 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	profileEntryResponses := make(map[string]*ProfileEntryResponse)
 	// Set up a view to fetch the ProfileEntrys from
 	addProfileForPubKey := func(publicKeyBase58Check string) error {
+		// If we already have the profile entry response, exit early.
+		if _, exists := profileEntryResponses[publicKeyBase58Check]; exists || publicKeyBase58Check == "" {
+			return nil
+		}
+
 		currentPkBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
 		if err != nil {
 			return errors.Errorf("GetNotifications: "+
@@ -1934,8 +1939,10 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		// so the profile information could be out of date.
 		profileEntry := utxoView.GetProfileEntryForPublicKey(currentPkBytes)
 		if profileEntry != nil {
-			profileEntryResponses[lib.PkToString(profileEntry.PublicKey, fes.Params)] =
+			profileEntryResponses[publicKeyBase58Check] =
 				fes._profileEntryToResponse(profileEntry, utxoView)
+		} else {
+			profileEntryResponses[publicKeyBase58Check] = nil
 		}
 		return nil
 	}
@@ -1976,6 +1983,8 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 
 		postEntry := utxoView.GetPostEntryForPostHash(postHash)
 		if postEntry == nil {
+			// We set the post entry response to nil so we can exit early next time we see this post hash hex.
+			postEntryResponses[postHashHex] = nil
 			return
 		}
 
@@ -1983,6 +1992,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 
 		// Filter out responses if profile entry is missing and is required
 		if profileEntryRequired && profileEntryResponse == nil {
+			postEntryResponses[postHashHex] = nil
 			return
 		}
 
