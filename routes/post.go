@@ -1259,7 +1259,6 @@ func (fes *APIServer) GetSinglePostComments(
 		return nil, err
 	}
 
-	glog.Infof("\nHere are the comment entries: %v \n", commentEntries)
 	// Process the comments into something we can return.
 	commentEntryResponseList := []*PostEntryResponse{}
 	// Create a map from commentEntryPostHashHex to commentEntry to ease look up of public key bytes when sorting
@@ -1271,7 +1270,6 @@ func (fes *APIServer) GetSinglePostComments(
 	}
 
 	for _, commentEntry := range commentEntries {
-		glog.Infof("\nHere is the comment entry: %v \n", commentEntry.Body)
 		pkMapKey := lib.MakePkMapKey(commentEntry.PosterPublicKey)
 		// Remove comments that are blocked by either the reader or the poster of the root post
 		if _, ok := blockedPublicKeys[lib.PkToString(commentEntry.PosterPublicKey, fes.Params)]; !ok && profilePubKeyMap[pkMapKey] == nil {
@@ -1293,6 +1291,7 @@ func (fes *APIServer) GetSinglePostComments(
 
 		// Build the comments entry response and append.
 		commentEntryResponse, err := fes._postEntryToResponse(commentEntry, requestData.AddGlobalFeedBool /*AddGlobalFeed*/, fes.Params, utxoView, readerPublicKeyBytes, 2)
+		glog.Infof("\nHere is the comment entry response: %v \n", commentEntryResponse.Body)
 		if err != nil {
 			return nil, err
 		}
