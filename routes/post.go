@@ -1027,12 +1027,12 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Fetch the commentEntries for the post.
-	commentEntries, err := utxoView.GetCommentEntriesForParentStakeID(postHash[:])
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error getting commentEntries: %v: %s", err, requestData.PostHashHex))
-		return
-	}
+	//// Fetch the commentEntries for the post.
+	//commentEntries, err := utxoView.GetCommentEntriesForParentStakeID(postHash[:])
+	//if err != nil {
+	//	_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error getting commentEntries: %v: %s", err, requestData.PostHashHex))
+	//	return
+	//}
 
 	// Fetch the parents for the post.
 	var parentPostEntries []*lib.PostEntry
@@ -1196,7 +1196,6 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	comments, err := fes.GetSinglePostComments(
-		commentEntries,
 		utxoView,
 		pubKeyToProfileEntryResponseMap,
 		postEntryResponse,
@@ -1228,7 +1227,6 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 }
 
 func (fes *APIServer) GetSinglePostComments(
-	commentEntries []*lib.PostEntry,
 	utxoView *lib.UtxoView,
 	pubKeyToProfileEntryResponseMap map[lib.PkMapKey]*ProfileEntryResponse,
 	postEntryResponse *PostEntryResponse,
@@ -1241,6 +1239,16 @@ func (fes *APIServer) GetSinglePostComments(
 	blockedPublicKeys map[string]struct{},
 	commentLevel uint32,
 ) ([]*PostEntryResponse, error) {
+	postHash, err := GetPostHashFromPostHashHex(postEntryResponse.PostHashHex)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch the commentEntries for the post.
+	commentEntries, err := utxoView.GetCommentEntriesForParentStakeID(postHash[:])
+	if err != nil {
+		return nil, err
+	}
 
 	// Process the comments into something we can return.
 	commentEntryResponseList := []*PostEntryResponse{}
@@ -1358,7 +1366,6 @@ func (fes *APIServer) GetSinglePostComments(
 	if commentLevel < requestData.ThreadLevelLimit {
 		for _, comment := range comments {
 			commentReplies, err := fes.GetSinglePostComments(
-				commentEntries,
 				utxoView,
 				pubKeyToProfileEntryResponseMap,
 				comment,
