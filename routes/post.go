@@ -1197,7 +1197,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		parentPostEntryResponseList = append(parentPostEntryResponseList, parentEntryResponse)
 	}
 
-	glog.Infof("Getting comments for: %v", postEntryResponse.Body)
+	glog.Infof("\nGetting comments for: %v \n", postEntryResponse.Body)
 	comments, err := fes.GetSinglePostComments(
 		utxoView,
 		pubKeyToProfileEntryResponseMap,
@@ -1259,6 +1259,7 @@ func (fes *APIServer) GetSinglePostComments(
 		return nil, err
 	}
 
+	glog.Infof("\nHere are the comment entries: %v \n", commentEntries)
 	// Process the comments into something we can return.
 	commentEntryResponseList := []*PostEntryResponse{}
 	// Create a map from commentEntryPostHashHex to commentEntry to ease look up of public key bytes when sorting
@@ -1270,6 +1271,7 @@ func (fes *APIServer) GetSinglePostComments(
 	}
 
 	for _, commentEntry := range commentEntries {
+		glog.Infof("\nHere are the comment entries: %v \n", commentEntry)
 		pkMapKey := lib.MakePkMapKey(commentEntry.PosterPublicKey)
 		// Remove comments that are blocked by either the reader or the poster of the root post
 		if _, ok := blockedPublicKeys[lib.PkToString(commentEntry.PosterPublicKey, fes.Params)]; !ok && profilePubKeyMap[pkMapKey] == nil {
@@ -1372,7 +1374,7 @@ func (fes *APIServer) GetSinglePostComments(
 	}
 
 	for ii, comment := range comments {
-		glog.Infof("Iterating through the comment: %v", comment.Body)
+		glog.Infof("\nIterating through the comment: %v \n", comment.Body)
 		// If the previous stack was loading the comment author thread and the comment in question is from the same author, load it.
 		loadCommentAuthorThread := loadAuthorThread && comment.PosterPublicKeyBase58Check == topLevelPosterPublicKeyBase58Check
 		// Only iterate over comments within the specified leaf-limit. To follow a single reply thread, that limit would be 1. All top-level replies are included. A limit of -1 includes all leafs.
