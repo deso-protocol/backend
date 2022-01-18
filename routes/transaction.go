@@ -416,6 +416,9 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
+
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem serializing transaction: %v", err))
@@ -1178,6 +1181,9 @@ func (fes *APIServer) CreateLikeStateless(ww http.ResponseWriter, req *http.Requ
 		return
 	}
 
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
+
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateLikeStateless: Problem serializing transaction: %v", err))
@@ -1411,6 +1417,9 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
+
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Problem serializing transaction: %v", err))
@@ -1560,6 +1569,9 @@ func (fes *APIServer) CreateFollowTxnStateless(ww http.ResponseWriter, req *http
 		_AddBadRequestError(ww, fmt.Sprintf("CreateFollowTxnStateless: Problem creating transaction: %v", err))
 		return
 	}
+
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -1731,6 +1743,9 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem adding inputs and change transaction: %v", err))
 		return
 	}
+
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
 
 	utxoView, err := fes.mempool.GetAugmentedUtxoViewForPublicKey(updaterPublicKeyBytes, txn)
 	if err != nil {
@@ -1993,6 +2008,9 @@ func (fes *APIServer) TransferCreatorCoin(ww http.ResponseWriter, req *http.Requ
 		return
 	}
 
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
+
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferCreatorCoin: Problem serializing transaction: %v", err))
@@ -2151,6 +2169,9 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 			return
 		}
 	}
+
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
