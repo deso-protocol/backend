@@ -1940,13 +1940,13 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		return nil
 	}
 	for _, txnMeta := range finalTxnMetadataList {
-		if err := addProfileForPubKey(txnMeta.Metadata.TransactorPublicKeyBase58Check); err != nil {
+		if err = addProfileForPubKey(txnMeta.Metadata.TransactorPublicKeyBase58Check); err != nil {
 			APIAddError(ww, err.Error())
 			return
 		}
 
 		for _, affectedPk := range txnMeta.Metadata.AffectedPublicKeys {
-			if err := addProfileForPubKey(affectedPk.PublicKeyBase58Check); err != nil {
+			if err = addProfileForPubKey(affectedPk.PublicKeyBase58Check); err != nil {
 				APIAddError(ww, err.Error())
 				return
 			}
@@ -1963,6 +1963,10 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	postEntryResponses := make(map[string]*PostEntryResponse)
 
 	addPostForHash := func(postHashHex string, readerPK []byte, profileEntryRequired bool) {
+		// If we already have the post entry response in the map, just return
+		if _, exists := postEntryResponses[postHashHex]; exists {
+			return
+		}
 		postHashBytes, err := hex.DecodeString(postHashHex)
 		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
 			return
