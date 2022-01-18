@@ -1259,6 +1259,8 @@ func (fes *APIServer) GetSinglePostComments(
 		return nil, err
 	}
 
+	glog.Infof("Fetched this many entries: %v", len(commentEntries))
+
 	// Process the comments into something we can return.
 	commentEntryResponseList := []*PostEntryResponse{}
 	// Create a map from commentEntryPostHashHex to commentEntry to ease look up of public key bytes when sorting
