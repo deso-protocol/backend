@@ -1978,16 +1978,20 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		if postEntry == nil {
 			return
 		}
+
+		profileEntryResponse := profileEntryResponses[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]
+
+		// Filter out responses if profile entry is missing and is required
+		if profileEntryRequired && profileEntryResponse == nil {
+			return
+		}
+
 		postEntryResponse, err := fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, userPublicKeyBytes, 2)
 		if err != nil {
 			return
 		}
 
-		postEntryResponse.ProfileEntryResponse = profileEntryResponses[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]
-		// Filter out responses if profile entry is missing and is required
-		if postEntryResponse.ProfileEntryResponse == nil && profileEntryRequired {
-			return
-		}
+		postEntryResponse.ProfileEntryResponse = profileEntryResponse
 
 		postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPK, postEntry)
 
