@@ -529,6 +529,9 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
+
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem serializing transaction: %v", err))
