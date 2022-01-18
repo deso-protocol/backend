@@ -1271,7 +1271,7 @@ func (fes *APIServer) GetSinglePostComments(
 	}
 
 	for _, commentEntry := range commentEntries {
-		glog.Infof("\nHere are the comment entries: %v \n", commentEntry)
+		glog.Infof("\nHere is the comment entry: %v \n", commentEntry.Body)
 		pkMapKey := lib.MakePkMapKey(commentEntry.PosterPublicKey)
 		// Remove comments that are blocked by either the reader or the poster of the root post
 		if _, ok := blockedPublicKeys[lib.PkToString(commentEntry.PosterPublicKey, fes.Params)]; !ok && profilePubKeyMap[pkMapKey] == nil {
