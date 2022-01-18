@@ -355,10 +355,10 @@ func (fes *APIServer) AddNodeSourceToTxnMetadata (txn *lib.MsgDeSoTxn) {
 	if fes.Config.NodeSource != 0 {
 		if len(txn.ExtraData) == 0 {
 			txnExtraData := make(map[string][]byte)
-			txnExtraData["NodeSource"] = lib.UintToBuf(fes.Config.NodeSource)
+			txnExtraData[lib.NodeSourceMapKey] = lib.UintToBuf(fes.Config.NodeSource)
 			txn.ExtraData = txnExtraData
 		} else {
-			txn.ExtraData["NodeSource"] = lib.UintToBuf(fes.Config.NodeSource)
+			txn.ExtraData[lib.NodeSourceMapKey] = lib.UintToBuf(fes.Config.NodeSource)
 		}
 	}
 }
