@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/golang/glog"
 	"io"
 	"net/http"
 	"reflect"
@@ -1196,6 +1197,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		parentPostEntryResponseList = append(parentPostEntryResponseList, parentEntryResponse)
 	}
 
+	glog.Infof("Getting comments for: %v", postEntryResponse.Body)
 	comments, err := fes.GetSinglePostComments(
 		utxoView,
 		pubKeyToProfileEntryResponseMap,
@@ -1370,6 +1372,7 @@ func (fes *APIServer) GetSinglePostComments(
 	}
 
 	for ii, comment := range comments {
+		glog.Infof("Iterating through comment: %v", comment.Body)
 		// If the previous stack was loading the comment author thread and the comment in question is from the same author, load it.
 		loadCommentAuthorThread := loadAuthorThread && comment.PosterPublicKeyBase58Check == topLevelPosterPublicKeyBase58Check
 		// Only iterate over comments within the specified leaf-limit. To follow a single reply thread, that limit would be 1. All top-level replies are included. A limit of -1 includes all leafs.
