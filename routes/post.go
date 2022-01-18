@@ -457,8 +457,8 @@ func (fes *APIServer) GetPostEntriesByTimePaginated(
 	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, err error) {
 
 	postEntries,
-	commentsByPostHash,
-	err := fes.GetPostsByTime(utxoView, startPostHash, readerPK, numToFetch, true /*skipHidden*/, true)
+		commentsByPostHash,
+		err := fes.GetPostsByTime(utxoView, startPostHash, readerPK, numToFetch, true /*skipHidden*/, true)
 
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("GetAllPostEntries: Error fetching posts from view: %v", err)
@@ -975,8 +975,13 @@ type GetSinglePostRequest struct {
 	FetchParents               bool   `safeForLogging:"true"`
 	CommentOffset              uint32 `safeForLogging:"true"`
 	CommentLimit               uint32 `safeForLogging:"true"`
-	ThreadLevelLimit			uint32 `safeForLogging:"true"`
 	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
+	// How many reply-levels deep of comments will be retrieved. If unset, will only retrieve the top-level replies
+	ThreadLevelLimit           uint32 `safeForLogging:"true"`
+	// How many child replies of a parent comment will be considered when returning a comment thread. Setting this to -1 will include all child replies. This limit does not affect the top-level replies to a post.
+	ThreadLeafLimit int32 `safeForLogging:"true"`
+	// If the post contains a comment thread where all comments are created by the author, include that thread in the response
+	LoadAuthorThread           bool   `safeForLogging:"true"`
 
 	// If set to true, then the posts in the response will contain a boolean about whether they're in the global feed
 	AddGlobalFeedBool bool `safeForLogging:"true"`
@@ -1026,13 +1031,6 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Could not find postEntry for PostHashHex: %s", requestData.PostHashHex))
 		return
 	}
-
-	//// Fetch the commentEntries for the post.
-	//commentEntries, err := utxoView.GetCommentEntriesForParentStakeID(postHash[:])
-	//if err != nil {
-	//	_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error getting commentEntries: %v: %s", err, requestData.PostHashHex))
-	//	return
-	//}
 
 	// Fetch the parents for the post.
 	var parentPostEntries []*lib.PostEntry
@@ -1206,7 +1204,10 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		readerPublicKeyBytes,
 		profilePubKeyMap,
 		blockedPublicKeys,
-		0)
+		0,
+		requestData.LoadAuthorThread,
+		postEntryResponse.PosterPublicKeyBase58Check,
+		)
 
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error Getting Comments: %v", err))
@@ -1226,6 +1227,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// Get the comments associated with a single post
 func (fes *APIServer) GetSinglePostComments(
 	utxoView *lib.UtxoView,
 	pubKeyToProfileEntryResponseMap map[lib.PkMapKey]*ProfileEntryResponse,
@@ -1235,9 +1237,11 @@ func (fes *APIServer) GetSinglePostComments(
 	ww http.ResponseWriter,
 	requestData GetSinglePostRequest,
 	readerPublicKeyBytes []byte,
-	profilePubKeyMap  map[lib.PkMapKey][]byte,
+	profilePubKeyMap map[lib.PkMapKey][]byte,
 	blockedPublicKeys map[string]struct{},
 	commentLevel uint32,
+	loadAuthorThread bool,
+	topLevelPosterPublicKeyBase58Check string,
 ) ([]*PostEntryResponse, error) {
 	postHash, err := GetPostHashFromPostHashHex(postEntryResponse.PostHashHex)
 	if err != nil {
@@ -1283,7 +1287,7 @@ func (fes *APIServer) GetSinglePostComments(
 		// Build the comments entry response and append.
 		commentEntryResponse, err := fes._postEntryToResponse(commentEntry, requestData.AddGlobalFeedBool /*AddGlobalFeed*/, fes.Params, utxoView, readerPublicKeyBytes, 2)
 		if err != nil {
-			return nil,err
+			return nil, err
 		}
 		commentEntryResponse.ProfileEntryResponse = commentProfileEntryResponse
 		commentEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPublicKeyBytes, commentEntry)
@@ -1362,9 +1366,15 @@ func (fes *APIServer) GetSinglePostComments(
 		comments = commentEntryResponseList[requestData.CommentOffset:maxIdx]
 	}
 
-	// If we haven't yet reached the desired comment thread level, recurse one level deeper and retrieve comments for each comment.
-	if commentLevel < requestData.ThreadLevelLimit {
-		for _, comment := range comments {
+	for ii, comment := range comments {
+		// If the previous stack was loading the comment author thread and the comment in question is from the same author, load it
+		loadCommentAuthorThread := loadAuthorThread && comment.PosterPublicKeyBase58Check == topLevelPosterPublicKeyBase58Check
+		// Only iterate over comments within the specified leaf-limit. To follow a single reply thread, that limit would be 1. All top-level replies are included. A limit of -1 includes all leafs
+		commentWithinLeafLimit := commentLevel == 0 || int32(ii) < requestData.ThreadLeafLimit || requestData.ThreadLeafLimit == -1
+		// Only recurse up to a certain depth. If we're within a thread chain consisting only of posts from the original post author, include all of the comments
+		commentWithinThreadLevelLimit := (commentLevel < requestData.ThreadLevelLimit || loadCommentAuthorThread)
+		// If this comment is within the leaf limit and isn't recursing too deeply, load the comment
+		if commentWithinLeafLimit && commentWithinThreadLevelLimit {
 			commentReplies, err := fes.GetSinglePostComments(
 				utxoView,
 				pubKeyToProfileEntryResponseMap,
@@ -1376,7 +1386,10 @@ func (fes *APIServer) GetSinglePostComments(
 				readerPublicKeyBytes,
 				profilePubKeyMap,
 				blockedPublicKeys,
-				commentLevel + 1)
+				commentLevel+1,
+				loadCommentAuthorThread,
+				topLevelPosterPublicKeyBase58Check,
+				)
 			if err != nil {
 				return nil, err
 			}
