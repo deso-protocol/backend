@@ -1964,7 +1964,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 
 	addPostForHash := func(postHashHex string, readerPK []byte, profileEntryRequired bool) {
 		// If we already have the post entry response in the map, just return
-		if _, exists := postEntryResponses[postHashHex]; exists {
+		if _, exists := postEntryResponses[postHashHex]; exists || postHashHex == "" {
 			return
 		}
 		postHashBytes, err := hex.DecodeString(postHashHex)
