@@ -979,14 +979,14 @@ type GetSinglePostRequest struct {
 	CommentOffset              uint32 `safeForLogging:"true"`
 	CommentLimit               uint32 `safeForLogging:"true"`
 	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
-	// How many reply-levels deep of comments will be retrieved. If unset, will only retrieve the top-level replies
+	// How many levels of replies will be retrieved. If unset, will only retrieve the top-level replies.
 	ThreadLevelLimit           uint32 `safeForLogging:"true"`
 	// How many child replies of a parent comment will be considered when returning a comment thread. Setting this to -1 will include all child replies. This limit does not affect the top-level replies to a post.
 	ThreadLeafLimit int32 `safeForLogging:"true"`
-	// If the post contains a comment thread where all comments are created by the author, include that thread in the response
+	// If the post contains a comment thread where all comments are created by the author, include that thread in the response.
 	LoadAuthorThread           bool   `safeForLogging:"true"`
 
-	// If set to true, then the posts in the response will contain a boolean about whether they're in the global feed
+	// If set to true, then the posts in the response will contain a boolean about whether they're in the global feed.
 	AddGlobalFeedBool bool `safeForLogging:"true"`
 }
 
@@ -1230,7 +1230,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
-// Get the comments associated with a single post
+// Get the comments associated with a single post.
 func (fes *APIServer) GetSinglePostComments(
 	utxoView *lib.UtxoView,
 	pubKeyToProfileEntryResponseMap map[lib.PkMapKey]*ProfileEntryResponse,
@@ -1370,13 +1370,13 @@ func (fes *APIServer) GetSinglePostComments(
 	}
 
 	for ii, comment := range comments {
-		// If the previous stack was loading the comment author thread and the comment in question is from the same author, load it
+		// If the previous stack was loading the comment author thread and the comment in question is from the same author, load it.
 		loadCommentAuthorThread := loadAuthorThread && comment.PosterPublicKeyBase58Check == topLevelPosterPublicKeyBase58Check
-		// Only iterate over comments within the specified leaf-limit. To follow a single reply thread, that limit would be 1. All top-level replies are included. A limit of -1 includes all leafs
+		// Only iterate over comments within the specified leaf-limit. To follow a single reply thread, that limit would be 1. All top-level replies are included. A limit of -1 includes all leafs.
 		commentWithinLeafLimit := commentLevel == 0 || int32(ii) < requestData.ThreadLeafLimit || requestData.ThreadLeafLimit == -1
-		// Only recurse up to a certain depth. If we're within a thread chain consisting only of posts from the original post author, include all of the comments
+		// Only recurse up to a certain depth. If we're within a thread chain consisting only of posts from the original post author, include all of the comments.
 		commentWithinThreadLevelLimit := (commentLevel < requestData.ThreadLevelLimit || loadCommentAuthorThread)
-		// If this comment is within the leaf limit and isn't recursing too deeply, load the comment
+		// If this comment is within the leaf limit and isn't recursing too deeply, load the comment.
 		if commentWithinLeafLimit && commentWithinThreadLevelLimit {
 			commentReplies, err := fes.GetSinglePostComments(
 				utxoView,
