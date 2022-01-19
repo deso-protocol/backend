@@ -3,22 +3,28 @@
 DATE=`date +%Y%m%d-%H:%M:%S-%N`
 
 rm /tmp/main.*.log
+#rm /Users/piotr/Desktop/Code/DeSo/logs/n0/*
+
 
 (cd ../../ && go build -o backend -gcflags="all=-N -l" main.go && \
   ./backend run \
   --glog-v=2 \
-  --glog-vmodule="*bitcoin_manager*=2,*balance*=2,*view*=2,*frontend*=2,*peer*=0,*addr*=0,*network*=0,*utils*=0,*connection*=0,*main*=0,*server*=2,*mempool*=2,*miner*=2,*blockchain*=2" \
+  --glog-vmodule="*bitcoin_manager*=0,*balance*=0,*view*=2,*frontend*=0,*peer*=2,*addr*=0,*network*=0,*utils*=0,*connection*=0,*main*=0,*server*=2,*mempool*=0,*miner*=0,*blockchain*=2" \
   --num-mining-threads=1  \
-  --txindex=true \
   --admin-public-keys=* \
+  --protocol-port=17000 \
+  --api-port=17001 \
   --super-admin-public-keys=* \
   --miner-public-keys=BC1YLgKZyfgyNntCMXAZYExM8JooYqrYvVsrR8d8XVxorDruYFdq31p \
   --starter-deso-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
   --data-dir=$HOME/data_dirs/n0_1  \
   --block-cypher-api-key=092dae962ea44b02809a4c74408b42a1 \
   --min-satoshis-for-profile=0 \
+  --hyper-sync=true \
   --connect-ips=deso-seed-2.io:17000 \
-  --run-hot-feed-routine=true
+  --run-hot-feed-routine=true \
+  --max-sync-block-height=2000 \
+  --log-dir=/Users/piotr/Desktop/Code/DeSo/logs/n0 \
 )
 
 # These are nodes that can be relied upon if the decentralized seed
