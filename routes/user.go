@@ -1921,6 +1921,11 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	profileEntryResponses := make(map[string]*ProfileEntryResponse)
 	// Set up a view to fetch the ProfileEntrys from
 	addProfileForPubKey := func(publicKeyBase58Check string) error {
+		// If we already have the profile entry response, exit early.
+		if _, exists := profileEntryResponses[publicKeyBase58Check]; exists || publicKeyBase58Check == "" {
+			return nil
+		}
+
 		currentPkBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
 		if err != nil {
 			return errors.Errorf("GetNotifications: "+
@@ -1934,19 +1939,21 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		// so the profile information could be out of date.
 		profileEntry := utxoView.GetProfileEntryForPublicKey(currentPkBytes)
 		if profileEntry != nil {
-			profileEntryResponses[lib.PkToString(profileEntry.PublicKey, fes.Params)] =
+			profileEntryResponses[publicKeyBase58Check] =
 				fes._profileEntryToResponse(profileEntry, utxoView)
+		} else {
+			profileEntryResponses[publicKeyBase58Check] = nil
 		}
 		return nil
 	}
 	for _, txnMeta := range finalTxnMetadataList {
-		if err := addProfileForPubKey(txnMeta.Metadata.TransactorPublicKeyBase58Check); err != nil {
+		if err = addProfileForPubKey(txnMeta.Metadata.TransactorPublicKeyBase58Check); err != nil {
 			APIAddError(ww, err.Error())
 			return
 		}
 
 		for _, affectedPk := range txnMeta.Metadata.AffectedPublicKeys {
-			if err := addProfileForPubKey(affectedPk.PublicKeyBase58Check); err != nil {
+			if err = addProfileForPubKey(affectedPk.PublicKeyBase58Check); err != nil {
 				APIAddError(ww, err.Error())
 				return
 			}
@@ -1963,6 +1970,10 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	postEntryResponses := make(map[string]*PostEntryResponse)
 
 	addPostForHash := func(postHashHex string, readerPK []byte, profileEntryRequired bool) {
+		// If we already have the post entry response in the map, just return
+		if _, exists := postEntryResponses[postHashHex]; exists || postHashHex == "" {
+			return
+		}
 		postHashBytes, err := hex.DecodeString(postHashHex)
 		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
 			return
@@ -1972,18 +1983,25 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 
 		postEntry := utxoView.GetPostEntryForPostHash(postHash)
 		if postEntry == nil {
+			// We set the post entry response to nil so we can exit early next time we see this post hash hex.
+			postEntryResponses[postHashHex] = nil
 			return
 		}
+
+		profileEntryResponse := profileEntryResponses[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]
+
+		// Filter out responses if profile entry is missing and is required
+		if profileEntryRequired && profileEntryResponse == nil {
+			postEntryResponses[postHashHex] = nil
+			return
+		}
+
 		postEntryResponse, err := fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, userPublicKeyBytes, 2)
 		if err != nil {
 			return
 		}
 
-		postEntryResponse.ProfileEntryResponse = profileEntryResponses[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]
-		// Filter out responses if profile entry is missing and is required
-		if postEntryResponse.ProfileEntryResponse == nil && profileEntryRequired {
-			return
-		}
+		postEntryResponse.ProfileEntryResponse = profileEntryResponse
 
 		postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPK, postEntry)
 
@@ -1998,6 +2016,8 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		acceptNFTBidMetadata := txnMeta.Metadata.AcceptNFTBidTxindexMetadata
 		nftTransferMetadata := txnMeta.Metadata.NFTTransferTxindexMetadata
 		basicTransferMetadata := txnMeta.Metadata.BasicTransferTxindexMetadata
+		createNFTMetadata := txnMeta.Metadata.CreateNFTTxindexMetadata
+		updateNFTMetadata := txnMeta.Metadata.UpdateNFTTxindexMetadata
 
 		if postMetadata != nil {
 			addPostForHash(postMetadata.PostHashBeingModifiedHex, userPublicKeyBytes, true)
@@ -2009,11 +2029,15 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 				addPostForHash(transferCreatorCoinMetadata.PostHashHex, userPublicKeyBytes, true)
 			}
 		} else if nftBidMetadata != nil {
-			addPostForHash(nftBidMetadata.NFTPostHashHex, userPublicKeyBytes, false)
+			addPostForHash(nftBidMetadata.NFTPostHashHex, userPublicKeyBytes, true)
 		} else if acceptNFTBidMetadata != nil {
-			addPostForHash(acceptNFTBidMetadata.NFTPostHashHex, userPublicKeyBytes, false)
+			addPostForHash(acceptNFTBidMetadata.NFTPostHashHex, userPublicKeyBytes, true)
 		} else if nftTransferMetadata != nil {
 			addPostForHash(nftTransferMetadata.NFTPostHashHex, userPublicKeyBytes, false)
+		} else if createNFTMetadata != nil {
+			addPostForHash(createNFTMetadata.NFTPostHashHex, userPublicKeyBytes, true)
+		} else if updateNFTMetadata != nil {
+			addPostForHash(updateNFTMetadata.NFTPostHashHex, userPublicKeyBytes, true)
 		} else if basicTransferMetadata != nil {
 			txnOutputs := txnMeta.Metadata.TxnOutputs
 			for _, output := range txnOutputs {
@@ -2028,6 +2052,10 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 				addPostForHash(basicTransferMetadata.PostHashHex, userPublicKeyBytes, true)
 			}
 		}
+
+		// Delete the UTXO ops because they aren't needed for the frontend
+		basicTransferMetadata.UtxoOps = nil
+		basicTransferMetadata.UtxoOpsDump = ""
 	}
 
 	var lastSeenIndex int64
@@ -2495,8 +2523,12 @@ func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredO
 		return !filteredOutCategories["follow"]
 	} else if txnMeta.TxnType == lib.TxnTypeLike.String() {
 		return !filteredOutCategories["like"]
-	} else if txnMeta.TxnType == lib.TxnTypeNFTBid.String() || txnMeta.TxnType == lib.TxnTypeAcceptNFTBid.String() || txnMeta.TxnType == lib.TxnTypeNFTTransfer.String() {
+	} else if txnMeta.TxnType == lib.TxnTypeNFTBid.String() || txnMeta.TxnType == lib.TxnTypeAcceptNFTBid.String() ||
+		txnMeta.TxnType == lib.TxnTypeNFTTransfer.String() || txnMeta.TxnType == lib.TxnTypeCreateNFT.String() ||
+		txnMeta.TxnType == lib.TxnTypeUpdateNFT.String() {
 		return !filteredOutCategories["nft"]
+	} else if txnMeta.TxnType == lib.TxnTypeDAOCoin.String() || txnMeta.TxnType == lib.TxnTypeDAOCoinTransfer.String() {
+		return !filteredOutCategories["dao coin"]
 	}
 	// If the transaction type doesn't fall into any of the previous steps, we don't want it
 	return false
@@ -2567,6 +2599,18 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 		return true
 	} else if txnMeta.NFTTransferTxindexMetadata != nil {
 		// Someone transferred you an NFT
+		return true
+	} else if txnMeta.CreateNFTTxindexMetadata != nil {
+		// Some specified an additional royalty to you
+		return true
+	} else if txnMeta.UpdateNFTTxindexMetadata != nil {
+		// Someone put your NFT or an NFT for which you receive royalties on sale
+		return txnMeta.UpdateNFTTxindexMetadata.IsForSale
+	} else if txnMeta.DAOCoinTxindexMetadata != nil {
+		// Someone burned your DAO coin
+		return true
+	} else if txnMeta.DAOCoinTransferTxindexMetadata != nil {
+		// Someone transferred your DAO coins
 		return true
 	} else if txnMeta.TxnType == lib.TxnTypeBasicTransfer.String() {
 		// Someone paid you
