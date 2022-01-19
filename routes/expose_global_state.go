@@ -132,7 +132,7 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, utxoView *lib.UtxoV
 		}
 	}
 	// Now, get  we're using our own global state. Seek global state for all restricted public keys of this type.
-	publicKeys, states, err := fes.GlobalStateSeek(
+	publicKeys, states, err := fes.GlobalState.Seek(
 		prefix,
 		prefix, /*validForPrefix*/
 		0,      /*maxKeyLen -- ignored since reverse is false*/
