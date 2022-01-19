@@ -160,7 +160,7 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem adding to blacklist: %v", err))
 			}
 		} else {
-			err = fes.GlobalStatePut(blacklistKey, lib.NotBlacklisted)
+			err = fes.GlobalState.Put(blacklistKey, lib.NotBlacklisted)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem removing from blacklist: %v", err))
 				return
@@ -184,7 +184,7 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 				return
 			}
 		} else {
-			err = fes.GlobalStatePut(graylistkey, lib.NotGraylisted)
+			err = fes.GlobalState.Put(graylistkey, lib.NotGraylisted)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem removing from graylist: %v", err))
 				return
