@@ -513,6 +513,11 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 			"base58 public key %s: %v", requestData.RecipientPublicKeyBase58Check, err))
 		return
 	}
+	blockHeight := fes.blockchain.BlockTip().Height + 1
+	var baseGroupKeyName []byte
+	if blockHeight > fes.Params.ForkHeights.DeSoV3MessagesBlockHeight {
+		baseGroupKeyName = lib.BaseGroupKeyName()[:]
+	}
 
 	// Try and create the message for the user.
 	tstamp := uint64(time.Now().UnixNano())
@@ -520,8 +525,8 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 		senderPkBytes, recipientPkBytes,
 		requestData.MessageText,
 		requestData.EncryptedMessageText,
-		senderPkBytes, lib.BaseGroupKeyName()[:],
-		recipientPkBytes, lib.BaseGroupKeyName()[:],
+		senderPkBytes, baseGroupKeyName,
+		recipientPkBytes, baseGroupKeyName,
 		tstamp,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
