@@ -114,9 +114,9 @@ type User struct {
 	// JumioFinishedTime = Time user completed flow in Jumio
 	JumioFinishedTime uint64
 	// JumioVerified = user was verified from Jumio flow
-	JumioVerified    bool
+	JumioVerified bool
 	// JumioReturned = jumio webhook called
-	JumioReturned    bool
+	JumioReturned bool
 
 	// Is this user an admin
 	IsAdmin bool
@@ -349,4 +349,16 @@ func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, 
 		}
 	}
 	return hash, err
+}
+
+func (fes *APIServer) AddNodeSourceToTxnMetadata (txn *lib.MsgDeSoTxn) {
+	if fes.Config.NodeSource != 0 {
+		if len(txn.ExtraData) == 0 {
+			txnExtraData := make(map[string][]byte)
+			txnExtraData[lib.NodeSourceMapKey] = lib.UintToBuf(fes.Config.NodeSource)
+			txn.ExtraData = txnExtraData
+		} else {
+			txn.ExtraData[lib.NodeSourceMapKey] = lib.UintToBuf(fes.Config.NodeSource)
+		}
+	}
 }

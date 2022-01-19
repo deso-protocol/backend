@@ -75,7 +75,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	//
 	// TODO: The timestamp is spoofable, but it's not a big deal. See comment on MessageEntry
 	// for more insight on this.
-	messageEntries, err := utxoView.GetLimitedMessagesForUser(publicKeyBytes)
+	messageEntries, _, err := utxoView.GetMessagesForUser(publicKeyBytes)
 	if err != nil {
 		return nil, nil, nil, 0, errors.Wrapf(
 			err, "getMessagesStateless: Problem fetching MessageEntries from augmented UtxoView: ")
@@ -93,7 +93,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			if _, alreadySeen := publicKeyToDESO[otherPartyPublicKeyBase58Check]; !alreadySeen {
 				otherPartyProfileEntry := utxoView.GetProfileEntryForPublicKey(otherPartyPublicKeyBytes)
 				if otherPartyProfileEntry != nil {
-					publicKeyToDESO[otherPartyPublicKeyBase58Check] = otherPartyProfileEntry.DeSoLockedNanos
+					publicKeyToDESO[otherPartyPublicKeyBase58Check] = otherPartyProfileEntry.CreatorCoinEntry.DeSoLockedNanos
 				} else {
 					publicKeyToDESO[otherPartyPublicKeyBase58Check] = 0
 				}
@@ -130,13 +130,15 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			otherPartyPublicKeyBytes, otherPartyPublicKeyBase58Check := fes.getOtherPartyInThread(messageEntry, publicKeyBytes)
 
 			if _, alreadySeen := publicKeyToNanosUserHeld[otherPartyPublicKeyBase58Check]; !alreadySeen {
-				otherPartyBalanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(otherPartyPublicKeyBytes, publicKeyBytes, utxoView)
+				otherPartyBalanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(
+					otherPartyPublicKeyBytes, publicKeyBytes, utxoView, false)
 				if err != nil {
 					return nil, nil, nil, 0, errors.Wrapf(
 						err, "getMessagesStateless: Problem getting balance entry for public key")
 				}
 				if otherPartyBalanceEntry != nil {
-					publicKeyToNanosUserHeld[otherPartyPublicKeyBase58Check] = otherPartyBalanceEntry.BalanceNanos
+					// CreatorCoins never exceed uint64
+					publicKeyToNanosUserHeld[otherPartyPublicKeyBase58Check] = otherPartyBalanceEntry.BalanceNanos.Uint64()
 				} else {
 					publicKeyToNanosUserHeld[otherPartyPublicKeyBase58Check] = 0
 				}
@@ -208,12 +210,14 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			if holdersOnly {
 				holdsUser, balanceChecked := publicKeyHoldsUser[otherPartyPublicKeyBase58Check]
 				if !balanceChecked {
-					balanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(otherPartyPublicKeyBytes, publicKeyBytes, utxoView)
+					balanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(
+						otherPartyPublicKeyBytes, publicKeyBytes, utxoView, false)
 					if err != nil {
 						return nil, nil, nil, 0, errors.Wrapf(
 							err, "getMessagesStateless: Problem getting balance entry for holder public key %v", otherPartyPublicKeyBase58Check)
 					}
-					holdsUser = balanceEntry != nil && balanceEntry.BalanceNanos > 0
+					// CreatorCoins never exceed Uint64
+					holdsUser = balanceEntry != nil && balanceEntry.BalanceNanos.Uint64() > 0
 					publicKeyHoldsUser[otherPartyPublicKeyBase58Check] = holdsUser
 				}
 				if holdsUser {
@@ -225,12 +229,14 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			if !publicKeyWithinFilters && holdingsOnly {
 				holdsPublicKey, balanceChecked := userHoldsPublicKey[otherPartyPublicKeyBase58Check]
 				if !balanceChecked {
-					balanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(publicKeyBytes, otherPartyPublicKeyBytes, utxoView)
+					balanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(
+						publicKeyBytes, otherPartyPublicKeyBytes, utxoView, false)
 					if err != nil {
 						return nil, nil, nil, 0, errors.Wrapf(
 							err, "getMessagesStateless: Problem getting balance entry for holder public key %v", otherPartyPublicKeyBase58Check)
 					}
-					holdsPublicKey = balanceEntry != nil && balanceEntry.BalanceNanos > 0
+					// CreatorCoins never exceed Uint64
+					holdsPublicKey = balanceEntry != nil && balanceEntry.BalanceNanos.Uint64() > 0
 					userHoldsPublicKey[otherPartyPublicKeyBase58Check] = holdsPublicKey
 				}
 				if holdsPublicKey {
@@ -315,8 +321,8 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 
 		// By now we know this messageEntry is meant to be included in the response.
 		messageEntryRes := &MessageEntryResponse{
-			SenderPublicKeyBase58Check:    lib.PkToString(messageEntry.SenderPublicKey, fes.Params),
-			RecipientPublicKeyBase58Check: lib.PkToString(messageEntry.RecipientPublicKey, fes.Params),
+			SenderPublicKeyBase58Check:    lib.PkToString(messageEntry.SenderPublicKey[:], fes.Params),
+			RecipientPublicKeyBase58Check: lib.PkToString(messageEntry.RecipientPublicKey[:], fes.Params),
 			EncryptedText:                 hex.EncodeToString(messageEntry.EncryptedText),
 			TstampNanos:                   messageEntry.TstampNanos,
 			IsSender:                      !reflect.DeepEqual(messageEntry.RecipientPublicKey, publicKeyBytes),
@@ -395,9 +401,9 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 func (fes *APIServer) getOtherPartyInThread(messageEntry *lib.MessageEntry,
 	readerPublicKeyBytes []byte) (otherPartyPublicKeyBytes []byte, otherPartyPublicKeyBase58Check string) {
 	if reflect.DeepEqual(messageEntry.RecipientPublicKey, readerPublicKeyBytes) {
-		otherPartyPublicKeyBytes = messageEntry.SenderPublicKey
+		otherPartyPublicKeyBytes = messageEntry.SenderPublicKey[:]
 	} else {
-		otherPartyPublicKeyBytes = messageEntry.RecipientPublicKey
+		otherPartyPublicKeyBytes = messageEntry.RecipientPublicKey[:]
 	}
 	otherPartyPublicKeyBase58Check = lib.PkToString(otherPartyPublicKeyBytes, fes.Params)
 	return
@@ -512,13 +518,19 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 	tstamp := uint64(time.Now().UnixNano())
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreatePrivateMessageTxn(
 		senderPkBytes, recipientPkBytes,
-		requestData.MessageText, requestData.EncryptedMessageText,
+		requestData.MessageText,
+		requestData.EncryptedMessageText,
+		senderPkBytes, lib.BaseGroupKeyName()[:],
+		recipientPkBytes, lib.BaseGroupKeyName()[:],
 		tstamp,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem creating transaction: %v", err))
 		return
 	}
+
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -620,7 +632,7 @@ func (fes *APIServer) markAllMessagesRead(publicKeyBytes []byte) error {
 		return errors.Wrapf(err, "markAllMessagesRead: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
 	}
 
-	messageEntries, err := utxoView.GetMessagesForUser(publicKeyBytes)
+	messageEntries, _, err := utxoView.GetMessagesForUser(publicKeyBytes)
 	if err != nil {
 		return errors.Wrapf(err, "markAllMessagesRead: Problem fetching MessageEntries from augmented UtxoView: ")
 	}

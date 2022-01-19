@@ -21,15 +21,15 @@ type TransactionFee struct {
 	// excluded in other places to reduce payload sizes and improve performance.
 	ProfileEntryResponse *ProfileEntryResponse
 	// AmountNanos is the amount PublicKeyBase58Check receives when this fee is incurred.
-	AmountNanos          uint64
+	AmountNanos uint64
 }
 
 type AdminSetTransactionFeeForTransactionTypeRequest struct {
 	// TransactionType is the type of transaction for which we are setting the fees.
-	TransactionType     lib.TxnString
+	TransactionType lib.TxnString
 	// NewTransactionFees is a slice of TransactionFee structs that tells us who should receive a fee and how much
 	// when a transaction of TransactionType is performed.
-	NewTransactionFees  []TransactionFee
+	NewTransactionFees []TransactionFee
 }
 
 type AdminSetTransactionFeeForTransactionTypeResponse struct {
@@ -185,7 +185,7 @@ func TransformTransactionFeesToOutputs(transactionFees []TransactionFee) (_outpu
 		}
 		// Construct and append the DeSoOutput to the slice of outputs.
 		outputs = append(outputs, &lib.DeSoOutput{
-			PublicKey: outputPublicKeyBytes,
+			PublicKey:   outputPublicKeyBytes,
 			AmountNanos: output.AmountNanos,
 		})
 	}
@@ -193,7 +193,7 @@ func TransformTransactionFeesToOutputs(transactionFees []TransactionFee) (_outpu
 }
 
 // TxnFeeMapToResponse converts the transaction fee map to a format that is usable by the frontend.
-func (fes *APIServer) TxnFeeMapToResponse(skipProfileEntryResponses bool) map[string][]TransactionFee{
+func (fes *APIServer) TxnFeeMapToResponse(skipProfileEntryResponses bool) map[string][]TransactionFee {
 	txnFeeResponseMap := make(map[string][]TransactionFee)
 	var utxoView *lib.UtxoView
 	// If we're including ProfileEntryResponses, we need to get a utxoView.
@@ -231,7 +231,7 @@ func (fes *APIServer) TxnFeeMapToResponse(skipProfileEntryResponses bool) map[st
 			// Append the transaction fee to the slice of txnOutputs
 			txnOutputs = append(txnOutputs, TransactionFee{
 				PublicKeyBase58Check: lib.PkToString(output.PublicKey, fes.Params),
-				AmountNanos: output.AmountNanos,
+				AmountNanos:          output.AmountNanos,
 				ProfileEntryResponse: profileEntryResponse,
 			})
 		}
@@ -286,7 +286,7 @@ type AdminAddExemptPublicKey struct {
 	PublicKeyBase58Check string
 	// IsRemoval is a boolean that when true means we should remove the exemption from a public key, when false means we
 	// should add an exemption.
-	IsRemoval            bool
+	IsRemoval bool
 }
 
 // AdminAddExemptPublicKey adds or removes a public key from the list of public keys exempt from node fees.
@@ -371,7 +371,7 @@ func (fes *APIServer) GetExemptPublicKeyMapFromGlobalState() map[string]interfac
 	// For each transaction type, get the list of DeSoOutputs we want to add when performing this type of transaction
 	prefix := append([]byte{}, _GlobalStatePrefixExemptPublicKeys...)
 	maxKeyLen := 1 + btcec.PubKeyBytesLenCompressed
-	keys, _, err := fes.GlobalState.Seek(prefix, prefix, maxKeyLen,  300, true, false)
+	keys, _, err := fes.GlobalState.Seek(prefix, prefix, maxKeyLen, 300, true, false)
 	if err != nil {
 		// if we encounter an error, just return an empty map.
 		return exemptPublicKeyMap
