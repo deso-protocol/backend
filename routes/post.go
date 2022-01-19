@@ -1200,10 +1200,8 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	glog.Infof("\nGetting comments for: %v \n", postEntryResponse.Body)
 	comments, err := fes.GetSinglePostComments(
 		utxoView,
-		pubKeyToProfileEntryResponseMap,
 		postEntryResponse,
 		isCurrentPosterBlocked,
-		isCurrentPosterGreylisted,
 		ww,
 		requestData,
 		readerPublicKeyBytes,
@@ -1235,10 +1233,8 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 // Get the comments associated with a single post.
 func (fes *APIServer) GetSinglePostComments(
 	utxoView *lib.UtxoView,
-	pubKeyToProfileEntryResponseMap map[lib.PkMapKey]*ProfileEntryResponse,
 	postEntryResponse *PostEntryResponse,
 	isCurrentPosterBlocked bool,
-	isCurrentPosterGreylisted bool,
 	ww http.ResponseWriter,
 	requestData GetSinglePostRequest,
 	readerPublicKeyBytes []byte,
@@ -1248,6 +1244,56 @@ func (fes *APIServer) GetSinglePostComments(
 	loadAuthorThread bool,
 	topLevelPosterPublicKeyBase58Check string,
 ) ([]*PostEntryResponse, error) {
+	// Filter out restricted PosterPublicKeys.
+	filteredProfilePubKeyMap, err := fes.FilterOutRestrictedPubKeysFromMap(
+		profilePubKeyMap, readerPublicKeyBytes, "leaderboard" /*moderationType*/, utxoView)
+	if err != nil {
+		return nil, err
+	}
+
+	// Figure out if the current poster is greylisted.  If the current poster is greylisted, we will add their
+	// public key back to the filteredProfileMap so their profile will appear for the current post
+	// and any parents, but we will remove any comments by this greylisted user.
+	isCurrentPosterGreylisted := false
+	posterPublicKey, err := hex.DecodeString(postEntryResponse.PosterPublicKeyBase58Check)
+	if _, ok := filteredProfilePubKeyMap[lib.MakePkMapKey(posterPublicKey)]; !ok {
+		// Get the userMetadata for the currentPosters
+		currentPosterUserMetadataKey := append([]byte{}, _GlobalStatePrefixPublicKeyToUserMetadata...)
+		currentPosterUserMetadataKey = append(currentPosterUserMetadataKey, posterPublicKey...)
+		var currentPosterUserMetadataBytes []byte
+		currentPosterUserMetadataBytes, err = fes.GlobalState.Get(currentPosterUserMetadataKey)
+		if err != nil {
+			return nil, err
+		}
+		// If the currentPoster's userMetadata doesn't exist, then they are no greylisted, so we can exit.
+		if currentPosterUserMetadataBytes != nil {
+			// Decode the currentPoster's userMetadata.
+			currentPosterUserMetadata := UserMetadata{}
+			err = gob.NewDecoder(bytes.NewReader(currentPosterUserMetadataBytes)).Decode(&currentPosterUserMetadata)
+			if err != nil {
+				return nil, err
+			}
+			// If the currentPoster is not blacklisted (removed everywhere) and is greylisted (removed from leaderboard)
+			// add them back to the filteredProfilePubKeyMap and note that the currentPoster is greylisted.
+			if currentPosterUserMetadata.RemoveFromLeaderboard && !currentPosterUserMetadata.RemoveEverywhere {
+				isCurrentPosterGreylisted = true
+				filteredProfilePubKeyMap[lib.MakePkMapKey(posterPublicKey)] = posterPublicKey
+			}
+		}
+	}
+
+	// Get the profile entry for all PosterPublicKeys that passed our filter.
+	pubKeyToProfileEntryResponseMap := make(map[lib.PkMapKey]*ProfileEntryResponse)
+	for _, pubKeyBytes := range filteredProfilePubKeyMap {
+		profileEntry := utxoView.GetProfileEntryForPublicKey(pubKeyBytes)
+		if profileEntry == nil {
+			continue
+		} else {
+			pubKeyToProfileEntryResponseMap[lib.MakePkMapKey(pubKeyBytes)] =
+				fes._profileEntryToResponse(profileEntry, utxoView)
+		}
+	}
+
 	postHash, err := GetPostHashFromPostHashHex(postEntryResponse.PostHashHex)
 	if err != nil {
 		return nil, err
@@ -1387,10 +1433,8 @@ func (fes *APIServer) GetSinglePostComments(
 		if commentWithinLeafLimit && commentWithinThreadLevelLimit {
 			commentReplies, err := fes.GetSinglePostComments(
 				utxoView,
-				pubKeyToProfileEntryResponseMap,
 				comment,
 				isCurrentPosterBlocked,
-				isCurrentPosterGreylisted,
 				ww,
 				requestData,
 				readerPublicKeyBytes,
