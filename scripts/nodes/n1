@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 DATE=`date +%Y%m%d-%H:%M:%S-%N`
+#rm /Users/piotr/Desktop/Code/DeSo/logs/n1/*
 
 (cd ../../ && go build -o backend -gcflags="all=-N -l" main.go && ./backend run \
   --glog-v=2 \
@@ -8,10 +9,12 @@ DATE=`date +%Y%m%d-%H:%M:%S-%N`
   --connect-ips=localhost:17000 \
   --api-port=18001 \
   --protocol-port=18000 \
-  --txindex=true \
   --admin-public-keys=* \
   --super-admin-public-keys=* \
-  --read-only-mode=true \
+  --max-sync-block-height=1800 \
+  --hyper-sync=true \
   --starter-deso-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
   --block-cypher-api-key=092dae962ea44b02809a4c74408b42a1 \
-  --data-dir=/tmp/fe1_loadtest_144 )
+  --data-dir=$HOME/data_dirs/n5_1 \
+  --log-dir=/Users/piotr/Desktop/Code/DeSo/logs/n5/test11 \
+)
