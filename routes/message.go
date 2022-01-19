@@ -400,7 +400,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 
 func (fes *APIServer) getOtherPartyInThread(messageEntry *lib.MessageEntry,
 	readerPublicKeyBytes []byte) (otherPartyPublicKeyBytes []byte, otherPartyPublicKeyBase58Check string) {
-	if reflect.DeepEqual(messageEntry.RecipientPublicKey, readerPublicKeyBytes) {
+	if reflect.DeepEqual(messageEntry.RecipientPublicKey[:], readerPublicKeyBytes) {
 		otherPartyPublicKeyBytes = messageEntry.SenderPublicKey[:]
 	} else {
 		otherPartyPublicKeyBytes = messageEntry.RecipientPublicKey[:]
