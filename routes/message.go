@@ -325,7 +325,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			RecipientPublicKeyBase58Check: lib.PkToString(messageEntry.RecipientPublicKey[:], fes.Params),
 			EncryptedText:                 hex.EncodeToString(messageEntry.EncryptedText),
 			TstampNanos:                   messageEntry.TstampNanos,
-			IsSender:                      !reflect.DeepEqual(messageEntry.RecipientPublicKey, publicKeyBytes),
+			IsSender:                      !reflect.DeepEqual(messageEntry.RecipientPublicKey[:], publicKeyBytes),
 			V2:                            V2,
 		}
 		contactEntry, _ := contactMap[lib.PkToString(otherPartyPublicKeyBytes, fes.Params)]
