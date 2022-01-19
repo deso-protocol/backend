@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/golang/glog"
 	"io"
 	"net/http"
 	"reflect"
@@ -1192,7 +1191,6 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		parentPostEntryResponseList = append(parentPostEntryResponseList, parentEntryResponse)
 	}
 
-	glog.Infof("\nGetting comments for: %v \n", postEntryResponse.Body)
 	comments, err := fes.GetSinglePostComments(
 		utxoView,
 		postEntryResponse,
@@ -1245,8 +1243,6 @@ func (fes *APIServer) GetSinglePostComments(
 	if err != nil {
 		return nil, err
 	}
-
-	glog.Infof("Fetched this many entries: %v", len(commentEntries))
 
 	// Process the comments into something we can return.
 	commentEntryResponseList := []*PostEntryResponse{}
@@ -1351,13 +1347,11 @@ func (fes *APIServer) GetSinglePostComments(
 		if commentProfileEntryResponse == nil || commentEntry.IsDeleted() ||
 			(commentEntry.IsHidden && commentEntry.CommentCount == 0) ||
 			(commentAuthorIsCurrentPoster && (isCurrentPosterBlocked || isCurrentPosterGreylisted)) {
-			glog.Infof("\nSkpping comment Empty: %v Deleted: %v Hidden: %v Blocked: %v\n", commentProfileEntryResponse == nil, commentEntry.IsDeleted(), (commentEntry.IsHidden && commentEntry.CommentCount == 0), (commentAuthorIsCurrentPoster && (isCurrentPosterBlocked || isCurrentPosterGreylisted)))
 			continue
 		}
 
 		// Build the comments entry response and append.
 		commentEntryResponse, err := fes._postEntryToResponse(commentEntry, requestData.AddGlobalFeedBool /*AddGlobalFeed*/, fes.Params, utxoView, readerPublicKeyBytes, 2)
-		glog.Infof("\nHere is the comment entry response: %v \n", commentEntryResponse.Body)
 		if err != nil {
 			return nil, err
 		}
@@ -1439,7 +1433,6 @@ func (fes *APIServer) GetSinglePostComments(
 	}
 
 	for ii, comment := range comments {
-		glog.Infof("\nIterating through the comment: %v \n", comment.Body)
 		// If the previous stack was loading the comment author thread and the comment in question is from the same author, load it.
 		loadCommentAuthorThread := loadAuthorThread && comment.PosterPublicKeyBase58Check == topLevelPosterPublicKeyBase58Check
 		// Only iterate over comments within the specified leaf-limit. To follow a single reply thread, that limit would be 1. All top-level replies are included. A limit of -1 includes all leafs.
