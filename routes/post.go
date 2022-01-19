@@ -1288,6 +1288,7 @@ func (fes *APIServer) GetSinglePostComments(
 		if commentProfileEntryResponse == nil || commentEntry.IsDeleted() ||
 			(commentEntry.IsHidden && commentEntry.CommentCount == 0) ||
 			(commentAuthorIsCurrentPoster && (isCurrentPosterBlocked || isCurrentPosterGreylisted)) {
+			glog.Infof("\nSkpping comment Empty: %v Deleted: %v Hidden: %v Blocked: %v\n", commentProfileEntryResponse == nil, commentEntry.IsDeleted(), (commentEntry.IsHidden && commentEntry.CommentCount == 0), (commentAuthorIsCurrentPoster && (isCurrentPosterBlocked || isCurrentPosterGreylisted)))
 			continue
 		}
 
