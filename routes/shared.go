@@ -364,7 +364,7 @@ func (fes *APIServer) AddNodeSourceToTxnMetadata (txn *lib.MsgDeSoTxn, addInputs
 			// Add (small) additional amount of transaction data to fees
 			_, _, _, _, err := fes.blockchain.AddInputsAndChangeToTransaction(txn, fes.MinFeeRateNanosPerKB, fes.mempool)
 			if err != nil {
-				return fmt.Errorf("SendSeedDeSo: Error adding inputs for seed DeSo: %v", err)
+				return fmt.Errorf("AddNodeSourceToTxnMetadata: Error adding inputs for Node Source Extra Data: %v", err)
 			}
 		}
 	}
