@@ -54,7 +54,7 @@ type GetMessagesResponse struct {
 	OrderedContactsWithMessages []*MessageContactResponse
 	UnreadStateByContact        map[string]bool
 	NumberOfUnreadThreads       int
-	MessagingKeys               []*MessagingKey
+	MessagingKeys               []*MessagingGroupEntryResponse
 }
 
 func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
@@ -64,7 +64,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	_orderedContactsWithMessages []*MessageContactResponse,
 	_unreadMessagesByContact map[string]bool,
 	_numOfUnreadThreads int,
-	_messagingKeys []*MessagingKey,
+	_messagingKeys []*MessagingGroupEntryResponse,
 	_err error) {
 
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUtxoViewForPublicKey(publicKeyBytes, nil)
@@ -317,8 +317,10 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			}
 		}
 
+		// V2 will be true even if message version is 3 or higher, but the version field in MessageEntryResponse
+		// will reflect the real message version.
 		V2 := false
-		if messageEntry.Version == 2 {
+		if messageEntry.Version == lib.MessagesVersion2 {
 			V2 = true
 		}
 
@@ -328,13 +330,13 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			RecipientPublicKeyBase58Check: lib.PkToString(messageEntry.RecipientPublicKey[:], fes.Params),
 			EncryptedText:                 hex.EncodeToString(messageEntry.EncryptedText),
 			TstampNanos:                   messageEntry.TstampNanos,
-			IsSender:                      !reflect.DeepEqual(messageEntry.RecipientPublicKey, publicKeyBytes),
+			IsSender:                      !reflect.DeepEqual(messageEntry.RecipientPublicKey[:], publicKeyBytes),
 			V2:                            V2, /* DEPRECATED */
 			Version:                       uint32(messageEntry.Version),
 			SenderMessagingPublicKey:      lib.PkToString(messageEntry.SenderMessagingPublicKey[:], fes.Params),
-			SenderMessagingKeyName:        string(lib.MessagingKeyNameDecode(messageEntry.SenderMessagingKeyName)),
+			SenderMessagingKeyName:        string(lib.MessagingKeyNameDecode(messageEntry.SenderMessagingGroupKeyName)),
 			RecipientMessagingPublicKey:   lib.PkToString(messageEntry.RecipientMessagingPublicKey[:], fes.Params),
-			RecipientMessagingKeyName:     string(lib.MessagingKeyNameDecode(messageEntry.RecipientMessagingKeyName)),
+			RecipientMessagingKeyName:     string(lib.MessagingKeyNameDecode(messageEntry.RecipientMessagingGroupKeyName)),
 		}
 		contactEntry, _ := contactMap[lib.PkToString(otherPartyPublicKeyBytes, fes.Params)]
 		contactEntry.Messages = append(contactEntry.Messages, messageEntryRes)
@@ -403,22 +405,27 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 		}
 	}
 
-	var userMessagingKeys []*MessagingKey
+	var userMessagingKeys []*MessagingGroupEntryResponse
 	for _, key := range messagingKeys {
-		userMessagingKey := MessagingKey{
-			PublicKeyBase58Check: lib.PkToString(key.PublicKey[:], fes.Params),
+
+		userMessagingKey := MessagingGroupEntryResponse{
+			GroupOwnerPublicKeyBase58Check: lib.PkToString(key.GroupOwnerPublicKey[:], fes.Params),
 			MessagingPublicKeyBase58Check: lib.PkToString(key.MessagingPublicKey[:], fes.Params),
-			MessagingKeyName: string(lib.MessagingKeyNameDecode(key.MessagingKeyName)),
-			EncryptedKey: hex.EncodeToString(key.EncryptedKey),
-			IsRecipient: key.IsRecipient,
+			MessagingGroupKeyName: string(lib.MessagingKeyNameDecode(key.MessagingGroupKeyName)),
+			EncryptedKey: "",
 		}
-		for _, recipient := range key.Recipients {
-			messagingRecipient := MessagingRecipient{
-				RecipientPublicKeyBase58Check: lib.PkToString(recipient.RecipientPublicKey[:], fes.Params),
-				RecipientMessagingKeyName: string(lib.MessagingKeyNameDecode(recipient.RecipientMessagingKeyName)),
-				EncryptedKey: hex.EncodeToString(recipient.EncryptedKey),
+
+		for _, groupMember := range key.MessagingGroupMembers {
+			encryptedKey := hex.EncodeToString(groupMember.EncryptedKey)
+			if reflect.DeepEqual(groupMember.GroupMemberPublicKey[:], publicKeyBytes) {
+				userMessagingKey.EncryptedKey = encryptedKey
 			}
-			userMessagingKey.Recipients = append(userMessagingKey.Recipients, messagingRecipient)
+			messagingRecipient := &MessagingGroupMemberResponse{
+				GroupMemberPublicKeyBase58Check: lib.PkToString(groupMember.GroupMemberPublicKey[:], fes.Params),
+				GroupMemberKeyName: string(lib.MessagingKeyNameDecode(groupMember.GroupMemberKeyName)),
+				EncryptedKey: hex.EncodeToString(groupMember.EncryptedKey),
+			}
+			userMessagingKey.MessagingGroupMembers = append(userMessagingKey.MessagingGroupMembers, messagingRecipient)
 		}
 		userMessagingKeys = append(userMessagingKeys, &userMessagingKey)
 	}
@@ -428,7 +435,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 
 func (fes *APIServer) getOtherPartyInThread(messageEntry *lib.MessageEntry,
 	readerPublicKeyBytes []byte) (otherPartyPublicKeyBytes []byte, otherPartyPublicKeyBase58Check string) {
-	if reflect.DeepEqual(messageEntry.RecipientPublicKey, readerPublicKeyBytes) {
+	if reflect.DeepEqual(messageEntry.RecipientPublicKey[:], readerPublicKeyBytes) {
 		otherPartyPublicKeyBytes = messageEntry.SenderPublicKey[:]
 	} else {
 		otherPartyPublicKeyBytes = messageEntry.RecipientPublicKey[:]
@@ -559,7 +566,7 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 			return
 		}
 		senderMessagingKeyName = []byte(requestData.SenderMessagingKeyName)
-		err = lib.ValidateKeyAndName(senderMessagingPublicKey, senderMessagingKeyName)
+		err = lib.ValidateGroupPublicKeyAndName(senderMessagingPublicKey, senderMessagingKeyName)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem validating sender messaging public key and name %v", err))
 			return
@@ -577,7 +584,7 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 			return
 		}
 		recipientMessagingKeyName = []byte(requestData.RecipientMessagingKeyName)
-		err = lib.ValidateKeyAndName(recipientMessagingPublicKey, recipientMessagingKeyName)
+		err = lib.ValidateGroupPublicKeyAndName(recipientMessagingPublicKey, recipientMessagingKeyName)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem validating recipient messaging public key and name %v", err))
 			return
@@ -810,8 +817,8 @@ func (fes *APIServer) CheckPartyMessagingKeys(ww http.ResponseWriter, req *http.
 	}
 
 	if requestData.SenderMessagingKeyName != "" {
-		messagingKey := lib.NewMessagingKey(lib.NewPublicKey(senderPublicKey), []byte(requestData.SenderMessagingKeyName))
-		messagingEntry := utxoView.GetMessagingKeyToMessagingKeyEntryMapping(messagingKey)
+		messagingKey := lib.NewMessagingGroupKey(lib.NewPublicKey(senderPublicKey), []byte(requestData.SenderMessagingKeyName))
+		messagingEntry := utxoView.GetMessagingGroupKeyToMessagingGroupEntryMapping(messagingKey)
 		//if messagingEntry == nil {
 		//	_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem fetching messaging key for sender %v "+
 		//		"and key name: %v", requestData.SenderPublicKeyBase58Check, requestData.SenderMessagingKeyName))
@@ -822,11 +829,11 @@ func (fes *APIServer) CheckPartyMessagingKeys(ww http.ResponseWriter, req *http.
 		}
 	}
 	if requestData.RecipientMessagingKeyName != "" {
-		messagingKey := lib.NewMessagingKey(lib.NewPublicKey(recipientPublicKey), []byte(requestData.RecipientMessagingKeyName))
-		messagingEntry := utxoView.GetMessagingKeyToMessagingKeyEntryMapping(messagingKey)
+		messagingKey := lib.NewMessagingGroupKey(lib.NewPublicKey(recipientPublicKey), []byte(requestData.RecipientMessagingKeyName))
+		messagingEntry := utxoView.GetMessagingGroupKeyToMessagingGroupEntryMapping(messagingKey)
 		//if messagingEntry == nil {
 		//	_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem fetching messaging key for recipient %v "+
-		//		"and key name: %v", requestData.RecipientPublicKeyBase58Check, requestData.RecipientMessagingKeyName))
+		//		"and key name: %v", requestData.RecipientPublicKeyBase58Check, requestData.GroupMemberKeyName))
 		if messagingEntry != nil {
 			response.RecipientMessagingPublicKey = hex.EncodeToString(messagingEntry.MessagingPublicKey[:])
 			response.IsRecipientMessagingKey = true

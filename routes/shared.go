@@ -104,18 +104,17 @@ type MessageContactResponse struct {
 	NumMessagesRead int64
 }
 
-type MessagingKey struct {
-	PublicKeyBase58Check string
+type MessagingGroupEntryResponse struct {
+	GroupOwnerPublicKeyBase58Check string
 	MessagingPublicKeyBase58Check string
-	MessagingKeyName string
-	Recipients []MessagingRecipient
+	MessagingGroupKeyName string
+	MessagingGroupMembers []*MessagingGroupMemberResponse
 	EncryptedKey string
-	IsRecipient bool
 }
 
-type MessagingRecipient struct {
-	RecipientPublicKeyBase58Check string
-	RecipientMessagingKeyName string
+type MessagingGroupMemberResponse struct {
+	GroupMemberPublicKeyBase58Check string
+	GroupMemberKeyName string
 	EncryptedKey string
 }
 
