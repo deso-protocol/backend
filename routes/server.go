@@ -123,6 +123,8 @@ const (
 	RoutePathGetMessagesStateless    = "/api/v0/get-messages-stateless"
 	RoutePathMarkContactMessagesRead = "/api/v0/mark-contact-messages-read"
 	RoutePathMarkAllMessagesRead     = "/api/v0/mark-all-messages-read"
+	RoutePathRegisterMessagingKeys   = "/api/v0/register-messaging-keys"
+	RoutePathGetAllMessagingKeys     = "/api/v0/get-all-messaging-keys"
 	RoutePathCheckPartyMessagingKeys = "/api/v0/check-party-messaging-keys"
 
 	// verify.go
@@ -1476,6 +1478,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathMarkAllMessagesRead,
 			fes.MarkAllMessagesRead,
+			PublicAccess,
+		},
+		{
+			"RegisterMessagingKeys",
+			[]string{"POST", "OPTIONS"},
+			RoutePathRegisterMessagingKeys,
+			fes.RegisterMessagingKeys,
+			PublicAccess,
+		},
+		{
+			"GetAllMessagingKeys",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAllMessagingKeys,
+			fes.GetAllMessagingKeys,
 			PublicAccess,
 		},
 		{

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io"
@@ -406,7 +407,14 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	}
 
 	var userMessagingKeys []*MessagingGroupEntryResponse
-	for _, key := range messagingKeys {
+	userMessagingKeys = fes.ParseMessagingGroupEntries(publicKeyBytes, messagingKeys)
+
+	return publicKeyToProfileEntry, newContactEntries, unreadMessagesBycontact, numOfUnreadThreads, userMessagingKeys, nil
+}
+
+func (fes *APIServer) ParseMessagingGroupEntries(memberPublicKeyBytes []byte, messagingGroupEntries []*lib.MessagingGroupEntry) []*MessagingGroupEntryResponse {
+	var userMessagingKeys []*MessagingGroupEntryResponse
+	for _, key := range messagingGroupEntries {
 
 		userMessagingKey := MessagingGroupEntryResponse{
 			GroupOwnerPublicKeyBase58Check: lib.PkToString(key.GroupOwnerPublicKey[:], fes.Params),
@@ -417,7 +425,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 
 		for _, groupMember := range key.MessagingGroupMembers {
 			encryptedKey := hex.EncodeToString(groupMember.EncryptedKey)
-			if reflect.DeepEqual(groupMember.GroupMemberPublicKey[:], publicKeyBytes) {
+			if reflect.DeepEqual(groupMember.GroupMemberPublicKey[:], memberPublicKeyBytes) {
 				userMessagingKey.EncryptedKey = encryptedKey
 			}
 			messagingRecipient := &MessagingGroupMemberResponse{
@@ -429,8 +437,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 		}
 		userMessagingKeys = append(userMessagingKeys, &userMessagingKey)
 	}
-
-	return publicKeyToProfileEntry, newContactEntries, unreadMessagesBycontact, numOfUnreadThreads, userMessagingKeys, nil
+	return userMessagingKeys
 }
 
 func (fes *APIServer) getOtherPartyInThread(messageEntry *lib.MessageEntry,
@@ -500,9 +507,7 @@ type SendMessageStatelessRequest struct {
 	RecipientPublicKeyBase58Check string `safeForLogging:"true"`
 	MessageText                   string
 	EncryptedMessageText          string
-	SenderMessagingPublicKey      string `safeForLogging:"true"`
 	SenderMessagingKeyName        string `safeForLogging:"true"`
-	RecipientMessagingPublicKey   string `safeForLogging:"true"`
 	RecipientMessagingKeyName     string `safeForLogging:"true"`
 	MinFeeRateNanosPerKB          uint64 `safeForLogging:"true"`
 
@@ -538,11 +543,17 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 			"base58 public key %s: %v", requestData.SenderPublicKeyBase58Check, err))
 		return
 	}
+	senderPublicKey := lib.NewPublicKey(senderPkBytes)
 
-	// Compute the additional transaction fees as specified by the request body and the node-level fees.
-	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypePrivateMessage, senderPkBytes, requestData.TransactionFees)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: TransactionFees specified in Request body are invalid: %v", err))
+	var senderMessagingKeyNameBytes []byte
+	if len(requestData.SenderMessagingKeyName) == 0 {
+		senderMessagingKeyNameBytes = lib.DefaultGroupKeyName()[:]
+	} else {
+		senderMessagingKeyNameBytes = []byte(requestData.SenderMessagingKeyName)
+	}
+	if err = lib.ValidateGroupPublicKeyAndName(senderPkBytes, senderMessagingKeyNameBytes); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem validating sender "+
+			"messaging key name %s: %v", requestData.SenderMessagingKeyName, err))
 		return
 	}
 
@@ -553,51 +564,60 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 			"base58 public key %s: %v", requestData.RecipientPublicKeyBase58Check, err))
 		return
 	}
+	recipientPublicKey := lib.NewPublicKey(recipientPkBytes)
 
-	var senderMessagingPublicKey, senderMessagingKeyName, recipientMessagingPublicKey, recipientMessagingKeyName []byte
-	if requestData.SenderMessagingPublicKey != "" {
-		if requestData.SenderMessagingKeyName == "" {
-			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Error, sender messaging key name doesn't exst"))
-			return
-		}
-		senderMessagingPublicKey, err = hex.DecodeString(requestData.SenderMessagingPublicKey)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem decoding sender messaging key %v", err))
-			return
-		}
-		senderMessagingKeyName = []byte(requestData.SenderMessagingKeyName)
-		err = lib.ValidateGroupPublicKeyAndName(senderMessagingPublicKey, senderMessagingKeyName)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem validating sender messaging public key and name %v", err))
-			return
-		}
+	var recipientMessagingKeyNameBytes []byte
+	if len(requestData.RecipientMessagingKeyName) == 0 {
+		recipientMessagingKeyNameBytes = lib.DefaultGroupKeyName()[:]
+	} else {
+		recipientMessagingKeyNameBytes = []byte(requestData.RecipientMessagingKeyName)
+	}
+	if err = lib.ValidateGroupPublicKeyAndName(senderPkBytes, recipientMessagingKeyNameBytes); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem validating recipient "+
+			"messaging key name %s: %v", requestData.RecipientMessagingKeyName, err))
+		return
 	}
 
-	if requestData.RecipientMessagingPublicKey != "" {
-		if requestData.RecipientMessagingKeyName == "" {
-			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Error, recipient messaging key name doesn't exst"))
-			return
-		}
-		recipientMessagingPublicKey, err = hex.DecodeString(requestData.RecipientMessagingPublicKey)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem decoding recipient messaging key %v", err))
-			return
-		}
-		recipientMessagingKeyName = []byte(requestData.RecipientMessagingKeyName)
-		err = lib.ValidateGroupPublicKeyAndName(recipientMessagingPublicKey, recipientMessagingKeyName)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem validating recipient messaging public key and name %v", err))
-			return
-		}
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypePrivateMessage, senderPkBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: TransactionFees specified in Request body are invalid: %v", err))
+		return
 	}
+
+	checkPartyMessagingKeysResponse, err := fes.CreateCheckPartyMessagingKeysResponse(senderPublicKey, lib.NewGroupKeyName(senderMessagingKeyNameBytes),
+		recipientPublicKey, lib.NewGroupKeyName(recipientMessagingKeyNameBytes))
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem checking party keys: %v", err))
+		return
+	}
+
+	if !checkPartyMessagingKeysResponse.IsSenderMessagingKey {
+		senderMessagingKeyNameBytes = lib.BaseGroupKeyName()[:]
+	}
+
+	if !checkPartyMessagingKeysResponse.IsRecipientMessagingKey {
+		recipientMessagingKeyNameBytes = lib.BaseGroupKeyName()[:]
+	}
+
+
+	var senderMessagingPublicKey, recipientMessagingPublicKey []byte
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	senderMessagingGroupKey := lib.NewMessagingGroupKey(senderPublicKey, senderMessagingKeyNameBytes)
+	senderMessagingGroupEntry := utxoView.GetMessagingGroupKeyToMessagingGroupEntryMapping(senderMessagingGroupKey)
+	senderMessagingPublicKey = senderMessagingGroupEntry.MessagingPublicKey[:]
+
+	recipientMessagingGroupKey := lib.NewMessagingGroupKey(recipientPublicKey, recipientMessagingKeyNameBytes)
+	recipientMessagingGroupEntry := utxoView.GetMessagingGroupKeyToMessagingGroupEntryMapping(recipientMessagingGroupKey)
+	recipientMessagingPublicKey = recipientMessagingGroupEntry.MessagingPublicKey[:]
 
 	// Try and create the message for the user.
 	tstamp := uint64(time.Now().UnixNano())
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreatePrivateMessageTxn(
 		senderPkBytes, recipientPkBytes,
 		requestData.MessageText, requestData.EncryptedMessageText,
-		senderMessagingPublicKey, senderMessagingKeyName,
-		recipientMessagingPublicKey, recipientMessagingKeyName,
+		senderMessagingPublicKey, senderMessagingKeyNameBytes,
+		recipientMessagingPublicKey, recipientMessagingKeyNameBytes,
 		tstamp,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
@@ -610,7 +630,7 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem serializing transaction: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem serializing transaction: %v", err))
 		return
 	}
 
@@ -766,6 +786,178 @@ func (fes *APIServer) getUserContactMostRecentReadTime(userPublicKeyBytes []byte
 	return tStampNanos, nil
 }
 
+type RegisterMessagingKeysRequest struct {
+	OwnerPublicKeyBase58Check     string
+	MessagingPublicKeyBase58Check string
+	MessagingKeyName              string
+	MessagingKeySignatureHex      string
+
+	MinFeeRateNanosPerKB          uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+}
+
+type RegisterMessagingKeysResponse struct {
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgDeSoTxn
+	TransactionHex    string
+}
+
+func (fes *APIServer) RegisterMessagingKeys(ww http.ResponseWriter, req *http.Request) {
+
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := RegisterMessagingKeysRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingKeys: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Decode the owner public key.
+	ownerPkBytes, _, err := lib.Base58CheckDecode(requestData.OwnerPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingKeys: Problem decoding sender "+
+			"base58 public key %s: %v", requestData.OwnerPublicKeyBase58Check, err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeMessagingGroup, ownerPkBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingKeys: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
+	messagingPkBytes, _, err := lib.Base58CheckDecode(requestData.MessagingPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingKeys: Problem decoding messaging "+
+			"base58 public key %s: %v", requestData.MessagingPublicKeyBase58Check, err))
+		return
+	}
+	messagingKeyNameBytes := []byte(requestData.MessagingKeyName)
+
+	err = lib.ValidateGroupPublicKeyAndName(messagingPkBytes, messagingKeyNameBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingKeys: Problem validating messaging public key and name %v", err))
+		return
+	}
+
+	messagingKeySignature, _ := hex.DecodeString(requestData.MessagingKeySignatureHex)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingKeys: Problem decoding messaging public key signature %v", err))
+		return
+	}
+
+	if lib.EqualGroupKeyName(lib.DefaultGroupKeyName(), lib.NewGroupKeyName(messagingKeyNameBytes)) {
+		msgBytes := append(messagingPkBytes, messagingKeyNameBytes...)
+		if err := VerifyBytesSignature(ownerPkBytes, msgBytes, messagingKeySignature); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingKeys: Problem verifying transaction signature: %v", err))
+			return
+		}
+	}
+
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
+		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, messagingKeySignature,
+		[]*lib.MessagingGroupMember{},
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingKeys: Problem creating transaction: %v", err))
+		return
+	}
+
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingKeys: Problem serializing transaction: %v", err))
+		return
+	}
+
+	res := RegisterMessagingKeysResponse{
+		TotalInputNanos: totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos: fees,
+		Transaction: txn,
+		TransactionHex: hex.EncodeToString(txnBytes),
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingKeys: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+func VerifyBytesSignature(signer, data, signature []byte) error {
+	bytes := lib.Sha256DoubleHash(data)
+
+	// Convert signature to *btcec.Signature.
+	sign, err := btcec.ParseDERSignature(signature, btcec.S256())
+	if err != nil {
+		return errors.Wrapf(err, "_verifyBytesSignature: Problem parsing access signature: ")
+	}
+
+	// Verify signature.
+	ownerPk, _ := btcec.ParsePubKey(signer, btcec.S256())
+	if !sign.Verify(bytes[:], ownerPk) {
+		return fmt.Errorf("_verifyBytesSignature: Invalid signature")
+	}
+	return nil
+}
+
+type GetAllMessagingKeysRequest struct {
+	OwnerPublicKeyBase58Check string
+}
+
+type GetAllMessagingKeysResponse struct {
+	MessagingGroupEntries []*MessagingGroupEntryResponse
+}
+
+
+func (fes *APIServer) GetAllMessagingKeys(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetAllMessagingKeysRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllMessagingKeys: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Decode the owner public key.
+	ownerPkBytes, _, err := lib.Base58CheckDecode(requestData.OwnerPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllMessagingKeys: Problem decoding sender "+
+			"base58 public key %s: %v", requestData.OwnerPublicKeyBase58Check, err))
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUtxoViewForPublicKey(ownerPkBytes, nil)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllMessagingKeys: Error calling " +
+			"GetAugmentedUtxoViewForPublicKey: %s: %v", requestData.OwnerPublicKeyBase58Check, err))
+		return
+	}
+
+	// First get all messaging keys for a user.
+	messagingGroupEntries, err := utxoView.GetMessagingGroupEntriesForUser(ownerPkBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllMessagingKeys: Error calling " +
+			"GetAugmentedUtxoViewForPublicKey: %s: %v", requestData.OwnerPublicKeyBase58Check, err))
+	}
+
+	var messagingEntryResponses []*MessagingGroupEntryResponse
+	messagingEntryResponses = fes.ParseMessagingGroupEntries(ownerPkBytes, messagingGroupEntries)
+
+	res := GetAllMessagingKeysResponse{
+		MessagingGroupEntries: messagingEntryResponses,
+	}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllMessagingKeys: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
+
 type CheckPartyMessagingKeysRequest struct {
 	SenderPublicKeyBase58Check    string
 	SenderMessagingKeyName        string
@@ -774,12 +966,52 @@ type CheckPartyMessagingKeysRequest struct {
 }
 
 type CheckPartyMessagingKeysResponse struct {
-	SenderMessagingPublicKey    string
-	IsSenderMessagingKey        bool
-	SenderMessagingKeyName      string
-	RecipientMessagingPublicKey string
-	IsRecipientMessagingKey     bool
-	RecipientMessagingKeyName   string
+	SenderMessagingPublicKeyBase58Check    string
+	IsSenderMessagingKey                   bool
+	SenderMessagingKeyName                 string
+	RecipientMessagingPublicKeyBase58Check string
+	IsRecipientMessagingKey                bool
+	RecipientMessagingKeyName              string
+}
+
+func (fes *APIServer) CreateCheckPartyMessagingKeysResponse(senderPublicKey *lib.PublicKey, senderMessagingKeyName *lib.GroupKeyName,
+	recipientPublicKey *lib.PublicKey, recipientMessagingKeyName *lib.GroupKeyName) (
+	*CheckPartyMessagingKeysResponse, error) {
+
+	response := &CheckPartyMessagingKeysResponse{
+		SenderMessagingPublicKeyBase58Check:    lib.Base58CheckEncode(senderPublicKey[:], false, fes.Params),
+		IsSenderMessagingKey:                   false,
+		SenderMessagingKeyName:                 "",
+		RecipientMessagingPublicKeyBase58Check: lib.Base58CheckEncode(recipientPublicKey[:], false, fes.Params),
+		IsRecipientMessagingKey:                false,
+		RecipientMessagingKeyName:              "",
+	}
+
+	// The publicKey Utxo doesn't work currently so doesn't matter if we call it with []byte{}
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return nil, err
+	}
+
+	messagingKey := lib.NewMessagingGroupKey(senderPublicKey, senderMessagingKeyName[:])
+	messagingEntry := utxoView.GetMessagingGroupKeyToMessagingGroupEntryMapping(messagingKey)
+
+	if messagingEntry != nil {
+		response.SenderMessagingPublicKeyBase58Check = lib.Base58CheckEncode(messagingEntry.MessagingPublicKey[:], false, fes.Params)
+		response.IsSenderMessagingKey = true
+		response.SenderMessagingKeyName = string(lib.MessagingKeyNameDecode(senderMessagingKeyName))
+	}
+
+	messagingKey = lib.NewMessagingGroupKey(recipientPublicKey, recipientMessagingKeyName[:])
+	messagingEntry = utxoView.GetMessagingGroupKeyToMessagingGroupEntryMapping(messagingKey)
+
+	if messagingEntry != nil {
+		response.RecipientMessagingPublicKeyBase58Check = lib.Base58CheckEncode(messagingEntry.MessagingPublicKey[:], false, fes.Params)
+		response.IsRecipientMessagingKey = true
+		response.RecipientMessagingKeyName = string(lib.MessagingKeyNameDecode(recipientMessagingKeyName))
+	}
+
+	return response, nil
 }
 
 func (fes *APIServer) CheckPartyMessagingKeys(ww http.ResponseWriter, req *http.Request) {
@@ -795,52 +1027,29 @@ func (fes *APIServer) CheckPartyMessagingKeys(ww http.ResponseWriter, req *http.
 		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem decoding sender public key: %v", err))
 		return
 	}
+	senderKeyName := lib.NewGroupKeyName([]byte(requestData.SenderMessagingKeyName))
+	if err = lib.ValidateGroupPublicKeyAndName(senderPublicKey, senderKeyName[:]); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem validating sender public key and key name: %v", err))
+		return
+	}
+
 	recipientPublicKey, _, err := lib.Base58CheckDecode(requestData.RecipientPublicKeyBase58Check)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem decoding sender public key: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem decoding recipient public key: %v", err))
 		return
 	}
-	response := CheckPartyMessagingKeysResponse{
-		SenderMessagingPublicKey:    hex.EncodeToString(senderPublicKey),
-		IsSenderMessagingKey:        false,
-		SenderMessagingKeyName:      "",
-		RecipientMessagingPublicKey: hex.EncodeToString(recipientPublicKey),
-		IsRecipientMessagingKey:     false,
-		RecipientMessagingKeyName:   "",
+	recipientKeyName := lib.NewGroupKeyName([]byte(requestData.RecipientMessagingKeyName))
+	if err = lib.ValidateGroupPublicKeyAndName(recipientPublicKey, recipientKeyName[:]); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem validating recipient public key and key name: %v", err))
+		return
 	}
 
-	// The publicKey Utxo doesn't work currently so doesn't matter if we call it with []byte{}
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	response, err := fes.CreateCheckPartyMessagingKeysResponse(lib.NewPublicKey(senderPublicKey), senderKeyName,
+		lib.NewPublicKey(recipientPublicKey), recipientKeyName)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem getting utxoView: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem creating party messaging key response: %v", err))
 		return
 	}
-
-	if requestData.SenderMessagingKeyName != "" {
-		messagingKey := lib.NewMessagingGroupKey(lib.NewPublicKey(senderPublicKey), []byte(requestData.SenderMessagingKeyName))
-		messagingEntry := utxoView.GetMessagingGroupKeyToMessagingGroupEntryMapping(messagingKey)
-		//if messagingEntry == nil {
-		//	_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem fetching messaging key for sender %v "+
-		//		"and key name: %v", requestData.SenderPublicKeyBase58Check, requestData.SenderMessagingKeyName))
-		if messagingEntry != nil {
-			response.SenderMessagingPublicKey = hex.EncodeToString(messagingEntry.MessagingPublicKey[:])
-			response.IsSenderMessagingKey = true
-			response.SenderMessagingKeyName = requestData.SenderMessagingKeyName
-		}
-	}
-	if requestData.RecipientMessagingKeyName != "" {
-		messagingKey := lib.NewMessagingGroupKey(lib.NewPublicKey(recipientPublicKey), []byte(requestData.RecipientMessagingKeyName))
-		messagingEntry := utxoView.GetMessagingGroupKeyToMessagingGroupEntryMapping(messagingKey)
-		//if messagingEntry == nil {
-		//	_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem fetching messaging key for recipient %v "+
-		//		"and key name: %v", requestData.RecipientPublicKeyBase58Check, requestData.GroupMemberKeyName))
-		if messagingEntry != nil {
-			response.RecipientMessagingPublicKey = hex.EncodeToString(messagingEntry.MessagingPublicKey[:])
-			response.IsRecipientMessagingKey = true
-			response.RecipientMessagingKeyName = requestData.RecipientMessagingKeyName
-		}
-	}
-
 	if err := json.NewEncoder(ww).Encode(response); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem encoding response as JSON: %v", err))
 		return
