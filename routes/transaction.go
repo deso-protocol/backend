@@ -1099,8 +1099,6 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 	// update the user objects to reflect that.
 	txID := lib.PkToString(txnn.Hash()[:], fes.Params)
 
-
-
 	txnBytes, err := txnn.ToBytes(true)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem serializing transaction: %v", err))
