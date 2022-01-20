@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/holiman/uint256"
 	"net/http"
 	"time"
 
@@ -151,6 +152,10 @@ type BalanceEntryResponse struct {
 
 	// How much this HODLer owns of a particular creator coin.
 	BalanceNanos uint64
+
+	// For simplicity, we create a new field for the uint256 balance for DAO coins
+	BalanceNanosUint256 uint256.Int
+
 	// The net effect of transactions in the mempool on a given BalanceEntry's BalanceNanos.
 	// This is used by the frontend to convey info about mining.
 	NetBalanceInMempool int64

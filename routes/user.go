@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/holiman/uint256"
 	"io"
 	"net/http"
 	"reflect"
@@ -181,7 +182,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	if !skipForLeaderboard {
 		var youHodlMap map[string]*BalanceEntryResponse
 		// Get the users that the user hodls
-		youHodlMap, err = fes.GetYouHodlMap(pkid, true, utxoView)
+		youHodlMap, err = fes.GetYouHodlMap(pkid, true, false, utxoView)
 		if err != nil {
 			return errors.Errorf("updateUserFieldsStateless: Problem with canUserCreateProfile: %v", err)
 		}
@@ -196,7 +197,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		})
 
 		var hodlYouMap map[string]*BalanceEntryResponse
-		hodlYouMap, err = fes.GetHodlYouMap(pkid, false, utxoView)
+		hodlYouMap, err = fes.GetHodlYouMap(pkid, false, false, utxoView)
 		// Assign the new hodl lists to the user object
 		user.UsersYouHODL = youHodlList
 		user.UsersWhoHODLYouCount = len(hodlYouMap)
@@ -274,12 +275,11 @@ func (fes *APIServer) UserAdminStatus(publicKeyBase58Check string) (_isAdmin boo
 }
 
 // Get map of creators you hodl.
-func (fes *APIServer) GetYouHodlMap(pkid *lib.PKIDEntry, fetchProfiles bool, utxoView *lib.UtxoView) (
+func (fes *APIServer) GetYouHodlMap(pkid *lib.PKIDEntry, fetchProfiles bool, isDAOCoin bool, utxoView *lib.UtxoView) (
 	_youHodlMap map[string]*BalanceEntryResponse, _err error) {
 
 	// Get all the hodlings for this user from the db
-	entriesYouHodl, profilesYouHodl, err := utxoView.GetHoldings(
-		pkid.PKID, fetchProfiles, false)
+	entriesYouHodl, profilesYouHodl, err := utxoView.GetHoldings(pkid.PKID, fetchProfiles, isDAOCoin)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"GetHodlingsForPublicKey: Error looking up balance entries in db: %v", err)
@@ -352,6 +352,8 @@ func (fes *APIServer) _balanceEntryToResponse(
 		HasPurchased:                balanceEntry.HasPurchased,
 		// CreatorCoins can't exceed uint64
 		BalanceNanos:        balanceEntry.BalanceNanos.Uint64(),
+		// Use this value for DAO Coins balances
+		BalanceNanosUint256: balanceEntry.BalanceNanos,
 		NetBalanceInMempool: int64(balanceEntry.BalanceNanos.Uint64()) - int64(dbBalanceNanos),
 
 		// If the profile is nil, this will be nil
@@ -360,7 +362,8 @@ func (fes *APIServer) _balanceEntryToResponse(
 }
 
 // GetHodlingsForPublicKey ...
-func (fes *APIServer) GetHodlingsForPublicKey(pkid *lib.PKIDEntry, fetchProfiles bool, referenceUtxoView *lib.UtxoView) (
+func (fes *APIServer) GetHodlingsForPublicKey(
+	pkid *lib.PKIDEntry, fetchProfiles bool, isDAOCoin bool, referenceUtxoView *lib.UtxoView) (
 	_youHodlMap map[string]*BalanceEntryResponse,
 	_hodlYouMap map[string]*BalanceEntryResponse, _err error) {
 	// Get a view that considers all of this user's transactions.
@@ -376,12 +379,12 @@ func (fes *APIServer) GetHodlingsForPublicKey(pkid *lib.PKIDEntry, fetchProfiles
 		}
 	}
 	// Get the map of entries this PKID hodls.
-	youHodlMap, err := fes.GetYouHodlMap(pkid, fetchProfiles, utxoView)
+	youHodlMap, err := fes.GetYouHodlMap(pkid, fetchProfiles, isDAOCoin, utxoView)
 	if err != nil {
 		return nil, nil, err
 	}
 	// Get the map of the entries hodlings this PKID
-	hodlYouMap, err := fes.GetHodlYouMap(pkid, fetchProfiles, utxoView)
+	hodlYouMap, err := fes.GetHodlYouMap(pkid, fetchProfiles, isDAOCoin, utxoView)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -392,11 +395,10 @@ func (fes *APIServer) GetHodlingsForPublicKey(pkid *lib.PKIDEntry, fetchProfiles
 }
 
 // Get map of public keys hodling your coin.
-func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, utxoView *lib.UtxoView) (
+func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, isDAOCoin bool, utxoView *lib.UtxoView) (
 	_youHodlMap map[string]*BalanceEntryResponse, _err error) {
 	// Get all the hodlings for this user from the db
-	entriesHodlingYou, profileHodlingYou, err := utxoView.GetHolders(
-		pkid.PKID, fetchProfiles, false)
+	entriesHodlingYou, profileHodlingYou, err := utxoView.GetHolders(pkid.PKID, fetchProfiles, isDAOCoin)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"GetHodlingsForPublicKey: Error looking up balance entries in db: %v", err)
@@ -585,6 +587,10 @@ type ProfileEntryResponse struct {
 	Posts                []*PostEntryResponse
 	// Creator coin fields
 	CoinEntry *CoinEntryResponse
+
+	// DAO Coin fields
+	DAOCoinEntry *DAOCoinEntryResponse
+
 	// Include current price for the frontend to display.
 	CoinPriceDeSoNanos     uint64
 	CoinPriceBitCloutNanos uint64 // Deprecated
@@ -599,15 +605,22 @@ type ProfileEntryResponse struct {
 	IsFeaturedTutorialUpAndComingCreator bool
 }
 
-// Deprecated: Temporary to add support for BitCloutLockedNanos
 type CoinEntryResponse struct {
-	CreatorBasisPoints      uint64
-	DeSoLockedNanos         uint64
-	NumberOfHolders         uint64
-	CoinsInCirculationNanos uint64
-	CoinWatermarkNanos      uint64
+	CreatorBasisPoints        uint64
+	DeSoLockedNanos           uint64
+	NumberOfHolders           uint64
+	CoinsInCirculationNanos   uint64
+	CoinWatermarkNanos        uint64
 
+	// Deprecated: Temporary to add support for BitCloutLockedNanos
 	BitCloutLockedNanos uint64 // Deprecated
+}
+
+type DAOCoinEntryResponse struct {
+	NumberOfHolders           uint64
+	CoinsInCirculationNanos   uint256.Int
+	MintingDisabled           bool
+	TransferRestrictionStatus TransferRestrictionStatusString
 }
 
 // GetProfiles ...
@@ -761,7 +774,7 @@ func (fes *APIServer) GetProfiles(ww http.ResponseWriter, req *http.Request) {
 			// Get the users that the user hodls and vice versa
 			pkid := utxoView.GetPKIDForPublicKey(startPubKey)
 			_, hodlYouMap, err := fes.GetHodlingsForPublicKey(
-				pkid, true /*fetchProfiles*/, utxoView)
+				pkid, true /*fetchProfiles*/, false, utxoView)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf(
 					"GetProfiles: Could not find HODLers for pub key: %v", startPubKey))
@@ -956,6 +969,13 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 			CoinWatermarkNanos:      profileEntry.CreatorCoinEntry.CoinWatermarkNanos,
 			BitCloutLockedNanos:     profileEntry.CreatorCoinEntry.DeSoLockedNanos,
 		},
+		DAOCoinEntry: &DAOCoinEntryResponse{
+			NumberOfHolders:           profileEntry.DAOCoinEntry.NumberOfHolders,
+			CoinsInCirculationNanos:   profileEntry.DAOCoinEntry.CoinsInCirculationNanos,
+			MintingDisabled:           profileEntry.DAOCoinEntry.MintingDisabled,
+			TransferRestrictionStatus: getTransferRestrictionStatusStringFromTransferRestrictionStatus(
+				profileEntry.DAOCoinEntry.TransferRestrictionStatus),
+		},
 		CoinPriceDeSoNanos:     coinPriceDeSoNanos,
 		CoinPriceBitCloutNanos: coinPriceDeSoNanos,
 		IsHidden:               profileEntry.IsHidden,
@@ -964,6 +984,22 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 	}
 
 	return profResponse
+}
+
+func getTransferRestrictionStatusStringFromTransferRestrictionStatus(
+	transferRestrictionStatus lib.TransferRestrictionStatus) TransferRestrictionStatusString {
+	switch transferRestrictionStatus {
+	case lib.TransferRestrictionStatusUnrestricted:
+		return TransferRestrictionStatusStringUnrestricted
+	case lib.TransferRestrictionStatusProfileOwnerOnly:
+		return TransferRestrictionStatusStringProfileOwnerOnly
+	case lib.TransferRestrictionStatusDAOMembersOnly:
+		return TransferRestrictionStatusStringDAOMembersOnly
+	case lib.TransferRestrictionStatusPermanentlyUnrestricted:
+		return TransferRestrictionStatusStringPermanentlyUnrestricted
+	default:
+		return TransferRestrictionStatusStringUnrestricted
+	}
 }
 
 func (fes *APIServer) augmentProfileEntry(
@@ -1160,6 +1196,9 @@ type GetHodlersForPublicKeyRequest struct {
 	// Number of records to fetch
 	NumToFetch uint64 `safeForLogging:"true"`
 
+	// If true, fetch DAO coin balance entries instead of creator coin balance entries
+	IsDAOCoin bool `safeForLogging:"true"`
+
 	// If true, fetch balance entries for your hodlings instead of balance entries for hodler's of your coin
 	FetchHodlings bool
 
@@ -1222,14 +1261,16 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 	var hodlMap map[string]*BalanceEntryResponse
 	hodlList := []*BalanceEntryResponse{}
 	if requestData.FetchHodlings {
-		hodlMap, err = fes.GetYouHodlMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView)
+		hodlMap, err = fes.GetYouHodlMap(
+			utxoView.GetPKIDForPublicKey(publicKeyBytes), false, requestData.IsDAOCoin, utxoView)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: error getting youHodlMap: %v", err))
 			return
 		}
 
 	} else {
-		hodlMap, err = fes.GetHodlYouMap(utxoView.GetPKIDForPublicKey(publicKeyBytes), false, utxoView)
+		hodlMap, err = fes.GetHodlYouMap(
+			utxoView.GetPKIDForPublicKey(publicKeyBytes), false, requestData.IsDAOCoin, utxoView)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: error getting youHodlMap: %v", err))
 			return
@@ -2784,6 +2825,7 @@ func (fes *APIServer) IsFollowingPublicKey(ww http.ResponseWriter, req *http.Req
 type IsHodlingPublicKeyRequest struct {
 	PublicKeyBase58Check          string
 	IsHodlingPublicKeyBase58Check string
+	IsDAOCoin                     bool
 }
 
 type IsHodlingPublicKeyResponse struct {
@@ -2832,7 +2874,7 @@ func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Reque
 	var BalanceEntry *BalanceEntryResponse
 
 	hodlBalanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(
-		userPublicKeyBytes, isHodlingPublicKeyBytes, false)
+		userPublicKeyBytes, isHodlingPublicKeyBytes, requestData.IsDAOCoin)
 	if hodlBalanceEntry != nil {
 		BalanceEntry = fes._balanceEntryToResponse(
 			hodlBalanceEntry, hodlBalanceEntry.BalanceNanos.Uint64(), nil, utxoView)
@@ -3098,4 +3140,43 @@ func (fes *APIServer) IsUserBlacklisted(pkid *lib.PKID) bool {
 // GetBlacklistState returns the blacklist state bytes based on the current Blacklist state.
 func (fes *APIServer) GetBlacklistState(pkid *lib.PKID) []byte {
 	return fes.BlacklistedPKIDMap[*pkid]
+}
+
+func (fes *APIServer) GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+	pubKeyOrUsername string, utxoView *lib.UtxoView) (_pubKeyBytes []byte, _profileEntry *lib.ProfileEntry, _err error) {
+	var pubKeyBytes []byte
+	var profileEntry *lib.ProfileEntry
+	var err error
+	if !strings.HasPrefix(pubKeyOrUsername, fes.GetPublicKeyPrefix()) {
+		// The receiver string is too short to be a public key.  Lookup the username.
+		profileEntry = utxoView.GetProfileEntryForUsername([]byte(pubKeyOrUsername))
+		if profileEntry == nil {
+			return nil, nil, fmt.Errorf("Problem getting profile for username %s", pubKeyOrUsername)
+		}
+		pubKeyBytes = profileEntry.PublicKey
+	} else {
+		// Decode the public key
+		pubKeyBytes, err = GetPubKeyBytesFromBase58Check(pubKeyOrUsername)
+		if err != nil || len(pubKeyBytes) != btcec.PubKeyBytesLenCompressed {
+			return nil, nil, fmt.Errorf("Problem decoding public key %s", pubKeyOrUsername)
+		}
+		profileEntry = utxoView.GetProfileEntryForPublicKey(pubKeyBytes)
+	}
+	return pubKeyBytes, profileEntry, nil
+}
+
+func GetPubKeyBytesFromBase58Check(pubKeyBase58Check string) (_pubKeyBytes []byte, _err error) {
+	pubKeyBytes, _, err := lib.Base58CheckDecode(pubKeyBase58Check)
+	if err != nil || len(pubKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		return nil, fmt.Errorf("Problem decoding public key %s: %v", pubKeyBase58Check, err)
+	}
+	return pubKeyBytes, nil
+}
+
+func (fes *APIServer) GetPublicKeyPrefix() string {
+	if fes.Params.NetworkType == lib.NetworkType_MAINNET {
+		return "BC"
+	} else {
+		return "tBC"
+	}
 }
