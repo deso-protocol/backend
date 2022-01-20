@@ -1459,7 +1459,16 @@ func (fes *APIServer) GetSinglePostComments(
 		}
 	}
 
-	postEntryResponse.Comments = comments
+	// Limit comments to leaf limit, if it's not the first reply level and the leaf limit isn't -1
+	var limitedComments []*PostEntryResponse
+
+	if requestData.ThreadLeafLimit == -1 || commentLevel == 0 {
+		limitedComments = comments
+	} else {
+		limitedComments = comments[:requestData.ThreadLeafLimit]
+	}
+
+	postEntryResponse.Comments = limitedComments
 	return comments, nil
 }
 
