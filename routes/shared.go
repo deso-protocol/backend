@@ -351,7 +351,7 @@ func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, 
 	return hash, err
 }
 
-func (fes *APIServer) AddNodeSourceToTxnMetadata (txn *lib.MsgDeSoTxn) {
+func (fes *APIServer) AddNodeSourceToTxnMetadata (txn *lib.MsgDeSoTxn, addInputs bool) error {
 	if fes.Config.NodeSource != 0 {
 		if len(txn.ExtraData) == 0 {
 			txnExtraData := make(map[string][]byte)
@@ -360,5 +360,13 @@ func (fes *APIServer) AddNodeSourceToTxnMetadata (txn *lib.MsgDeSoTxn) {
 		} else {
 			txn.ExtraData[lib.NodeSourceMapKey] = lib.UintToBuf(fes.Config.NodeSource)
 		}
+		if addInputs {
+			// Add (small) additional amount of transaction data to fees
+			_, _, _, _, err := fes.blockchain.AddInputsAndChangeToTransaction(txn, fes.MinFeeRateNanosPerKB, fes.mempool)
+			if err != nil {
+				return fmt.Errorf("SendSeedDeSo: Error adding inputs for seed DeSo: %v", err)
+			}
+		}
 	}
+	return nil
 }

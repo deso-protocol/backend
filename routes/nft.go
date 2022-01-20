@@ -251,8 +251,12 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
+	// Add node source to txn metadata.
+	err = fes.AddNodeSourceToTxnMetadata(txn, true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Problem adding node source: %v", err))
+		return
+	}
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -400,8 +404,12 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
+	// Add node source to txn metadata.
+	err = fes.AddNodeSourceToTxnMetadata(txn, true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateNFT: Problem adding node source: %v", err))
+		return
+	}
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -557,8 +565,12 @@ func (fes *APIServer) CreateNFTBid(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
+	// Add node source to txn metadata.
+	err = fes.AddNodeSourceToTxnMetadata(txn, true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateNFTBid: Problem adding node source: %v", err))
+		return
+	}
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -720,8 +732,12 @@ func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
+	// Add node source to txn metadata.
+	err = fes.AddNodeSourceToTxnMetadata(txn, true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTBid: Problem adding node source: %v", err))
+		return
+	}
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -1620,8 +1636,12 @@ func (fes *APIServer) TransferNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
+	// Add node source to txn metadata.
+	err = fes.AddNodeSourceToTxnMetadata(txn, true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Problem adding node source: %v", err))
+		return
+	}
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -1760,8 +1780,12 @@ func (fes *APIServer) AcceptNFTTransfer(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
+	// Add node source to txn metadata.
+	err = fes.AddNodeSourceToTxnMetadata(txn, true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: Problem adding node source: %v", err))
+		return
+	}
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -1899,8 +1923,12 @@ func (fes *APIServer) BurnNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
+	// Add node source to txn metadata.
+	err = fes.AddNodeSourceToTxnMetadata(txn, true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Problem adding node source: %v", err))
+		return
+	}
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {

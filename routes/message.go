@@ -529,8 +529,12 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
+	// Add node source to txn metadata.
+	err = fes.AddNodeSourceToTxnMetadata(txn, true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem adding node source: %v", err))
+		return
+	}
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {

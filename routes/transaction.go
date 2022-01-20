@@ -416,8 +416,12 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
+	// Add node source to txn metadata.
+	err = fes.AddNodeSourceToTxnMetadata(txn, true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem adding node source: %v", err))
+		return
+	}
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -1062,6 +1066,13 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 			// inputs and change.
 		}
 
+		// Add node source to txn metadata
+		err = fes.AddNodeSourceToTxnMetadata(txnn, false)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem adding node source: %v", err))
+			return
+		}
+
 		// Add inputs to the transaction and do signing, validation, and broadcast
 		// depending on what the user requested.
 		totalInputt, spendAmountt, changeAmountt, feeNanoss, err =
@@ -1087,6 +1098,8 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 	// transaction passed validation and it's therefore reasonable to
 	// update the user objects to reflect that.
 	txID := lib.PkToString(txnn.Hash()[:], fes.Params)
+
+
 
 	txnBytes, err := txnn.ToBytes(true)
 	if err != nil {
@@ -1181,8 +1194,12 @@ func (fes *APIServer) CreateLikeStateless(ww http.ResponseWriter, req *http.Requ
 		return
 	}
 
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
+	// Add node source to txn metadata.
+	err = fes.AddNodeSourceToTxnMetadata(txn, true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateLikeStateless: Problem adding node source: %v", err))
+		return
+	}
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -1417,8 +1434,12 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
+	// Add node source to txn metadata.
+	err = fes.AddNodeSourceToTxnMetadata(txn, true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Problem adding node source: %v", err))
+		return
+	}
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -1570,8 +1591,12 @@ func (fes *APIServer) CreateFollowTxnStateless(ww http.ResponseWriter, req *http
 		return
 	}
 
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
+	// Add node source to txn metadata.
+	err = fes.AddNodeSourceToTxnMetadata(txn, true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateFollowTxnStateless: Problem adding node source: %v", err))
+		return
+	}
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -1744,8 +1769,12 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
+	// Add node source to txn metadata.
+	err = fes.AddNodeSourceToTxnMetadata(txn, true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem adding node source: %v", err))
+		return
+	}
 
 	utxoView, err := fes.mempool.GetAugmentedUtxoViewForPublicKey(updaterPublicKeyBytes, txn)
 	if err != nil {
@@ -2008,8 +2037,12 @@ func (fes *APIServer) TransferCreatorCoin(ww http.ResponseWriter, req *http.Requ
 		return
 	}
 
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
+	// Add node source to txn metadata.
+	err = fes.AddNodeSourceToTxnMetadata(txn, true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferCreatorCoin: Problem adding node source: %v", err))
+		return
+	}
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -2171,7 +2204,11 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
+	err = fes.AddNodeSourceToTxnMetadata(txn, true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem adding node source: %v", err))
+		return
+	}
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
