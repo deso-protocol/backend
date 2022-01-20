@@ -1469,7 +1469,7 @@ func (fes *APIServer) GetSinglePostComments(
 	}
 
 	postEntryResponse.Comments = limitedComments
-	return comments, nil
+	return limitedComments, nil
 }
 
 // GetPostsForPublicKeyRequest ...
