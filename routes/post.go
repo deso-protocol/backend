@@ -1428,7 +1428,7 @@ func (fes *APIServer) GetSinglePostComments(
 	// Slice the comments from the offset up to either the end of the slice or the offset + limit, whichever is smaller.
 	maxIdx := lib.MinUint32(commentEntryResponseLength, requestData.CommentOffset+requestData.CommentLimit)
 	var comments []*PostEntryResponse
-	if commentEntryResponseLength > requestData.CommentOffset {
+	if commentEntryResponseLength > requestData.CommentOffset && commentLevel == 0 {
 		comments = commentEntryResponseList[requestData.CommentOffset:maxIdx]
 	}
 
