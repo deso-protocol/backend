@@ -1430,6 +1430,8 @@ func (fes *APIServer) GetSinglePostComments(
 	var comments []*PostEntryResponse
 	if commentEntryResponseLength > requestData.CommentOffset && commentLevel == 0 {
 		comments = commentEntryResponseList[requestData.CommentOffset:maxIdx]
+	} else {
+		comments = commentEntryResponseList
 	}
 
 	for ii, comment := range comments {
