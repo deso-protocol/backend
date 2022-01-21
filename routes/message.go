@@ -592,7 +592,7 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 	// If recipient messaging group key name is passed, we will validate it. Otherwise, just validate sender public key.
 	// We will treat empty group messaging keys as lib.BaseGroupKeyName(), which is an empty string key name.
 	senderMessagingGroupKeyNameBytes := []byte(requestData.SenderMessagingGroupKeyName)
-	if len(requestData.SenderMessagingGroupKeyName) == 0 {
+	if len(requestData.SenderMessagingGroupKeyName) > 0 {
 		if err = lib.ValidateGroupPublicKeyAndName(senderPkBytes, senderMessagingGroupKeyNameBytes); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem validating sender "+
 				"public key and group messaging key name %s: %v", requestData.SenderMessagingGroupKeyName, err))
