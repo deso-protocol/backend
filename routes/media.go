@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
-	//"github.com/h2non/bimg"
 	"io"
 	"net/http"
 	"strconv"
@@ -85,7 +84,7 @@ func resizeAndConvertToWebp(encodedImageString string, maxDim uint) (_image []by
 }
 
 func resizeAndConvertFromEncodedImageContent(encodedImageContent string, maxDim uint) (_image []byte, _err error) {
-	// always strip metadata
+	//// always strip metadata
 	//processOptions := bimg.Options{StripMetadata: true}
 	//decodedBytes, err := base64.StdEncoding.DecodeString(encodedImageContent)
 	//imgBytes, err := bimg.NewImage(decodedBytes).Process(processOptions)
@@ -95,11 +94,12 @@ func resizeAndConvertFromEncodedImageContent(encodedImageContent string, maxDim 
 	//img := bimg.NewImage(imgBytes)
 	//
 	//// resize the image
-	//_, err = _resizeImage(img, maxDim)
+	//resizedImage, err := _resizeImage(img, maxDim)
 	//if err != nil {
 	//	return nil, err
 	//}
-	return nil, nil
+	//return resizedImage.Convert(bimg.WEBP)
+	return []byte{}, nil
 }
 
 type UploadImageResponse struct {
@@ -200,6 +200,39 @@ func preprocessExtraData(extraData map[string]string) map[string][]byte {
 	return extraDataProcessed
 }
 
+//func _resizeImage(imageObj *bimg.Image, maxDim uint) (_imgObj *bimg.Image, _err error) {
+//	// Get the width and height.
+//	imgSize, err := imageObj.Size()
+//	if err != nil {
+//		return nil, err
+//	}
+//	imgWidth := imgSize.Width
+//	imgHeight := imgSize.Height
+//
+//	// Resize the image based on which side is longer. Doing it this way preserves the
+//	// image's aspect ratio while making sure it isn't too large.
+//	var resizedImageBytes []byte
+//	newWidth := imgWidth
+//	newHeight := imgHeight
+//	if imgWidth > imgHeight {
+//		if newWidth >= int(maxDim) {
+//			newWidth = int(maxDim)
+//			newHeight = int(float64(imgHeight) * float64(newWidth) / float64(imgWidth))
+//		}
+//	} else {
+//		if newHeight >= int(maxDim) {
+//			newHeight = int(maxDim)
+//			newWidth = int(float64(imgWidth) * float64(newHeight) / float64(imgHeight))
+//		}
+//	}
+//	resizedImageBytes, err = imageObj.Resize(newWidth, newHeight)
+//	if err != nil {
+//		return nil, err
+//	}
+//	resizedImage := bimg.NewImage(resizedImageBytes)
+//	return resizedImage, nil
+//}
+
 type GetFullTikTokURLRequest struct {
 	TikTokShortVideoID string
 }
@@ -285,7 +318,7 @@ func (fes *APIServer) UploadVideo(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: Unable to convert Upload-Length header to int for validation: %v", err))
 		return
 	}
-	if uploadLength > 4 * 1024 * 1024 * 1024 {
+	if uploadLength > 4*1024*1024*1024 {
 		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: Files must be less than 4GB"))
 		return
 	}
@@ -326,10 +359,10 @@ func (fes *APIServer) UploadVideo(ww http.ResponseWriter, req *http.Request) {
 }
 
 type CFVideoDetailsResponse struct {
-	Result map[string]interface{} `json:"result"`
-	Success bool `json:"success"`
-	Errors []interface{} `json:"errors"`
-	Messages []interface{} `json:"messages"`
+	Result   map[string]interface{} `json:"result"`
+	Success  bool                   `json:"success"`
+	Errors   []interface{}          `json:"errors"`
+	Messages []interface{}          `json:"messages"`
 }
 
 type GetVideoStatusResponse struct {

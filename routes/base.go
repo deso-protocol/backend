@@ -448,7 +448,7 @@ func (fes *APIServer) GetStateForPrefix(ww http.ResponseWriter, req *http.Reques
 		lastKey, _ = hex.DecodeString(requestData.LastKey)
 	}
 	fmt.Println("prefix", prefix)
-	dbEntries, full := fes.blockchain.Snapshot().GetMostRecentSnapshot(fes.blockchain.DB(), prefix, lastKey)
+	dbEntries, full, _ := fes.blockchain.Snapshot().GetMostRecentSnapshot(fes.blockchain.DB(), prefix, lastKey)
 	res := GetStateForPrefixResponse{
 		Full: full,
 		DBEntries: dbEntries,

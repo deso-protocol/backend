@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"github.com/deso-protocol/backend/scripts/tools/toolslib"
 	"github.com/deso-protocol/core/lib"
-		"time"
+	"time"
 )
 
 func main() {
-	dir0 := "/Users/piotr/data_dirs/n4_1"
-	dir1 := "/Users/piotr/data_dirs/n5_1"
+	dir0 := "/Users/piotr/data_dirs/n4_15"
+	dir1 := "/Users/piotr/data_dirs/n5_15"
 	//dir2 := "/Users/piotr/data_dirs/n7_1"
 
 	db0, err := toolslib.OpenDataDir(dir0)
@@ -38,11 +38,17 @@ func main() {
 	var currentTime time.Time
 	timeElapsed = 0.0
 	currentTime = time.Now()
+	broken := false
+	existingKeysSnap := make(map[string]string)
+	existingKeysDb := make(map[string]string)
 	err = func() error {
-		fmt.Printf("Checking prefixes: ")
 		for _, prefix := range lib.StatePrefixes {
-			fmt.Printf("%v ", prefix)
+			fmt.Printf("Checking prefix: (%v)\n", prefix)
 			lastPrefix := prefix
+			invalidLengths := false
+			invalidKeys := false
+			invalidValues := false
+			invalidFull := false
 			for {
 				timeElapsed += time.Since(currentTime).Seconds()
 				currentTime = time.Now()
@@ -63,35 +69,52 @@ func main() {
 				//	}
 				//	return nil
 				//})
-				//timeElapsed += time.Since(currentTime).Seconds()
+				//lapsed += time.Since(currentTime).Seconds()
 				//currentTime = time.Now()
 				//fmt.Println("Finished writing data time elapsed (%v) current time (%v)", timeElapsed, currentTime)
 
-
 				k1, v1, full1, err := lib.DBIteratePrefixKeys(db1, prefix, lastPrefix, maxBytes)
+				for ii, key := range *k0 {
+					existingKeysSnap[key] = (*v0)[ii]
+				}
+				for jj, key := range *k1 {
+					existingKeysDb[key] = (*v1)[jj]
+				}
+
 				if err != nil {
 					return fmt.Errorf("Error reading db1 err: %v\n", err)
 				}
+				fmt.Printf("Number of snap keys (%v) number of db keys (%v)\n", len(*k0), len(*k1))
 				if len(*k0) != len(*k1) {
+					invalidLengths = true
 					fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v;" +
 						"varying lengths (db0, db1) : (%v, %v)\n", prefix, lastPrefix, len(*k0), len(*k1))
 					break
 				}
 				for ii, key := range *k0 {
 					if key != (*k1)[ii] {
-						fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v;" +
-							"unequal keys (db0, db1) : (%v, %v)\n", prefix, lastPrefix, key, (*k1)[ii])
+						if !invalidKeys {
+							fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v;" +
+								"unequal keys (db0, db1) : (%v, %v)\n", prefix, lastPrefix, key, (*k1)[ii])
+							invalidKeys = true
+						}
 					}
 				}
 				for ii, value := range *v0 {
 					if value != (*v1)[ii] {
-						fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v;" +
-							"unequal values (db0, db1) : (%v, %v)\n", prefix, lastPrefix, value, (*v1)[ii])
+						if !invalidValues {
+							fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v;" +
+								"unequal values (db0, db1) : (%v, %v)\n", prefix, lastPrefix, value, (*v1)[ii])
+							invalidValues = true
+						}
 					}
 				}
 				if full0 != full1 {
-					fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v;" +
-						"unequal fulls (db0, db1) : (%v, %v)\n", prefix, lastPrefix, full0, full1)
+					if !invalidFull {
+						fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v;" +
+							"unequal fulls (db0, db1) : (%v, %v)\n", prefix, lastPrefix, full0, full1)
+						invalidFull = true
+					}
 				}
 				//fmt.Println("lastPrefix", lastPrefix, "full", full0, len(*k0))
 				totalLen += len(*v0) - 1
@@ -105,12 +128,34 @@ func main() {
 					break
 				}
 			}
+			status := "PASS"
+			if invalidLengths || invalidKeys || invalidValues || invalidFull {
+				status = "FAIL"
+				broken = true
+			}
+
+			fmt.Printf("Status for prefix (%v): (%s)\n invalidLengths: (%v); invalidKeys: (%v); invalidValues: " +
+				"(%v); invalidFull: (%v)\n\n", prefix, status, invalidLengths, invalidKeys, invalidValues, invalidFull)
 		}
 		return nil
 	}()
+	for key, value := range existingKeysSnap {
+		if dbVal, exists := existingKeysDb[key]; exists {
+			if value != dbVal {
+				fmt.Printf("Error on key (%v); values don't match\n snap value: (%v)\n db value: (%v)\n",
+					key, value, dbVal)
+			}
+		} else {
+			fmt.Printf("Error value doesn't exist in db for key (%v)\n", key)
+		}
+	}
 	fmt.Println()
 	if err == nil {
-		fmt.Println("Databases identical!")
+		if broken {
+			fmt.Println("Databases differ!")
+		} else {
+			fmt.Println("Databases identical!")
+		}
 	} else {
 		fmt.Println("Error! Databases not equal: ", err)
 	}

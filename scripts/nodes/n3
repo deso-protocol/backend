@@ -23,7 +23,7 @@ rm /tmp/main.*.log
   --connect-ips=deso-seed-2.io:17000 \
   --run-hot-feed-routine=true \
   --max-sync-block-height=2000 \
-  --log-dir=/Users/piotr/Desktop/Code/DeSo/logs/n3/test11 \
+  --log-dir=/Users/piotr/Desktop/Code/DeSo/logs/n3/test12 \
 )
 
 # These are nodes that can be relied upon if the decentralized seed
