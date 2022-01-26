@@ -1220,6 +1220,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// Include poster public key in comments response
 type CommentsPostEntryResponse struct {
 	PostEntryResponse *PostEntryResponse
 	PosterPublicKeyBytes [] byte
@@ -1319,6 +1320,7 @@ func (fes *APIServer) GetSinglePostComments(
 		}
 		commentEntryResponse.ProfileEntryResponse = commentProfileEntryResponse
 		commentEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPublicKeyBytes, commentEntry)
+		// Include poster public key in comments response
 		commentEntryResponseWithPosterBytes := &CommentsPostEntryResponse{}
 		commentEntryResponseWithPosterBytes.PostEntryResponse = commentEntryResponse
 		commentEntryResponseWithPosterBytes.PosterPublicKeyBytes = commentEntry.PosterPublicKey
