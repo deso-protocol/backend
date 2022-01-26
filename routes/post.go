@@ -1282,10 +1282,9 @@ func (fes *APIServer) GetSinglePostComments(
 		profileEntry := utxoView.GetProfileEntryForPublicKey(pubKeyBytes)
 		if profileEntry == nil {
 			continue
-		} else {
-			pubKeyToProfileEntryResponseMap[lib.MakePkMapKey(pubKeyBytes)] =
-				fes._profileEntryToResponse(profileEntry, utxoView)
 		}
+		pubKeyToProfileEntryResponseMap[lib.MakePkMapKey(pubKeyBytes)] =
+			fes._profileEntryToResponse(profileEntry, utxoView)
 	}
 
 	// If the profile that posted this post does not have a profile, return with error.
