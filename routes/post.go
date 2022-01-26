@@ -1194,12 +1194,11 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	comments, err := fes.GetSinglePostComments(
 		utxoView,
 		postEntryResponse,
-		ww,
 		requestData,
+		postEntry.PosterPublicKey,
 		readerPublicKeyBytes,
 		blockedPublicKeys,
 		0,
-		requestData.LoadAuthorThread,
 		postEntryResponse.PosterPublicKeyBase58Check,
 		)
 
@@ -1221,16 +1220,20 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
+type CommentsPostEntryResponse struct {
+	PostEntryResponse *PostEntryResponse
+	PosterPublicKeyBytes [] byte
+}
+
 // Get the comments associated with a single post.
 func (fes *APIServer) GetSinglePostComments(
 	utxoView *lib.UtxoView,
 	postEntryResponse *PostEntryResponse,
-	ww http.ResponseWriter,
 	requestData GetSinglePostRequest,
-	readerPublicKeyBytes []byte,
+	posterPublicKeyBytes [] byte,
+	readerPublicKeyBytes [] byte,
 	blockedPublicKeys map[string]struct{},
 	commentLevel uint32,
-	loadAuthorThread bool,
 	topLevelPosterPublicKeyBase58Check string,
 ) ([]*PostEntryResponse, error) {
 	postHash, err := GetPostHashFromPostHashHex(postEntryResponse.PostHashHex)
@@ -1245,23 +1248,19 @@ func (fes *APIServer) GetSinglePostComments(
 	}
 
 	// Process the comments into something we can return.
-	commentEntryResponseList := []*PostEntryResponse{}
+	commentEntryResponseList := []*CommentsPostEntryResponse{}
 	// Create a map from commentEntryPostHashHex to commentEntry to ease look up of public key bytes when sorting
 	commentHashHexToCommentEntry := make(map[string]*lib.PostEntry)
 
-	posterPublicKeyBytes, _, err := lib.Base58CheckDecode(postEntryResponse.PosterPublicKeyBase58Check)
-	if err != nil || len(posterPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
-		return nil, err
-	}
-
+	posterPkMapKey := lib.MakePkMapKey(posterPublicKeyBytes)
 	// Create a map of all the profile pub keys associated with our posts + comments.
 	profilePubKeyMap := make(map[lib.PkMapKey][]byte)
-	profilePubKeyMap[lib.MakePkMapKey(posterPublicKeyBytes)] = posterPublicKeyBytes
+	profilePubKeyMap[posterPkMapKey] = posterPublicKeyBytes
 
 	// Determine whether or not the posters of the "single post" we are fetching is blocked by the reader.  If the
 	// poster of the single post is blocked, we will want to include the single post, but not any of the comments
 	// created by the poster that are children of this "single post".
-	_, isCurrentPosterBlocked := blockedPublicKeys[lib.PkToString(posterPublicKeyBytes, fes.Params)]
+	_, isCurrentPosterBlocked := blockedPublicKeys[postEntryResponse.PosterPublicKeyBase58Check]
 	for _, commentEntry := range commentEntries {
 		pkMapKey := lib.MakePkMapKey(commentEntry.PosterPublicKey)
 		// Remove comments that are blocked by either the reader or the poster of the root post
@@ -1274,42 +1273,6 @@ func (fes *APIServer) GetSinglePostComments(
 	filteredProfilePubKeyMap, err := fes.FilterOutRestrictedPubKeysFromMap(
 		profilePubKeyMap, readerPublicKeyBytes, "leaderboard" /*moderationType*/, utxoView)
 	if err != nil {
-		return nil, err
-	}
-
-
-	// Figure out if the current poster is greylisted.  If the current poster is greylisted, we will add their
-	// public key back to the filteredProfileMap so their profile will appear for the current post
-	// and any parents, but we will remove any comments by this greylisted user.
-	isCurrentPosterGreylisted := false
-	if _, ok := filteredProfilePubKeyMap[lib.MakePkMapKey(posterPublicKeyBytes)]; !ok {
-		// Get the userMetadata for the currentPosters
-		currentPosterUserMetadataKey := append([]byte{}, _GlobalStatePrefixPublicKeyToUserMetadata...)
-		currentPosterUserMetadataKey = append(currentPosterUserMetadataKey, posterPublicKeyBytes...)
-		var currentPosterUserMetadataBytes []byte
-		currentPosterUserMetadataBytes, err = fes.GlobalState.Get(currentPosterUserMetadataKey)
-		if err != nil {
-			return nil, err
-		}
-		// If the currentPoster's userMetadata doesn't exist, then they are no greylisted, so we can exit.
-		if currentPosterUserMetadataBytes != nil {
-			// Decode the currentPoster's userMetadata.
-			currentPosterUserMetadata := UserMetadata{}
-			err = gob.NewDecoder(bytes.NewReader(currentPosterUserMetadataBytes)).Decode(&currentPosterUserMetadata)
-			if err != nil {
-				return nil, err
-			}
-			// If the currentPoster is not blacklisted (removed everywhere) and is greylisted (removed from leaderboard)
-			// add them back to the filteredProfilePubKeyMap and note that the currentPoster is greylisted.
-			if currentPosterUserMetadata.RemoveFromLeaderboard && !currentPosterUserMetadata.RemoveEverywhere {
-				isCurrentPosterGreylisted = true
-				filteredProfilePubKeyMap[lib.MakePkMapKey(posterPublicKeyBytes)] = posterPublicKeyBytes
-			}
-		}
-	}
-
-	// If the profile that posted this post is not in our filtered list, return with error.
-	if filteredProfilePubKeyMap[lib.MakePkMapKey(posterPublicKeyBytes)] == nil && !isCurrentPosterGreylisted {
 		return nil, err
 	}
 
@@ -1326,8 +1289,8 @@ func (fes *APIServer) GetSinglePostComments(
 	}
 
 	// If the profile that posted this post does not have a profile, return with error.
-	if pubKeyToProfileEntryResponseMap[lib.MakePkMapKey(posterPublicKeyBytes)] == nil {
-		return nil, err
+	if pubKeyToProfileEntryResponseMap[posterPkMapKey] == nil {
+		return nil, fmt.Errorf("GetSinglePostComments: The profile that posted this post does not have a profile.")
 	}
 
 	for _, commentEntry := range commentEntries {
@@ -1343,10 +1306,10 @@ func (fes *APIServer) GetSinglePostComments(
 		//	- Are hidden *AND* don't have comments. Keep hidden posts with comments.
 		//  - isDeleted (this was already filtered in an earlier stage and should never be true)
 		//	- Skip comment is it's by the poster of the single post we are fetching and the currentPoster is blocked by
-		// 	the reader OR the currentPoster is greylisted
+		// 	the reader
 		if commentProfileEntryResponse == nil || commentEntry.IsDeleted() ||
 			(commentEntry.IsHidden && commentEntry.CommentCount == 0) ||
-			(commentAuthorIsCurrentPoster && (isCurrentPosterBlocked || isCurrentPosterGreylisted)) {
+			(commentAuthorIsCurrentPoster && isCurrentPosterBlocked) {
 			continue
 		}
 
@@ -1357,7 +1320,10 @@ func (fes *APIServer) GetSinglePostComments(
 		}
 		commentEntryResponse.ProfileEntryResponse = commentProfileEntryResponse
 		commentEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPublicKeyBytes, commentEntry)
-		commentEntryResponseList = append(commentEntryResponseList, commentEntryResponse)
+		commentEntryResponseWithPosterBytes := &CommentsPostEntryResponse{}
+		commentEntryResponseWithPosterBytes.PostEntryResponse = commentEntryResponse
+		commentEntryResponseWithPosterBytes.PosterPublicKeyBytes = commentEntry.PosterPublicKey
+		commentEntryResponseList = append(commentEntryResponseList, commentEntryResponseWithPosterBytes)
 		commentHashHexToCommentEntry[commentEntryResponse.PostHashHex] = commentEntry
 	}
 
@@ -1367,12 +1333,12 @@ func (fes *APIServer) GetSinglePostComments(
 		iiCommentEntryResponse := commentEntryResponseList[ii]
 		jjCommentEntryResponse := commentEntryResponseList[jj]
 		// If the poster of ii is the poster of the main post and jj is not, ii should be first.
-		iiIsPoster := iiCommentEntryResponse.PosterPublicKeyBase58Check == postEntryResponse.PosterPublicKeyBase58Check
-		jjIsPoster := jjCommentEntryResponse.PosterPublicKeyBase58Check == postEntryResponse.PosterPublicKeyBase58Check
+		iiIsPoster := iiCommentEntryResponse.PostEntryResponse.PosterPublicKeyBase58Check == postEntryResponse.PosterPublicKeyBase58Check
+		jjIsPoster := jjCommentEntryResponse.PostEntryResponse.PosterPublicKeyBase58Check == postEntryResponse.PosterPublicKeyBase58Check
 
 		// Sort tweet storms from oldest to newest
 		if iiIsPoster && jjIsPoster {
-			return iiCommentEntryResponse.TimestampNanos < jjCommentEntryResponse.TimestampNanos
+			return iiCommentEntryResponse.PostEntryResponse.TimestampNanos < jjCommentEntryResponse.PostEntryResponse.TimestampNanos
 		}
 
 		if iiIsPoster && !jjIsPoster {
@@ -1382,14 +1348,14 @@ func (fes *APIServer) GetSinglePostComments(
 		}
 
 		// Next we sort based on diamonds given by the poster.
-		iiCommentEntry := commentHashHexToCommentEntry[iiCommentEntryResponse.PostHashHex]
+		iiCommentEntry := commentHashHexToCommentEntry[iiCommentEntryResponse.PostEntryResponse.PostHashHex]
 		iiDiamondKey := lib.MakeDiamondKey(
 			posterPKID.PKID,
 			utxoView.GetPKIDForPublicKey(iiCommentEntry.PosterPublicKey).PKID,
 			iiCommentEntry.PostHash)
 		iiDiamondLevelByPoster := utxoView.GetDiamondEntryForDiamondKey(&iiDiamondKey)
 
-		jjCommentEntry := commentHashHexToCommentEntry[jjCommentEntryResponse.PostHashHex]
+		jjCommentEntry := commentHashHexToCommentEntry[jjCommentEntryResponse.PostEntryResponse.PostHashHex]
 		jjDiamondKey := lib.MakeDiamondKey(
 			posterPKID.PKID,
 			utxoView.GetPKIDForPublicKey(jjCommentEntry.PosterPublicKey).PKID,
@@ -1412,8 +1378,8 @@ func (fes *APIServer) GetSinglePostComments(
 			}
 		}
 
-		iiCoinPrice := iiCommentEntryResponse.ProfileEntryResponse.CoinEntry.DeSoLockedNanos
-		jjCoinPrice := jjCommentEntryResponse.ProfileEntryResponse.CoinEntry.DeSoLockedNanos
+		iiCoinPrice := iiCommentEntryResponse.PostEntryResponse.ProfileEntryResponse.CoinEntry.DeSoLockedNanos
+		jjCoinPrice := jjCommentEntryResponse.PostEntryResponse.ProfileEntryResponse.CoinEntry.DeSoLockedNanos
 		if iiCoinPrice > jjCoinPrice {
 			return true
 		} else if iiCoinPrice < jjCoinPrice {
@@ -1421,13 +1387,13 @@ func (fes *APIServer) GetSinglePostComments(
 		}
 
 		// Finally, if we can't prioritize based on pub key or deso, we use timestamp.
-		return iiCommentEntryResponse.TimestampNanos > jjCommentEntryResponse.TimestampNanos
+		return iiCommentEntryResponse.PostEntryResponse.TimestampNanos > jjCommentEntryResponse.PostEntryResponse.TimestampNanos
 	})
 
 	commentEntryResponseLength := uint32(len(commentEntryResponseList))
 	// Slice the comments from the offset up to either the end of the slice or the offset + limit, whichever is smaller.
 	maxIdx := lib.MinUint32(commentEntryResponseLength, requestData.CommentOffset+requestData.CommentLimit)
-	var comments []*PostEntryResponse
+	var comments []*CommentsPostEntryResponse
 	if commentEntryResponseLength > requestData.CommentOffset && commentLevel == 0 {
 		comments = commentEntryResponseList[requestData.CommentOffset:maxIdx]
 	} else {
@@ -1436,38 +1402,45 @@ func (fes *APIServer) GetSinglePostComments(
 
 	for ii, comment := range comments {
 		// If the previous stack was loading the comment author thread and the comment in question is from the same author, load it.
-		loadCommentAuthorThread := loadAuthorThread && comment.PosterPublicKeyBase58Check == topLevelPosterPublicKeyBase58Check
+		loadCommentAuthorThread := requestData.LoadAuthorThread && comment.PostEntryResponse.PosterPublicKeyBase58Check == topLevelPosterPublicKeyBase58Check
 		// Only iterate over comments within the specified leaf-limit. To follow a single reply thread, that limit would be 1. All top-level replies are included. A limit of -1 includes all leafs.
 		commentWithinLeafLimit := commentLevel == 0 || int32(ii) < requestData.ThreadLeafLimit || requestData.ThreadLeafLimit == -1
 		// Only recurse up to a certain depth. If we're within a thread chain consisting only of posts from the original post author, include all of the comments.
-		commentWithinThreadLevelLimit := (commentLevel < requestData.ThreadLevelLimit || loadCommentAuthorThread)
+		commentWithinThreadLevelLimit := commentLevel < requestData.ThreadLevelLimit || loadCommentAuthorThread
 		// If this comment is within the leaf limit and isn't recursing too deeply, load the comment.
 		if commentWithinLeafLimit && commentWithinThreadLevelLimit {
 			commentReplies, err := fes.GetSinglePostComments(
 				utxoView,
-				comment,
-				ww,
+				comment.PostEntryResponse,
 				requestData,
+				comment.PosterPublicKeyBytes,
 				readerPublicKeyBytes,
 				blockedPublicKeys,
 				commentLevel+1,
-				loadCommentAuthorThread,
 				topLevelPosterPublicKeyBase58Check,
 				)
 			if err != nil {
 				return nil, err
 			}
-			comment.Comments = commentReplies
+			comment.PostEntryResponse.Comments = commentReplies
 		}
 	}
 
-	// Limit comments to leaf limit, if it's not the first reply level and the leaf limit isn't -1
-	var limitedComments []*PostEntryResponse
 
+
+	// Limit comments to leaf limit, if it's not the first reply level and the leaf limit isn't -1
+	// The leaf limit should not apply to the first level of comments (comment lvl === 0) - that limit is defined by the CommentLimit
+	var limitedComments []*PostEntryResponse
+	var limitedCommentEndIdx int
 	if requestData.ThreadLeafLimit == -1 || commentLevel == 0 || int32(len(comments)) <= requestData.ThreadLeafLimit {
-		limitedComments = comments
+		limitedCommentEndIdx = len(comments)
 	} else {
-		limitedComments = comments[:requestData.ThreadLeafLimit]
+		limitedCommentEndIdx = int(requestData.ThreadLeafLimit)
+	}
+
+	// Take comments, extract only the PostEntryResponse
+	for ii := 0; ii < limitedCommentEndIdx; ii++ {
+		limitedComments = append(limitedComments, comments[ii].PostEntryResponse)
 	}
 
 	postEntryResponse.Comments = limitedComments
