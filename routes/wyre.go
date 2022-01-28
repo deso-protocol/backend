@@ -195,12 +195,7 @@ func (fes *APIServer) WyreWalletOrderSubscription(ww http.ResponseWriter, req *h
 		if btcPurchased > 0 {
 			// BTC Purchased is in whole bitcoins, so multiply it by 10^8 to convert to Satoshis
 			satsPurchased := uint64(btcPurchased * lib.SatoshisPerBitcoin)
-			var feeBasisPoints uint64
-			feeBasisPoints, err = fes.GetBuyDeSoFeeBasisPointsResponseFromGlobalState()
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error getting buy deso premium basis points from global state: %v", err))
-				return
-			}
+			feeBasisPoints := fes.BuyDESOFeeBasisPoints
 			nanosPurchased := fes.GetNanosFromSats(satsPurchased, feeBasisPoints)
 			var balanceInsufficient bool
 			balanceInsufficient, err = fes.ExceedsDeSoBalance(nanosPurchased, fes.Config.BuyDESOSeed)

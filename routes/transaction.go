@@ -731,12 +731,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 	bitcoinTxnHash := bitcoinTxn.TxHash()
 
 	// Check that DeSo purchased they would get does not exceed current balance.
-	var feeBasisPoints uint64
-	feeBasisPoints, err = fes.GetBuyDeSoFeeBasisPointsResponseFromGlobalState()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error getting buy deso premium basis points from global state: %v", err))
-		return
-	}
+	feeBasisPoints := fes.BuyDESOFeeBasisPoints
 
 	// Update the current exchange price.
 	fes.UpdateUSDCentsToDeSoExchangeRate()

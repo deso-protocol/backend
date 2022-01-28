@@ -79,20 +79,10 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 	satoshisPerUnit := lib.NanosPerUnit / fes.GetNanosFromSats(1, 0)
 
 	// DESO
-	usdCentsPerDeSoReserveExchangeRate, err := fes.GetUSDCentsToDeSoReserveExchangeRateFromGlobalState()
-
-	if err != nil {
-		glog.Errorf("GetExchangeRate: error getting reserve exchange rate from global state: %v", err)
-		usdCentsPerDeSoReserveExchangeRate = 0
-	}
+	usdCentsPerDeSoReserveExchangeRate := fes.USDCentsToDESOReserveExchangeRate
 
 	startNanos := readUtxoView.NanosPurchased
-	feeBasisPoints, err := fes.GetBuyDeSoFeeBasisPointsResponseFromGlobalState()
-
-	if err != nil {
-		glog.Errorf("GetExchangeRate: error getting buy deso fee basis points from global state: %v", err)
-		feeBasisPoints = 0
-	}
+	feeBasisPoints := fes.BuyDESOFeeBasisPoints
 
 	res := &GetExchangeRateResponse{
 		// BTC
@@ -115,7 +105,7 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 		USDCentsPerBitCloutReserveExchangeRate: usdCentsPerDeSoReserveExchangeRate,
 	}
 
-	if err = json.NewEncoder(ww).Encode(res); err != nil {
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetExchangeRate: Problem encoding response as JSON: %v", err))
 		return
 	}
@@ -123,11 +113,7 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 
 func (fes *APIServer) GetExchangeDeSoPrice() uint64 {
 	blockchainPrice := fes.UsdCentsPerDeSoExchangeRate
-	reservePrice, err := fes.GetUSDCentsToDeSoReserveExchangeRateFromGlobalState()
-	if err != nil {
-		glog.Errorf("Getting reserve price from global state failed. Only using ticker price: %v", err)
-		reservePrice = 0
-	}
+	reservePrice := fes.USDCentsToDESOReserveExchangeRate
 	if blockchainPrice > reservePrice {
 		return blockchainPrice
 	}
@@ -277,7 +263,7 @@ func (fes *APIServer) UpdateUSDCentsToDeSoExchangeRate() {
 	maxPrice := fes.getMaxPriceFromHistoryAndCull(timestamp)
 
 	// Get the reserve price for this node.
-	reservePrice, err := fes.GetUSDCentsToDeSoReserveExchangeRateFromGlobalState()
+	reservePrice := fes.USDCentsToDESOReserveExchangeRate
 	// If the max of last trade price and 24H price is less than the reserve price, use the reserve price.
 	if reservePrice > maxPrice {
 		fes.UsdCentsPerDeSoExchangeRate = reservePrice
@@ -408,8 +394,8 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		BuyWithETH:                          fes.IsConfiguredForETH(),
 		USDCentsPerDeSoExchangeRate:         fes.GetExchangeDeSoPrice(),
 		JumioDeSoNanos:                      fes.GetJumioDeSoNanos(), // Deprecated
-		JumioUSDCents:                       fes.GetJumioUSDCents(),
-		JumioKickbackUSDCents:               fes.GetJumioKickbackUSDCents(),
+		JumioUSDCents:                       fes.JumioUSDCents,
+		JumioKickbackUSDCents:               fes.JumioKickbackUSDCents,
 		CountrySignUpBonus:                  fes.GetCountryLevelSignUpBonusFromHeader(req),
 		DefaultFeeRateNanosPerKB:            defaultFeeRateNanosPerKB,
 		TransactionFeeMap:                   fes.TxnFeeMapToResponse(true),

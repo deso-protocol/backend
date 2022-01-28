@@ -357,6 +357,12 @@ type APIServer struct {
 	// map of country name to sign up bonus data
 	AllCountryLevelSignUpBonuses map[string]CountrySignUpBonusResponse
 
+	// Frequently accessed data from global state
+	USDCentsToDESOReserveExchangeRate uint64
+	BuyDESOFeeBasisPoints uint64
+	JumioUSDCents uint64
+	JumioKickbackUSDCents uint64
+
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
 }
@@ -443,6 +449,7 @@ func NewAPIServer(
 	}
 
 	fes.SetGlobalStateCache()
+	fes.SetFrequentlyAccessedGlobalStateCache()
 	// Kick off Global State Monitoring to set up cache of Verified Username, Blacklist, and Graylist.
 	fes.StartGlobalStateMonitoring()
 
@@ -2089,6 +2096,8 @@ func (fes *APIServer) StartGlobalStateMonitoring() {
 	out:
 		for {
 			select {
+			case <-time.After(500 * time.Millisecond):
+				fes.SetFrequentlyAccessedGlobalStateCache()
 			case <-time.After(1 * time.Minute):
 				fes.SetGlobalStateCache()
 			case <-fes.quit:
@@ -2153,6 +2162,13 @@ func (fes *APIServer) SetGlobalFeedPostHashes() {
 	} else {
 		fes.GlobalFeedPostHashes = postHashes
 	}
+}
+
+func (fes *APIServer) SetFrequentlyAccessedGlobalStateCache() {
+	fes.SetUSDCentsToDeSoReserveExchangeRateFromGlobalState()
+	fes.SetBuyDeSoFeeBasisPointsResponseFromGlobalState()
+	fes.SetJumioUSDCents()
+	fes.SetJumioKickbackUSDCents()
 }
 
 // makePKIDMapJSONEncodable converts a map that has PKID keys into Base58-encoded strings.
