@@ -1383,9 +1383,10 @@ func (fes *APIServer) GetSinglePostComments(
 	maxIdx := lib.MinUint32(commentEntryResponseLength, requestData.CommentOffset+requestData.CommentLimit)
 	var comments []*CommentsPostEntryResponse
 	// Only apply the offset to top-level comments. CommentOffset & CommentLimit specify how top-level comments are loaded, ThreadLevelLimit & ThreadLeafLevelLimit specify how children comments should be loaded
+	// If loading top level comments and the offset is greater than the available # of comments, don't add comments
 	if commentEntryResponseLength > requestData.CommentOffset && commentLevel == 0 {
 		comments = commentEntryResponseList[requestData.CommentOffset:maxIdx]
-	} else {
+	} else if commentLevel > 0 {
 		comments = commentEntryResponseList
 	}
 
