@@ -1002,6 +1002,14 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if requestData.ThreadLevelLimit > 4 {
+		requestData.ThreadLevelLimit = 4
+	}
+
+	if requestData.CommentLimit > 30 {
+		requestData.CommentLimit = 30
+	}
+
 	// Decode the postHash.
 	postHash, err := GetPostHashFromPostHashHex(requestData.PostHashHex)
 	if err != nil {
