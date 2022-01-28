@@ -78,12 +78,6 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 	usdCentsPerDeSoExchangeRate := fes.GetExchangeDeSoPrice()
 	satoshisPerUnit := lib.NanosPerUnit / fes.GetNanosFromSats(1, 0)
 
-	// DESO
-	usdCentsPerDeSoReserveExchangeRate := fes.USDCentsToDESOReserveExchangeRate
-
-	startNanos := readUtxoView.NanosPurchased
-	feeBasisPoints := fes.BuyDESOFeeBasisPoints
-
 	res := &GetExchangeRateResponse{
 		// BTC
 		USDCentsPerBitcoinExchangeRate: uint64(usdCentsPerBitcoin),
@@ -94,15 +88,15 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 		NanosPerETHExchangeRate:    nanosPerETH,
 
 		// DESO
-		NanosSold:                          startNanos,
+		NanosSold:                          readUtxoView.NanosPurchased,
 		USDCentsPerDeSoExchangeRate:        usdCentsPerDeSoExchangeRate,
-		USDCentsPerDeSoReserveExchangeRate: usdCentsPerDeSoReserveExchangeRate,
-		BuyDeSoFeeBasisPoints:              feeBasisPoints,
+		USDCentsPerDeSoReserveExchangeRate: fes.USDCentsToDESOReserveExchangeRate,
+		BuyDeSoFeeBasisPoints:              fes.BuyDESOFeeBasisPoints,
 
 		// Deprecated
 		SatoshisPerBitCloutExchangeRate:        satoshisPerUnit,
 		USDCentsPerBitCloutExchangeRate:        usdCentsPerDeSoExchangeRate,
-		USDCentsPerBitCloutReserveExchangeRate: usdCentsPerDeSoReserveExchangeRate,
+		USDCentsPerBitCloutReserveExchangeRate: fes.USDCentsToDESOReserveExchangeRate,
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {

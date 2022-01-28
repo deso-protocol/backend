@@ -227,9 +227,6 @@ func (fes *APIServer) finishETHTx(ethTx *InfuraTx, ethTxLog *ETHTxLog) (desoTxHa
 }
 
 func (fes *APIServer) CalculateNanosPurchasedFromWei(value string) (_nanosPurchased uint64, _err error) {
-	// Fetch buy DESO basis points fee
-	feeBasisPoints  := fes.BuyDESOFeeBasisPoints
-
 	// Calculate nanos purchased
 	// Strip the 0x prefix from the value attribute and parse hex string to uint64
 	hexValueString := strings.Replace(value, "0x", "", -1)
@@ -241,7 +238,7 @@ func (fes *APIServer) CalculateNanosPurchasedFromWei(value string) (_nanosPurcha
 	// Use big number math to convert wei to eth and then compute DESO nanos purchased.
 	totalWei := big.NewFloat(0).SetInt(weiSentBigint)
 	totalEth := big.NewFloat(0).Quo(totalWei, big.NewFloat(1e18))
-	return fes.GetNanosFromETH(totalEth, feeBasisPoints), nil
+	return fes.GetNanosFromETH(totalEth, fes.BuyDESOFeeBasisPoints), nil
 }
 
 type AdminProcessETHTxRequest struct {
