@@ -449,7 +449,6 @@ func NewAPIServer(
 	}
 
 	fes.SetGlobalStateCache()
-	fes.SetFrequentlyAccessedGlobalStateCache()
 	// Kick off Global State Monitoring to set up cache of Verified Username, Blacklist, and Graylist.
 	fes.StartGlobalStateMonitoring()
 
@@ -2096,8 +2095,6 @@ func (fes *APIServer) StartGlobalStateMonitoring() {
 	out:
 		for {
 			select {
-			case <-time.After(500 * time.Millisecond):
-				fes.SetFrequentlyAccessedGlobalStateCache()
 			case <-time.After(1 * time.Minute):
 				fes.SetGlobalStateCache()
 			case <-fes.quit:
@@ -2118,6 +2115,10 @@ func (fes *APIServer) SetGlobalStateCache() {
 	fes.SetGraylistedPKIDMap(utxoView)
 	fes.SetGlobalFeedPostHashes()
 	fes.SetAllCountrySignUpBonusMetadata()
+	fes.SetUSDCentsToDeSoReserveExchangeRateFromGlobalState()
+	fes.SetBuyDeSoFeeBasisPointsResponseFromGlobalState()
+	fes.SetJumioUSDCents()
+	fes.SetJumioKickbackUSDCents()
 }
 
 func (fes *APIServer) SetVerifiedUsernameMap() {
@@ -2162,13 +2163,6 @@ func (fes *APIServer) SetGlobalFeedPostHashes() {
 	} else {
 		fes.GlobalFeedPostHashes = postHashes
 	}
-}
-
-func (fes *APIServer) SetFrequentlyAccessedGlobalStateCache() {
-	fes.SetUSDCentsToDeSoReserveExchangeRateFromGlobalState()
-	fes.SetBuyDeSoFeeBasisPointsResponseFromGlobalState()
-	fes.SetJumioUSDCents()
-	fes.SetJumioKickbackUSDCents()
 }
 
 // makePKIDMapJSONEncodable converts a map that has PKID keys into Base58-encoded strings.

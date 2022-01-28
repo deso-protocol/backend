@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core/lib"
+	"github.com/golang/glog"
 	"io"
 	"net/http"
 )
@@ -69,14 +70,17 @@ func (fes *APIServer) GetUSDCentsToDeSoReserveExchangeRate(ww http.ResponseWrite
 func (fes *APIServer) SetUSDCentsToDeSoReserveExchangeRateFromGlobalState() {
 	val, err := fes.GlobalState.Get(GlobalStateKeyForUSDCentsToDeSoReserveExchangeRate())
 	if err != nil {
+		glog.Errorf("SetUSDCentsToDeSoReserveExchangeRateFromGlobalState: Error getting Reserve exchange rate " +
+			"from global state: %v", err)
 		return
 	}
-	// If there was no value found, this node has not set the Fee Basis points yet so we return 0.
+	// If there was no value found, this node has not set the Fee Basis points yet so we return.
 	if val == nil {
 		return
 	}
 	usdCentsPerDeSo, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {
+		glog.Errorf("SetUSDCentsToDeSoReserveExchangeRateFromGlobalState: invalid bytes read: %v", bytesRead)
 		return
 	}
 	fes.USDCentsToDESOReserveExchangeRate = usdCentsPerDeSo
@@ -139,6 +143,8 @@ func (fes *APIServer) GetBuyDeSoFeeBasisPoints(ww http.ResponseWriter, req *http
 func (fes *APIServer) SetBuyDeSoFeeBasisPointsResponseFromGlobalState() {
 	val, err := fes.GlobalState.Get(GlobalStateKeyForBuyDeSoFeeBasisPoints())
 	if err != nil {
+		glog.Errorf("SetBuyDeSoFeeBasisPointsResponseFromGlobalState: Error getting Buy DESO Fee Basis Points " +
+			"from global state: %v", err)
 		return
 	}
 	// If there was no value found, this node has not set the Fee Basis points yet so we return 0.
@@ -147,6 +153,7 @@ func (fes *APIServer) SetBuyDeSoFeeBasisPointsResponseFromGlobalState() {
 	}
 	feeBasisPoints, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {
+		glog.Errorf("SetBuyDeSoFeeBasisPointsResponseFromGlobalState: invalid bytes read: %v", bytesRead)
 		return
 	}
 	fes.BuyDESOFeeBasisPoints = feeBasisPoints
