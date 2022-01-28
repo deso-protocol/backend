@@ -41,4 +41,5 @@ rm /tmp/main.*.log
   --secure-header-development=true \
   --block-cypher-api-key=092dae962ea44b02809a4c74408b42a1 \
   --min-satoshis-for-profile=0 \
+  --expose-global-state=true \
   --show-processing-spinners=true )
