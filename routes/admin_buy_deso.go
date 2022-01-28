@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core/lib"
+	"github.com/golang/glog"
 	"io"
 	"net/http"
 )
@@ -34,6 +35,8 @@ func (fes *APIServer) SetUSDCentsToDeSoReserveExchangeRate(ww http.ResponseWrite
 		return
 	}
 
+	fes.USDCentsToDESOReserveExchangeRate = requestData.USDCentsPerDeSo
+
 	// Force refresh the USD Cent to DeSo exchange rate
 	fes.UpdateUSDCentsToDeSoExchangeRate()
 
@@ -52,36 +55,35 @@ type GetUSDCentsToDeSoExchangeRateResponse struct {
 
 // GetUSDCentsToDeSoReserveExchangeRate get the current reserve exchange rate
 func (fes *APIServer) GetUSDCentsToDeSoReserveExchangeRate(ww http.ResponseWriter, req *http.Request) {
-	exchangeRate, err := fes.GetUSDCentsToDeSoReserveExchangeRateFromGlobalState()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetUSDCentsToDeSoExchangeRate: error getting exchange rate: %v", err))
-		return
-	}
 	res := GetUSDCentsToDeSoExchangeRateResponse{
-		USDCentsPerDeSo: exchangeRate,
+		USDCentsPerDeSo: fes.USDCentsToDESOReserveExchangeRate,
 	}
 
-	if err = json.NewEncoder(ww).Encode(res); err != nil {
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUSDCentsToDeSoExchangeRate: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
 
-// GetUSDCentsToDeSoReserveExchangeRateFromGlobalState is a helper function to get the current USD cents to DeSo exchange rate
-func (fes *APIServer) GetUSDCentsToDeSoReserveExchangeRateFromGlobalState() (uint64, error) {
+// SetUSDCentsToDeSoReserveExchangeRateFromGlobalState is a helper function to set the cached value of the current USD
+// cents to DeSo exchange rate
+func (fes *APIServer) SetUSDCentsToDeSoReserveExchangeRateFromGlobalState() {
 	val, err := fes.GlobalState.Get(GlobalStateKeyForUSDCentsToDeSoReserveExchangeRate())
 	if err != nil {
-		return 0, fmt.Errorf("Problem getting deso to usd exchange rate from global state: %v", err)
+		glog.Errorf("SetUSDCentsToDeSoReserveExchangeRateFromGlobalState: Error getting Reserve exchange rate " +
+			"from global state: %v", err)
+		return
 	}
-	// If there was no value found, this node has not set the Fee Basis points yet so we return 0.
+	// If there was no value found, this node has not set the Fee Basis points yet so we return.
 	if val == nil {
-		return 0, nil
+		return
 	}
 	usdCentsPerDeSo, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {
-		return 0, fmt.Errorf("Problem reading bytes from global state: %v", err)
+		glog.Errorf("SetUSDCentsToDeSoReserveExchangeRateFromGlobalState: invalid bytes read: %v", bytesRead)
+		return
 	}
-	return usdCentsPerDeSo, nil
+	fes.USDCentsToDESOReserveExchangeRate = usdCentsPerDeSo
 }
 
 type SetBuyDeSoFeeBasisPointsRequest struct {
@@ -109,6 +111,8 @@ func (fes *APIServer) SetBuyDeSoFeeBasisPoints(ww http.ResponseWriter, req *http
 		return
 	}
 
+	fes.BuyDESOFeeBasisPoints = requestData.BuyDeSoFeeBasisPoints
+
 	res := SetBuyDeSoFeeBasisPointsResponse{
 		BuyDeSoFeeBasisPoints: requestData.BuyDeSoFeeBasisPoints,
 	}
@@ -124,34 +128,33 @@ type GetBuyDeSoFeeBasisPointsResponse struct {
 
 // GetBuyDeSoFeeBasisPoints gets the current value of the buy DeSo fee.
 func (fes *APIServer) GetBuyDeSoFeeBasisPoints(ww http.ResponseWriter, req *http.Request) {
-	feeBasisPoints, err := fes.GetBuyDeSoFeeBasisPointsResponseFromGlobalState()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBuyDeSoFeeBasisPoints: error getting exchange rate: %v", err))
-		return
-	}
 	res := GetBuyDeSoFeeBasisPointsResponse{
-		BuyDeSoFeeBasisPoints: feeBasisPoints,
+		BuyDeSoFeeBasisPoints: fes.BuyDESOFeeBasisPoints,
 	}
 
-	if err = json.NewEncoder(ww).Encode(res); err != nil {
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetBuyDeSoFeeBasisPoints: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
 
-// GetBuyDeSoFeeBasisPointsResponseFromGlobalState is a utility to get the current buy DeSo fee from global state.
-func (fes *APIServer) GetBuyDeSoFeeBasisPointsResponseFromGlobalState() (uint64, error) {
+// SetBuyDeSoFeeBasisPointsResponseFromGlobalState is a utility to set the cached value of the current buy DeSo fee
+// from global state.
+func (fes *APIServer) SetBuyDeSoFeeBasisPointsResponseFromGlobalState() {
 	val, err := fes.GlobalState.Get(GlobalStateKeyForBuyDeSoFeeBasisPoints())
 	if err != nil {
-		return 0, fmt.Errorf("Problem getting buy deso premium basis points from global state: %v", err)
+		glog.Errorf("SetBuyDeSoFeeBasisPointsResponseFromGlobalState: Error getting Buy DESO Fee Basis Points " +
+			"from global state: %v", err)
+		return
 	}
 	// If there was no value found, this node has not set the Fee Basis points yet so we return 0.
 	if val == nil {
-		return 0, nil
+		return
 	}
 	feeBasisPoints, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {
-		return 0, fmt.Errorf("Problem reading bytes from global state: %v", err)
+		glog.Errorf("SetBuyDeSoFeeBasisPointsResponseFromGlobalState: invalid bytes read: %v", bytesRead)
+		return
 	}
-	return feeBasisPoints, nil
+	fes.BuyDESOFeeBasisPoints = feeBasisPoints
 }

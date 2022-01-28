@@ -883,8 +883,8 @@ func (fes *APIServer) GetDefaultJumioCountrySignUpBonus() CountryLevelSignUpBonu
 	return CountryLevelSignUpBonus{
 		AllowCustomKickbackAmount:      false,
 		AllowCustomReferralAmount:      false,
-		ReferralAmountOverrideUSDCents: fes.GetJumioUSDCents(),
-		KickbackAmountOverrideUSDCents: fes.GetJumioKickbackUSDCents(),
+		ReferralAmountOverrideUSDCents: fes.JumioUSDCents,
+		KickbackAmountOverrideUSDCents: fes.JumioKickbackUSDCents,
 	}
 }
 
@@ -1116,33 +1116,38 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 	return userMetadata, nil
 }
 
-// Get JumioUSDCents returns the default amount a user receives for verifying with Jumio without a referral code.
-func (fes *APIServer) GetJumioUSDCents() uint64 {
+// SetJumioUSDCents sets the cached value of the default amount a user receives for verifying with Jumio without a
+// referral code.
+func (fes *APIServer) SetJumioUSDCents() {
 	val, err := fes.GlobalState.Get(GlobalStateKeyForJumioUSDCents())
 	if err != nil {
-		return 0
+		glog.Errorf("SetJumioUSDCents: Error getting Jumio USD Cents from global state: %v", err)
+		return
 	}
 	jumioUSDCents, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {
-		return 0
+		glog.Errorf("SetJumioUSDCents: invalid bytes read: %v", bytesRead)
+		return
 	}
-	return jumioUSDCents
+	fes.JumioUSDCents = jumioUSDCents
 }
 
 func (fes *APIServer) GetJumioDeSoNanos() uint64 {
-	return fes.GetNanosFromUSDCents(float64(fes.GetJumioUSDCents()), 0)
+	return fes.GetNanosFromUSDCents(float64(fes.JumioUSDCents), 0)
 }
 
-func (fes *APIServer) GetJumioKickbackUSDCents() uint64 {
+func (fes *APIServer) SetJumioKickbackUSDCents() {
 	val, err := fes.GlobalState.Get(GlobalStateKeyForJumioKickbackUSDCents())
 	if err != nil {
-		return 0
+		glog.Errorf("SetJumioKickbackUSDCents: Error getting Jumio Kickback USD Cents from global state: %v", err)
+		return
 	}
 	jumioKickbackUSDCents, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {
-		return 0
+		glog.Errorf("SetJumioKickbackUSDCents: invalid bytes read: %v", bytesRead)
+		return
 	}
-	return jumioKickbackUSDCents
+	fes.JumioKickbackUSDCents = jumioKickbackUSDCents
 }
 
 type GetJumioStatusForPublicKeyRequest struct {

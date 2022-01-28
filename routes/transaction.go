@@ -730,18 +730,11 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 	bitcoinTxnBytes := bitcoinTxnBuffer.Bytes()
 	bitcoinTxnHash := bitcoinTxn.TxHash()
 
-	// Check that DeSo purchased they would get does not exceed current balance.
-	var feeBasisPoints uint64
-	feeBasisPoints, err = fes.GetBuyDeSoFeeBasisPointsResponseFromGlobalState()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error getting buy deso premium basis points from global state: %v", err))
-		return
-	}
-
 	// Update the current exchange price.
 	fes.UpdateUSDCentsToDeSoExchangeRate()
 
-	nanosPurchased := fes.GetNanosFromSats(uint64(burnAmountSatoshis), feeBasisPoints)
+	// Check that DeSo purchased they would get does not exceed current balance.
+	nanosPurchased := fes.GetNanosFromSats(uint64(burnAmountSatoshis), fes.BuyDESOFeeBasisPoints)
 	balanceInsufficient, err := fes.ExceedsDeSoBalance(nanosPurchased, fes.Config.BuyDESOSeed)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error checking if send deso balance is sufficient: %v", err))

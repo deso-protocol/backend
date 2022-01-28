@@ -1,8 +1,6 @@
 package routes
 
 import (
-	"bytes"
-	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -1113,32 +1111,13 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	// and any parents, but we will remove any comments by this greylisted user.
 	isCurrentPosterGreylisted := false
 	if _, ok := filteredProfilePubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)]; !ok {
-		// Get the userMetadata for the currentPosters
-		currentPosterUserMetadataKey := append([]byte{}, _GlobalStatePrefixPublicKeyToUserMetadata...)
-		currentPosterUserMetadataKey = append(currentPosterUserMetadataKey, postEntry.PosterPublicKey...)
-		var currentPosterUserMetadataBytes []byte
-		currentPosterUserMetadataBytes, err = fes.GlobalState.Get(currentPosterUserMetadataKey)
-		if err != nil {
-			_AddBadRequestError(ww,
-				fmt.Sprintf("GetSinglePost: Problem getting currentPoster uset metadata from global state: %v", err))
-			return
-		}
+		currentPosterPKID := utxoView.GetPKIDForPublicKey(postEntry.PosterPublicKey)
 		// If the currentPoster's userMetadata doesn't exist, then they are no greylisted, so we can exit.
-		if currentPosterUserMetadataBytes != nil {
-			// Decode the currentPoster's userMetadata.
-			currentPosterUserMetadata := UserMetadata{}
-			err = gob.NewDecoder(bytes.NewReader(currentPosterUserMetadataBytes)).Decode(&currentPosterUserMetadata)
-			if err != nil {
-				_AddBadRequestError(ww,
-					fmt.Sprintf("GetSinglePost: Problem decoding currentPoster user metadata: %v", err))
-				return
-			}
+		if fes.IsUserGraylisted(currentPosterPKID.PKID) && !fes.IsUserBlacklisted(currentPosterPKID.PKID) {
 			// If the currentPoster is not blacklisted (removed everywhere) and is greylisted (removed from leaderboard)
 			// add them back to the filteredProfilePubKeyMap and note that the currentPoster is greylisted.
-			if currentPosterUserMetadata.RemoveFromLeaderboard && !currentPosterUserMetadata.RemoveEverywhere {
-				isCurrentPosterGreylisted = true
-				filteredProfilePubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] = postEntry.PosterPublicKey
-			}
+			isCurrentPosterGreylisted = true
+			filteredProfilePubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] = postEntry.PosterPublicKey
 		}
 	}
 
