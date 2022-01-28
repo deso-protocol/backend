@@ -106,12 +106,10 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 }
 
 func (fes *APIServer) GetExchangeDeSoPrice() uint64 {
-	blockchainPrice := fes.UsdCentsPerDeSoExchangeRate
-	reservePrice := fes.USDCentsToDESOReserveExchangeRate
-	if blockchainPrice > reservePrice {
-		return blockchainPrice
+	if fes.UsdCentsPerDeSoExchangeRate > fes.USDCentsToDESOReserveExchangeRate {
+		return fes.UsdCentsPerDeSoExchangeRate
 	}
-	return reservePrice
+	return fes.USDCentsToDESOReserveExchangeRate
 }
 
 type BlockchainDeSoTickerResponse struct {
@@ -256,11 +254,9 @@ func (fes *APIServer) UpdateUSDCentsToDeSoExchangeRate() {
 	// Get the max price within the lookback window and remove elements that are no longer valid.
 	maxPrice := fes.getMaxPriceFromHistoryAndCull(timestamp)
 
-	// Get the reserve price for this node.
-	reservePrice := fes.USDCentsToDESOReserveExchangeRate
 	// If the max of last trade price and 24H price is less than the reserve price, use the reserve price.
-	if reservePrice > maxPrice {
-		fes.UsdCentsPerDeSoExchangeRate = reservePrice
+	if fes.USDCentsToDESOReserveExchangeRate > maxPrice {
+		fes.UsdCentsPerDeSoExchangeRate = fes.USDCentsToDESOReserveExchangeRate
 	} else {
 		fes.UsdCentsPerDeSoExchangeRate = maxPrice
 	}
