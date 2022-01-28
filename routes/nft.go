@@ -230,6 +230,9 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 
 	nftFee := utxoView.GlobalParamsEntry.CreateNFTFeeNanos * uint64(requestData.NumCopies)
 
+	// Create standard transaction fields
+	standardTxnFields := CreateStandardTxnFields(requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs, fes.Config.NodeSource)
+
 	// Try and create the create NFT txn for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateCreateNFTTxn(
 		updaterPublicKeyBytes,
@@ -245,16 +248,9 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		requestData.BuyNowPriceNanos,
 		additionalDESORoyaltiesPubKeyMap,
 		additionalCoinRoyaltiesPubKeyMap,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		standardTxnFields)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Problem creating transaction: %v", err))
-		return
-	}
-
-	// Add node source to txn metadata.
-	err = fes.AddNodeSourceToTxnMetadata(txn, true)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Problem adding node source: %v", err))
 		return
 	}
 
@@ -389,6 +385,9 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 
 	}
 
+	// Create standard transaction fields
+	standardTxnFields := CreateStandardTxnFields(requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs, fes.Config.NodeSource)
+
 	// Try and create the update NFT txn for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateUpdateNFTTxn(
 		updaterPublicKeyBytes,
@@ -398,16 +397,9 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 		uint64(requestData.MinBidAmountNanos),
 		requestData.IsBuyNow,
 		requestData.BuyNowPriceNanos,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		standardTxnFields)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateNFT: Problem creating transaction: %v", err))
-		return
-	}
-
-	// Add node source to txn metadata.
-	err = fes.AddNodeSourceToTxnMetadata(txn, true)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("UpdateNFT: Problem adding node source: %v", err))
 		return
 	}
 
@@ -553,22 +545,18 @@ func (fes *APIServer) CreateNFTBid(ww http.ResponseWriter, req *http.Request) {
 
 	// RPH-FIXME: Make sure the user has sufficient funds to make this bid.
 
-	// Try and create the NFT bid txn for the user.
+	// Create standard transaction fields
+	standardTxnFields := CreateStandardTxnFields(requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs, fes.Config.NodeSource)
+
+	// Try to create the NFT bid txn for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNFTBidTxn(
 		updaterPublicKeyBytes,
 		nftPostHash,
 		uint64(requestData.SerialNumber),
 		uint64(requestData.BidAmountNanos),
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		standardTxnFields)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFTBid: Problem creating transaction: %v", err))
-		return
-	}
-
-	// Add node source to txn metadata.
-	err = fes.AddNodeSourceToTxnMetadata(txn, true)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateNFTBid: Problem adding node source: %v", err))
 		return
 	}
 
@@ -718,6 +706,9 @@ func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
 		encryptedUnlockableTextBytes = []byte(requestData.EncryptedUnlockableText)
 	}
 
+	// Create standard transaction fields
+	standardTxnFields := CreateStandardTxnFields(requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs, fes.Config.NodeSource)
+
 	// Try and create the accept NFT bid txn for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateAcceptNFTBidTxn(
 		updaterPublicKeyBytes,
@@ -726,16 +717,9 @@ func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
 		bidderPKID.PKID,
 		uint64(requestData.BidAmountNanos),
 		encryptedUnlockableTextBytes,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		standardTxnFields)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTBid: Problem creating transaction: %v", err))
-		return
-	}
-
-	// Add node source to txn metadata.
-	err = fes.AddNodeSourceToTxnMetadata(txn, true)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTBid: Problem adding node source: %v", err))
 		return
 	}
 
@@ -1623,6 +1607,9 @@ func (fes *APIServer) TransferNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Create standard transaction fields
+	standardTxnFields := CreateStandardTxnFields(requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs, fes.Config.NodeSource)
+
 	// Try and create the NFT transfer txn for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNFTTransferTxn(
 		senderPublicKeyBytes,
@@ -1630,16 +1617,9 @@ func (fes *APIServer) TransferNFT(ww http.ResponseWriter, req *http.Request) {
 		nftPostHash,
 		uint64(requestData.SerialNumber),
 		[]byte(requestData.EncryptedUnlockableText),
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		standardTxnFields)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Problem creating transaction: %v", err))
-		return
-	}
-
-	// Add node source to txn metadata.
-	err = fes.AddNodeSourceToTxnMetadata(txn, true)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Problem adding node source: %v", err))
 		return
 	}
 
@@ -1769,21 +1749,17 @@ func (fes *APIServer) AcceptNFTTransfer(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	// Create standard transaction fields
+	standardTxnFields := CreateStandardTxnFields(requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs, fes.Config.NodeSource)
+
 	// Try and create the accept NFT transfer txn for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateAcceptNFTTransferTxn(
 		updaterPublicKeyBytes,
 		nftPostHash,
 		uint64(requestData.SerialNumber),
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		standardTxnFields)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: Problem creating transaction: %v", err))
-		return
-	}
-
-	// Add node source to txn metadata.
-	err = fes.AddNodeSourceToTxnMetadata(txn, true)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: Problem adding node source: %v", err))
 		return
 	}
 
@@ -1912,21 +1888,18 @@ func (fes *APIServer) BurnNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Create standard transaction fields
+	standardTxnFields := CreateStandardTxnFields(requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs, fes.Config.NodeSource)
+
 	// Try and create the burn NFT txn for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateBurnNFTTxn(
 		updaterPublicKeyBytes,
 		nftPostHash,
 		uint64(requestData.SerialNumber),
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		standardTxnFields)
+
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Problem creating transaction: %v", err))
-		return
-	}
-
-	// Add node source to txn metadata.
-	err = fes.AddNodeSourceToTxnMetadata(txn, true)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Problem adding node source: %v", err))
 		return
 	}
 

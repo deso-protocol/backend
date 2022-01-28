@@ -351,22 +351,11 @@ func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, 
 	return hash, err
 }
 
-func (fes *APIServer) AddNodeSourceToTxnMetadata (txn *lib.MsgDeSoTxn, addInputs bool) error {
-	if fes.Config.NodeSource != 0 {
-		if len(txn.ExtraData) == 0 {
-			txnExtraData := make(map[string][]byte)
-			txnExtraData[lib.NodeSourceMapKey] = lib.UintToBuf(fes.Config.NodeSource)
-			txn.ExtraData = txnExtraData
-		} else {
-			txn.ExtraData[lib.NodeSourceMapKey] = lib.UintToBuf(fes.Config.NodeSource)
-		}
-		if addInputs {
-			// Add (small) additional amount of transaction data to fees
-			_, _, _, _, err := fes.blockchain.AddInputsAndChangeToTransaction(txn, fes.MinFeeRateNanosPerKB, fes.mempool)
-			if err != nil {
-				return fmt.Errorf("AddNodeSourceToTxnMetadata: Error adding inputs for Node Source Extra Data: %v", err)
-			}
-		}
-	}
-	return nil
+func CreateStandardTxnFields(minFeeRateNanosPerKB uint64, mempool *lib.DeSoMempool, additionalOutputs []*lib.DeSoOutput, nodeSource uint64) *lib.StandardTxnFields {
+	standardTxnFields := lib.StandardTxnFields{}
+	standardTxnFields.MinFeeRateNanosPerKB = minFeeRateNanosPerKB
+	standardTxnFields.Mempool = mempool
+	standardTxnFields.AdditionalOutputs = additionalOutputs
+	standardTxnFields.NodeSource = nodeSource
+	return &standardTxnFields
 }
