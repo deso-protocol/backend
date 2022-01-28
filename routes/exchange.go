@@ -446,7 +446,9 @@ type TransactionResponse struct {
 	BlockHashHex string `json:",omitempty"`
 
 	TransactionMetadata *lib.TransactionMetadata `json:",omitempty"`
-	ExtraData map[string]string
+
+	// The ExtraData added to this transaction
+	ExtraData map[string]string `json:",omitempty"`
 }
 
 // TransactionInfoResponse contains information about the transaction
@@ -531,18 +533,14 @@ func APITransactionToResponse(
 	}
 
 	txnBytes, _ := txnn.ToBytes(false /*preSignature*/)
-	extraData := make(map[string]string)
-	for extraDataKey, extraDataValue := range txnn.ExtraData {
-		extraData[extraDataKey] = string(extraDataValue)
-	}
+
 	ret := &TransactionResponse{
 		TransactionIDBase58Check: lib.PkToString(txnn.Hash()[:], params),
 		RawTransactionHex:        hex.EncodeToString(txnBytes),
 		SignatureHex:             signatureHex,
 		TransactionType:          txnn.TxnMeta.GetTxnType().String(),
 		TransactionMetadata:      &txnMetaResponse,
-		ExtraData:                extraData,
-		// Inputs, Outputs, and some txnMeta fields set below.
+		// Inputs, Outputs, ExtraData, and some txnMeta fields set below.
 	}
 	for _, input := range txnn.TxInputs {
 		ret.Inputs = append(ret.Inputs, &InputResponse{
@@ -555,6 +553,13 @@ func APITransactionToResponse(
 			PublicKeyBase58Check: lib.PkToString(output.PublicKey, params),
 			AmountNanos:          output.AmountNanos,
 		})
+	}
+
+	if txnn.ExtraData != nil && len(txnn.ExtraData) > 0 {
+		ret.ExtraData = make(map[string]string)
+		for extraDataKey, extraDataValue := range txnn.ExtraData {
+			ret.ExtraData[extraDataKey] = string(extraDataValue)
+		}
 	}
 
 	if txnMeta != nil {
