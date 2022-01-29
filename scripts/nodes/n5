@@ -11,10 +11,10 @@ DATE=`date +%Y%m%d-%H:%M:%S-%N`
   --protocol-port=19000 \
   --admin-public-keys=* \
   --super-admin-public-keys=* \
-  --max-sync-block-height=18000 \
+  --max-sync-block-height=1800 \
   --hyper-sync=false \
   --starter-deso-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
   --block-cypher-api-key=092dae962ea44b02809a4c74408b42a1 \
-  --data-dir=$HOME/data_dirs/n5_15 \
-  --log-dir=/Users/piotr/Desktop/Code/DeSo/logs/n5/test15 \
+  --data-dir=$HOME/data_dirs/n5_20 \
+  --log-dir=/Users/piotr/Desktop/Code/DeSo/logs/n5/test20 \
 )
