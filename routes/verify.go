@@ -6,6 +6,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/backend/countries"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -125,7 +126,7 @@ func (fes *APIServer) canUserCreateProfile(userMetadata *UserMetadata, utxoView 
 		return true, nil
 	}
 
-	totalBalanceNanos, err := fes.GetBalanceForPublicKey(userMetadata.PublicKey)
+	totalBalanceNanos, err := utxoView.GetDeSoBalanceNanosForPublicKey(userMetadata.PublicKey)
 	if err != nil {
 		return false, err
 	}
@@ -703,8 +704,8 @@ type JumioIdentityVerification struct {
 }
 
 type JumioRejectReason struct {
-	RejectReasonCode        string `json:"rejectReasonCode"`
-	RejectReasonDescription string `json:"rejectReasonDescription"`
+	RejectReasonCode        string      `json:"rejectReasonCode"`
+	RejectReasonDescription string      `json:"rejectReasonDescription"`
 	RejectReasonDetails     interface{} `json:"rejectReasonDetails"`
 }
 
@@ -730,9 +731,6 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 
 	// Country of ID
 	idCountry := req.PostFormValue("idCountry")
-
-	// Temporarily, we will glog the idCountry to make sure the value we are getting from Jumio matches expectation.
-	glog.Infof("JumioCallback: idCountry: %s", idCountry)
 
 	// Identifier on ID - e.g. Driver's license number for DRIVING_LICENSE, Passport number for PASSPORT
 	idNumber := req.PostFormValue("idNumber")
@@ -804,6 +802,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	if req.FormValue("idScanStatus") != "SUCCESS" {
+		glog.Infof("JumioCallback: idScanStatus was %s, not paying user with public key %s", req.FormValue("idScanStatus"), userReference)
 		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : scan : fail", eventDataMap); err != nil {
 			glog.Errorf("JumioCallback: Error logging failed scan in amplitude: %v", err)
 		}
@@ -815,6 +814,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	if len(req.Form["livenessImages"]) == 0 {
+		glog.Infof("JumioCallback: No liveness images, not paying user with public key %s", userReference)
 		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : liveness : fail", eventDataMap); err != nil {
 			glog.Errorf("JumioCallback: Error logging failed scan in amplitude: %v", err)
 		}
@@ -837,6 +837,8 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	if jumioIdentityVerification.Validity != true || jumioIdentityVerification.Similarity != "MATCH" {
+		glog.Infof("JumioCallback: Validity %t and Similarity %s for public key %s",
+			jumioIdentityVerification.Validity, jumioIdentityVerification.Similarity, userReference)
 		// Don't raise an exception, but do not pay this user.
 		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : verification : fail", eventDataMap); err != nil {
 			glog.Errorf("JumioCallback: Error logging failed verification in amplitude: %v", err)
@@ -865,6 +867,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 			return
 		}
 	} else {
+		glog.Infof("JumioCallback: Duplicate detected for public key %s", userReference)
 		if err = fes.logAmplitudeEvent(userReference, "jumio : callback : verified : duplicate", eventDataMap); err != nil {
 			glog.Errorf("JumioCallback: Error logging duplicate verification in amplitude: %v", err)
 		}
@@ -880,8 +883,8 @@ func (fes *APIServer) GetDefaultJumioCountrySignUpBonus() CountryLevelSignUpBonu
 	return CountryLevelSignUpBonus{
 		AllowCustomKickbackAmount:      false,
 		AllowCustomReferralAmount:      false,
-		ReferralAmountOverrideUSDCents: fes.GetJumioUSDCents(),
-		KickbackAmountOverrideUSDCents: 0,
+		ReferralAmountOverrideUSDCents: fes.JumioUSDCents,
+		KickbackAmountOverrideUSDCents: fes.JumioKickbackUSDCents,
 	}
 }
 
@@ -913,6 +916,29 @@ func (fes *APIServer) GetJumioCountrySignUpBonus(countryCode string) (_signUpBon
 	}
 }
 
+func (fes *APIServer) GetCountryLevelSignUpBonusFromHeader(req *http.Request) (_signUpBonus CountryLevelSignUpBonus) {
+	// Extract CF-IPCountry header
+	countryCodeAlpha2 := req.Header.Get("CF-IPCountry")
+
+	// If we have a valid country code alpha 2 value, look up the sign up bonus config for the alpha2 code
+	// Note: XX is used for clients without country code data
+	// Note: T1 is used for clients using the tor network
+	if countryCodeAlpha2 != "" && countryCodeAlpha2 != "XX" && countryCodeAlpha2 != "T1" {
+		return fes.GetCountryLevelSignUpBonusFromAlpha2(countryCodeAlpha2)
+	}
+	return fes.GetDefaultJumioCountrySignUpBonus()
+}
+
+func (fes *APIServer) GetCountryLevelSignUpBonusFromAlpha2(countryCodeAlpha2 string) (_signUpBonus CountryLevelSignUpBonus) {
+	countrySignUpBonus := fes.GetDefaultJumioCountrySignUpBonus()
+
+	if alpha3, exists := countries.Alpha2ToAlpha3[countryCodeAlpha2]; exists {
+		countrySignUpBonus = fes.GetSingleCountrySignUpBonus(alpha3)
+	}
+
+	return countrySignUpBonus
+}
+
 // GetRefereeSignUpBonusAmount gets the amount the referee should get a sign-up bonus for verifying with Jumio based on
 // the country of their ID.
 func (fes *APIServer) GetRefereeSignUpBonusAmount(signUpBonus CountryLevelSignUpBonus, referralCodeUSDCents uint64) uint64 {
@@ -927,7 +953,7 @@ func (fes *APIServer) GetRefereeSignUpBonusAmount(signUpBonus CountryLevelSignUp
 // on the country from which the referee signed up.
 func (fes *APIServer) GetReferrerSignUpBonusAmount(signUpBonus CountryLevelSignUpBonus, referralCodeUSDCents uint64) uint64 {
 	amount := signUpBonus.KickbackAmountOverrideUSDCents
-	if signUpBonus.AllowCustomReferralAmount && referralCodeUSDCents > amount {
+	if signUpBonus.AllowCustomKickbackAmount && referralCodeUSDCents > amount {
 		amount = referralCodeUSDCents
 	}
 	return fes.GetNanosFromUSDCents(float64(amount), 0)
@@ -963,6 +989,14 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 		}
 
 		refereeSignUpBonusDeSoNanos := fes.GetRefereeSignUpBonusAmount(signUpBonusMetadata, referralAmountUSDCents)
+
+		publicKeyString := lib.PkToString(publicKeyBytes, fes.Params)
+		glog.Infof("JumioVerifiedHandler: Paying %d nanos to public key %s as referee sign-up bonus. "+
+			"Country code: %s. Country Allow Custom Referral Amount: %t. "+
+			"Country Referral amount override: %d. Referrer Amount from Referral Code: %d.",
+			refereeSignUpBonusDeSoNanos, publicKeyString, jumioCountryCode,
+			signUpBonusMetadata.AllowCustomReferralAmount, signUpBonusMetadata.ReferralAmountOverrideUSDCents,
+			referralAmountUSDCents)
 
 		// Pay the referee.
 		if refereeSignUpBonusDeSoNanos > 0 {
@@ -1021,7 +1055,17 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 				glog.Errorf("JumioVerifiedHandler: Error adding to the index of users who were referred by a given referral code")
 			}
 
+			referrerPKID := referralInfo.ReferrerPKID
+			referrerPublicKeyBytes := utxoView.GetPublicKeyForPKID(referrerPKID)
+			referrerPublicKeyString := lib.PkToString(referrerPublicKeyBytes, fes.Params)
+			glog.Infof("JumioVerifiedHandler: Paying %d nanos to public key %s as referrer kickback. "+
+				"Country code: %s. Country Allow Custom Kickback Amount: %t. "+
+				"Country Kickback amount override: %d. Kickback Amount from Referral Code: %d.",
+				kickbackAmountDeSoNanos, referrerPublicKeyString, jumioCountryCode,
+				signUpBonusMetadata.AllowCustomKickbackAmount, signUpBonusMetadata.KickbackAmountOverrideUSDCents,
+				referralInfo.ReferrerAmountUSDCents)
 			if referralInfo.TotalReferrals >= referralInfo.MaxReferrals && referralInfo.MaxReferrals > 0 {
+				glog.Infof("JumioVerifiedHandler: Not paying %s for kickback. Max Referrals exceeded")
 				return userMetadata, nil
 			}
 			// Check the balance of the starter deso seed compared to the referrer deso nanos.
@@ -1034,8 +1078,6 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 				return userMetadata, fmt.Errorf("JumioVerifiedHandler: Balance insufficient to pay referrer")
 			}
 
-			referrerPKID := referralInfo.ReferrerPKID
-			referrerPublicKeyBytes := utxoView.GetPublicKeyForPKID(referrerPKID)
 			// Increment JumioSuccesses, TotalReferrals and add to TotralRefereeDeSoNanos and TotalReferrerDeSoNanos
 			referralInfo.NumJumioSuccesses++
 			referralInfo.TotalReferrals++
@@ -1074,21 +1116,38 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 	return userMetadata, nil
 }
 
-// Get JumioUSDCents returns the default amount a user receives for verifying with Jumio without a referral code.
-func (fes *APIServer) GetJumioUSDCents() uint64 {
+// SetJumioUSDCents sets the cached value of the default amount a user receives for verifying with Jumio without a
+// referral code.
+func (fes *APIServer) SetJumioUSDCents() {
 	val, err := fes.GlobalState.Get(GlobalStateKeyForJumioUSDCents())
 	if err != nil {
-		return 0
+		glog.Errorf("SetJumioUSDCents: Error getting Jumio USD Cents from global state: %v", err)
+		return
 	}
 	jumioUSDCents, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {
-		return 0
+		glog.Errorf("SetJumioUSDCents: invalid bytes read: %v", bytesRead)
+		return
 	}
-	return jumioUSDCents
+	fes.JumioUSDCents = jumioUSDCents
 }
 
 func (fes *APIServer) GetJumioDeSoNanos() uint64 {
-	return fes.GetNanosFromUSDCents(float64(fes.GetJumioUSDCents()), 0)
+	return fes.GetNanosFromUSDCents(float64(fes.JumioUSDCents), 0)
+}
+
+func (fes *APIServer) SetJumioKickbackUSDCents() {
+	val, err := fes.GlobalState.Get(GlobalStateKeyForJumioKickbackUSDCents())
+	if err != nil {
+		glog.Errorf("SetJumioKickbackUSDCents: Error getting Jumio Kickback USD Cents from global state: %v", err)
+		return
+	}
+	jumioKickbackUSDCents, bytesRead := lib.Uvarint(val)
+	if bytesRead <= 0 {
+		glog.Errorf("SetJumioKickbackUSDCents: invalid bytes read: %v", bytesRead)
+		return
+	}
+	fes.JumioKickbackUSDCents = jumioKickbackUSDCents
 }
 
 type GetJumioStatusForPublicKeyRequest struct {

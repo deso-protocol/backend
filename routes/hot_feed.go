@@ -566,7 +566,7 @@ func (fes *APIServer) GetHotnessScoreInfoForTxn(
 	if interactionProfile == nil || interactionProfile.IsDeleted() {
 		return nil, nil, 0
 	}
-	hotnessScore := interactionProfile.DeSoLockedNanos
+	hotnessScore := interactionProfile.CreatorCoinEntry.DeSoLockedNanos
 	if hotnessScore > fes.HotFeedInteractionCap {
 		hotnessScore = fes.HotFeedInteractionCap
 	}

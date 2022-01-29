@@ -79,22 +79,6 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 	usdCentsPerDeSoExchangeRate := fes.GetExchangeDeSoPrice()
 	satoshisPerUnit := lib.NanosPerUnit / fes.GetNanosFromSats(1, 0)
 
-	// DESO
-	usdCentsPerDeSoReserveExchangeRate, err := fes.GetUSDCentsToDeSoReserveExchangeRateFromGlobalState()
-
-	if err != nil {
-		glog.Errorf("GetExchangeRate: error getting reserve exchange rate from global state: %v", err)
-		usdCentsPerDeSoReserveExchangeRate = 0
-	}
-
-	startNanos := readUtxoView.NanosPurchased
-	feeBasisPoints, err := fes.GetBuyDeSoFeeBasisPointsResponseFromGlobalState()
-
-	if err != nil {
-		glog.Errorf("GetExchangeRate: error getting buy deso fee basis points from global state: %v", err)
-		feeBasisPoints = 0
-	}
-
 	res := &GetExchangeRateResponse{
 		// BTC
 		USDCentsPerBitcoinExchangeRate: uint64(usdCentsPerBitcoin),
@@ -105,34 +89,28 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 		NanosPerETHExchangeRate:    nanosPerETH,
 
 		// DESO
-		NanosSold:                          startNanos,
+		NanosSold:                          readUtxoView.NanosPurchased,
 		USDCentsPerDeSoExchangeRate:        usdCentsPerDeSoExchangeRate,
-		USDCentsPerDeSoReserveExchangeRate: usdCentsPerDeSoReserveExchangeRate,
-		BuyDeSoFeeBasisPoints:              feeBasisPoints,
+		USDCentsPerDeSoReserveExchangeRate: fes.USDCentsToDESOReserveExchangeRate,
+		BuyDeSoFeeBasisPoints:              fes.BuyDESOFeeBasisPoints,
 
 		// Deprecated
 		SatoshisPerBitCloutExchangeRate:        satoshisPerUnit,
 		USDCentsPerBitCloutExchangeRate:        usdCentsPerDeSoExchangeRate,
-		USDCentsPerBitCloutReserveExchangeRate: usdCentsPerDeSoReserveExchangeRate,
+		USDCentsPerBitCloutReserveExchangeRate: fes.USDCentsToDESOReserveExchangeRate,
 	}
 
-	if err = json.NewEncoder(ww).Encode(res); err != nil {
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetExchangeRate: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
 
 func (fes *APIServer) GetExchangeDeSoPrice() uint64 {
-	blockchainPrice := fes.UsdCentsPerDeSoExchangeRate
-	reservePrice, err := fes.GetUSDCentsToDeSoReserveExchangeRateFromGlobalState()
-	if err != nil {
-		glog.Errorf("Getting reserve price from global state failed. Only using ticker price: %v", err)
-		reservePrice = 0
+	if fes.UsdCentsPerDeSoExchangeRate > fes.USDCentsToDESOReserveExchangeRate {
+		return fes.UsdCentsPerDeSoExchangeRate
 	}
-	if blockchainPrice > reservePrice {
-		return blockchainPrice
-	}
-	return reservePrice
+	return fes.USDCentsToDESOReserveExchangeRate
 }
 
 type BlockchainDeSoTickerResponse struct {
@@ -277,11 +255,9 @@ func (fes *APIServer) UpdateUSDCentsToDeSoExchangeRate() {
 	// Get the max price within the lookback window and remove elements that are no longer valid.
 	maxPrice := fes.getMaxPriceFromHistoryAndCull(timestamp)
 
-	// Get the reserve price for this node.
-	reservePrice, err := fes.GetUSDCentsToDeSoReserveExchangeRateFromGlobalState()
 	// If the max of last trade price and 24H price is less than the reserve price, use the reserve price.
-	if reservePrice > maxPrice {
-		fes.UsdCentsPerDeSoExchangeRate = reservePrice
+	if fes.USDCentsToDESOReserveExchangeRate > maxPrice {
+		fes.UsdCentsPerDeSoExchangeRate = fes.USDCentsToDESOReserveExchangeRate
 	} else {
 		fes.UsdCentsPerDeSoExchangeRate = maxPrice
 	}
@@ -356,6 +332,9 @@ type GetAppStateResponse struct {
 	USDCentsPerDeSoExchangeRate uint64
 	JumioDeSoNanos              uint64 // Deprecated
 	JumioUSDCents               uint64
+	JumioKickbackUSDCents       uint64
+	// CountrySignUpBonus is the sign-up bonus configuration for the country inferred from a request's IP address.
+	CountrySignUpBonus CountryLevelSignUpBonus
 
 	DefaultFeeRateNanosPerKB uint64
 	TransactionFeeMap        map[string][]TransactionFee
@@ -406,7 +385,9 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		BuyWithETH:                          fes.IsConfiguredForETH(),
 		USDCentsPerDeSoExchangeRate:         fes.GetExchangeDeSoPrice(),
 		JumioDeSoNanos:                      fes.GetJumioDeSoNanos(), // Deprecated
-		JumioUSDCents:                       fes.GetJumioUSDCents(),
+		JumioUSDCents:                       fes.JumioUSDCents,
+		JumioKickbackUSDCents:               fes.JumioKickbackUSDCents,
+		CountrySignUpBonus:                  fes.GetCountryLevelSignUpBonusFromHeader(req),
 		DefaultFeeRateNanosPerKB:            defaultFeeRateNanosPerKB,
 		TransactionFeeMap:                   fes.TxnFeeMapToResponse(true),
 		BuyETHAddress:                       fes.Config.BuyDESOETHAddress,

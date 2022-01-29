@@ -19,6 +19,7 @@ require (
 	github.com/golang-jwt/jwt/v4 v4.1.0
 	github.com/golang/glog v1.0.0
 	github.com/gorilla/mux v1.8.0
+	github.com/holiman/uint256 v1.1.1 // indirect
 	github.com/kevinburke/go-types v0.0.0-20210723172823-2deba1f80ba7 // indirect
 	github.com/kevinburke/rest v0.0.0-20210506044642-5611499aa33c // indirect
 	github.com/kevinburke/twilio-go v0.0.0-20210327194925-1623146bcf73

@@ -5,7 +5,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
-	"github.com/deso-protocol/backend/utils"
+	"github.com/deso-protocol/backend/countries"
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"io"
@@ -156,9 +156,11 @@ func (fes *APIServer) AdminUpdateJumioUSDCents(ww http.ResponseWriter, req *http
 	if err := fes.GlobalState.Put(
 		GlobalStateKeyForJumioUSDCents(),
 		lib.UintToBuf(requestData.USDCents)); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioDeSo: Problem putting premium basis points in global state: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioDeSo: Problem putting default jumio USD cents in global state: %v", err))
 		return
 	}
+
+	fes.JumioUSDCents = requestData.USDCents
 
 	// Update the cache of all country level sign up bonus metadata explicitly in case
 	// some are using the default amount
@@ -169,6 +171,45 @@ func (fes *APIServer) AdminUpdateJumioUSDCents(ww http.ResponseWriter, req *http
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioDeSo: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type AdminUpdateJumioKickbackUSDCentsRequest struct {
+	JWT      string
+	USDCents uint64
+}
+
+type AdminUpdateJumioKickbackUSDCentsResponse struct {
+	USDCents uint64
+}
+
+func (fes *APIServer) AdminUpdateJumioKickbackUSDCents(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminUpdateJumioKickbackUSDCentsRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioKickbackUSDCents: Problem parsing request body: %v", err))
+		return
+	}
+
+	if err := fes.GlobalState.Put(
+		GlobalStateKeyForJumioKickbackUSDCents(),
+		lib.UintToBuf(requestData.USDCents)); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioKickbackUSDCents: Problem putting default jumio kickback USD cents in global state: %v", err))
+		return
+	}
+
+	fes.JumioKickbackUSDCents = requestData.USDCents
+
+	// Update the cache of all country level sign up bonus metadata explicitly in case
+	// some are using the default amount
+	fes.SetAllCountrySignUpBonusMetadata()
+
+	res := AdminUpdateJumioKickbackUSDCentsResponse{
+		USDCents: requestData.USDCents,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioKickbackUSDCents: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
@@ -234,7 +275,7 @@ func (fes *APIServer) AdminJumioCallback(ww http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	if _, exists := utils.CountryCodes[requestData.CountryAlpha3]; requestData.CountryAlpha3 != "" && !exists {
+	if _, exists := countries.Alpha3CountryCodes[requestData.CountryAlpha3]; requestData.CountryAlpha3 != "" && !exists {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminJumioCallback: Invalid country alpha-3: %s", requestData.CountryAlpha3))
 		return
 	}
@@ -265,10 +306,10 @@ func (fes *APIServer) AdminUpdateJumioCountrySignUpBonus(ww http.ResponseWriter,
 			"Problem parsing request body: %v", err))
 		return
 	}
-	var countryCodeDetails utils.CountryCodeDetails
+	var countryCodeDetails countries.Alpha3CountryCodeDetails
 	var exists bool
 	// Validate the country code
-	if countryCodeDetails, exists = utils.CountryCodes[requestData.CountryCode]; !exists {
+	if countryCodeDetails, exists = countries.Alpha3CountryCodes[requestData.CountryCode]; !exists {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioCountrySignUpBonus: "+
 			"invalid country code: %v", requestData.CountryCode))
 		return
@@ -312,13 +353,13 @@ func (fes *APIServer) AdminGetAllCountryLevelSignUpBonuses(ww http.ResponseWrite
 
 type CountrySignUpBonusResponse struct {
 	CountryLevelSignUpBonus CountryLevelSignUpBonus
-	CountryCodeDetails      utils.CountryCodeDetails
+	CountryCodeDetails      countries.Alpha3CountryCodeDetails
 }
 
 // SetAllCountrySignUpBonusMetadata goes through all countries in map of CountryCodes in utils and sets the sign-up
 // bonus config in cache.
 func (fes *APIServer) SetAllCountrySignUpBonusMetadata() {
-	for countryCode, countryDetails := range utils.CountryCodes {
+	for countryCode, countryDetails := range countries.Alpha3CountryCodes {
 		signUpBonus, err := fes.GetJumioCountrySignUpBonus(countryCode)
 		if err != nil {
 			glog.Errorf("SetAllCountrySignUpBonusMetadata: %v", err)
@@ -330,7 +371,7 @@ func (fes *APIServer) SetAllCountrySignUpBonusMetadata() {
 }
 
 // SetSingleCountrySignUpBonus sets the sign up bonus configuration for a given country in the cached map.
-func (fes *APIServer) SetSingleCountrySignUpBonus(countryDetails utils.CountryCodeDetails,
+func (fes *APIServer) SetSingleCountrySignUpBonus(countryDetails countries.Alpha3CountryCodeDetails,
 	signUpBonus CountryLevelSignUpBonus) {
 	fes.AllCountryLevelSignUpBonuses[countryDetails.Name] = CountrySignUpBonusResponse{
 		CountryLevelSignUpBonus: signUpBonus,
@@ -341,7 +382,7 @@ func (fes *APIServer) SetSingleCountrySignUpBonus(countryDetails utils.CountryCo
 // GetSingleCountrySignUpBonus returns the current value of the sign-up bonus configuration stored in the cached map.
 func (fes *APIServer) GetSingleCountrySignUpBonus(countryCode string) CountryLevelSignUpBonus {
 	// Convert country code to uppercase just in case.
-	countryCodeDetails := utils.CountryCodes[strings.ToUpper(countryCode)]
+	countryCodeDetails := countries.Alpha3CountryCodes[strings.ToUpper(countryCode)]
 	// If we can't find the signup bonus from the map, return the default. Else, return the sign up bonus we found in
 	// the map.
 	if countrySignUpBonusResponse, exists := fes.AllCountryLevelSignUpBonuses[countryCodeDetails.Name]; !exists {
