@@ -345,8 +345,6 @@ type InfuraTx struct {
 type QueryETHRPCRequest struct {
 	Method               string
 	Params               []interface{}
-	JWT                  string
-	PublicKeyBase58Check string
 }
 
 // QueryETHRPC is an endpoint used to execute queries through Infura
@@ -355,15 +353,6 @@ func (fes *APIServer) QueryETHRPC(ww http.ResponseWriter, req *http.Request) {
 	requestData := QueryETHRPCRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("QueryETHRPC: Problem parsing request body: %v", err))
-		return
-	}
-	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("QueryETHRPC: error validating JWT: %v", err))
-		return
-	}
-	if !isValid {
-		_AddBadRequestError(ww, fmt.Sprintf("QueryETHRPC: Invalid token: %v", err))
 		return
 	}
 	res, err := fes.ExecuteETHRPCRequest(requestData.Method, requestData.Params)
