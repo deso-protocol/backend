@@ -411,7 +411,7 @@ type GetStateForPrefixRequest struct {
 
 type GetStateForPrefixResponse struct {
 	Full bool
-	DBEntries []lib.DBEntry
+	DBEntries []*lib.DBEntry
 }
 
 func (fes *APIServer) GetStateForPrefix(ww http.ResponseWriter, req *http.Request) {
@@ -429,7 +429,7 @@ func (fes *APIServer) GetStateForPrefix(ww http.ResponseWriter, req *http.Reques
 		lastKey, _ = hex.DecodeString(requestData.LastKey)
 	}
 	fmt.Println("prefix", prefix)
-	dbEntries, full, _ := fes.blockchain.Snapshot().GetMostRecentSnapshot(fes.blockchain.DB(), prefix, lastKey)
+	dbEntries, full, _, _ := fes.blockchain.Snapshot().GetSnapshotChunk(fes.blockchain.DB(), prefix, lastKey)
 	res := GetStateForPrefixResponse{
 		Full: full,
 		DBEntries: dbEntries,

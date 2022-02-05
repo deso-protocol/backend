@@ -8,6 +8,7 @@ require (
 	cloud.google.com/go/storage v1.15.0
 	github.com/btcsuite/btcd v0.21.0-beta
 	github.com/btcsuite/btcutil v1.0.2
+	github.com/cloudflare/circl v1.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.1
 	github.com/deso-protocol/core v0.0.0-00010101000000-000000000000
 	github.com/deso-protocol/go-deadlock v1.0.0

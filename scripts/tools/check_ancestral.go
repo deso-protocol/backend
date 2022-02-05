@@ -20,8 +20,8 @@ func main() {
 	}
 
 	//snap, _ := lib.NewSnapshot(100000)
-	//fmt.Println(snap.GetMostRecentSnapshot(db0, []byte{5}, []byte{5}))
-	//fmt.Println(snap.GetMostRecentSnapshot(db1, []byte{5}, []byte{5}))
+	//fmt.Println(snap.GetSnapshotChunk(db0, []byte{5}, []byte{5}))
+	//fmt.Println(snap.GetSnapshotChunk(db1, []byte{5}, []byte{5}))
 	maxBytes := uint32(8<<20)
 	//fmt.Println(dirSnap)
 	//key := "00000000000007080500000000000000000000000000000000000000000000000000000000000000000000001d01"

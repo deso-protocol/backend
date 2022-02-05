@@ -9,7 +9,7 @@ import (
 	"github.com/dgraph-io/badger/v3"
 )
 
-func getMostRecentSnapshot(snap *lib.Snapshot, handle *badger.DB, prefix []byte, lastKey []byte, chunkSize uint32) (
+func getSnapChunk(snap *lib.Snapshot, handle *badger.DB, prefix []byte, lastKey []byte, chunkSize uint32) (
 	[]*lib.DBEntry, bool) {
 
 	var snapshotEntriesBatch []*lib.DBEntry
@@ -93,8 +93,8 @@ func getMostRecentSnapshot(snap *lib.Snapshot, handle *badger.DB, prefix []byte,
 
 func main() {
 	//dirSnap := "/Users/piotr/data_dirs/n1_10/badgerdb/snapshot/"
-	dirSnap := "/Users/piotr/data_dirs/n1_19/"
-	dirDB := "/Users/piotr/data_dirs/n5_19/"
+	dirSnap := "/Users/piotr/data_dirs/n1_21/"
+	dirDB := "/Users/piotr/data_dirs/n5_21/"
 
 	dbSnap, err := toolslib.OpenDataDir(dirSnap)
 	if err != nil {
@@ -127,7 +127,8 @@ func main() {
 	//fmt.Println(snap.GetSnapshotChunk(db1, []byte{5}, []byte{5}))
 	maxBytes := uint32(8<<20)
 	var prefixes [][]byte
-	prefixes = append(prefixes, []byte{5})
+	prefixes = append(prefixes, lib.StatePrefixes.StatePrefixesList...)
+	fmt.Println(prefixes)
 	//prefixes = append(prefixes, []byte{1})
 	//prefixes = append(prefixes, []byte{2})
 	err = func() error {
@@ -139,7 +140,7 @@ func main() {
 			lastPrefix := prefix
 			var recurr func()
 			recurr = func(){
-				ancestralEntries, fullSnap := getMostRecentSnapshot(snap, dbSnap, prefix, lastPrefix, maxBytes)
+				ancestralEntries, fullSnap := getSnapChunk(snap, dbSnap, prefix, lastPrefix, maxBytes)
 				fmt.Printf("Found snap (%v) entries and full is (%v)\n", len(ancestralEntries), fullSnap)
 				for _, entry := range ancestralEntries {
 					//if entry.Key == "1703420bfd00431747618ea5231a7637e61c491510b30f5101265d6d5e9d0038b63c" {
@@ -188,6 +189,17 @@ func main() {
 				fmt.Printf("Error value doesn't exist in db for key (%v)\n", key)
 			}
 		}
+		check := lib.StateChecksum{}
+		check.Initialize()
+		for key, value := range existingKeysDb {
+			keyBytes, _ := hex.DecodeString(key)
+			valueBytes, _ := hex.DecodeString(value)
+			_ = check.AddBytes(lib.EncodeKeyValue(keyBytes, valueBytes))
+		}
+		_ = check.Wait()
+		fmt.Println(check.ToBytes())
+
+
 		return nil
 	}()
 	fmt.Println()
