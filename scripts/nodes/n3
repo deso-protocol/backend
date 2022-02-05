@@ -16,14 +16,14 @@ rm /tmp/main.*.log
   --super-admin-public-keys=* \
   --miner-public-keys=BC1YLgKZyfgyNntCMXAZYExM8JooYqrYvVsrR8d8XVxorDruYFdq31p \
   --starter-deso-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
-  --data-dir=$HOME/data_dirs/n3_2 \
+  --data-dir=$HOME/data_dirs/n3_3 \
   --block-cypher-api-key=092dae962ea44b02809a4c74408b42a1 \
   --min-satoshis-for-profile=0 \
   --hyper-sync=false \
   --connect-ips=deso-seed-2.io:17000 \
   --run-hot-feed-routine=true \
   --max-sync-block-height=2000 \
-  --log-dir=/Users/piotr/Desktop/Code/DeSo/logs/n3/test19 \
+  --log-dir=/Users/piotr/Desktop/Code/DeSo/logs/n3/test24 \
 )
 
 # These are nodes that can be relied upon if the decentralized seed

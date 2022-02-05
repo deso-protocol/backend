@@ -10,8 +10,8 @@ import (
 )
 
 func main() {
-	dir0 := "/Users/piotr/data_dirs/n4_20"
-	dir1 := "/Users/piotr/data_dirs/n5_20"
+	dir0 := "/Users/piotr/data_dirs/n4_21"
+	dir1 := "/Users/piotr/data_dirs/n5_21"
 	//dir2 := "/Users/piotr/data_dirs/n7_1"
 
 	db0, err := toolslib.OpenDataDir(dir0)
