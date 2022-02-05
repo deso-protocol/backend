@@ -53,7 +53,6 @@ func GetTestBadgerDb() (_db *badger.DB, _dir string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	return db, dir
 }
 
@@ -118,8 +117,8 @@ func NewLowDifficultyBlockchainWithParams(params *lib.DeSoParams) (
 
 	// Temporarily modify the seed balances to make a specific public
 	// key have some DeSo
-	chain, err := lib.NewBlockchain([]string{blockSignerPk}, 0,
-		&paramsCopy, timesource, db, nil, nil)
+	chain, err := lib.NewBlockchain([]string{blockSignerPk}, 0, 0,
+		&paramsCopy, timesource, db, nil, nil, nil)
 	if err != nil {
 		log.Fatal(err)
 	}

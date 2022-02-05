@@ -268,7 +268,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 				followsUser, followChecked := publicKeyFollowsUser[otherPartyPublicKeyBase58Check]
 				if !followChecked {
 					followEntry := lib.DbGetFollowerToFollowedMapping(utxoView.Handle,
-						lib.PublicKeyToPKID(otherPartyPublicKeyBytes),
+						fes.blockchain.Snapshot(), lib.PublicKeyToPKID(otherPartyPublicKeyBytes),
 						lib.PublicKeyToPKID(publicKeyBytes))
 					followsUser = followEntry != nil
 					publicKeyFollowsUser[otherPartyPublicKeyBase58Check] = followsUser
@@ -283,7 +283,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 				followsPublicKey, followChecked := userFollowsPublicKey[otherPartyPublicKeyBase58Check]
 				if !followChecked {
 					followEntry := lib.DbGetFollowerToFollowedMapping(utxoView.Handle,
-						lib.PublicKeyToPKID(publicKeyBytes),
+						fes.blockchain.Snapshot(), lib.PublicKeyToPKID(publicKeyBytes),
 						lib.PublicKeyToPKID(otherPartyPublicKeyBytes))
 					followsPublicKey = followEntry != nil
 					userFollowsPublicKey[otherPartyPublicKeyBase58Check] = followsPublicKey

@@ -339,7 +339,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	hotnessInfoMap := make(map[lib.BlockHash]*HotnessPostInfo)
 	postInteractionMap := make(map[HotFeedInteractionKey][]byte)
 	for blockIdx, node := range relevantNodes {
-		block, _ := lib.GetBlock(node.Hash, utxoView.Handle)
+		block, _ := lib.GetBlock(node.Hash, utxoView.Handle, fes.blockchain.Snapshot())
 		for _, txn := range block.Txns {
 			// For time decay, we care about how many blocks away from the tip this block is.
 			blockAgee := len(relevantNodes) - blockIdx

@@ -2,6 +2,7 @@ package routes
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/backend/apis"
@@ -399,6 +400,43 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetNotifications: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type GetStateForPrefixRequest struct {
+	Prefix int
+	LastKey string
+}
+
+type GetStateForPrefixResponse struct {
+	Full bool
+	DBEntries []lib.DBEntry
+}
+
+func (fes *APIServer) GetStateForPrefix(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetStateForPrefixRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetStateForPrefix: Problem parsing request body: %v", err))
+		return
+	}
+
+	prefix := []byte{byte(requestData.Prefix)}
+	lastKey := prefix[:]
+	if len(requestData.LastKey) != 0 {
+		lastKey, _ = hex.DecodeString(requestData.LastKey)
+	}
+	fmt.Println("prefix", prefix)
+	dbEntries, full, _ := fes.blockchain.Snapshot().GetMostRecentSnapshot(fes.blockchain.DB(), prefix, lastKey)
+	res := GetStateForPrefixResponse{
+		Full: full,
+		DBEntries: dbEntries,
+	}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetStateForPrefix: Problem encoding response as JSON: %v", err))
 		return
 	}
 }

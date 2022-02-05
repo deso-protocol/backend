@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+#rm -rf $HOME/data_dirs/n2_1
+
+ulimit -n 8192
+ulimit -Hn 8192
+ulimit -u 131072
+ulimit -Hu 131072
+./n4
