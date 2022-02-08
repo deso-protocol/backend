@@ -2974,6 +2974,12 @@ type UserDerivedKey struct {
 
 	// This is the current state of the derived key.
 	IsValid bool `safeForLogging:"true"`
+
+	// TransactionSpendingLimit represents the current state of the TransactionSpendingLimitTracker
+	TransactionSpendingLimit *TransactionSpendingLimitResponse `safeForLogging:"true"`
+
+	// Memo is a string that describes the Derived Key
+	Memo string `safeForLogging:"true"`
 }
 
 // GetUserDerivedKeysResponse ...
@@ -3027,6 +3033,8 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 			DerivedPublicKeyBase58Check: lib.PkToString(entry.DerivedPublicKey[:], fes.Params),
 			ExpirationBlock:             entry.ExpirationBlock,
 			IsValid:                     entry.OperationType == lib.AuthorizeDerivedKeyOperationValid,
+			TransactionSpendingLimit:    fes.TransactionSpendingLimitToResponse(entry.TransactionSpendingLimitTracker, utxoView),
+			Memo:                        string(entry.Memo),
 		}
 	}
 
