@@ -603,6 +603,9 @@ type ProfileEntryResponse struct {
 	// If user is featured as an up and coming creator in the tutorial.
 	// Note: a user should not be both featured as well known and up and coming
 	IsFeaturedTutorialUpAndComingCreator bool
+
+	// ProfileExtraData stores an arbitrary map of attributes of a ProfileEntry
+	ProfileExtraData map[string]string
 }
 
 type CoinEntryResponse struct {
@@ -956,6 +959,15 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		}
 	}
 
+	profileEntryResponseExtraData := make(map[string]string)
+	if len(profileEntry.ProfileExtraData) > 0 {
+		for k, v := range profileEntry.ProfileExtraData {
+			if len(v) > 0 {
+				profileEntryResponseExtraData[k] = string(v)
+			}
+		}
+	}
+
 	// Generate profile entry response
 	profResponse := &ProfileEntryResponse{
 		PublicKeyBase58Check: lib.PkToString(profileEntry.PublicKey, fes.Params),
@@ -981,6 +993,7 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		IsHidden:               profileEntry.IsHidden,
 		IsReserved:             isReserved,
 		IsVerified:             isVerified,
+		ProfileExtraData:       profileEntryResponseExtraData,
 	}
 
 	return profResponse

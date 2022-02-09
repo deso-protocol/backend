@@ -243,6 +243,9 @@ type UpdateProfileRequest struct {
 
 	IsHidden bool `safeForLogging:"true"`
 
+	// ProfileExtraData
+	ProfileExtraData map[string]string `safeForLogging:"true"`
+
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
@@ -389,6 +392,8 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	extraData := preprocessExtraData(requestData.ProfileExtraData)
+
 	additionalFees, compProfileCreationTxnHash, err := fes.CompProfileCreation(profilePublicKey, userMetadata, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, err.Error())
@@ -411,6 +416,7 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		requestData.NewStakeMultipleBasisPoints,
 		requestData.IsHidden,
 		additionalFees,
+		extraData,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem creating transaction: %v", err))
