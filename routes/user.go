@@ -508,40 +508,6 @@ func (fes *APIServer) GetUserMetadata(ww http.ResponseWriter, req *http.Request)
 
 }
 
-type DeleteIdentityRequest struct{}
-
-type DeleteIdentityResponse struct{}
-
-func (fes *APIServer) DeleteIdentities(ww http.ResponseWriter, req *http.Request) {
-	// Decode the request data.
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := DeleteIdentityRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("DeleteIdentities: Problem parsing request body: %v", err))
-		return
-	}
-
-	for _, cookie := range req.Cookies() {
-		if strings.HasPrefix(cookie.Name, SeedInfoCookieKey) {
-			cookie := &http.Cookie{
-				Name:     cookie.Name,
-				Value:    "",
-				MaxAge:   1, // expire immediately
-				Secure:   true,
-				HttpOnly: true,
-				SameSite: http.SameSiteLaxMode,
-			}
-			http.SetCookie(ww, cookie)
-		}
-	}
-
-	res := DeleteIdentityResponse{}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("DeleteIdentities: Problem encoding response as JSON: %v", err))
-		return
-	}
-}
-
 // GetProfilesStatelessRequest ...
 type GetProfilesRequest struct {
 	// When set, we return profiles starting at the given pubkey up to numEntriesToReturn.
