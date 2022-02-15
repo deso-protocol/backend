@@ -3016,17 +3016,27 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 		return
 	}
 
+	// Derived keys are not automatically expired in the DB when we reach the expiration block height.
+	// They should be manually checked against the current block height to verify their validity.
+	blockTip := fes.backendServer.GetBlockchain().BlockTip()
+
 	// Create the derivedKeys map, indexed by derivedPublicKeys in base58Check.
 	// We use the UserDerivedKey struct instead of the lib.DerivedKeyEntry type
 	// so that we can return public keys in base58Check.
 	derivedKeys := make(map[string]*UserDerivedKey)
 	for _, entry := range derivedKeyMappings {
+		// isValid is initialized to true if the derived key entry is marked as valid in the DB.
+		isValid := entry.OperationType == lib.AuthorizeDerivedKeyOperationValid
+		// Check if the key has expired, if so then we will invalidate the key in the response.
+		if entry.ExpirationBlock <= uint64(blockTip.Height) {
+			isValid = false
+		}
 		derivedPublicKey := lib.PkToString(entry.DerivedPublicKey[:], fes.Params)
 		derivedKeys[derivedPublicKey] = &UserDerivedKey{
 			OwnerPublicKeyBase58Check:   lib.PkToString(entry.OwnerPublicKey[:], fes.Params),
 			DerivedPublicKeyBase58Check: lib.PkToString(entry.DerivedPublicKey[:], fes.Params),
 			ExpirationBlock:             entry.ExpirationBlock,
-			IsValid:                     entry.OperationType == lib.AuthorizeDerivedKeyOperationValid,
+			IsValid:                     isValid,
 		}
 	}
 
