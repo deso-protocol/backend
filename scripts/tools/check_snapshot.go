@@ -7,6 +7,11 @@ import (
 	"github.com/deso-protocol/backend/scripts/tools/toolslib"
 	"github.com/deso-protocol/core/lib"
 	"github.com/dgraph-io/badger/v3"
+	"github.com/golang/glog"
+"path/filepath"
+	"sort"
+
+
 )
 
 func getMostRecentSnapshot(snap *lib.Snapshot, handle *badger.DB, prefix []byte, lastKey []byte, chunkSize uint32) (
@@ -94,9 +99,20 @@ func getMostRecentSnapshot(snap *lib.Snapshot, handle *badger.DB, prefix []byte,
 func main() {
 	//dirSnap := "/Users/piotr/data_dirs/n1_10/badgerdb/snapshot/"
 	dirSnap := "/Users/piotr/data_dirs/n1_19/"
-	dirDB := "/Users/piotr/data_dirs/n5_19/"
+	dirDB := "/tmp/n0_test_10000"
+	txIndexDir := filepath.Join(lib.GetBadgerDbPath(dirDB), "txindex")
+	txIndexOpts := badger.DefaultOptions(txIndexDir)
+	txIndexOpts.ValueDir = lib.GetBadgerDbPath(txIndexDir)
+	txIndexOpts.MemTableSize = 1024 << 20
+	glog.Infof("TxIndex BadgerDB Dir: %v", txIndexOpts.Dir)
+	glog.Infof("TxIndex BadgerDB ValueDir: %v", txIndexOpts.ValueDir)
+	db, err := badger.Open(txIndexOpts)
+	if err != nil {
+		glog.Fatal(err)
+	}
 
 	dbSnap, err := toolslib.OpenDataDir(dirSnap)
+	_ = dbSnap
 	if err != nil {
 		fmt.Printf("Error reading db1 err: %v", err)
 		return
@@ -116,18 +132,24 @@ func main() {
 	//	fmt.Printf("Error reading db err: %v", err)
 	//	return
 	//}
-	db, err := toolslib.OpenDataDir(dirDB)
-	if err != nil {
-		fmt.Printf("Error reading db1 err: %v", err)
-		return
-	}
+	//db, err := toolslib.OpenDataDir(dirDB)
+	//if err != nil {
+	//	fmt.Printf("Error reading db1 err: %v", err)
+	//	return
+	//}
 
 	//snap, _ := lib.NewSnapshot(100000)
 	//fmt.Println(snap.GetSnapshotChunk(db0, []byte{5}, []byte{5}))
 	//fmt.Println(snap.GetSnapshotChunk(db1, []byte{5}, []byte{5}))
 	maxBytes := uint32(8<<20)
 	var prefixes [][]byte
-	prefixes = append(prefixes, []byte{5})
+	for prefix, _ := range lib.StatePrefixes.StatePrefixesMap {
+		prefixes = append(prefixes, []byte{prefix})
+	}
+	sort.Slice(prefixes, func(ii, jj int) bool {
+		return prefixes[ii][0] < prefixes[jj][0]
+	})
+	fmt.Println(prefixes)
 	//prefixes = append(prefixes, []byte{1})
 	//prefixes = append(prefixes, []byte{2})
 	err = func() error {
@@ -139,16 +161,16 @@ func main() {
 			lastPrefix := prefix
 			var recurr func()
 			recurr = func(){
-				ancestralEntries, fullSnap := getMostRecentSnapshot(snap, dbSnap, prefix, lastPrefix, maxBytes)
-				fmt.Printf("Found snap (%v) entries and full is (%v)\n", len(ancestralEntries), fullSnap)
-				for _, entry := range ancestralEntries {
-					//if entry.Key == "1703420bfd00431747618ea5231a7637e61c491510b30f5101265d6d5e9d0038b63c" {
-					//	fmt.Println("GOT HERE BUT SHOULDN'T")
-					//}
-					keyHex := hex.EncodeToString(entry.Key)
-					valueHex := hex.EncodeToString(entry.Value)
-					existingKeysSnap[keyHex] = valueHex
-				}
+				//ancestralEntries, fullSnap := getMostRecentSnapshot(snap, dbSnap, prefix, lastPrefix, maxBytes)
+				//fmt.Printf("Found snap (%v) entries and full is (%v)\n", len(ancestralEntries), fullSnap)
+				//for _, entry := range ancestralEntries {
+				//	//if entry.Key == "1703420bfd00431747618ea5231a7637e61c491510b30f5101265d6d5e9d0038b63c" {
+				//	//	fmt.Println("GOT HERE BUT SHOULDN'T")
+				//	//}
+				//	keyHex := hex.EncodeToString(entry.Key)
+				//	valueHex := hex.EncodeToString(entry.Value)
+				//	existingKeysSnap[keyHex] = valueHex
+				//}
 
 				entries, fullDb, err := lib.DBIteratePrefixKeys(db, prefix, lastPrefix, maxBytes)
 				for _, entry := range entries {
@@ -159,15 +181,16 @@ func main() {
 					valueHex := hex.EncodeToString(entry.Value)
 					existingKeysDb[keyHex] = valueHex
 				}
+				fmt.Printf("prefix: %v, len: %v\n", prefix, len(entries))
 				if err != nil {
 					fmt.Printf("Error reading db0 err: %v", err)
 					return
 				}
 				fmt.Printf("Found db (%v) entries and full is (%v)\n", len(entries), fullDb)
-				lastPrefix = ancestralEntries[len(ancestralEntries)-1].Key
-				if fullSnap || fullDb {
-					recurr()
-				}
+				//lastPrefix = ancestralEntries[len(ancestralEntries)-1].Key
+				//if fullSnap || fullDb {
+				//	recurr()
+				//}
 			}
 			recurr()
 
