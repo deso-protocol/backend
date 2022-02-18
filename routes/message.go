@@ -694,20 +694,21 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 
 	// Try and create the message for the user.
 	tstamp := uint64(time.Now().UnixNano())
+
+	// Create standard transaction fields
+	standardTxnFields := CreateStandardTxnFields(requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs, fes.Config.NodeSource)
+
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreatePrivateMessageTxn(
 		senderPkBytes, recipientPkBytes,
 		requestData.MessageText, requestData.EncryptedMessageText,
 		senderMessagingPublicKey, senderMessagingGroupKeyNameBytes,
 		recipientMessagingPublicKey, recipientMessagingGroupKeyNameBytes,
 		tstamp,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		standardTxnFields)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem creating transaction: %v", err))
 		return
 	}
-
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {

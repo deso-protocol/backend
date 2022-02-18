@@ -400,7 +400,10 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		compProfileCreationTxnHashHex = compProfileCreationTxnHash.String()
 	}
 
-	// Try and create the UpdateProfile txn for the user.
+	// Create standard transaction fields
+	standardTxnFields := CreateStandardTxnFields(requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs, fes.Config.NodeSource)
+
+	// Try to create the UpdateProfile txn for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateUpdateProfileTxn(
 		updaterPublicKeyBytes,
 		profilePublicKeyBytess,
@@ -411,14 +414,11 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		requestData.NewStakeMultipleBasisPoints,
 		requestData.IsHidden,
 		additionalFees,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		standardTxnFields)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem creating transaction: %v", err))
 		return
 	}
-
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -1024,9 +1024,10 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 	var feeNanoss uint64
 	if requestData.AmountNanos < 0 {
 		// Create a MAX transaction
+		// Create standard transaction fields
+		standardTxnFields := CreateStandardTxnFields(requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs, fes.Config.NodeSource)
 		txnn, totalInputt, spendAmountt, feeNanoss, err = fes.blockchain.CreateMaxSpend(
-			senderPkBytes, recipientPkBytes, requestData.MinFeeRateNanosPerKB,
-			fes.backendServer.GetMempool(), additionalOutputs)
+			senderPkBytes, recipientPkBytes, standardTxnFields)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error processing MAX transaction: %v", err))
 			return
@@ -1055,6 +1056,9 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 			// We wait to compute the signature until we've added all the
 			// inputs and change.
 		}
+
+		// Add node source to txn metadata
+		lib.AddNodeSourceToTxnMetadata(txnn, fes.Config.NodeSource)
 
 		// Add inputs to the transaction and do signing, validation, and broadcast
 		// depending on what the user requested.
@@ -1166,17 +1170,17 @@ func (fes *APIServer) CreateLikeStateless(ww http.ResponseWriter, req *http.Requ
 	postHash := lib.BlockHash{}
 	copy(postHash[:], postHashBytes)
 
-	// Try and create the message for the user.
+	// Create standard transaction fields
+	standardTxnFields := CreateStandardTxnFields(requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs, fes.Config.NodeSource)
+
+	// Try to create the message for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateLikeTxn(
 		readerPkBytes, postHash, requestData.IsUnlike,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		standardTxnFields)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateLikeStateless: Problem creating transaction: %v", err))
 		return
 	}
-
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -1393,7 +1397,10 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 
 	postExtraData := preprocessExtraData(requestData.PostExtraData)
 
-	// Try and create the SubmitPost for the user.
+	// Create standard transaction fields
+	standardTxnFields := CreateStandardTxnFields(requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs, fes.Config.NodeSource)
+
+	// Try to create the SubmitPost for the user.
 	tstamp := uint64(time.Now().UnixNano())
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateSubmitPostTxn(
 		updaterPublicKeyBytes,
@@ -1405,14 +1412,11 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		tstamp,
 		postExtraData,
 		requestData.IsHidden,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		standardTxnFields)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Problem creating transaction: %v", err))
 		return
 	}
-
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -1555,17 +1559,17 @@ func (fes *APIServer) CreateFollowTxnStateless(ww http.ResponseWriter, req *http
 		return
 	}
 
-	// Try and create the follow for the user.
+	// Create standard transaction fields
+	standardTxnFields := CreateStandardTxnFields(requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs, fes.Config.NodeSource)
+
+	// Try to create the follow for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateFollowTxn(
 		followerPkBytes, followedPkBytes, requestData.IsUnfollow,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		standardTxnFields)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateFollowTxnStateless: Problem creating transaction: %v", err))
 		return
 	}
-
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -1721,7 +1725,10 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 	}
 	// At this point, we should have stakeID and stakeType set properly.
 
-	// Try and create the BuyOrSellCreatorCoin transaction for the user.
+	// Create standard transaction fields
+	standardTxnFields := CreateStandardTxnFields(requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs, fes.Config.NodeSource)
+
+	// Try to create the BuyOrSellCreatorCoin transaction for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateCreatorCoinTxn(
 		updaterPublicKeyBytes,
 		creatorPublicKeyBytes,
@@ -1732,14 +1739,11 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		requestData.MinDeSoExpectedNanos,
 		requestData.MinCreatorCoinExpectedNanos,
 		// Standard transaction fields
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		standardTxnFields)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem adding inputs and change transaction: %v", err))
 		return
 	}
-
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
 
 	utxoView, err := fes.mempool.GetAugmentedUtxoViewForPublicKey(updaterPublicKeyBytes, txn)
 	if err != nil {
@@ -1989,21 +1993,21 @@ func (fes *APIServer) TransferCreatorCoin(ww http.ResponseWriter, req *http.Requ
 		return
 	}
 
-	// Try and create the TransferCreatorCoin transaction for the user.
+	// Create standard transaction fields
+	standardTxnFields := CreateStandardTxnFields(requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs, fes.Config.NodeSource)
+
+	// Try to create the TransferCreatorCoin transaction for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateCreatorCoinTransferTxn(
 		senderPublicKeyBytes,
 		creatorPublicKeyBytes,
 		requestData.CreatorCoinToTransferNanos,
 		receiverPublicKeyBytes,
 		// Standard transaction fields
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		standardTxnFields)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferCreatorCoin: Problem creating transaction: %v", err))
 		return
 	}
-
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -2133,12 +2137,15 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: TransactionFees specified in Request body are invalid: %v", err))
 			return
 		}
+
+		// Create standard transaction fields
+		standardTxnFields := CreateStandardTxnFields(requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs, fes.Config.NodeSource)
 		txn, totalInput, _, changeAmount, fees, err = fes.blockchain.CreateBasicTransferTxnWithDiamonds(
 			senderPublicKeyBytes,
 			diamondPostHash,
 			requestData.DiamondLevel,
 			// Standard transaction fields
-			requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+			standardTxnFields)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem creating transaction: %v", err))
 			return
@@ -2151,21 +2158,22 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: TransactionFees specified in Request body are invalid: %v", err))
 			return
 		}
+
+		// Create standard transaction fields
+		standardTxnFields := CreateStandardTxnFields(requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs, fes.Config.NodeSource)
+
 		txn, totalInput, changeAmount, fees, err = fes.blockchain.CreateCreatorCoinTransferTxnWithDiamonds(
 			senderPublicKeyBytes,
 			receiverPublicKeyBytes,
 			diamondPostHash,
 			requestData.DiamondLevel,
 			// Standard transaction fields
-			requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+			standardTxnFields)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem creating transaction: %v", err))
 			return
 		}
 	}
-
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {

@@ -421,14 +421,11 @@ func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, 
 	return hash, err
 }
 
-func (fes *APIServer) AddNodeSourceToTxnMetadata (txn *lib.MsgDeSoTxn) {
-	if fes.Config.NodeSource != 0 {
-		if len(txn.ExtraData) == 0 {
-			txnExtraData := make(map[string][]byte)
-			txnExtraData[lib.NodeSourceMapKey] = lib.UintToBuf(fes.Config.NodeSource)
-			txn.ExtraData = txnExtraData
-		} else {
-			txn.ExtraData[lib.NodeSourceMapKey] = lib.UintToBuf(fes.Config.NodeSource)
-		}
-	}
+func CreateStandardTxnFields(minFeeRateNanosPerKB uint64, mempool *lib.DeSoMempool, additionalOutputs []*lib.DeSoOutput, nodeSource uint64) *lib.StandardTxnFields {
+	standardTxnFields := lib.StandardTxnFields{}
+	standardTxnFields.MinFeeRateNanosPerKB = minFeeRateNanosPerKB
+	standardTxnFields.Mempool = mempool
+	standardTxnFields.AdditionalOutputs = additionalOutputs
+	standardTxnFields.NodeSource = nodeSource
+	return &standardTxnFields
 }
