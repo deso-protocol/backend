@@ -554,11 +554,11 @@ func APITransactionToResponse(
 			AmountNanos:          output.AmountNanos,
 		})
 	}
-
 	if txnn.ExtraData != nil && len(txnn.ExtraData) > 0 {
 		ret.ExtraData = make(map[string]string)
 		for extraDataKey, extraDataValue := range txnn.ExtraData {
-			ret.ExtraData[extraDataKey] = string(extraDataValue)
+			var decoderFunc = GetExtraDataDecoderFunc(extraDataKey)
+			ret.ExtraData[extraDataKey] = decoderFunc(extraDataValue)
 		}
 	}
 
