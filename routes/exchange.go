@@ -557,8 +557,8 @@ func APITransactionToResponse(
 	if txnn.ExtraData != nil && len(txnn.ExtraData) > 0 {
 		ret.ExtraData = make(map[string]string)
 		for extraDataKey, extraDataValue := range txnn.ExtraData {
-			var decoderFunc = GetExtraDataDecoderFunc(extraDataKey)
-			ret.ExtraData[extraDataKey] = decoderFunc(extraDataValue)
+			var decoderFunc = GetExtraDataDecoder(extraDataKey)
+			ret.ExtraData[extraDataKey] = decoderFunc(extraDataValue, params)
 		}
 	}
 
