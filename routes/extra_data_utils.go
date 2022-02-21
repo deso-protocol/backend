@@ -2,37 +2,63 @@ package routes
 
 import (
 	"encoding/hex"
+	"fmt"
 	"github.com/deso-protocol/core/lib"
 	"strconv"
 )
 
-type DecoderFunc func([]byte) string
+type ExtraDataDecoder func([]byte) string
 
-type ExtraDataDecoder struct {
-	Key     string
-	Decoder DecoderFunc
+var ExtraDataKeyToDecoder = map[string]ExtraDataDecoder{
+	lib.RepostedPostHash:  hex.EncodeToString,
+	lib.IsQuotedRepostKey: Decode64BitIntString,
+
+	lib.USDCentsPerBitcoinKey:      Decode64BitIntString,
+	lib.MinNetworkFeeNanosPerKBKey: Decode64BitIntString,
+	lib.CreateProfileFeeNanosKey:   Decode64BitIntString,
+	lib.CreateNFTFeeNanosKey:       Decode64BitIntString,
+	lib.MaxCopiesPerNFTKey:         Decode64BitIntString,
+
+	lib.ForbiddenBlockSignaturePubKeyKey: hex.EncodeToString,
+
+	lib.DiamondLevelKey:    Decode64BitIntString,
+	lib.DiamondPostHashKey: hex.EncodeToString,
+
+	lib.DerivedPublicKey: hex.EncodeToString,
+
+	lib.MessagingPublicKey:             hex.EncodeToString,
+	lib.SenderMessagingPublicKey:       hex.EncodeToString,
+	lib.SenderMessagingGroupKeyName:    hex.EncodeToString,
+	lib.RecipientMessagingPublicKey:    hex.EncodeToString,
+	lib.RecipientMessagingGroupKeyName: hex.EncodeToString,
+
+	lib.DESORoyaltiesMapKey: DecodePubKeyToUint64MapString,
+	lib.CoinRoyaltiesMapKey: DecodePubKeyToUint64MapString,
+
+	lib.MessagesVersionString: Decode64BitIntString,
+
+	lib.NodeSourceMapKey: DecodePubKeyToUint64MapString,
 }
 
-// GetExtraDataDecoderFunc Values in ExtraData field
+// GetExtraDataDecoder Values in ExtraData field
 // in transaction may have special encoding. In such cases
 // we'll need specialized decoders too
-func GetExtraDataDecoderFunc(key string) DecoderFunc {
-	var decoders = []ExtraDataDecoder{
-		{
-			lib.DiamondLevelKey,
-			ByteArrTo64BitInt,
-		},
+func GetExtraDataDecoder(key string) ExtraDataDecoder {
+	if decoder, exists := ExtraDataKeyToDecoder[key]; exists {
+		return decoder
 	}
-	for _, decoder := range decoders {
-		if decoder.Key == key {
-			return decoder.Decoder
-		}
-	}
+
 	// Default, just return hex encoding for bytes
 	return hex.EncodeToString
 }
 
-func ByteArrTo64BitInt(bytes []byte) string {
+func Decode64BitIntString(bytes []byte) string {
 	var decoded, _ = lib.Varint(bytes)
 	return strconv.FormatInt(decoded, 10)
+}
+
+func DecodePubKeyToUint64MapString(bytes []byte) string {
+	var decoded, _ = lib.DeserializePubKeyToUint64Map(bytes)
+	// output will have the format "map[key1:val1 key2:val2]"
+	return fmt.Sprint(decoded)
 }
