@@ -367,7 +367,7 @@ type CFVideoDetailsResponse struct {
 
 type GetVideoStatusResponse struct {
 	ReadyToStream bool
-	Duration uint64
+	Duration float64
 }
 
 func (fes *APIServer) GetVideoStatus(ww http.ResponseWriter, req *http.Request) {
@@ -409,7 +409,7 @@ func (fes *APIServer) GetVideoStatus(ww http.ResponseWriter, req *http.Request) 
 	duration, _ := cfVideoDetailsResponse.Result["duration"]
 	res := &GetVideoStatusResponse{
 		ReadyToStream: isReady.(bool),
-		Duration: duration.(uint64),
+		Duration: duration.(float64),
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetVideoStatus: Problem serializing object to JSON: %v", err))
