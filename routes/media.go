@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 	"io"
 	"net/http"
@@ -190,12 +191,27 @@ func getImageHex(base64EncodedImage string) string {
 	return hex.EncodeToString(chainhash.HashB([]byte(base64EncodedImage)))
 }
 
-func preprocessExtraData(extraData map[string]string) map[string][]byte {
+// For backwards compatibility, we continue to cast the values of the extra data map to bytes for Post transactions.
+func preprocessPostExtraData(extraData map[string]string) map[string][]byte {
 	extraDataProcessed := make(map[string][]byte)
 	for k, v := range extraData {
 		if len(v) > 0 {
 			extraDataProcessed[k] = []byte(v)
 		}
+	}
+	return extraDataProcessed
+}
+
+// All txn types other than Post's should use preprocessExtraData to encode the values of the extra data map.
+func preprocessExtraData(extraData map[string]string) map[string][]byte {
+	extraDataProcessed := make(map[string][]byte)
+	for k, v := range extraData {
+		valBytes, err := hex.DecodeString(v)
+		if err != nil {
+			glog.Errorf("preprocessExtraData: Error encoding value %v: %v", v, err)
+			continue
+		}
+		extraDataProcessed[k] = valBytes
 	}
 	return extraDataProcessed
 }

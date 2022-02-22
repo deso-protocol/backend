@@ -243,8 +243,8 @@ type UpdateProfileRequest struct {
 
 	IsHidden bool `safeForLogging:"true"`
 
-	// ProfileExtraData
-	ProfileExtraData map[string]string `safeForLogging:"true"`
+	// ExtraData
+	ExtraData map[string]string `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
@@ -392,7 +392,7 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	extraData := preprocessExtraData(requestData.ProfileExtraData)
+	extraData := preprocessExtraData(requestData.ExtraData)
 
 	additionalFees, compProfileCreationTxnHash, err := fes.CompProfileCreation(profilePublicKey, userMetadata, utxoView)
 	if err != nil {
@@ -1397,7 +1397,7 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	postExtraData := preprocessExtraData(requestData.PostExtraData)
+	postExtraData := preprocessPostExtraData(requestData.PostExtraData)
 
 	// Try and create the SubmitPost for the user.
 	tstamp := uint64(time.Now().UnixNano())
