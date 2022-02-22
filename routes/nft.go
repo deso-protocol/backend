@@ -30,6 +30,9 @@ type NFTEntryResponse struct {
 	// These fields are only populated when the reader is the owner.
 	LastOwnerPublicKeyBase58Check *string `json:",omitempty"`
 	EncryptedUnlockableText       *string `json:",omitempty"`
+
+	// ExtraData is an arbitrary key value map
+	ExtraData map[string]string `safeForLogging:"true"`
 }
 
 type NFTCollectionResponse struct {
@@ -74,6 +77,7 @@ type CreateNFTRequest struct {
 	BuyNowPriceNanos               uint64            `safeForLogging:"true"`
 	AdditionalDESORoyaltiesMap     map[string]uint64 `safeForLogging:"true"`
 	AdditionalCoinRoyaltiesMap     map[string]uint64 `safeForLogging:"true"`
+	ExtraData                      map[string]string `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
@@ -245,6 +249,7 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		requestData.BuyNowPriceNanos,
 		additionalDESORoyaltiesPubKeyMap,
 		additionalCoinRoyaltiesPubKeyMap,
+		preprocessExtraData(requestData.ExtraData),
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Problem creating transaction: %v", err))
@@ -1379,6 +1384,7 @@ func (fes *APIServer) _nftEntryToResponse(nftEntry *lib.NFTEntry, postEntryRespo
 		EncryptedUnlockableText:       encryptedUnlockableText,
 		LastOwnerPublicKeyBase58Check: lastOwnerPublicKeyBase58Check,
 		LastAcceptedBidAmountNanos:    nftEntry.LastAcceptedBidAmountNanos,
+		ExtraData:                     extraDataToResponse(nftEntry.ExtraData),
 	}
 }
 

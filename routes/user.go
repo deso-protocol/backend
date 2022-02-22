@@ -959,13 +959,6 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		}
 	}
 
-	extraData := make(map[string]string)
-	if len(profileEntry.ExtraData) > 0 {
-		for k, v := range profileEntry.ExtraData {
-			extraData[k] = hex.EncodeToString(v)
-		}
-	}
-
 	// Generate profile entry response
 	profResponse := &ProfileEntryResponse{
 		PublicKeyBase58Check: lib.PkToString(profileEntry.PublicKey, fes.Params),
@@ -991,7 +984,7 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		IsHidden:               profileEntry.IsHidden,
 		IsReserved:             isReserved,
 		IsVerified:             isVerified,
-		ExtraData:              extraData,
+		ExtraData:              extraDataToResponse(profileEntry.ExtraData),
 	}
 
 	return profResponse
@@ -2985,6 +2978,9 @@ type UserDerivedKey struct {
 
 	// This is the current state of the derived key.
 	IsValid bool `safeForLogging:"true"`
+
+	// ExtraData is an arbitrary key value map
+	ExtraData map[string]string `safeForLogging:"true"`
 }
 
 // GetUserDerivedKeysResponse ...
@@ -3038,6 +3034,7 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 			DerivedPublicKeyBase58Check: lib.PkToString(entry.DerivedPublicKey[:], fes.Params),
 			ExpirationBlock:             entry.ExpirationBlock,
 			IsValid:                     entry.OperationType == lib.AuthorizeDerivedKeyOperationValid,
+			ExtraData:                   extraDataToResponse(entry.ExtraData),
 		}
 	}
 
@@ -3045,7 +3042,7 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 		DerivedKeys: derivedKeys,
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetUserDerivedKeys: Problem serializing object to JSON: %v", err))
 		return
 	}

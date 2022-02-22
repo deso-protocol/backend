@@ -204,16 +204,30 @@ func preprocessPostExtraData(extraData map[string]string) map[string][]byte {
 
 // All txn types other than Post's should use preprocessExtraData to encode the values of the extra data map.
 func preprocessExtraData(extraData map[string]string) map[string][]byte {
+	if extraData == nil || len(extraData) == 0 {
+		return nil
+	}
 	extraDataProcessed := make(map[string][]byte)
 	for k, v := range extraData {
 		valBytes, err := hex.DecodeString(v)
 		if err != nil {
-			glog.Errorf("preprocessExtraData: Error encoding value %v: %v", v, err)
+			glog.Errorf("preprocessExtraData: Error decoding value %v: %v", v, err)
 			continue
 		}
 		extraDataProcessed[k] = valBytes
 	}
 	return extraDataProcessed
+}
+
+func extraDataToResponse(extraData map[string][]byte) map[string]string {
+	if extraData == nil || len(extraData) == 0 {
+		return nil
+	}
+	extraDataResponse := make(map[string]string)
+	for k, v := range extraData {
+		extraDataResponse[k] = hex.EncodeToString(v)
+	}
+	return extraDataResponse
 }
 
 func _resizeImage(imageObj *bimg.Image, maxDim uint) (_imgObj *bimg.Image, _err error) {
