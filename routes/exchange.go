@@ -1665,7 +1665,8 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 // Fetches all the posts from the db starting with a given postHash, up to numToFetch.
 // This is then joined with mempool and all posts are returned.  Because the mempool may contain
 // post changes, the number of posts returned in the map is not guaranteed to be numToFetch.
-func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.BlockHash, readerPK []byte, numToFetch int, skipHidden bool, skipVanillaRepost bool) (
+func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.BlockHash, readerPK []byte,
+	numToFetch int, skipHidden bool, skipVanillaRepost bool, mediaRequired bool) (
 	_corePosts []*lib.PostEntry, _commentsByPostHash map[lib.BlockHash][]*lib.PostEntry, _err error) {
 
 	var startPost *lib.PostEntry
@@ -1713,6 +1714,11 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 				continue
 			}
 
+			// If media is required and this post does not have media, skip it.
+			if mediaRequired && !postEntry.HasMedia() {
+				continue
+			}
+
 			// We make sure that the post isn't a comment.
 			if len(postEntry.ParentStakeID) == 0 {
 				postEntryPubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] = postEntry.PosterPublicKey
@@ -1731,6 +1737,11 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 
 			// Ignore deleted or rolled-back posts. Skip vanilla repost posts if skipVanillaRepost is true.
 			if postEntry.IsDeleted() || (postEntry.IsHidden && skipHidden) || (lib.IsVanillaRepost(postEntry) && skipVanillaRepost) {
+				continue
+			}
+
+			// If media is required and this post does not have media, skip it.
+			if mediaRequired && !postEntry.HasMedia() {
 				continue
 			}
 
