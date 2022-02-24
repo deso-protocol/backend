@@ -44,11 +44,11 @@ var ExtraDataKeyToDecoders = map[string]ExtraDataDecoder{
 // in transaction may have special encoding. In such cases
 // we'll need specialized decoders too
 func GetExtraDataDecoder(txnType lib.TxnType, key string) ExtraDataDecoder {
-	if txnType == lib.TxnTypeSubmitPost {
-		return DecodeString
-	}
 	if decoder, exists := ExtraDataKeyToDecoders[key]; exists {
 		return decoder
+	}
+	if txnType == lib.TxnTypeSubmitPost {
+		return DecodeString
 	}
 	// Default, just return hex encoding for bytes
 	return DecodeHexString
