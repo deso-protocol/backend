@@ -10,7 +10,7 @@ import (
 type ExtraDataDecoder func([]byte, *lib.DeSoParams) string
 
 var ExtraDataKeyToDecoders = map[string]ExtraDataDecoder{
-	lib.RepostedPostHash:  DecodePkToString,
+	lib.RepostedPostHash:  DecodeHexString,
 	lib.IsQuotedRepostKey: DecodeBoolString,
 
 	lib.USDCentsPerBitcoinKey:      Decode64BitUintString,
