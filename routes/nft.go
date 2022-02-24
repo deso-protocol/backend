@@ -58,6 +58,9 @@ type NFTBidEntryResponse struct {
 	HighestBidAmountNanos *uint64 `json:",omitempty"`
 	LowestBidAmountNanos  *uint64 `json:",omitempty"`
 
+	// If we fetched the accepted bid history, include the accepted block height.
+	AcceptedBlockHeight *uint32 `json:",omitempty"`
+
 	// Current balance of this bidder.
 	BidderBalanceNanos uint64
 }
@@ -1482,6 +1485,7 @@ func (fes *APIServer) _bidEntryToResponse(bidEntry *lib.NFTBidEntry, postEntryRe
 
 		HighestBidAmountNanos: highBid,
 		LowestBidAmountNanos:  lowBid,
+		AcceptedBlockHeight:   bidEntry.AcceptedBlockHeight,
 		BidderBalanceNanos:    bidderBalanceNanos,
 	}
 }
