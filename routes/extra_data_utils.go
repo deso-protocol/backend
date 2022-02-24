@@ -43,7 +43,10 @@ var ExtraDataKeyToDecoders = map[string]ExtraDataDecoder{
 // GetExtraDataDecoder Values in ExtraData field
 // in transaction may have special encoding. In such cases
 // we'll need specialized decoders too
-func GetExtraDataDecoder(key string) ExtraDataDecoder {
+func GetExtraDataDecoder(txnType lib.TxnType, key string) ExtraDataDecoder {
+	if txnType == lib.TxnTypeSubmitPost {
+		return DecodeString
+	}
 	if decoder, exists := ExtraDataKeyToDecoders[key]; exists {
 		return decoder
 	}
