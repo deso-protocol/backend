@@ -29,7 +29,7 @@ var ExtraDataKeyToDecoders = map[string]ExtraDataDecoder{
 	lib.MessagingPublicKey:             DecodePkToString,
 	lib.SenderMessagingPublicKey:       DecodePkToString,
 	lib.SenderMessagingGroupKeyName:    DecodeString,
-	lib.RecipientMessagingPublicKey:    DecodeHexString,
+	lib.RecipientMessagingPublicKey:    DecodePkToString,
 	lib.RecipientMessagingGroupKeyName: DecodeString,
 
 	lib.DESORoyaltiesMapKey: DecodePubKeyToUint64MapString,
