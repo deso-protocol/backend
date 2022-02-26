@@ -2613,6 +2613,8 @@ type AuthorizeDerivedKeyRequest struct {
 	// Memo is a simple string that can be used to describe a derived key
 	Memo string `safeForLogging:"true"`
 
+	AppName string `safeForLogging:"true"`
+
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
 
@@ -2692,8 +2694,19 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 			_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Error parsing TransactionSpendingLimit: %v", err))
 			return
 		}
+		var memoStr string
 		if len(requestData.Memo) != 0 {
-			memo = []byte(requestData.Memo)
+			memoStr = requestData.Memo
+		} else if len(requestData.AppName) != 0 {
+			memoStr = requestData.AppName
+		}
+		if len(memoStr) != 0 {
+			memo, err = hex.DecodeString(memoStr)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf(
+					"AuthorizeDerivedKey: Error hex decoding memo %v: %v", memoStr, err))
+				return
+			}
 		}
 	}
 
