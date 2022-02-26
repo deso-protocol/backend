@@ -3090,7 +3090,46 @@ func (fes *APIServer) GetTransactionSpendingLimitHexString(ww http.ResponseWrite
 		HexString: hex.EncodeToString(tslBytes),
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("GetUserDerivedKeys: Problem serializing object to JSON: %v", err))
+		_AddInternalServerError(ww, fmt.Sprintf("GetTransactionSpendingLimitHexString: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) GetTransactionSpendingLimitResponseFromHex(ww http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+
+	transactionSpendingLimitHex, transactionSpendingLimitHexExists := vars["transactionSpendingLimitHex"]
+	if !transactionSpendingLimitHexExists {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetTransactionSpendingLimitResponseFromHex: Must provide TransactionSpendingLimitHex"))
+		return
+	}
+
+	tslBytes, err := hex.DecodeString(transactionSpendingLimitHex)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetTransactionSpendingLimitResponseFromHex: Error decoding transaction spending limit hex"))
+		return
+	}
+
+	var transactionSpendingLimit lib.TransactionSpendingLimit
+	if err = transactionSpendingLimit.FromBytes(tslBytes); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetTransactionSpendingLimitResponseFromHex: Error constructing TransactionSpendingLimit from bytes"))
+		return
+	}
+
+	// Get augmented utxoView.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetTransactionSpendingLimitResponseFromHex: Problem getting augmented utxoView: %v", err))
+		return
+	}
+
+	transactionSpendingLimitResponse := fes.TransactionSpendingLimitToResponse(&transactionSpendingLimit, utxoView)
+
+	if err = json.NewEncoder(ww).Encode(transactionSpendingLimitResponse); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetTransactionSpendingLimitResponseFromHex: Problem serializing object to JSON: %v", err))
 		return
 	}
 }

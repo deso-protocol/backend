@@ -62,28 +62,29 @@ const (
 	RoutePathAppendExtraData          = "/api/v0/append-extra-data"
 	RoutePathGetTransactionSpending   = "/api/v0/get-transaction-spending"
 
-	RoutePathGetUsersStateless                    = "/api/v0/get-users-stateless"
-	RoutePathDeleteIdentities                     = "/api/v0/delete-identities"
-	RoutePathGetProfiles                          = "/api/v0/get-profiles"
-	RoutePathGetSingleProfile                     = "/api/v0/get-single-profile"
-	RoutePathGetSingleProfilePicture              = "/api/v0/get-single-profile-picture"
-	RoutePathGetHodlersForPublicKey               = "/api/v0/get-hodlers-for-public-key"
-	RoutePathGetDiamondsForPublicKey              = "/api/v0/get-diamonds-for-public-key"
-	RoutePathGetFollowsStateless                  = "/api/v0/get-follows-stateless"
-	RoutePathGetUserGlobalMetadata                = "/api/v0/get-user-global-metadata"
-	RoutePathUpdateUserGlobalMetadata             = "/api/v0/update-user-global-metadata"
-	RoutePathGetNotifications                     = "/api/v0/get-notifications"
-	RoutePathGetUnreadNotificationsCount          = "/api/v0/get-unread-notifications-count"
-	RoutePathSetNotificationMetadata              = "/api/v0/set-notification-metadata"
-	RoutePathBlockPublicKey                       = "/api/v0/block-public-key"
-	RoutePathIsFollowingPublicKey                 = "/api/v0/is-following-public-key"
-	RoutePathIsHodlingPublicKey                   = "/api/v0/is-hodling-public-key"
-	RoutePathGetUserDerivedKeys                   = "/api/v0/get-user-derived-keys"
-	RoutePathGetTransactionSpendingLimitHexString = "/api/v0/get-transaction-spending-limit-hex-string"
-	RoutePathDeletePII                            = "/api/v0/delete-pii"
-	RoutePathGetUserMetadata                      = "/api/v0/get-user-metadata"
-	RoutePathGetUsernameForPublicKey              = "/api/v0/get-user-name-for-public-key"
-	RoutePathGetPublicKeyForUsername              = "/api/v0/get-public-key-for-user-name"
+	RoutePathGetUsersStateless                          = "/api/v0/get-users-stateless"
+	RoutePathDeleteIdentities                           = "/api/v0/delete-identities"
+	RoutePathGetProfiles                                = "/api/v0/get-profiles"
+	RoutePathGetSingleProfile                           = "/api/v0/get-single-profile"
+	RoutePathGetSingleProfilePicture                    = "/api/v0/get-single-profile-picture"
+	RoutePathGetHodlersForPublicKey                     = "/api/v0/get-hodlers-for-public-key"
+	RoutePathGetDiamondsForPublicKey                    = "/api/v0/get-diamonds-for-public-key"
+	RoutePathGetFollowsStateless                        = "/api/v0/get-follows-stateless"
+	RoutePathGetUserGlobalMetadata                      = "/api/v0/get-user-global-metadata"
+	RoutePathUpdateUserGlobalMetadata                   = "/api/v0/update-user-global-metadata"
+	RoutePathGetNotifications                           = "/api/v0/get-notifications"
+	RoutePathGetUnreadNotificationsCount                = "/api/v0/get-unread-notifications-count"
+	RoutePathSetNotificationMetadata                    = "/api/v0/set-notification-metadata"
+	RoutePathBlockPublicKey                             = "/api/v0/block-public-key"
+	RoutePathIsFollowingPublicKey                       = "/api/v0/is-following-public-key"
+	RoutePathIsHodlingPublicKey                         = "/api/v0/is-hodling-public-key"
+	RoutePathGetUserDerivedKeys                         = "/api/v0/get-user-derived-keys"
+	RoutePathGetTransactionSpendingLimitHexString       = "/api/v0/get-transaction-spending-limit-hex-string"
+	RoutePathGetTransactionSpendingLimitResponseFromHex = "/api/v0/get-transaction-spending-limit-response-from-hex"
+	RoutePathDeletePII                                  = "/api/v0/delete-pii"
+	RoutePathGetUserMetadata                            = "/api/v0/get-user-metadata"
+	RoutePathGetUsernameForPublicKey                    = "/api/v0/get-user-name-for-public-key"
+	RoutePathGetPublicKeyForUsername                    = "/api/v0/get-public-key-for-user-name"
 
 	// post.go
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
@@ -977,6 +978,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetTransactionSpendingLimitHexString,
 			fes.GetTransactionSpendingLimitHexString,
+			PublicAccess,
+		},
+		{
+			"GetTransactionSpendingLimitResponseFromHex",
+			[]string{"GET"},
+			RoutePathGetTransactionSpendingLimitResponseFromHex + "/{transactionSpendingLimitHex:[a-fA-F0-9]+$}",
+			fes.GetTransactionSpendingLimitResponseFromHex,
 			PublicAccess,
 		},
 		{
