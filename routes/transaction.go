@@ -2611,7 +2611,7 @@ type AuthorizeDerivedKeyRequest struct {
 	TransactionSpendingLimit TransactionSpendingLimitResponse `safeForLogging:"true"`
 
 	// Memo is a simple string that can be used to describe a derived key
-	Memo *string `safeForLogging:"true"`
+	Memo string `safeForLogging:"true"`
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
@@ -2686,14 +2686,14 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 	var memo []byte
 	blockHeight := fes.blockchain.BlockTip().Height + 1
 	// Only add the TransactionSpendingLimit and Memo if we're passed the block height.
-	if fes.Params.ForkHeights.DerivedKeySetSpendingLimitsBlockHeight < blockHeight {
+	if blockHeight >= fes.Params.ForkHeights.DerivedKeySetSpendingLimitsBlockHeight {
 		transactionSpendingLimit, err = fes.ToTransactionSpendingLimit(requestData.TransactionSpendingLimit)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Error parsing TransactionSpendingLimit: %v", err))
 			return
 		}
-		if requestData.Memo != nil {
-			memo = []byte(*requestData.Memo)
+		if len(requestData.Memo) != 0 {
+			memo = []byte(requestData.Memo)
 		}
 	}
 
