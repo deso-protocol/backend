@@ -5,13 +5,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/holiman/uint256"
 	"io"
 	"net/http"
 	"reflect"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/holiman/uint256"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/dgraph-io/badger/v3"
@@ -351,7 +352,7 @@ func (fes *APIServer) _balanceEntryToResponse(
 		CreatorPublicKeyBase58Check: lib.PkToString(creatorPk, fes.Params),
 		HasPurchased:                balanceEntry.HasPurchased,
 		// CreatorCoins can't exceed uint64
-		BalanceNanos:        balanceEntry.BalanceNanos.Uint64(),
+		BalanceNanos: balanceEntry.BalanceNanos.Uint64(),
 		// Use this value for DAO Coins balances
 		BalanceNanosUint256: balanceEntry.BalanceNanos,
 		NetBalanceInMempool: int64(balanceEntry.BalanceNanos.Uint64()) - int64(dbBalanceNanos),
@@ -606,11 +607,11 @@ type ProfileEntryResponse struct {
 }
 
 type CoinEntryResponse struct {
-	CreatorBasisPoints        uint64
-	DeSoLockedNanos           uint64
-	NumberOfHolders           uint64
-	CoinsInCirculationNanos   uint64
-	CoinWatermarkNanos        uint64
+	CreatorBasisPoints      uint64
+	DeSoLockedNanos         uint64
+	NumberOfHolders         uint64
+	CoinsInCirculationNanos uint64
+	CoinWatermarkNanos      uint64
 
 	// Deprecated: Temporary to add support for BitCloutLockedNanos
 	BitCloutLockedNanos uint64 // Deprecated
@@ -970,9 +971,9 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 			BitCloutLockedNanos:     profileEntry.CreatorCoinEntry.DeSoLockedNanos,
 		},
 		DAOCoinEntry: &DAOCoinEntryResponse{
-			NumberOfHolders:           profileEntry.DAOCoinEntry.NumberOfHolders,
-			CoinsInCirculationNanos:   profileEntry.DAOCoinEntry.CoinsInCirculationNanos,
-			MintingDisabled:           profileEntry.DAOCoinEntry.MintingDisabled,
+			NumberOfHolders:         profileEntry.DAOCoinEntry.NumberOfHolders,
+			CoinsInCirculationNanos: profileEntry.DAOCoinEntry.CoinsInCirculationNanos,
+			MintingDisabled:         profileEntry.DAOCoinEntry.MintingDisabled,
 			TransferRestrictionStatus: getTransferRestrictionStatusStringFromTransferRestrictionStatus(
 				profileEntry.DAOCoinEntry.TransferRestrictionStatus),
 		},
@@ -3022,17 +3023,27 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 		return
 	}
 
+	// Derived keys are not automatically expired in the DB when we reach the expiration block height.
+	// They should be manually checked against the current block height to verify their validity.
+	blockTip := fes.backendServer.GetBlockchain().BlockTip()
+
 	// Create the derivedKeys map, indexed by derivedPublicKeys in base58Check.
 	// We use the UserDerivedKey struct instead of the lib.DerivedKeyEntry type
 	// so that we can return public keys in base58Check.
 	derivedKeys := make(map[string]*UserDerivedKey)
 	for _, entry := range derivedKeyMappings {
+		// isValid is initialized to true if the derived key entry is marked as valid in the DB.
+		isValid := entry.OperationType == lib.AuthorizeDerivedKeyOperationValid
+		// Check if the key has expired, if so then we will invalidate the key in the response.
+		if entry.ExpirationBlock <= uint64(blockTip.Height) {
+			isValid = false
+		}
 		derivedPublicKey := lib.PkToString(entry.DerivedPublicKey[:], fes.Params)
 		derivedKeys[derivedPublicKey] = &UserDerivedKey{
 			OwnerPublicKeyBase58Check:   lib.PkToString(entry.OwnerPublicKey[:], fes.Params),
 			DerivedPublicKeyBase58Check: lib.PkToString(entry.DerivedPublicKey[:], fes.Params),
 			ExpirationBlock:             entry.ExpirationBlock,
-			IsValid:                     entry.OperationType == lib.AuthorizeDerivedKeyOperationValid,
+			IsValid:                     isValid,
 			TransactionSpendingLimit:    fes.TransactionSpendingLimitToResponse(entry.TransactionSpendingLimitTracker, utxoView),
 			Memo:                        string(entry.Memo),
 		}
