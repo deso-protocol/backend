@@ -2568,10 +2568,10 @@ func (fes *APIServer) getTransactionFee(txnType lib.TxnType, transactorPublicKey
 // in a way that can be JSON encoded/decoded.
 type TransactionSpendingLimitResponse struct {
 	// GlobalDESOLimit is the total amount of DESO (in nanos) that the DerivedKey can spend
-	GlobalDESOLimit              uint64
+	GlobalDESOLimit uint64
 	// TransactionCountLimitMap is a map from transaction type (as a string) to the number of transactions
 	// the derived key is authorized to perform.
-	TransactionCountLimitMap     map[lib.TxnString]uint64
+	TransactionCountLimitMap map[lib.TxnString]uint64
 	// CreatorCoinOperationLimitMap is a map with public key base58 check as keys mapped to a map of
 	// CreatorCoinLimitOperationString (buy, sell, transfer, any) keys to the number of these operations that the
 	// derived key is authorized to perform.
@@ -2579,11 +2579,11 @@ type TransactionSpendingLimitResponse struct {
 	// DAOCoinOperationLimitMap is a map with public key base58 check as keys mapped to a map of
 	// DAOCoinLimitOperationString (mint, burn, transfer, disable_minting, update_transfer_restriction status, any)
 	// keys to the number of these operations that the derived key is authorized to perform.
-	DAOCoinOperationLimitMap     map[string]map[lib.DAOCoinLimitOperationString]uint64
+	DAOCoinOperationLimitMap map[string]map[lib.DAOCoinLimitOperationString]uint64
 	// NFTOperationLimitMap is a map with post hash hex as keys mapped to a map with serial number keys mapped to a map
 	// with NFTLimitOperationString (update, nft_bid, accept_nft_bid, transfer, burn, accept_nft_transfer, any) keys to
 	// the number of these operations that the derived key is authorized to perform.
-	NFTOperationLimitMap         map[string]map[uint64]map[lib.NFTLimitOperationString]uint64
+	NFTOperationLimitMap map[string]map[uint64]map[lib.NFTLimitOperationString]uint64
 }
 
 // AuthorizeDerivedKeyRequest ...
@@ -2611,7 +2611,7 @@ type AuthorizeDerivedKeyRequest struct {
 	TransactionSpendingLimit TransactionSpendingLimitResponse `safeForLogging:"true"`
 
 	// Memo is a simple string that can be used to describe a derived key
-	Memo *string `safeForLogging:"true"`
+	Memo string `safeForLogging:"true"`
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
@@ -2692,8 +2692,8 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 			_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Error parsing TransactionSpendingLimit: %v", err))
 			return
 		}
-		if requestData.Memo != nil {
-			memo = []byte(*requestData.Memo)
+		if len(requestData.Memo) != 0 {
+			memo = []byte(requestData.Memo)
 		}
 	}
 
@@ -2770,7 +2770,7 @@ func (fes *APIServer) ToTransactionSpendingLimit(tslr TransactionSpendingLimitRe
 				// An empty public key is a catch-all - meaning the derived key is being authorized to perform the
 				// below operations on ANY public key's DAO coin. We use a PKID that represents a nil creator in this
 				// case.
-				creatorPKID = lib.NewPKIDForNilCreator()
+				creatorPKID = lib.ZeroPKID
 			} else {
 				// Decode the pub key, look up PKID, and verify PKID exists
 				publicKeyBytes, _, err := lib.Base58CheckDecode(pubKey)
@@ -2815,7 +2815,7 @@ func (fes *APIServer) ToTransactionSpendingLimit(tslr TransactionSpendingLimitRe
 				// An empty public key is a catch-all - meaning the derived key is being authorized to perform the
 				// below operations on ANY public key's DAO coin. We use a PKID that represents a nil creator in this
 				// case.
-				creatorPKID = lib.NewPKIDForNilCreator()
+				creatorPKID = lib.ZeroPKID
 			} else {
 				// Decode the pub key, look up PKID, and verify PKID exists
 				publicKeyBytes, _, err := lib.Base58CheckDecode(pubKey)
@@ -2860,7 +2860,7 @@ func (fes *APIServer) ToTransactionSpendingLimit(tslr TransactionSpendingLimitRe
 			if postHashHex == "" {
 				// An empty post hash hex is a catch-all - meaning the derived key is being authorized to perform the
 				// below NFT operations on ANY NFT. We use a BlockHash that represents a nil Post in this case.
-				nilPostHash := lib.NewBlockHashForNilPostHash()
+				nilPostHash := lib.ZeroBlockHash
 				postHash = &nilPostHash
 			} else {
 				// Decode the post hash hex, copy the bytes into the BlockHash, verify the post exists and is an NFT
@@ -2941,7 +2941,7 @@ func (fes *APIServer) TransactionSpendingLimitToResponse(
 			map[string]map[lib.CreatorCoinLimitOperationString]uint64)
 		for ccLimitKey, opCount := range transactionSpendingLimit.CreatorCoinOperationLimitMap {
 			var creatorPublicKeyBase58Check string
-			if !ccLimitKey.CreatorPKID.IsPKIDForNilCreator() {
+			if ccLimitKey.CreatorPKID != lib.ZeroPKID {
 				creatorPublicKeyBase58Check = lib.PkToString(
 					utxoView.GetPublicKeyForPKID(&ccLimitKey.CreatorPKID), fes.Params)
 			}
@@ -2961,7 +2961,7 @@ func (fes *APIServer) TransactionSpendingLimitToResponse(
 			map[string]map[lib.DAOCoinLimitOperationString]uint64)
 		for daoLimitKey, opCount := range transactionSpendingLimit.DAOCoinOperationLimitMap {
 			var creatorPublicKeyBase58Check string
-			if !daoLimitKey.CreatorPKID.IsPKIDForNilCreator() {
+			if daoLimitKey.CreatorPKID != lib.ZeroPKID {
 				creatorPublicKeyBase58Check = lib.PkToString(
 					utxoView.GetPublicKeyForPKID(&daoLimitKey.CreatorPKID), fes.Params)
 			}
@@ -2981,7 +2981,7 @@ func (fes *APIServer) TransactionSpendingLimitToResponse(
 			map[string]map[uint64]map[lib.NFTLimitOperationString]uint64)
 		for nftLimitKey, opCount := range transactionSpendingLimit.NFTOperationLimitMap {
 			var postHashHex string
-			if !nftLimitKey.BlockHash.IsBlockHashForNilPostHash() {
+			if nftLimitKey.BlockHash != lib.ZeroBlockHash {
 				postHashHex = hex.EncodeToString(nftLimitKey.BlockHash[:])
 			}
 			// If the key doesn't exist in the map yet, put key with empty map.
