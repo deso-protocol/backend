@@ -204,7 +204,7 @@ func preprocessPostExtraData(extraData map[string]string) map[string][]byte {
 
 // All txn types other than Post's should use preprocessExtraData to encode the values of the extra data map.
 func preprocessExtraData(extraData map[string]string) map[string][]byte {
-	if extraData == nil || len(extraData) == 0 {
+	if len(extraData) == 0 {
 		return nil
 	}
 	extraDataProcessed := make(map[string][]byte)
@@ -397,7 +397,7 @@ type CFVideoDetailsResponse struct {
 
 type GetVideoStatusResponse struct {
 	ReadyToStream bool
-	Duration float64
+	Duration      float64
 	Dimensions    map[string]interface{}
 }
 
@@ -443,7 +443,7 @@ func (fes *APIServer) GetVideoStatus(ww http.ResponseWriter, req *http.Request) 
 	res := &GetVideoStatusResponse{
 		ReadyToStream: isReady.(bool),
 		Duration:      duration.(float64),
-		Dimensions: dimensions.(map[string]interface{}),
+		Dimensions:    dimensions.(map[string]interface{}),
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetVideoStatus: Problem serializing object to JSON: %v", err))
