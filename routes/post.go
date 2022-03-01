@@ -362,7 +362,7 @@ func (fes *APIServer) GetPostEntriesForFollowFeed(
 
 // Get the top numToFetch posts ordered by poster's coin price in the last number of minutes as defined by minutesLookback.
 func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
-	minutesLookback uint64, numToFetch int) (
+	minutesLookback uint64, numToFetch int, mediaRequired bool) (
 	_postEntries []*lib.PostEntry,
 	_profilesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry, err error) {
 	// As a safeguard, we should only be able to look at least one hour in the past -- can be changed later.
@@ -401,6 +401,11 @@ func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
 			continue
 		}
 
+		// If media is required and this post does not have media, skip it.
+		if mediaRequired && !postEntry.HasMedia() {
+			continue
+		}
+
 		// We make sure that the post isn't a comment.
 		if len(postEntry.ParentStakeID) == 0 {
 			postEntryPubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] = postEntry.PosterPublicKey
@@ -419,6 +424,10 @@ func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
 
 		// Ignore deleted or rolled-back posts.
 		if postEntry.IsDeleted() || postEntry.IsHidden {
+			continue
+		}
+
+		if mediaRequired && !postEntry.HasMedia() {
 			continue
 		}
 
@@ -452,14 +461,15 @@ func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
 }
 
 func (fes *APIServer) GetPostEntriesByTimePaginated(
-	startPostHash *lib.BlockHash, readerPK []byte, numToFetch int, utxoView *lib.UtxoView) (
+	startPostHash *lib.BlockHash, readerPK []byte, numToFetch int, utxoView *lib.UtxoView, mediaRequired bool) (
 	_postEntries []*lib.PostEntry, _commentsByPostHash map[lib.BlockHash][]*lib.PostEntry,
 	_profilesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry,
 	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, err error) {
 
 	postEntries,
 		commentsByPostHash,
-		err := fes.GetPostsByTime(utxoView, startPostHash, readerPK, numToFetch, true /*skipHidden*/, true)
+		err := fes.GetPostsByTime(utxoView, startPostHash, readerPK, numToFetch,
+			true /*skipHidden*/, true, mediaRequired)
 
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("GetAllPostEntries: Error fetching posts from view: %v", err)
@@ -845,26 +855,30 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 		postEntries,
 			profileEntryMap,
 			readerStateMap,
-			err = fes.GetPostEntriesForFollowFeed(startPostHash, readerPublicKeyBytes, numToFetch, utxoView, requestData.MediaRequired)
+			err = fes.GetPostEntriesForFollowFeed(startPostHash, readerPublicKeyBytes, numToFetch, utxoView,
+				requestData.MediaRequired)
 		// if we're getting posts for follow feed, no comments are returned (they aren't necessary)
 		commentsByPostHash = make(map[lib.BlockHash][]*lib.PostEntry)
 	} else if requestData.GetPostsForGlobalWhitelist {
 		postEntries,
 			profileEntryMap,
 			readerStateMap,
-			err = fes.GetPostEntriesForGlobalWhitelist(startPostHash, readerPublicKeyBytes, numToFetch, utxoView, requestData.MediaRequired)
+			err = fes.GetPostEntriesForGlobalWhitelist(startPostHash, readerPublicKeyBytes, numToFetch, utxoView,
+				requestData.MediaRequired)
 		// if we're getting posts for the global whitelist, no comments are returned (they aren't necessary)
 		commentsByPostHash = make(map[lib.BlockHash][]*lib.PostEntry)
 	} else if requestData.GetPostsByDESO || requestData.GetPostsByClout {
 		postEntries,
 			profileEntryMap,
-			err = fes.GetPostEntriesByDESOAfterTimePaginated(readerPublicKeyBytes, requestData.PostsByDESOMinutesLookback, numToFetch)
+			err = fes.GetPostEntriesByDESOAfterTimePaginated(readerPublicKeyBytes,
+				requestData.PostsByDESOMinutesLookback, numToFetch, requestData.MediaRequired)
 	} else {
 		postEntries,
 			commentsByPostHash,
 			profileEntryMap,
 			readerStateMap,
-			err = fes.GetPostEntriesByTimePaginated(startPostHash, readerPublicKeyBytes, numToFetch, utxoView)
+			err = fes.GetPostEntriesByTimePaginated(startPostHash, readerPublicKeyBytes, numToFetch,
+				utxoView, requestData.MediaRequired)
 	}
 
 	if err != nil {
