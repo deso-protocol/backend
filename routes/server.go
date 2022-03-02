@@ -113,6 +113,7 @@ const (
 	RoutePathTransferNFT               = "/api/v0/transfer-nft"
 	RoutePathAcceptNFTTransfer         = "/api/v0/accept-nft-transfer"
 	RoutePathBurnNFT                   = "/api/v0/burn-nft"
+	RoutePathGetAcceptedBidHistory     = "/api/v0/accepted-bid-history"
 
 	// media.go
 	RoutePathUploadImage      = "/api/v0/upload-image"
@@ -695,6 +696,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathBurnNFT,
 			fes.BurnNFT,
+			PublicAccess,
+		},
+		{
+			"GetAcceptedBidHistory",
+			[]string{"GET"},
+			RoutePathGetAcceptedBidHistory + "/{postHashHex:[0-9a-zA-Z]{64}}",
+			fes.GetAcceptedBidHistory,
 			PublicAccess,
 		},
 		{
