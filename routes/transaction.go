@@ -2590,6 +2590,9 @@ type AuthorizeDerivedKeyRequest struct {
 	// If we intend to sign this transaction with a derived key.
 	DerivedKeySignature bool `safeForLogging:"true"`
 
+	// ExtraData is arbitrary key value map
+	ExtraData map[string]string `safeForLogging:"true"`
+
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
 
@@ -2667,6 +2670,7 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		accessSignature,
 		requestData.DeleteKey,
 		requestData.DerivedKeySignature,
+		preprocessExtraData(requestData.ExtraData),
 		// Standard transaction fields
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
@@ -2689,7 +2693,7 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		TransactionHex:    hex.EncodeToString(txnBytes),
 		TxnHashHex:        txn.Hash().String(),
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem encoding response as JSON: %v", err))
 		return
 	}
