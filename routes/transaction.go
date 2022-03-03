@@ -2937,9 +2937,14 @@ func (fes *APIServer) ToTransactionSpendingLimit(tslr TransactionSpendingLimitRe
 
 // TransactionSpendingLimitToResponse converts the core struct lib.TransactionSpendingLimit to a
 // TransactionSpendingLimitResponse
-func (fes *APIServer) TransactionSpendingLimitToResponse(
-	transactionSpendingLimit *lib.TransactionSpendingLimit, utxoView *lib.UtxoView) *TransactionSpendingLimitResponse {
+func TransactionSpendingLimitToResponse(
+	transactionSpendingLimit *lib.TransactionSpendingLimit, utxoView *lib.UtxoView, params *lib.DeSoParams,
+	) *TransactionSpendingLimitResponse {
 
+
+	if utxoView == nil {
+
+	}
 	// If the transactionSpendingLimit is nil, return nil.
 	if transactionSpendingLimit == nil {
 		return nil
@@ -2966,7 +2971,7 @@ func (fes *APIServer) TransactionSpendingLimitToResponse(
 			var creatorPublicKeyBase58Check string
 			if !reflect.DeepEqual(ccLimitKey.CreatorPKID, lib.ZeroPKID) {
 				creatorPublicKeyBase58Check = lib.PkToString(
-					utxoView.GetPublicKeyForPKID(&ccLimitKey.CreatorPKID), fes.Params)
+					utxoView.GetPublicKeyForPKID(&ccLimitKey.CreatorPKID), params)
 			}
 			// If the key doesn't exist in the map yet, put key with empty map.
 			if _, exists := transactionSpendingLimitResponse.CreatorCoinOperationLimitMap[creatorPublicKeyBase58Check]; !exists {
@@ -2986,7 +2991,7 @@ func (fes *APIServer) TransactionSpendingLimitToResponse(
 			var creatorPublicKeyBase58Check string
 			if !reflect.DeepEqual(daoLimitKey.CreatorPKID, lib.ZeroPKID) {
 				creatorPublicKeyBase58Check = lib.PkToString(
-					utxoView.GetPublicKeyForPKID(&daoLimitKey.CreatorPKID), fes.Params)
+					utxoView.GetPublicKeyForPKID(&daoLimitKey.CreatorPKID), params)
 			}
 			// If the key doesn't exist in the map yet, put key with empty map.
 			if _, exists := transactionSpendingLimitResponse.DAOCoinOperationLimitMap[creatorPublicKeyBase58Check]; !exists {

@@ -3052,8 +3052,8 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 			ExpirationBlock:             entry.ExpirationBlock,
 			IsValid:                     isValid,
 			ExtraData:                   extraDataToResponse(entry.ExtraData),
-			TransactionSpendingLimit:    fes.TransactionSpendingLimitToResponse(entry.TransactionSpendingLimitTracker, utxoView),
-			Memo:                        string(entry.Memo),
+			TransactionSpendingLimit:    TransactionSpendingLimitToResponse(entry.TransactionSpendingLimitTracker, utxoView, fes.Params),
+			Memo:                        hex.EncodeToString(entry.Memo),
 		}
 	}
 
@@ -3134,7 +3134,7 @@ func (fes *APIServer) GetTransactionSpendingLimitResponseFromHex(ww http.Respons
 		return
 	}
 
-	transactionSpendingLimitResponse := fes.TransactionSpendingLimitToResponse(&transactionSpendingLimit, utxoView)
+	transactionSpendingLimitResponse := TransactionSpendingLimitToResponse(&transactionSpendingLimit, utxoView, fes.Params)
 
 	if err = json.NewEncoder(ww).Encode(transactionSpendingLimitResponse); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetTransactionSpendingLimitResponseFromHex: Problem serializing object to JSON: %v", err))
