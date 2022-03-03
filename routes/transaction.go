@@ -243,6 +243,9 @@ type UpdateProfileRequest struct {
 
 	IsHidden bool `safeForLogging:"true"`
 
+	// ExtraData
+	ExtraData map[string]string `safeForLogging:"true"`
+
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
@@ -389,6 +392,8 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	extraData := preprocessExtraData(requestData.ExtraData)
+
 	additionalFees, compProfileCreationTxnHash, err := fes.CompProfileCreation(profilePublicKey, userMetadata, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, err.Error())
@@ -411,6 +416,7 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		requestData.NewStakeMultipleBasisPoints,
 		requestData.IsHidden,
 		additionalFees,
+		extraData,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem creating transaction: %v", err))
@@ -1391,7 +1397,7 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	postExtraData := preprocessExtraData(requestData.PostExtraData)
+	postExtraData := preprocessPostExtraData(requestData.PostExtraData)
 
 	// Try and create the SubmitPost for the user.
 	tstamp := uint64(time.Now().UnixNano())
@@ -2606,7 +2612,10 @@ type AuthorizeDerivedKeyRequest struct {
 	// If we intend to sign this transaction with a derived key.
 	DerivedKeySignature bool `safeForLogging:"true"`
 
-	// TransactionSpendingLimit struct that will be merged with the TransactionSpendingLimitTracker for this
+	// ExtraData is arbitrary key value map
+	ExtraData map[string]string `safeForLogging:"true"`
+
+  // TransactionSpendingLimit struct that will be merged with the TransactionSpendingLimitTracker for this
 	// Derived key
 	TransactionSpendingLimit TransactionSpendingLimitResponse `safeForLogging:"true"`
 
@@ -2717,6 +2726,7 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		accessSignature,
 		requestData.DeleteKey,
 		requestData.DerivedKeySignature,
+		preprocessExtraData(requestData.ExtraData),
 		memo,
 		transactionSpendingLimit,
 		// Standard transaction fields
@@ -2741,7 +2751,7 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		TransactionHex:    hex.EncodeToString(txnBytes),
 		TxnHashHex:        txn.Hash().String(),
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem encoding response as JSON: %v", err))
 		return
 	}

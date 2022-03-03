@@ -604,6 +604,9 @@ type ProfileEntryResponse struct {
 	// If user is featured as an up and coming creator in the tutorial.
 	// Note: a user should not be both featured as well known and up and coming
 	IsFeaturedTutorialUpAndComingCreator bool
+
+	// ExtraData stores an arbitrary map of attributes of a ProfileEntry
+	ExtraData map[string]string
 }
 
 type CoinEntryResponse struct {
@@ -982,6 +985,7 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		IsHidden:               profileEntry.IsHidden,
 		IsReserved:             isReserved,
 		IsVerified:             isVerified,
+		ExtraData:              extraDataToResponse(profileEntry.ExtraData),
 	}
 
 	return profResponse
@@ -2976,7 +2980,10 @@ type UserDerivedKey struct {
 	// This is the current state of the derived key.
 	IsValid bool `safeForLogging:"true"`
 
-	// TransactionSpendingLimit represents the current state of the TransactionSpendingLimitTracker
+	// ExtraData is an arbitrary key value map
+	ExtraData map[string]string `safeForLogging:"true"`
+
+  // TransactionSpendingLimit represents the current state of the TransactionSpendingLimitTracker
 	TransactionSpendingLimit *TransactionSpendingLimitResponse `safeForLogging:"true"`
 
 	// Memo is a string that describes the Derived Key
@@ -3044,6 +3051,7 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 			DerivedPublicKeyBase58Check: lib.PkToString(entry.DerivedPublicKey[:], fes.Params),
 			ExpirationBlock:             entry.ExpirationBlock,
 			IsValid:                     isValid,
+			ExtraData:                   extraDataToResponse(entry.ExtraData),
 			TransactionSpendingLimit:    fes.TransactionSpendingLimitToResponse(entry.TransactionSpendingLimitTracker, utxoView),
 			Memo:                        string(entry.Memo),
 		}
@@ -3053,7 +3061,7 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 		DerivedKeys: derivedKeys,
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetUserDerivedKeys: Problem serializing object to JSON: %v", err))
 		return
 	}
