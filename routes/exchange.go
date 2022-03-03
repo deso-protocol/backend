@@ -163,13 +163,20 @@ func (fes *APIServer) APIBase(ww http.ResponseWriter, rr *http.Request) {
 	res := &APIBaseResponse{
 		Header: _headerToResponse(blockMsg.Header, blockNode.Hash.String()),
 	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		APIAddError(ww, fmt.Sprintf("APIBase: Problem fetching utxoView: %v", err))
+		return
+	}
+
 	for _, txn := range blockMsg.Txns {
 		// Look up the metadata for each transaction.
 		txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txn.Hash())
 
 		res.Transactions = append(
 			res.Transactions, APITransactionToResponse(
-				txn, txnMeta, fes.Params))
+				txn, txnMeta, utxoView, fes.Params))
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
@@ -515,6 +522,7 @@ type APITransferDeSoResponse struct {
 func APITransactionToResponse(
 	txnn *lib.MsgDeSoTxn,
 	txnMeta *lib.TransactionMetadata,
+	utxoView *lib.UtxoView,
 	params *lib.DeSoParams) *TransactionResponse {
 
 	signatureHex := ""
@@ -558,7 +566,7 @@ func APITransactionToResponse(
 		ret.ExtraData = make(map[string]string)
 		for extraDataKey, extraDataValue := range txnn.ExtraData {
 			var decoderFunc = GetExtraDataDecoder(txnn.TxnMeta.GetTxnType(), extraDataKey)
-			ret.ExtraData[extraDataKey] = decoderFunc(extraDataValue, params)
+			ret.ExtraData[extraDataKey] = decoderFunc(extraDataValue, params, utxoView)
 		}
 	}
 
@@ -724,9 +732,15 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 
 	// Return the transaction in the response.
 	res := APITransferDeSoResponse{}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		APIAddError(ww, fmt.Sprintf("APITransferDeSo: Problem fetching utxoView: %v", err))
+		return
+	}
 	// The block hash param is empty because this transaction clearly hasn't been
 	// mined yet.
-	res.Transaction = APITransactionToResponse(txnn, nil, fes.Params)
+	res.Transaction = APITransactionToResponse(txnn, nil, utxoView, fes.Params)
 	txnBytes, _ := txnn.ToBytes(false /*preSignature*/)
 	res.TransactionInfo = &TransactionInfoResponse{
 		TotalInputNanos:               totalInputt,
@@ -849,6 +863,12 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		limit = 1000
 	}
 
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem fetching utxoView: %v", err))
+		return
+	}
+
 	// IsMempool means we should just return all of the transactions that are currently in the mempool.
 	if transactionInfoRequest.IsMempool {
 		// Get all the txns from the mempool.
@@ -873,7 +893,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 				res.Transactions = append(res.Transactions,
 					&TransactionResponse{TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params)})
 			} else {
-				res.Transactions = append(res.Transactions, APITransactionToResponse(poolTx.Tx, poolTx.TxMeta, fes.Params))
+				res.Transactions = append(res.Transactions, APITransactionToResponse(poolTx.Tx, poolTx.TxMeta, utxoView, fes.Params))
 			}
 
 			// If we've filled up the page, exit.
@@ -935,7 +955,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 
 		res := &APITransactionInfoResponse{}
 		res.Transactions = []*TransactionResponse{
-			APITransactionToResponse(txn, txnMeta, fes.Params),
+			APITransactionToResponse(txn, txnMeta, utxoView, fes.Params),
 		}
 
 		if err := json.NewEncoder(ww).Encode(res); err != nil {
@@ -952,13 +972,6 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	publicKeyBytes, _, err := lib.Base58CheckDecode(transactionInfoRequest.PublicKeyBase58Check)
 	if err != nil {
 		APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem parsing PublicKeyBase58Check: %v", err))
-		return
-	}
-
-	// Get a view to fetch the balance
-	utxoView, err := fes.mempool.GetAugmentedUniversalView()
-	if err != nil {
-		APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem getting utxos from view: %v", err))
 		return
 	}
 
@@ -1029,7 +1042,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			// Fetch the transaction
 			fullTxn := block.Txns[txnMeta.TxnIndexInBlock]
 
-			res.Transactions = append(res.Transactions, APITransactionToResponse(fullTxn, txnMeta, fes.Params))
+			res.Transactions = append(res.Transactions, APITransactionToResponse(fullTxn, txnMeta, utxoView, fes.Params))
 		}
 	}
 
@@ -1071,7 +1084,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 				txRes := &TransactionResponse{TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params)}
 				res.Transactions = append(res.Transactions, txRes)
 			} else {
-				res.Transactions = append(res.Transactions, APITransactionToResponse(poolTx.Tx, txnMeta, fes.Params))
+				res.Transactions = append(res.Transactions, APITransactionToResponse(poolTx.Tx, txnMeta, utxoView, fes.Params))
 			}
 		}
 	}
@@ -1238,6 +1251,13 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 	res := &APIBlockResponse{
 		Header: _headerToResponse(blockMsg.Header, blockHash.String()),
 	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		APIAddError(ww, fmt.Sprintf("APIBlockRequest: Problem fetching utxoView: %v", err))
+		return
+	}
+
 	if blockRequest.FullBlock {
 		for _, txn := range blockMsg.Txns {
 			// Look up the metadata for each transaction.
@@ -1245,7 +1265,7 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 
 			res.Transactions = append(
 				res.Transactions, APITransactionToResponse(
-					txn, txnMeta, fes.Params))
+					txn, txnMeta, utxoView, fes.Params))
 		}
 	}
 

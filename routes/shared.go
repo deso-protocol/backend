@@ -95,6 +95,9 @@ type MessageEntryResponse struct {
 
 	// RecipientMessagingGroupKeyName is the recipient's group key name of RecipientMessagingPublicKey
 	RecipientMessagingGroupKeyName string
+
+	// ExtraData is an arbitrary key value map
+	ExtraData map[string]string
 }
 
 // MessageContactResponse ...
@@ -130,6 +133,9 @@ type MessagingGroupEntryResponse struct {
 
 	// EncryptedKey is the hex string of the encrypted private corresponding with the MessagingPublicKeyBase58Check.
 	EncryptedKey string
+
+	// ExtraData is an arbitrary key value map
+	ExtraData map[string]string
 }
 
 type MessagingGroupMemberResponse struct {
