@@ -308,8 +308,9 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	// block or the chain is out of sync, bail.
 	blockTip := fes.blockchain.BlockTip()
 	chainState := fes.blockchain.ChainState()
+	chainFullyStored := fes.blockchain.ChainFullyStored()
 	if (!foundNewConstants && blockTip.Height <= fes.HotFeedBlockHeight) ||
-		chainState != lib.SyncStateFullyCurrent {
+		chainState != lib.SyncStateFullyCurrent || !chainFullyStored {
 		return nil
 	}
 

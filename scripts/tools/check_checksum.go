@@ -36,9 +36,9 @@ func getSnapChunk(snap *lib.Snapshot, handle *badger.DB, prefix []byte, lastKey 
 	numNotExisted := 0
 	for _, entry := range ancestralDbBatchEntries {
 		if snap.CheckAnceststralRecordExistenceByte(entry.Value) {
-			numExisted ++
+			numExisted++
 		} else {
-			numNotExisted ++
+			numNotExisted++
 		}
 
 		keyString := hex.EncodeToString(snap.AncestralRecordToDBEntry(entry).Key)
@@ -57,12 +57,12 @@ func getSnapChunk(snap *lib.Snapshot, handle *badger.DB, prefix []byte, lastKey 
 
 		for jj := indexChunk; jj < len(mainDbBatchEntries); {
 			if bytes.Compare(mainDbBatchEntries[jj].Key, dbEntry.Key) == -1 {
-					snapshotEntriesBatch = append(snapshotEntriesBatch, mainDbBatchEntries[jj])
+				snapshotEntriesBatch = append(snapshotEntriesBatch, mainDbBatchEntries[jj])
 			} else if bytes.Compare(mainDbBatchEntries[jj].Key, dbEntry.Key) == 1 {
 				break
 			}
 			// if keys are equal we just skip
-			jj ++
+			jj++
 			indexChunk = jj
 		}
 		// If we filled the chunk for main db records, we will return so that there is no
@@ -101,7 +101,7 @@ func main() {
 		fmt.Printf("Error reading db1 err: %v", err)
 		return
 	}
-	snap, err := lib.NewSnapshot(dirSnap)
+	snap, err := lib.NewSnapshot(dirSnap, lib.SnapshotBlockHeightPeriod, false, false)
 	if err != nil {
 		fmt.Printf("Error reading snap err: %v", err)
 		return
@@ -125,7 +125,7 @@ func main() {
 	//snap, _ := lib.NewSnapshot(100000)
 	//fmt.Println(snap.GetSnapshotChunk(db0, []byte{5}, []byte{5}))
 	//fmt.Println(snap.GetSnapshotChunk(db1, []byte{5}, []byte{5}))
-	maxBytes := uint32(8<<20)
+	maxBytes := uint32(8 << 20)
 	var prefixes [][]byte
 	prefixes = append(prefixes, lib.StatePrefixes.StatePrefixesList...)
 	fmt.Println(prefixes)
@@ -139,7 +139,7 @@ func main() {
 			fmt.Printf("%v \n", prefix)
 			lastPrefix := prefix
 			var recurr func()
-			recurr = func(){
+			recurr = func() {
 				ancestralEntries, fullSnap := getSnapChunk(snap, dbSnap, prefix, lastPrefix, maxBytes)
 				fmt.Printf("Found snap (%v) entries and full is (%v)\n", len(ancestralEntries), fullSnap)
 				for _, entry := range ancestralEntries {
@@ -197,7 +197,6 @@ func main() {
 			_ = check.AddBytes(lib.EncodeKeyValue(keyBytes, valueBytes))
 		}
 		fmt.Println(check.ToBytes())
-
 
 		return nil
 	}()

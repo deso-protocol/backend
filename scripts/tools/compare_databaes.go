@@ -6,12 +6,12 @@ import (
 	"github.com/deso-protocol/backend/scripts/tools/toolslib"
 	"github.com/deso-protocol/core/lib"
 	"reflect"
-"time"
+	"time"
 )
 
 func main() {
-	dir0 := "/Users/piotr/data_dirs/n4_27"
-	dir1 := "/Users/piotr/data_dirs/n1_27"
+	dir0 := "/Users/piotr/data_dirs/n3_6"
+	dir1 := "/Users/piotr/data_dirs/n1_40"
 	//dir2 := "/Users/piotr/data_dirs/n7_1"
 
 	db0, err := toolslib.OpenDataDir(dir0)
@@ -43,7 +43,8 @@ func main() {
 	existingKeysSnap := make(map[string]string)
 	existingKeysDb := make(map[string]string)
 	err = func() error {
-		for _, prefix := range lib.StatePrefixes.StatePrefixesList {
+		for prefixByte := range lib.StatePrefixes.StatePrefixesMap {
+			prefix := []byte{prefixByte}
 			fmt.Printf("Checking prefix: (%v)\n", prefix)
 			lastPrefix := prefix
 			invalidLengths := false

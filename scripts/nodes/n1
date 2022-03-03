@@ -5,16 +5,18 @@ DATE=`date +%Y%m%d-%H:%M:%S-%N`
 
 (cd ../../ && go build -o backend -gcflags="all=-N -l" main.go && ./backend run \
   --glog-v=0 \
-  --glog-vmodule="*bitcoin_manager*=0,*balance*=2,*view*=0,*frontend*=2,*peer*=0,*addr*=0,*network*=0,*utils*=0,*connection*=0,*main*=0,*server*=2,*mempool*=2,*miner*=2,*blockchain*=2" \
-  --connect-ips=localhost:17000 \
-  --api-port=18001 \
-  --protocol-port=18000 \
+  --glog-vmodule="*bitcoin_manager*=0,*balance*=2,*view*=0,*frontend*=2,*peer*=2,*addr*=2,*network*=2,*utils*=0,*connection*=2,*main*=0,*server*=2,*mempool*=2,*miner*=2,*blockchain*=2" \
+  --api-port=17001 \
+  --protocol-port=17000 \
   --admin-public-keys=* \
   --super-admin-public-keys=* \
-  --max-sync-block-height=5000 \
-  --hyper-sync=true \
+  --max-sync-block-height=100 \
+  --hyper-sync=false \
   --starter-deso-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
   --block-cypher-api-key=092dae962ea44b02809a4c74408b42a1 \
-  --data-dir=$HOME/data_dirs/n1_30 \
-  --log-dir=/Users/piotr/Desktop/Code/DeSo/logs/n1/test25 \
+  --data-dir=$HOME/data_dirs/n1_34 \
+  --run-hot-feed-routine=true \
+#  --connect-ips=deso-seed-2.io:17000 \
+  --txindex=false \
+  --log-dir=/Users/piotr/Desktop/Code/DeSo/logs/n1/test31 \
 )

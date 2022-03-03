@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-rm -rf $HOME/data_dirs/n0_1
+#rm -rf $HOME/data_dirs/n0_1
 
 ulimit -n 8192
 ulimit -Hn 8192
