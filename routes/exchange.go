@@ -446,6 +446,9 @@ type TransactionResponse struct {
 	BlockHashHex string `json:",omitempty"`
 
 	TransactionMetadata *lib.TransactionMetadata `json:",omitempty"`
+
+	// The ExtraData added to this transaction
+	ExtraData map[string]string `json:",omitempty"`
 }
 
 // TransactionInfoResponse contains information about the transaction
@@ -530,14 +533,14 @@ func APITransactionToResponse(
 	}
 
 	txnBytes, _ := txnn.ToBytes(false /*preSignature*/)
+
 	ret := &TransactionResponse{
 		TransactionIDBase58Check: lib.PkToString(txnn.Hash()[:], params),
 		RawTransactionHex:        hex.EncodeToString(txnBytes),
 		SignatureHex:             signatureHex,
 		TransactionType:          txnn.TxnMeta.GetTxnType().String(),
 		TransactionMetadata:      &txnMetaResponse,
-
-		// Inputs, Outputs, and some txnMeta fields set below.
+		// Inputs, Outputs, ExtraData, and some txnMeta fields set below.
 	}
 	for _, input := range txnn.TxInputs {
 		ret.Inputs = append(ret.Inputs, &InputResponse{
@@ -550,6 +553,13 @@ func APITransactionToResponse(
 			PublicKeyBase58Check: lib.PkToString(output.PublicKey, params),
 			AmountNanos:          output.AmountNanos,
 		})
+	}
+	if txnn.ExtraData != nil && len(txnn.ExtraData) > 0 {
+		ret.ExtraData = make(map[string]string)
+		for extraDataKey, extraDataValue := range txnn.ExtraData {
+			var decoderFunc = GetExtraDataDecoder(txnn.TxnMeta.GetTxnType(), extraDataKey)
+			ret.ExtraData[extraDataKey] = decoderFunc(extraDataValue, params)
+		}
 	}
 
 	if txnMeta != nil {
@@ -1655,7 +1665,8 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 // Fetches all the posts from the db starting with a given postHash, up to numToFetch.
 // This is then joined with mempool and all posts are returned.  Because the mempool may contain
 // post changes, the number of posts returned in the map is not guaranteed to be numToFetch.
-func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.BlockHash, readerPK []byte, numToFetch int, skipHidden bool, skipVanillaRepost bool) (
+func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.BlockHash, readerPK []byte,
+	numToFetch int, skipHidden bool, skipVanillaRepost bool, mediaRequired bool) (
 	_corePosts []*lib.PostEntry, _commentsByPostHash map[lib.BlockHash][]*lib.PostEntry, _err error) {
 
 	var startPost *lib.PostEntry
@@ -1703,6 +1714,11 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 				continue
 			}
 
+			// If media is required and this post does not have media, skip it.
+			if mediaRequired && !postEntry.HasMedia() {
+				continue
+			}
+
 			// We make sure that the post isn't a comment.
 			if len(postEntry.ParentStakeID) == 0 {
 				postEntryPubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] = postEntry.PosterPublicKey
@@ -1721,6 +1737,11 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 
 			// Ignore deleted or rolled-back posts. Skip vanilla repost posts if skipVanillaRepost is true.
 			if postEntry.IsDeleted() || (postEntry.IsHidden && skipHidden) || (lib.IsVanillaRepost(postEntry) && skipVanillaRepost) {
+				continue
+			}
+
+			// If media is required and this post does not have media, skip it.
+			if mediaRequired && !postEntry.HasMedia() {
 				continue
 			}
 
