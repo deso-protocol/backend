@@ -7,7 +7,8 @@ import (
 	"fmt"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/core/lib"
-	"github.com/pkg/errors"
+	"github.com/golang/glog"
+"github.com/pkg/errors"
 	"io"
 	"net/http"
 	"reflect"
@@ -882,6 +883,9 @@ type RegisterMessagingGroupKeyRequest struct {
 	// the signature is only needed to register the default key.
 	MessagingKeySignatureHex      string
 
+	// MessagingGroupMembers is the list of members we intend to add to this group.
+	MessagingGroupMembers         []*MessagingGroupMemberResponse
+
 	MinFeeRateNanosPerKB          uint64 `safeForLogging:"true"`
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
@@ -956,9 +960,28 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 		return
 	}
 
+	glog.Infof("MessagingGroupMembers (%v)", requestData.MessagingGroupMembers, len(requestData.MessagingGroupMembers))
+	messagingGroupMembers := []*lib.MessagingGroupMember{}
+	for _, member := range requestData.MessagingGroupMembers {
+		memberPublicKeyBytes, _, err := lib.Base58CheckDecode(member.GroupMemberPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Member public key %v is invalid: %v",
+				member.GroupMemberPublicKeyBase58Check, err))
+			return
+		}
+		memberPublicKey := lib.NewPublicKey(memberPublicKeyBytes)
+		groupKey := lib.NewMessagingGroupKey(memberPublicKey, []byte(member.GroupMemberKeyName))
+		encryptedKey, err := hex.DecodeString(member.EncryptedKey)
+
+		messagingGroupMembers = append(messagingGroupMembers, &lib.MessagingGroupMember{
+			GroupMemberPublicKey: memberPublicKey,
+			GroupMemberKeyName: &groupKey.GroupKeyName,
+			EncryptedKey: encryptedKey,
+		})
+	}
+
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
-		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, messagingKeySignature,
-		[]*lib.MessagingGroupMember{},
+		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, messagingKeySignature, messagingGroupMembers,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem creating transaction: %v", err))
