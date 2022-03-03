@@ -2671,6 +2671,7 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		requestData.DeleteKey,
 		requestData.DerivedKeySignature,
 		preprocessExtraData(requestData.ExtraData),
+		nil, nil, // FIXME: Add spending limits here.
 		// Standard transaction fields
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
