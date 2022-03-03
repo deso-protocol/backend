@@ -5,13 +5,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/holiman/uint256"
 	"io"
 	"net/http"
 	"reflect"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/holiman/uint256"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/dgraph-io/badger/v3"
@@ -351,7 +352,7 @@ func (fes *APIServer) _balanceEntryToResponse(
 		CreatorPublicKeyBase58Check: lib.PkToString(creatorPk, fes.Params),
 		HasPurchased:                balanceEntry.HasPurchased,
 		// CreatorCoins can't exceed uint64
-		BalanceNanos:        balanceEntry.BalanceNanos.Uint64(),
+		BalanceNanos: balanceEntry.BalanceNanos.Uint64(),
 		// Use this value for DAO Coins balances
 		BalanceNanosUint256: balanceEntry.BalanceNanos,
 		NetBalanceInMempool: int64(balanceEntry.BalanceNanos.Uint64()) - int64(dbBalanceNanos),
@@ -609,11 +610,11 @@ type ProfileEntryResponse struct {
 }
 
 type CoinEntryResponse struct {
-	CreatorBasisPoints        uint64
-	DeSoLockedNanos           uint64
-	NumberOfHolders           uint64
-	CoinsInCirculationNanos   uint64
-	CoinWatermarkNanos        uint64
+	CreatorBasisPoints      uint64
+	DeSoLockedNanos         uint64
+	NumberOfHolders         uint64
+	CoinsInCirculationNanos uint64
+	CoinWatermarkNanos      uint64
 
 	// Deprecated: Temporary to add support for BitCloutLockedNanos
 	BitCloutLockedNanos uint64 // Deprecated
@@ -973,9 +974,9 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 			BitCloutLockedNanos:     profileEntry.CreatorCoinEntry.DeSoLockedNanos,
 		},
 		DAOCoinEntry: &DAOCoinEntryResponse{
-			NumberOfHolders:           profileEntry.DAOCoinEntry.NumberOfHolders,
-			CoinsInCirculationNanos:   profileEntry.DAOCoinEntry.CoinsInCirculationNanos,
-			MintingDisabled:           profileEntry.DAOCoinEntry.MintingDisabled,
+			NumberOfHolders:         profileEntry.DAOCoinEntry.NumberOfHolders,
+			CoinsInCirculationNanos: profileEntry.DAOCoinEntry.CoinsInCirculationNanos,
+			MintingDisabled:         profileEntry.DAOCoinEntry.MintingDisabled,
 			TransferRestrictionStatus: getTransferRestrictionStatusStringFromTransferRestrictionStatus(
 				profileEntry.DAOCoinEntry.TransferRestrictionStatus),
 		},
@@ -2981,6 +2982,12 @@ type UserDerivedKey struct {
 
 	// ExtraData is an arbitrary key value map
 	ExtraData map[string]string `safeForLogging:"true"`
+
+  // TransactionSpendingLimit represents the current state of the TransactionSpendingLimitTracker
+	TransactionSpendingLimit *TransactionSpendingLimitResponse `safeForLogging:"true"`
+
+	// Memo is a string that describes the Derived Key
+	Memo string `safeForLogging:"true"`
 }
 
 // GetUserDerivedKeysResponse ...
@@ -3045,6 +3052,8 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 			ExpirationBlock:             entry.ExpirationBlock,
 			IsValid:                     isValid,
 			ExtraData:                   extraDataToResponse(entry.ExtraData),
+			TransactionSpendingLimit:    fes.TransactionSpendingLimitToResponse(entry.TransactionSpendingLimitTracker, utxoView),
+			Memo:                        string(entry.Memo),
 		}
 	}
 
@@ -3054,6 +3063,81 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetUserDerivedKeys: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
+
+type GetTransactionSpendingLimitHexStringRequest struct {
+	TransactionSpendingLimit TransactionSpendingLimitResponse
+}
+
+type GetTransactionSpendingLimitHexStringResponse struct {
+	HexString string
+}
+
+func (fes *APIServer) GetTransactionSpendingLimitHexString(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetTransactionSpendingLimitHexStringRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpendingLimitHexString: Error parsing request body: %v", err))
+		return
+	}
+	transactionSpendingLimit, err := fes.TransactionSpendingLimitFromResponse(requestData.TransactionSpendingLimit)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpendingLimitHexString: Error parsing transaction "+
+			"spending limit from response: %v", err))
+		return
+	}
+	tslBytes, err := transactionSpendingLimit.ToBytes()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpendingLimitHexString: Error in ToBytes: %v", err))
+		return
+	}
+
+	res := &GetTransactionSpendingLimitHexStringResponse{
+		HexString: hex.EncodeToString(tslBytes),
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetTransactionSpendingLimitHexString: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) GetTransactionSpendingLimitResponseFromHex(ww http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+
+	transactionSpendingLimitHex, transactionSpendingLimitHexExists := vars["transactionSpendingLimitHex"]
+	if !transactionSpendingLimitHexExists {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetTransactionSpendingLimitResponseFromHex: Must provide TransactionSpendingLimitHex"))
+		return
+	}
+
+	tslBytes, err := hex.DecodeString(transactionSpendingLimitHex)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetTransactionSpendingLimitResponseFromHex: Error decoding transaction spending limit hex"))
+		return
+	}
+
+	var transactionSpendingLimit lib.TransactionSpendingLimit
+	if err = transactionSpendingLimit.FromBytes(tslBytes); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetTransactionSpendingLimitResponseFromHex: Error constructing TransactionSpendingLimit from bytes"))
+		return
+	}
+
+	// Get augmented utxoView.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetTransactionSpendingLimitResponseFromHex: Problem getting augmented utxoView: %v", err))
+		return
+	}
+
+	transactionSpendingLimitResponse := fes.TransactionSpendingLimitToResponse(&transactionSpendingLimit, utxoView)
+
+	if err = json.NewEncoder(ww).Encode(transactionSpendingLimitResponse); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetTransactionSpendingLimitResponseFromHex: Problem serializing object to JSON: %v", err))
 		return
 	}
 }
