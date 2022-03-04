@@ -2615,7 +2615,7 @@ type AuthorizeDerivedKeyRequest struct {
 	// ExtraData is arbitrary key value map
 	ExtraData map[string]string `safeForLogging:"true"`
 
-    // TransactionSpendingLimit struct that will be merged with the TransactionSpendingLimitTracker for this
+	// TransactionSpendingLimit struct that will be merged with the TransactionSpendingLimitTracker for this
 	// Derived key
 	TransactionSpendingLimit TransactionSpendingLimitResponse `safeForLogging:"true"`
 
@@ -2935,8 +2935,7 @@ func (fes *APIServer) ToTransactionSpendingLimit(tslr TransactionSpendingLimitRe
 // TransactionSpendingLimitResponse
 func TransactionSpendingLimitToResponse(
 	transactionSpendingLimit *lib.TransactionSpendingLimit, utxoView *lib.UtxoView, params *lib.DeSoParams,
-	) *TransactionSpendingLimitResponse {
-
+) *TransactionSpendingLimitResponse {
 
 	if utxoView == nil {
 
