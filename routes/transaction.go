@@ -2615,7 +2615,7 @@ type AuthorizeDerivedKeyRequest struct {
 	// ExtraData is arbitrary key value map
 	ExtraData map[string]string `safeForLogging:"true"`
 
-  // TransactionSpendingLimit struct that will be merged with the TransactionSpendingLimitTracker for this
+	// TransactionSpendingLimit struct that will be merged with the TransactionSpendingLimitTracker for this
 	// Derived key
 	TransactionSpendingLimit TransactionSpendingLimitResponse `safeForLogging:"true"`
 
@@ -2710,12 +2710,8 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 			memoStr = requestData.AppName
 		}
 		if len(memoStr) != 0 {
-			memo, err = hex.DecodeString(memoStr)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf(
-					"AuthorizeDerivedKey: Error hex decoding memo %v: %v", memoStr, err))
-				return
-			}
+			memo = make([]byte, hex.EncodedLen(len([]byte(memoStr))))
+			hex.Encode(memo, []byte(memoStr))
 		}
 	}
 
@@ -2939,8 +2935,7 @@ func (fes *APIServer) ToTransactionSpendingLimit(tslr TransactionSpendingLimitRe
 // TransactionSpendingLimitResponse
 func TransactionSpendingLimitToResponse(
 	transactionSpendingLimit *lib.TransactionSpendingLimit, utxoView *lib.UtxoView, params *lib.DeSoParams,
-	) *TransactionSpendingLimitResponse {
-
+) *TransactionSpendingLimitResponse {
 
 	if utxoView == nil {
 
