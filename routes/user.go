@@ -293,7 +293,7 @@ func (fes *APIServer) GetYouHodlMap(pkid *lib.PKIDEntry, fetchProfiles bool, isD
 	//
 	// TODO: We need to screen out zero balances in the view. Right now we only screen them
 	// out from the DB query.
-	for _, balanceEntry := range utxoView.HODLerPKIDCreatorPKIDToBalanceEntry {
+	for _, balanceEntry := range utxoView.GetHODLerPKIDCreatorPKIDToBalanceEntryMap(isDAOCoin) {
 		dbBalanceEntryResponse := &BalanceEntryResponse{}
 		if reflect.DeepEqual(balanceEntry.HODLerPKID, pkid.PKID) {
 			// In this case the user is the HODLer.
@@ -411,7 +411,7 @@ func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, isD
 	//
 	// TODO: We need to screen out zero balances in the view. Right now we only screen them
 	// out from the DB query.
-	for _, balanceEntry := range utxoView.HODLerPKIDCreatorPKIDToBalanceEntry {
+	for _, balanceEntry := range utxoView.GetHODLerPKIDCreatorPKIDToBalanceEntryMap(isDAOCoin) {
 		dbBalanceEntryResponse := &BalanceEntryResponse{}
 		if reflect.DeepEqual(balanceEntry.CreatorPKID, pkid.PKID) {
 			// In this case the user is the one *being* HODL'ed.
