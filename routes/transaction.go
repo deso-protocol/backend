@@ -57,8 +57,7 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	txnFound := fes.mempool.IsTransactionInPool(txnHash)
-	// Only check DB in testnet for now.
-	if !txnFound && fes.Params.NetworkType == lib.NetworkType_TESTNET {
+	if !txnFound {
 		txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), txnHash)
 	}
 	res := &GetTxnResponse{
