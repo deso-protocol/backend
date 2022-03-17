@@ -8,7 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
-"github.com/pkg/errors"
+	"github.com/pkg/errors"
 	"io"
 	"net/http"
 	"reflect"
@@ -354,6 +354,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			SenderMessagingGroupKeyName:    string(lib.MessagingKeyNameDecode(messageEntry.SenderMessagingGroupKeyName)),
 			RecipientMessagingPublicKey:    lib.PkToString(messageEntry.RecipientMessagingPublicKey[:], fes.Params),
 			RecipientMessagingGroupKeyName: string(lib.MessagingKeyNameDecode(messageEntry.RecipientMessagingGroupKeyName)),
+			ExtraData:                      extraDataToResponse(messageEntry.ExtraData),
 		}
 		contactEntry, _ := contactMap[lib.PkToString(otherPartyPublicKeyBytes, fes.Params)]
 		contactEntry.Messages = append(contactEntry.Messages, messageEntryRes)
@@ -441,6 +442,7 @@ func (fes *APIServer) ParseMessagingGroupEntries(memberPublicKeyBytes []byte, me
 			MessagingPublicKeyBase58Check: lib.PkToString(key.MessagingPublicKey[:], fes.Params),
 			MessagingGroupKeyName: string(lib.MessagingKeyNameDecode(key.MessagingGroupKeyName)),
 			EncryptedKey: "",
+			ExtraData: extraDataToResponse(key.ExtraData),
 		}
 
 		// Add all messaging group recipients from the messagingGroupEntries parameter.
@@ -556,6 +558,9 @@ type SendMessageStatelessRequest struct {
 	// will replace it with the base messaging key. If both SenderMessagingGroupKeyName and
 	// RecipientMessagingGroupKeyName are left empty, a V2 message will be constructed.
 	RecipientMessagingGroupKeyName string `safeForLogging:"true"`
+
+	// ExtraData is an arbitrary key value map
+	ExtraData map[string]string
 }
 
 // SendMessageStatelessResponse ...
@@ -700,7 +705,7 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 		requestData.MessageText, requestData.EncryptedMessageText,
 		senderMessagingPublicKey, senderMessagingGroupKeyNameBytes,
 		recipientMessagingPublicKey, recipientMessagingGroupKeyNameBytes,
-		tstamp,
+		tstamp, preprocessExtraData(requestData.ExtraData),
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem creating transaction: %v", err))
@@ -886,6 +891,9 @@ type RegisterMessagingGroupKeyRequest struct {
 	// MessagingGroupMembers is the list of members we intend to add to this group.
 	MessagingGroupMembers         []*MessagingGroupMemberResponse
 
+	// ExtraData is an arbitrary key value map
+	ExtraData map[string]string
+
 	MinFeeRateNanosPerKB          uint64 `safeForLogging:"true"`
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
@@ -981,7 +989,8 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 	}
 
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
-		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, messagingKeySignature, messagingGroupMembers,
+		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, messagingKeySignature,
+		messagingGroupMembers, preprocessExtraData(requestData.ExtraData),
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem creating transaction: %v", err))
