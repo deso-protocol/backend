@@ -8,7 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
-	"github.com/pkg/errors"
+"github.com/pkg/errors"
 	"io"
 	"net/http"
 	"reflect"
@@ -968,7 +968,6 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 		return
 	}
 
-	glog.Infof("MessagingGroupMembers (%v)", requestData.MessagingGroupMembers, len(requestData.MessagingGroupMembers))
 	messagingGroupMembers := []*lib.MessagingGroupMember{}
 	for _, member := range requestData.MessagingGroupMembers {
 		memberPublicKeyBytes, _, err := lib.Base58CheckDecode(member.GroupMemberPublicKeyBase58Check)

@@ -352,8 +352,8 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		var resizedImageBytes []byte
 		resizedImageBytes, err = resizeAndConvertToWebp(requestData.NewProfilePic, uint(fes.Params.MaxProfilePicDimensions))
 		if err != nil {
-			//_AddBadRequestError(ww, fmt.Sprintf("Problem resizing profile picture: %v", err))
-			//return
+			_AddBadRequestError(ww, fmt.Sprintf("Problem resizing profile picture: %v", err))
+			return
 		}
 		// Convert the image back into base64
 		webpBase64 := base64.StdEncoding.EncodeToString(resizedImageBytes)
