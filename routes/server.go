@@ -131,7 +131,6 @@ const (
 	RoutePathRegisterMessagingGroupKey = "/api/v0/register-messaging-group-key"
 	RoutePathGetAllMessagingGroupKeys  = "/api/v0/get-all-messaging-group-keys"
 	RoutePathCheckPartyMessagingKeys   = "/api/v0/check-party-messaging-keys"
-	RoutePathAddMembersToGroup         = "/api/v0/add-members-to-group"
 
 	// verify.go
 	RoutePathSendPhoneNumberVerificationText   = "/api/v0/send-phone-number-verification-text"
