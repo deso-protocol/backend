@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+
 	"github.com/deso-protocol/backend/scripts/tools/toolslib"
 	"github.com/deso-protocol/core/lib"
 	"github.com/dgraph-io/badger/v3"
 )
 
+// FIXME: Delete this file if it's not needed, or at least clean it up a little
 func getSnapChunk(snap *lib.Snapshot, handle *badger.DB, prefix []byte, lastKey []byte, chunkSize uint32) (
 	[]*lib.DBEntry, bool) {
 
@@ -106,7 +108,7 @@ func main() {
 		fmt.Printf("Error reading snap err: %v", err)
 		return
 	}
-	snap.SnapshotBlockHeight = 1800
+	snap.CurrentEpochSnapshotMetadata.SnapshotBlockHeight = 1800
 
 	//optsDb := badger.DefaultOptions(dirDB)
 	//optsDb.ValueDir = lib.GetBadgerDbPath(dirDB)

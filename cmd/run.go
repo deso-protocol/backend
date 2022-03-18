@@ -158,7 +158,12 @@ func init() {
 	runCmd.PersistentFlags().String("global-state-api-url", "", "URL to use to fetch global state data. Only used if expose-global-state is false. If not provided, use own global state.")
 
 	// Hyper Sync
-	runCmd.PersistentFlags().Bool("hyper-sync", true, "Use hyper sync protocol for faster block syncing")
+	runCmd.PersistentFlags().Bool("hypersync", true, "Build ancestral records for hypersync and "+
+		"attempt to sync from other nodes using hypersync as well, if they support it")
+	runCmd.PersistentFlags().Bool("disable-slow-sync", false, "When enabled, the node will refuse "+
+		"to sync with any method other than Hypersync. Note that it is possible to have --hypersync enabled "+
+		"with this value set to false, in which case a node may try to sync by downloading and connecting historical txns "+
+		"if the first node it encounters does not support hypersync")
 
 	// Run Supply Monitoring Routine
 	runCmd.PersistentFlags().Bool("run-supply-monitoring-routine", false, "Run a goroutine to monitor total supply and rich list")

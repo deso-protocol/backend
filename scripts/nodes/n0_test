@@ -31,7 +31,7 @@ rm /tmp/main.*.log
   --admin-public-keys=* \
   --super-admin-public-keys=* \
   --num-mining-threads=1 \
-  --hyper-sync=true \
+  --hypersync=true \
   --miner-public-keys=tBCKXyutsCWVbECXqE5zqP7NyGjmXg1SHkYJgKUsNujHfVF7GsVxzU \
   --block-producer-seed='essence camp ghost remove document vault ladder swim pupil index apart ring' \
   --starter-deso-seed='road congress client market couple bid risk escape artwork rookie artwork food' \

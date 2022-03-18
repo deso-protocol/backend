@@ -20,13 +20,16 @@ rm /tmp/main.*.log
   --data-dir=$HOME/data_dirs/n98_1  \
   --block-cypher-api-key=092dae962ea44b02809a4c74408b42a1 \
   --min-satoshis-for-profile=0 \
-  --hyper-sync=false \
+  --hypersync=true \
+  --disable-slow-sync=false \
   --connect-ips=deso-seed-2.io:17000 \
   --run-hot-feed-routine=true \
   --log-dir=/Users/piotr/Desktop/Code/DeSo/logs/n0 \
   --txindex=true \
 )
 
+# --max-sync-block-height=10977 \
+# --txindex=true \
 # These are nodes that can be relied upon if the decentralized seed
 # node discovery mechanism fails.
 # --connectips=35.232.92.5:17000

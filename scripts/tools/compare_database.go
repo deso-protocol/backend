@@ -10,8 +10,9 @@ import (
 )
 
 func main() {
-	dir0 := "/Users/piotr/data_dirs/n3_6"
-	dir1 := "/Users/piotr/data_dirs/n1_40"
+	//dir0 := "/home/daddy/data_dirs/n0_20220315_021"
+	dir0 := "/home/daddy/data_dirs/n0_20220315_021"
+	dir1 := "/home/daddy/data_dirs/n1_20220315_045_9999"
 	//dir2 := "/Users/piotr/data_dirs/n7_1"
 
 	db0, err := toolslib.OpenDataDir(dir0)
@@ -33,7 +34,7 @@ func main() {
 	//snap, _ := lib.NewSnapshot(100000)
 	//fmt.Println(snap.GetSnapshotChunk(db0, []byte{5}, []byte{5}))
 	//fmt.Println(snap.GetSnapshotChunk(db1, []byte{5}, []byte{5}))
-	maxBytes := uint32(8<<20)
+	maxBytes := uint32(8 << 20)
 	totalLen := 0
 	var timeElapsed float64
 	var currentTime time.Time
@@ -63,7 +64,7 @@ func main() {
 				//}
 				//fmt.Println("Current key %v", (*k0)[0])
 				//db2.Update(func(txn *badger.Txn) error {
-                //	for i, _ := range *k0 {
+				//	for i, _ := range *k0 {
 				//		keyBytes, _ := hex.DecodeString((*k0)[i])
 				//		valueBytes, _ := hex.DecodeString((*v0)[i])
 				//		lib.DBSetWithTxn(txn, nil, keyBytes, valueBytes)
@@ -93,14 +94,14 @@ func main() {
 				fmt.Printf("Number of snap keys (%v) number of db keys (%v)\n", len(db0Entries), len(db1Entries))
 				if len(db0Entries) != len(db1Entries) {
 					invalidLengths = true
-					fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v;" +
+					fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v;"+
 						"varying lengths (db0, db1) : (%v, %v)\n", prefix, lastPrefix, len(db0Entries), len(db1Entries))
 					break
 				}
 				for ii, entry := range db0Entries {
 					if !reflect.DeepEqual(entry.Key, db1Entries[ii].Key) {
 						if !invalidKeys {
-							fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v; unequal keys " +
+							fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v; unequal keys "+
 								"(db0, db1) : (%v, %v)\n", prefix, lastPrefix, entry.Key, db1Entries[ii].Key)
 							invalidKeys = true
 						}
@@ -109,7 +110,7 @@ func main() {
 				for ii, entry := range db0Entries {
 					if !reflect.DeepEqual(entry.Value, db1Entries[ii].Value) {
 						if !invalidValues {
-							fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v; unequal values " +
+							fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v; unequal values "+
 								"(db0, db1) : (%v, %v)\n", prefix, lastPrefix, entry.Value, db1Entries[ii].Value)
 							invalidValues = true
 						}
@@ -117,7 +118,7 @@ func main() {
 				}
 				if full0 != full1 {
 					if !invalidFull {
-						fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v;" +
+						fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v;"+
 							"unequal fulls (db0, db1) : (%v, %v)\n", prefix, lastPrefix, full0, full1)
 						invalidFull = true
 					}
@@ -125,7 +126,7 @@ func main() {
 				//fmt.Println("lastPrefix", lastPrefix, "full", full0, len(*k0))
 				totalLen += len(db0Entries) - 1
 				if len(db0Entries) > 0 {
-					lastPrefix = db0Entries[len(db0Entries) - 1].Key
+					lastPrefix = db0Entries[len(db0Entries)-1].Key
 				} else {
 					break
 				}
@@ -140,7 +141,7 @@ func main() {
 				broken = true
 			}
 
-			fmt.Printf("Status for prefix (%v): (%s)\n invalidLengths: (%v); invalidKeys: (%v); invalidValues: " +
+			fmt.Printf("Status for prefix (%v): (%s)\n invalidLengths: (%v); invalidKeys: (%v); invalidValues: "+
 				"(%v); invalidFull: (%v)\n\n", prefix, status, invalidLengths, invalidKeys, invalidValues, invalidFull)
 		}
 		return nil
