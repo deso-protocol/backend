@@ -1250,6 +1250,8 @@ func (fes *APIServer) GetNFTCollectionSummary(ww http.ResponseWriter, req *http.
 
 	nftKey := lib.MakeNFTKey(postEntry.PostHash, 1)
 	nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
+	fmt.Printf("\nHere is the NFT Key: %+v\n", &nftKey)
+	fmt.Printf("\nHere is the NFT Entry: %+v\n", nftEntry)
 
 	res := &GetNFTCollectionSummaryResponse{
 		NFTCollectionResponse:          fes._nftEntryToNFTCollectionResponse(nftEntry, postEntry.PosterPublicKey, postEntryResponse, utxoView, readerPKID),
@@ -1408,6 +1410,7 @@ func (fes *APIServer) _nftEntryToNFTCollectionResponse(
 	var lowBuyNowPriceNanos *uint64
 	serialNumbersForSale := []uint64{}
 	for ii := uint64(1); ii <= postEntryResponse.NumNFTCopies; ii++ {
+		fmt.Printf("\nHere is the nft entry: %+v\n", nftEntry)
 		nftKey := lib.MakeNFTKey(nftEntry.NFTPostHash, ii)
 		nftEntryii := utxoView.GetNFTEntryForNFTKey(&nftKey)
 		if nftEntryii != nil && nftEntryii.IsForSale {

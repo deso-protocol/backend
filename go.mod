@@ -2,7 +2,7 @@ module github.com/deso-protocol/backend
 
 go 1.16
 
-replace github.com/deso-protocol/core => ../core/
+replace github.com/deso-protocol/core => ../../core/
 
 require (
 	cloud.google.com/go/storage v1.15.0
