@@ -1252,7 +1252,7 @@ func (fes *APIServer) GetNFTCollectionSummary(ww http.ResponseWriter, req *http.
 	// This routine is needed in order to account for burned NFTs.
 	var nftEntry *lib.NFTEntry
 	nftKeySN := uint64(1)
-	for nftEntry == nil && nftKeySN <= lib.MaxMaxCopiesPerNFT {
+	for nftEntry == nil && nftKeySN <= postEntry.NumNFTCopies {
 		nftKey := lib.MakeNFTKey(postEntry.PostHash, nftKeySN)
 		nftEntry = utxoView.GetNFTEntryForNFTKey(&nftKey)
 		nftKeySN += 1
