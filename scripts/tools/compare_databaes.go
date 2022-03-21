@@ -1,16 +1,17 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"github.com/deso-protocol/backend/scripts/tools/toolslib"
 	"github.com/deso-protocol/core/lib"
+	"reflect"
 	"time"
 )
 
 func main() {
 	dir0 := "/Users/piotr/data_dirs/n69_3"
 	dir1 := "/Users/piotr/data_dirs/n69_2"
-	dirWrite := "/Users/piotr/data_dirs/n69_4"
 	//dir2 := "/Users/piotr/data_dirs/n7_1"
 
 	db0, err := toolslib.OpenDataDir(dir0)
@@ -19,14 +20,8 @@ func main() {
 		return
 	}
 	db1, err := toolslib.OpenDataDir(dir1)
-	_ = db1
 	if err != nil {
 		fmt.Printf("Error reading db1 err: %v", err)
-		return
-	}
-	dbWrite, err := toolslib.OpenDataDir(dirWrite)
-	if err != nil {
-		fmt.Printf("Error reading dbWrite: (%)", err)
 		return
 	}
 	//db2, err := toolslib.OpenDataDir(dir2)
@@ -40,7 +35,6 @@ func main() {
 	//fmt.Println(snap.GetSnapshotChunk(db1, []byte{5}, []byte{5}))
 	maxBytes := uint32(8 << 22)
 	totalLen := 0
-	_ = totalLen
 	var timeElapsed float64
 	var currentTime time.Time
 	timeElapsed = 0.0
@@ -48,10 +42,9 @@ func main() {
 	broken := false
 	err = func() error {
 		for prefixByte, isState := range lib.StatePrefixes.StatePrefixesMap {
-			//if !isState {
-			//	continue
-			//}
-			_ = isState
+			if !isState {
+				continue
+			}
 			prefix := []byte{prefixByte}
 			fmt.Printf("Checking prefix: (%v)\n", prefix)
 			lastPrefix := prefix
@@ -62,8 +55,6 @@ func main() {
 			for {
 				existingKeysSnap := make(map[string]string)
 				existingKeysDb := make(map[string]string)
-				_ = existingKeysSnap
-				_ = existingKeysDb
 				timeElapsed += time.Since(currentTime).Seconds()
 				currentTime = time.Now()
 				//fmt.Println("Starting the fetch time elapsed (%v) current time (%v)", timeElapsed, currentTime)
@@ -87,74 +78,60 @@ func main() {
 				//fmt.Println("Finished writing data time elapsed (%v) current time (%v)", timeElapsed, currentTime)
 				db0Entries, full0, err := lib.DBIteratePrefixKeys(db0, prefix, lastPrefix, maxBytes)
 				_ = err
-				//for _, entry := range db0Entries {
-				//	keyHex := hex.EncodeToString(entry.Key)
-				//	valueHex := hex.EncodeToString(entry.Value)
-				//	existingKeysSnap[keyHex] = valueHex
-				//}
-				//_ = dbWrite.Update(func(txn *badger.Txn) error {
-				//	for _, dbEntry := range db0Entries {
-				//		txn.Set(dbEntry.Key, dbEntry.Value)
-				//	}
-				//	return nil
-				//})
-				wb := dbWrite.NewWriteBatch()
-				for _, dbEntry := range db0Entries {
-					_ = wb.Set(dbEntry.Key, dbEntry.Value)
+				for _, entry := range db0Entries {
+					keyHex := hex.EncodeToString(entry.Key)
+					valueHex := hex.EncodeToString(entry.Value)
+					existingKeysSnap[keyHex] = valueHex
 				}
-				_ = wb.Flush()
-				wb.Cancel()
-				//db1Entries, full1, err := lib.DBIteratePrefixKeys(db1, prefix, lastPrefix, maxBytes)
-				//for _, entry := range db1Entries {
-				//	keyHex := hex.EncodeToString(entry.Key)
-				//	valueHex := hex.EncodeToString(entry.Value)
-				//	existingKeysDb[keyHex] = valueHex
-				//}
-				//
-				//if err != nil {
-				//	return fmt.Errorf("Error reading db1 err: %v\n", err)
-				//}
-				//fmt.Printf("Number of snap keys (%v) number of db keys (%v)\n", len(db0Entries), len(db1Entries))
-				//if len(db0Entries) != len(db1Entries) {
-				//	invalidLengths = true
-				//	fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v;"+
-				//		"varying lengths (db0, db1) : (%v, %v)\n", prefix, lastPrefix, len(db0Entries), len(db1Entries))
-				//	break
-				//}
-				//for ii, entry := range db0Entries {
-				//	if !reflect.DeepEqual(entry.Key, db1Entries[ii].Key) {
-				//		if !invalidKeys {
-				//			fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v; unequal keys "+
-				//				"(db0, db1) : (%v, %v)\n", prefix, lastPrefix, entry.Key, db1Entries[ii].Key)
-				//			invalidKeys = true
-				//		}
-				//	}
-				//}
-				//for ii, entry := range db0Entries {
-				//	if !reflect.DeepEqual(entry.Value, db1Entries[ii].Value) {
-				//		if !invalidValues {
-				//			fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v; unequal values "+
-				//				"(db0, db1) : (%v, %v)\n", prefix, lastPrefix, entry.Value, db1Entries[ii].Value)
-				//			invalidValues = true
-				//		}
-				//	}
-				//}
-				//if full0 != full1 {
-				//	if !invalidFull {
-				//		fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v;"+
-				//			"unequal fulls (db0, db1) : (%v, %v)\n", prefix, lastPrefix, full0, full1)
-				//		invalidFull = true
-				//	}
-				//}
-				////fmt.Println("lastPrefix", lastPrefix, "full", full0, len(*k0))
-				//totalLen += len(db0Entries) - 1
-				//if len(db0Entries) > 0 {
-				if len(db0Entries) != 0 {
+				db1Entries, full1, err := lib.DBIteratePrefixKeys(db1, prefix, lastPrefix, maxBytes)
+				for _, entry := range db1Entries {
+					keyHex := hex.EncodeToString(entry.Key)
+					valueHex := hex.EncodeToString(entry.Value)
+					existingKeysDb[keyHex] = valueHex
+				}
+
+				if err != nil {
+					return fmt.Errorf("Error reading db1 err: %v\n", err)
+				}
+				fmt.Printf("Number of snap keys (%v) number of db keys (%v)\n", len(db0Entries), len(db1Entries))
+				if len(db0Entries) != len(db1Entries) {
+					invalidLengths = true
+					fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v;"+
+						"varying lengths (db0, db1) : (%v, %v)\n", prefix, lastPrefix, len(db0Entries), len(db1Entries))
+					break
+				}
+				for ii, entry := range db0Entries {
+					if !reflect.DeepEqual(entry.Key, db1Entries[ii].Key) {
+						if !invalidKeys {
+							fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v; unequal keys "+
+								"(db0, db1) : (%v, %v)\n", prefix, lastPrefix, entry.Key, db1Entries[ii].Key)
+							invalidKeys = true
+						}
+					}
+				}
+				for ii, entry := range db0Entries {
+					if !reflect.DeepEqual(entry.Value, db1Entries[ii].Value) {
+						if !invalidValues {
+							fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v; unequal values "+
+								"(db0, db1) : (%v, %v)\n", prefix, lastPrefix, entry.Value, db1Entries[ii].Value)
+							invalidValues = true
+						}
+					}
+				}
+				if full0 != full1 {
+					if !invalidFull {
+						fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v;"+
+							"unequal fulls (db0, db1) : (%v, %v)\n", prefix, lastPrefix, full0, full1)
+						invalidFull = true
+					}
+				}
+				//fmt.Println("lastPrefix", lastPrefix, "full", full0, len(*k0))
+				totalLen += len(db0Entries) - 1
+				if len(db0Entries) > 0 {
 					lastPrefix = db0Entries[len(db0Entries)-1].Key
+				} else {
+					break
 				}
-				//} else {
-				//	break
-				//}
 
 				if !full0 {
 					break
