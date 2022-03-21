@@ -23,7 +23,7 @@ func getMostRecentSnapshot(snap *lib.Snapshot, handle *badger.DB, prefix []byte,
 	mainDbBatchEntries, mainDbFilled, _ := lib.DBIteratePrefixKeys(handle, prefix, lastKey, chunkSize)
 	//ancestralChunk, chunkFullA, _ := lib.DBIteratePrefixKeys(snap.Db, snap.GetAncestralRecordsKey(prefix),
 	//	snap.GetAncestralRecordsKey(lastKey), chunkSize)
-	ancestralDbBatchEntries, ancestralDbFilled, _ := lib.DBIteratePrefixKeys(snap.AncestralRecordsDb,
+	ancestralDbBatchEntries, ancestralDbFilled, _ := lib.DBIteratePrefixKeys(snap.SnapshotDb,
 		snap.GetAncestralRecordsKey(prefix), snap.GetAncestralRecordsKey(lastKey), chunkSize)
 	//fmt.Printf("# seek prefix (%v)\n lastKey trimmed (%v)\n last key (%v)\n", snap.GetAncestralRecordsKey(prefix), snap.GetAncestralRecordsKey(lastKey),
 	//	lastKey)
