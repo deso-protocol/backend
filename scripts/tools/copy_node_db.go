@@ -8,7 +8,7 @@ import (
 
 func main() {
 	sourceDbDir := "/Users/piotr/data_dirs/n69_3"
-	destinationDbDir := "/Users/piotr/data_dirs/n69_4"
+	destinationDbDir := "/Users/piotr/data_dirs/n69_5"
 
 	sourceDb, err := toolslib.OpenDataDir(sourceDbDir)
 	if err != nil {

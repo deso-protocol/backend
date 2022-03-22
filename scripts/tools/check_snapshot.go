@@ -2,61 +2,81 @@ package main
 
 import (
 	"bytes"
-	"encoding/hex"
 	"fmt"
 	"github.com/deso-protocol/backend/scripts/tools/toolslib"
 	"github.com/deso-protocol/core/lib"
 	"github.com/dgraph-io/badger/v3"
-	"github.com/golang/glog"
-	"path/filepath"
+	"github.com/pkg/errors"
 	"sort"
 )
 
-func getMostRecentSnapshot(snap *lib.Snapshot, handle *badger.DB, prefix []byte, lastKey []byte, chunkSize uint32) (
-	[]*lib.DBEntry, bool) {
+func ancestralRecordToDBEntry(ancestralEntry *lib.DBEntry) *lib.DBEntry {
+	var dbKey, dbVal []byte
+	// Trim the prefix and the block height from the ancestral record key.
+	dbKey = ancestralEntry.Key[9:]
 
+	// Trim the existence_byte from the ancestral record value.
+	if len(ancestralEntry.Value) > 0 {
+		dbVal = ancestralEntry.Value[:len(ancestralEntry.Value)-1]
+	}
+	return &lib.DBEntry{
+		Key:   dbKey,
+		Value: dbVal,
+	}
+}
+
+func getAncestralRecordsKey(key []byte) []byte {
+	var prefix []byte
+
+	// Append the ancestral records prefix.
+	prefix = append(prefix, []byte{0}...)
+
+	// Append block height, which is the current snapshot identifier.
+	prefix = append(prefix, lib.EncodeUint64(114200)...)
+
+	// Finally, append the main DB key.
+	prefix = append(prefix, key...)
+	return prefix
+}
+
+func checkAnceststralRecordExistenceByte(value []byte) bool {
+	if len(value) > 0 {
+		return value[len(value)-1] == 1
+	}
+	return false
+}
+
+func getSnapshotChunk(mainDb *badger.DB, snapDb *badger.DB, prefix []byte, startKey []byte) (
+	_snapshotEntriesBatch []*lib.DBEntry, _snapshotEntriesFilled bool, _concurrencyFault bool, _err error) {
+
+	// This the list of fetched DB entries.
 	var snapshotEntriesBatch []*lib.DBEntry
-	//for ii := 0; ii < len(StatePrefixes); ii++ {
-	//	prefix := StatePrefixes[ii]
-	//for {
-	fmt.Printf("Prefix (%v)\n", prefix)
-	mainDbBatchEntries, mainDbFilled, _ := lib.DBIteratePrefixKeys(handle, prefix, lastKey, chunkSize)
-	//ancestralChunk, chunkFullA, _ := lib.DBIteratePrefixKeys(snap.Db, snap.GetAncestralRecordsKey(prefix),
-	//	snap.GetAncestralRecordsKey(lastKey), chunkSize)
-	ancestralDbBatchEntries, ancestralDbFilled, _ := lib.DBIteratePrefixKeys(snap.SnapshotDb,
-		snap.GetAncestralRecordsKey(prefix), snap.GetAncestralRecordsKey(lastKey), chunkSize)
-	//fmt.Printf("# seek prefix (%v)\n lastKey trimmed (%v)\n last key (%v)\n", snap.GetAncestralRecordsKey(prefix), snap.GetAncestralRecordsKey(lastKey),
-	//	lastKey)
-	fmt.Println("Number of snap original db keys", len(mainDbBatchEntries), "full?", mainDbFilled)
-	for _, key := range mainDbBatchEntries {
 
-		if hex.EncodeToString(key.Key) == "05cc52430f378922b792cfe7506d90d1df0adaf04871dda70a43f51126c8fd0bc400000000" {
-			fmt.Println("#It's in the main DB")
-		}
+	// Fetch the batch from main DB records with a batch size of about snap.BatchSize.
+	mainDbBatchEntries, mainDbFilled, err := lib.DBIteratePrefixKeys(mainDb, prefix, startKey, lib.SnapshotBatchSize)
+	if err != nil {
+		return nil, false, false, errors.Wrapf(err, "Snapshot.GetSnapshotChunk: Problem fetching main Db records: ")
 	}
-	fmt.Println("How many snap keys? ", len(ancestralDbBatchEntries), "full?", ancestralDbFilled)
-	numExisted := 0
-	numNotExisted := 0
-	for _, entry := range ancestralDbBatchEntries {
-		if snap.CheckAnceststralRecordExistenceByte(entry.Value) {
-			numExisted++
-		} else {
-			numNotExisted++
-		}
-
-		keyString := hex.EncodeToString(snap.AncestralRecordToDBEntry(entry).Key)
-		if keyString == "05cc52430f378922b792cfe7506d90d1df0adaf04871dda70a43f51126c8fd0bc400000000" {
-			fmt.Println("#It's in the snap DB")
-		}
+	// Fetch the batch from the ancestral DB records with a batch size of about snap.BatchSize.
+	ancestralDbBatchEntries, ancestralDbFilled, err := lib.DBIteratePrefixKeys(snapDb,
+		getAncestralRecordsKey(prefix), getAncestralRecordsKey(startKey), lib.SnapshotBatchSize)
+	if err != nil {
+		return nil, false, false, errors.Wrapf(err, "Snapshot.GetSnapshotChunk: Problem fetching main Db records: ")
 	}
-	fmt.Println("How many snap keys existed:", numExisted, "; and how many did not exist:", numNotExisted)
 
+	// To combine the main DB entries and the ancestral records DB entries, we iterate through the
+	// ancestral records and for each key we add all the main DB keys that are smaller than the
+	// currently processed key. The ancestral records entries have priority over the main DB entries,
+	// so whenever there are entries with the same key among the two DBs, we will only add the
+	// ancestral record entry to our snapshot batch. Also, the loop below might appear like O(n^2)
+	// but it's actually O(n) because the inside loop iterates at most O(n) times in total.
+
+	// Index to keep track of how many main DB entries we've already processed.
 	indexChunk := 0
 	for _, ancestralEntry := range ancestralDbBatchEntries {
-		dbEntry := snap.AncestralRecordToDBEntry(ancestralEntry)
-		if snap.CheckAnceststralRecordExistenceByte(ancestralEntry.Value) {
-			snapshotEntriesBatch = append(snapshotEntriesBatch, dbEntry)
-		}
+		//var entriesToAppend []*DBEntry
+
+		dbEntry := ancestralRecordToDBEntry(ancestralEntry)
 
 		for jj := indexChunk; jj < len(mainDbBatchEntries); {
 			if bytes.Compare(mainDbBatchEntries[jj].Key, dbEntry.Key) == -1 {
@@ -68,11 +88,19 @@ func getMostRecentSnapshot(snap *lib.Snapshot, handle *badger.DB, prefix []byte,
 			jj++
 			indexChunk = jj
 		}
+
+		//for _, entry := range entriesToAppend {
+		//	snapshotEntriesBatch = append(snapshotEntriesBatch, entry)
+		//}
+
 		// If we filled the chunk for main db records, we will return so that there is no
 		// gap between the most recently added DBEntry and the next ancestral record. Otherwise,
 		// we will keep going with the loop and add all the ancestral records.
 		if mainDbFilled && indexChunk == len(mainDbBatchEntries) {
 			break
+		}
+		if checkAnceststralRecordExistenceByte(ancestralEntry.Value) {
+			snapshotEntriesBatch = append(snapshotEntriesBatch, dbEntry)
 		}
 	}
 
@@ -85,32 +113,30 @@ func getMostRecentSnapshot(snap *lib.Snapshot, handle *badger.DB, prefix []byte,
 		}
 	}
 
+	// If no records are present in the db for the provided prefix and startKey, return an empty db entry.
 	if len(snapshotEntriesBatch) == 0 {
-		snapshotEntriesBatch = append(snapshotEntriesBatch, lib.EmptyDBEntry())
-		return snapshotEntriesBatch, false
+		if ancestralDbFilled {
+			// This can happen in a rare case where all ancestral records were non-existent records and
+			// no record from the main DB was added.
+			lastAncestralEntry := ancestralDbBatchEntries[len(ancestralDbBatchEntries)-1]
+			dbEntry := ancestralRecordToDBEntry(lastAncestralEntry)
+			return getSnapshotChunk(mainDb, snapDb, prefix, dbEntry.Key)
+		} else {
+			snapshotEntriesBatch = append(snapshotEntriesBatch, lib.EmptyDBEntry())
+			return snapshotEntriesBatch, false, false, nil
+		}
 	}
 
 	// If either of the chunks is full, we should return true.
-	return snapshotEntriesBatch, mainDbFilled || ancestralDbFilled
+	return snapshotEntriesBatch, mainDbFilled || ancestralDbFilled, false, nil
 }
 
 func main() {
 	//dirSnap := "/Users/piotr/data_dirs/n1_10/badgerdb/snapshot/"
-	dirSnap := "/Users/piotr/data_dirs/n1_19/"
-	dirDB := "/tmp/n0_test_10000"
-	txIndexDir := filepath.Join(lib.GetBadgerDbPath(dirDB), "txindex")
-	txIndexOpts := badger.DefaultOptions(txIndexDir)
-	txIndexOpts.ValueDir = lib.GetBadgerDbPath(txIndexDir)
-	txIndexOpts.MemTableSize = 1024 << 20
-	glog.Infof("TxIndex BadgerDB Dir: %v", txIndexOpts.Dir)
-	glog.Infof("TxIndex BadgerDB ValueDir: %v", txIndexOpts.ValueDir)
-	db, err := badger.Open(txIndexOpts)
-	if err != nil {
-		glog.Fatal(err)
-	}
+	dirSnap := "/Users/piotr/data_dirs/n69_5/"
+	//dirDB := "/tmp/n0_test_10000"
 
 	dbSnap, err := toolslib.OpenDataDir(dirSnap)
-	_ = dbSnap
 	if err != nil {
 		fmt.Printf("Error reading db1 err: %v", err)
 		return
@@ -120,7 +146,8 @@ func main() {
 		fmt.Printf("Error reading snap err: %v", err)
 		return
 	}
-	snap.SnapshotBlockHeight = 1800
+	snap.CurrentEpochSnapshotMetadata.SnapshotBlockHeight = 114200
+	snap.Checksum.Initialize()
 
 	//optsDb := badger.DefaultOptions(dirDB)
 	//optsDb.ValueDir = lib.GetBadgerDbPath(dirDB)
@@ -139,9 +166,12 @@ func main() {
 	//snap, _ := lib.NewSnapshot(100000)
 	//fmt.Println(snap.GetSnapshotChunk(db0, []byte{5}, []byte{5}))
 	//fmt.Println(snap.GetSnapshotChunk(db1, []byte{5}, []byte{5}))
-	maxBytes := uint32(8 << 20)
+	//maxBytes := uint32(8 << 20)
 	var prefixes [][]byte
-	for prefix, _ := range lib.StatePrefixes.StatePrefixesMap {
+	for prefix, isState := range lib.StatePrefixes.StatePrefixesMap {
+		if !isState {
+			continue
+		}
 		prefixes = append(prefixes, []byte{prefix})
 	}
 	sort.Slice(prefixes, func(ii, jj int) bool {
@@ -152,8 +182,6 @@ func main() {
 	//prefixes = append(prefixes, []byte{2})
 	err = func() error {
 		fmt.Printf("Checking prefixes: ")
-		existingKeysSnap := make(map[string]string)
-		existingKeysDb := make(map[string]string)
 		for _, prefix := range prefixes {
 			fmt.Printf("%v \n", prefix)
 			lastPrefix := prefix
@@ -169,26 +197,40 @@ func main() {
 				//	valueHex := hex.EncodeToString(entry.Value)
 				//	existingKeysSnap[keyHex] = valueHex
 				//}
-
-				entries, fullDb, err := lib.DBIteratePrefixKeys(db, prefix, lastPrefix, maxBytes)
-				for _, entry := range entries {
-					//if (*k0)[ii] == "05000000000000000000000000000000000000000000000000000000000000000000000083" {
-					//	fmt.Println("YES IT EXISTS BUD")
-					//}
-					keyHex := hex.EncodeToString(entry.Key)
-					valueHex := hex.EncodeToString(entry.Value)
-					existingKeysDb[keyHex] = valueHex
-				}
-				fmt.Printf("prefix: %v, len: %v\n", prefix, len(entries))
+				ancestralEntries, fullSnap, _, err := snap.GetSnapshotChunk(dbSnap, prefix, lastPrefix)
 				if err != nil {
-					fmt.Printf("Error reading db0 err: %v", err)
-					return
+					panic(fmt.Errorf("Problem fetching snapshot chunk (%v)", err))
 				}
-				fmt.Printf("Found db (%v) entries and full is (%v)\n", len(entries), fullDb)
-				//lastPrefix = ancestralEntries[len(ancestralEntries)-1].Key
+				for _, entry := range ancestralEntries {
+					snap.AddChecksumBytes(lib.EncodeKeyValue(entry.Key, entry.Value))
+				}
+
+				//entries, fullDb, err := lib.DBIteratePrefixKeys(db, prefix, lastPrefix, maxBytes)
+				//for _, entry := range entries {
+				//	//if (*k0)[ii] == "05000000000000000000000000000000000000000000000000000000000000000000000083" {
+				//	//	fmt.Println("YES IT EXISTS BUD")
+				//	//}
+				//	keyHex := hex.EncodeToString(entry.Key)
+				//	valueHex := hex.EncodeToString(entry.Value)
+				//	existingKeysDb[keyHex] = valueHex
+				//}
+				fmt.Printf("prefix: %v, len: %v\n", prefix, len(ancestralEntries))
+				//if err != nil {
+				//	fmt.Printf("Error reading db0 err: %v", err)
+				//	return
+				//}
+				//fmt.Printf("Found db (%v) entries and full is (%v)\n", len(ancestralEntries), fullSnap)
+				if len(ancestralEntries) != 0 {
+					lastPrefix = ancestralEntries[len(ancestralEntries)-1].Key
+				} else {
+					panic("Number of ancestral records should not be zero")
+				}
 				//if fullSnap || fullDb {
 				//	recurr()
 				//}
+				if fullSnap {
+					recurr()
+				}
 			}
 			recurr()
 
@@ -197,36 +239,23 @@ func main() {
 			//	fmt.Printf("Iterating prefix (%v) key (%v) value (%v)\n", prefix, (*k0)[ii], 0)//(*v0)[ii])
 			//}
 		}
-		fmt.Println("how many snap keys:", len(existingKeysSnap))
-		fmt.Println("how many db keys:", len(existingKeysDb))
-		for key, value := range existingKeysSnap {
-			if dbVal, exists := existingKeysDb[key]; exists {
-				if value != dbVal {
-					fmt.Printf("Error on key (%v); values don't match\n snap value: (%v)\n db value: (%v)\n",
-						key, value, dbVal)
-				}
-			} else {
-				fmt.Printf("Error value doesn't exist in db for key (%v)\n", key)
-			}
-		}
+		fmt.Println("Finished iterating all prefixes")
+		snap.WaitForAllOperationsToFinish()
+		checksumBytes, _ := snap.Checksum.ToBytes()
+		fmt.Println("Final checksum:", checksumBytes)
+		//fmt.Println("how many snap keys:", len(existingKeysSnap))
+		//fmt.Println("how many db keys:", len(existingKeysDb))
+		//for key, value := range existingKeysSnap {
+		//	if dbVal, exists := existingKeysDb[key]; exists {
+		//		if value != dbVal {
+		//			fmt.Printf("Error on key (%v); values don't match\n snap value: (%v)\n db value: (%v)\n",
+		//				key, value, dbVal)
+		//		}
+		//	} else {
+		//		fmt.Printf("Error value doesn't exist in db for key (%v)\n", key)
+		//	}
+		//}
 		return nil
 	}()
-	fmt.Println()
-	if err == nil {
-		fmt.Println("Databases identical!")
-	} else {
-		fmt.Println("Error! Databases not equal: ", err)
-	}
-	//for _, prefix := range lib.StatePrefixes {
-	//	k0, v0, full0, err := lib.DBIteratePrefixKeys(db0, prefix, prefix, maxBytes)
-	//	if err != nil {
-	//		fmt.Printf("Error reading db0 err: %v", err)
-	//		return
-	//	}
-	//	k1, v1, full1, err := lib.DBIteratePrefixKeys(db1, prefix, prefix, maxBytes)
-	//	if err != nil {
-	//		fmt.Printf("Error reading db1 err: %v", err)
-	//		return
-	//	}
-	//}
+
 }

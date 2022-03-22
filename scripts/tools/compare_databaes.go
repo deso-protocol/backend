@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	dir0 := "/Users/piotr/data_dirs/n69_3"
+	dir0 := "/Users/piotr/data_dirs/n69_5"
 	dir1 := "/Users/piotr/data_dirs/n69_2"
 	//dir2 := "/Users/piotr/data_dirs/n7_1"
 

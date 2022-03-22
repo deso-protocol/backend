@@ -22,7 +22,7 @@ func main() {
 	//snap, _ := lib.NewSnapshot(100000)
 	//fmt.Println(snap.GetSnapshotChunk(db0, []byte{5}, []byte{5}))
 	//fmt.Println(snap.GetSnapshotChunk(db1, []byte{5}, []byte{5}))
-	maxBytes := uint32(8<<20)
+	maxBytes := uint32(8 << 20)
 	//fmt.Println(dirSnap)
 	//key := "00000000000007080500000000000000000000000000000000000000000000000000000000000000000000001d01"
 	//keyHex, _ := hex.DecodeString(key)
@@ -36,7 +36,7 @@ func main() {
 	//timeElapsed = 0.0
 	//currentTime = time.Now()
 	var prefixes [][]byte
-	prefixes = append(prefixes, []byte{0})
+	prefixes = append(prefixes, []byte{31})
 	//prefixes = append(prefixes, []byte{1})
 	prefixes = append(prefixes, []byte{2})
 	err = func() error {
@@ -44,15 +44,15 @@ func main() {
 		for _, prefix := range prefixes {
 			fmt.Printf("%v ", prefix)
 			lastPrefix := prefix
-			k0, v0, _, err := lib.DBIteratePrefixKeys(db0, prefix, lastPrefix, maxBytes)
+			entries, isFull, _ := lib.DBIteratePrefixKeys(db0, prefix, lastPrefix, maxBytes)
 			_ = v0
 			if err != nil {
 				fmt.Printf("Error reading db0 err: %v", err)
 				return nil
 			}
 			fmt.Println("Number of entries: ", len(*k0))
-			for ii, _ := range(*k0) {
-				fmt.Printf("Iterating prefix (%v) key (%v) value (%v)\n", prefix, (*k0)[ii], 0)//(*v0)[ii])
+			for ii, _ := range *k0 {
+				fmt.Printf("Iterating prefix (%v) key (%v) value (%v)\n", prefix, (*k0)[ii], 0) //(*v0)[ii])
 			}
 		}
 		return nil
