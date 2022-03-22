@@ -7,8 +7,8 @@ import (
 )
 
 func main() {
-	sourceDbDir := "/Users/piotr/data_dirs/n69_3"
-	destinationDbDir := "/Users/piotr/data_dirs/n69_5"
+	sourceDbDir := "/Users/piotr/data_dirs/hypersync/sentry"
+	destinationDbDir := "/Users/piotr/data_dirs/hypersync/prefixCopy"
 
 	sourceDb, err := toolslib.OpenDataDir(sourceDbDir)
 	if err != nil {

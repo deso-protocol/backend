@@ -8,14 +8,14 @@ import (
 )
 
 func main() {
-	dbDir := "/Users/piotr/data_dirs/hypersync/sentry"
+	dirSnap := "/Users/piotr/data_dirs/hypersync/sentry"
 
-	db, err := toolslib.OpenDataDir(dbDir)
+	dbSnap, err := toolslib.OpenDataDir(dirSnap)
 	if err != nil {
 		fmt.Printf("Error reading db1 err: %v", err)
 		return
 	}
-	snap, err := lib.NewSnapshot(dbDir, lib.SnapshotBlockHeightPeriod, false, false)
+	snap, err := lib.NewSnapshot(dirSnap, lib.SnapshotBlockHeightPeriod, false, false)
 	if err != nil {
 		fmt.Printf("Error reading snap err: %v", err)
 		return
@@ -39,16 +39,24 @@ func main() {
 	err = func() error {
 		fmt.Printf("Checking prefixes: ")
 		for _, prefix := range prefixes {
+			existingEntries := make(map[string]bool)
 			fmt.Printf("%v \n", prefix)
 			lastPrefix := prefix
 			var recurr func()
 			recurr = func() {
-				entries, fullDb, err := lib.DBIteratePrefixKeys(db, prefix, lastPrefix, maxBytes)
+				entries, fullDb, err := lib.DBIteratePrefixKeys(dbSnap, prefix, lastPrefix, maxBytes)
 				if err != nil {
 					panic(fmt.Errorf("Problem fetching snapshot chunk (%v)", err))
 				}
 				for _, entry := range entries {
-					snap.AddChecksumBytes(lib.EncodeKeyValue(entry.Key, entry.Value))
+					encode := lib.EncodeKeyValue(entry.Key, entry.Value)
+					dHash := string(lib.Sha256DoubleHash(encode)[:])
+					if _, exists := existingEntries[dHash]; exists {
+						continue
+					} else {
+						existingEntries[dHash] = true
+					}
+					snap.AddChecksumBytes(encode)
 				}
 
 				if len(entries) != 0 {
@@ -71,6 +79,7 @@ func main() {
 		snap.WaitForAllOperationsToFinish()
 		checksumBytes, _ := snap.Checksum.ToBytes()
 		fmt.Println("Final checksum:", checksumBytes)
+
 		return nil
 	}()
 
