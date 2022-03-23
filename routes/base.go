@@ -405,13 +405,18 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 }
 
 type GetStateForPrefixRequest struct {
-	Prefix int
+	Prefix  int
 	LastKey string
 }
 
+type DbEntry struct {
+	Key   string
+	Value string
+}
+
 type GetStateForPrefixResponse struct {
-	Full bool
-	DBEntries []*lib.DBEntry
+	Full      bool
+	DBEntries []*DbEntry
 }
 
 func (fes *APIServer) GetStateForPrefix(ww http.ResponseWriter, req *http.Request) {
@@ -430,9 +435,18 @@ func (fes *APIServer) GetStateForPrefix(ww http.ResponseWriter, req *http.Reques
 	}
 	fmt.Println("prefix", prefix)
 	dbEntries, full, _, _ := fes.blockchain.Snapshot().GetSnapshotChunk(fes.blockchain.DB(), prefix, lastKey)
+
+	var entries []*DbEntry
+	for _, entry := range dbEntries {
+		entries = append(entries, &DbEntry{
+			Key:   hex.EncodeToString(entry.Key),
+			Value: hex.EncodeToString(entry.Value),
+		})
+	}
+
 	res := GetStateForPrefixResponse{
-		Full: full,
-		DBEntries: dbEntries,
+		Full:      full,
+		DBEntries: entries,
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {

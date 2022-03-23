@@ -5,11 +5,12 @@ import (
 	"github.com/deso-protocol/backend/scripts/tools/toolslib"
 	"github.com/deso-protocol/core/lib"
 	"sort"
+	"time"
 )
 
 func main() {
 	dirSnap := "/Users/piotr/data_dirs/hypersync/sentry"
-
+	time.Sleep(1 * time.Millisecond)
 	dbSnap, err := toolslib.OpenDataDir(dirSnap)
 	if err != nil {
 		fmt.Printf("Error reading db1 err: %v", err)
@@ -42,8 +43,7 @@ func main() {
 			existingEntries := make(map[string]bool)
 			fmt.Printf("%v \n", prefix)
 			lastPrefix := prefix
-			var recurr func()
-			recurr = func() {
+			for {
 				entries, fullDb, err := lib.DBIteratePrefixKeys(dbSnap, prefix, lastPrefix, maxBytes)
 				if err != nil {
 					panic(fmt.Errorf("Problem fetching snapshot chunk (%v)", err))
@@ -56,6 +56,9 @@ func main() {
 					} else {
 						existingEntries[dHash] = true
 					}
+					if prefix[0] == 3 {
+						fmt.Println("Prefix 3, wtf!", encode)
+					}
 					snap.AddChecksumBytes(encode)
 				}
 
@@ -65,15 +68,17 @@ func main() {
 					panic("Number of ancestral records should not be zero")
 				}
 
-				if fullDb {
-					recurr()
+				if !fullDb {
+					break
 				}
 			}
-			recurr()
+
+			//time.Sleep(1 * time.Second)
+			fmt.Println("current operations:", snap.OperationChannel.GetStatus())
 			snap.WaitForAllOperationsToFinish()
 			checksumBytes, _ := snap.Checksum.ToBytes()
 			fmt.Println("prefix", prefix, "checksum:", checksumBytes)
-
+			time.Sleep(2 * time.Second)
 		}
 		fmt.Println("Finished iterating all prefixes")
 		snap.WaitForAllOperationsToFinish()
