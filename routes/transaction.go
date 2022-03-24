@@ -2547,6 +2547,136 @@ func (fes *APIServer) TransferDAOCoin(ww http.ResponseWriter, req *http.Request)
 	}
 }
 
+// DAOCoinLimitOrderResponse ...
+type DAOCoinLimitOrderResponse struct {
+	SpendAmountNanos  uint64
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgDeSoTxn
+	TransactionHex    string
+	TxnHashHex        string
+}
+
+// CreateDAOCoinLimitOrderRequest ...
+type CreateDAOCoinLimitOrderRequest struct {
+	// The public key of the user who is sending the order
+	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// The public key/Username of the profile for the DAO coin that the user is transferring
+	ProfilePublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+
+	// The price / DESO the user is trying to buy/sell the DAO coin at
+	DAOCoinPriceLevelDESONanos uint256.Int `safeForLogging:"true"`
+
+	// The quantity of DAO coins to transfer in nanos
+	DAOCoinQuantityNanos uint256.Int `safeForLogging:"true"`
+
+	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+}
+
+// CreateDAOCoinLimitOrder ...
+func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := CreateDAOCoinLimitOrderRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem parsing request body: %v", err))
+		return
+	}
+
+	if requestData.TransactorPublicKeyBase58Check == "" || requestData.ProfilePublicKeyBase58CheckOrUsername == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: Must provide a transactor and a DAO."))
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem fetching utxoView: %v", err))
+		return
+	}
+
+	// Decode the transactor public key
+	transactorPublicKeyBytes, _, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+		requestData.TransactorPublicKeyBase58Check, utxoView)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem decoding sender public key %s: %v",
+			requestData.TransactorPublicKeyBase58Check, err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeDAOCoinTransfer, transactorPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateDAOCoinLimitOrderTxn(
+		transactorPublicKeyBytes,
+		&lib.DAOCoinLimitOrderMetadata{
+			BuyingDAOCoinCreatorPKID:  &lib.ZeroPKID,
+			SellingDAOCoinCreatorPKID: &lib.ZeroPKID,
+			PriceNanos:                nil,
+			QuantityNanos:             nil,
+			CancelExistingOrder:       false,
+			MatchingBidsInputsMap:     map[lib.PKID][]*lib.DeSoInput{},
+		},
+		requestData.MinFeeRateNanosPerKB,
+		fes.backendServer.GetMempool(),
+		additionalOutputs,
+	)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: Problem creating transaction: %v", err))
+		return
+	}
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := DAOCoinLimitOrderResponse{
+		SpendAmountNanos:  totalInput - changeAmount - fees,
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+		TxnHashHex:        txn.Hash().String(),
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+// CancelDAOCoinLimitOrderRequest ...
+type CancelDAOCoinLimitOrderRequest struct {
+	// The public key of the user who is sending the order
+	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// The public key/Username of the profile for the DAO coin that the user is transferring
+	ProfilePublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+
+	// The price / DESO the user is trying to buy/sell the DAO coin at
+	DAOCoinPriceLevelDESONanos uint256.Int `safeForLogging:"true"`
+
+	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+}
+
+// CancelDAOCoinLimitOrder ...
+func (fes *APIServer) CancelDAOCoinLimitOrder(ww http.ResponseWriter, req *http.Request) {
+
+}
+
 // getTransactionFee transforms transactionFees specified in an API request body to DeSoOutput and combines that with node-level transaction fees for this transaction type.
 func (fes *APIServer) getTransactionFee(txnType lib.TxnType, transactorPublicKey []byte, transactionFees []TransactionFee) (_outputs []*lib.DeSoOutput, _err error) {
 	// Transform transaction fees specified by the API request body.
