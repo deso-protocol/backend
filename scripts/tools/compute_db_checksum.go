@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	dirSnap := "/Users/piotr/data_dirs/hypersync/sentry"
+	dirSnap := "/Users/piotr/data_dirs/hypersync/real_sentry"
 	time.Sleep(1 * time.Millisecond)
 	dbSnap, err := toolslib.OpenDataDir(dirSnap)
 	if err != nil {
