@@ -26,8 +26,8 @@ func main() {
 
 	maxBytes := uint32(8 << 20)
 	var prefixes [][]byte
-	for prefix, _ := range lib.StatePrefixes.StatePrefixesMap {
-		if prefix == 14 || prefix == 15 || prefix == 16 || prefix == 42 {
+	for prefix, isState := range lib.StatePrefixes.StatePrefixesMap {
+		if !isState {
 			continue
 		}
 
@@ -56,9 +56,6 @@ func main() {
 					} else {
 						existingEntries[dHash] = true
 					}
-					if prefix[0] == 3 {
-						fmt.Println("Prefix 3, wtf!", encode)
-					}
 					snap.AddChecksumBytes(encode)
 				}
 
@@ -78,7 +75,6 @@ func main() {
 			snap.WaitForAllOperationsToFinish()
 			checksumBytes, _ := snap.Checksum.ToBytes()
 			fmt.Println("prefix", prefix, "checksum:", checksumBytes)
-			time.Sleep(2 * time.Second)
 		}
 		fmt.Println("Finished iterating all prefixes")
 		snap.WaitForAllOperationsToFinish()
