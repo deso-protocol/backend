@@ -37,11 +37,7 @@ func main() {
 		return prefixes[ii][0] < prefixes[jj][0]
 	})
 	err = func() error {
-		for prefixByte, isState := range lib.StatePrefixes.StatePrefixesMap {
-			if !isState {
-				continue
-			}
-			prefix := []byte{prefixByte}
+		for _, prefix := range prefixes {
 			fmt.Printf("Checking prefix: (%v)\n", prefix)
 			lastPrefix := prefix
 			invalidLengths := false
