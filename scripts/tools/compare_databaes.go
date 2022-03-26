@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"github.com/deso-protocol/backend/scripts/tools/toolslib"
 	"github.com/deso-protocol/core/lib"
+	"github.com/pkg/errors"
+	"os"
 	"reflect"
 	"sort"
 )
@@ -74,8 +77,18 @@ func main() {
 					if !reflect.DeepEqual(entry.Value, db1Entries[ii].Value) {
 						if !invalidValues {
 							fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v; the key is (%v); "+
-								"unequal values (db0, db1) : (%v, %v)\n", prefix, lastPrefix, entry.Key,
-								entry.Value, db1Entries[ii].Value)
+								"unequal values len (db0, db1) : (%v, %v)\n", prefix, lastPrefix, entry.Key,
+								len(entry.Value), len(db1Entries[ii].Value))
+							err := os.WriteFile(fmt.Sprintf("/distinct_db0_(%v)_(%v)",
+								hex.EncodeToString(prefix), hex.EncodeToString(entry.Key)), entry.Value, 0644)
+							if err != nil {
+								panic(errors.Wrapf(err, "Problem writing db0 value to db"))
+							}
+							err = os.WriteFile(fmt.Sprintf("/distinct_db1_(%v)_(%v)",
+								hex.EncodeToString(prefix), hex.EncodeToString(entry.Key)), db1Entries[ii].Value, 0644)
+							if err != nil {
+								panic(errors.Wrapf(err, "Problem writing db1 value to db"))
+							}
 							invalidValues = true
 						}
 					}
