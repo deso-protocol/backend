@@ -79,12 +79,12 @@ func main() {
 							fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v; the key is (%v); "+
 								"unequal values len (db0, db1) : (%v, %v)\n", prefix, lastPrefix, entry.Key,
 								len(entry.Value), len(db1Entries[ii].Value))
-							err := os.WriteFile(fmt.Sprintf("/distinct_db0_(%v)_(%v)",
+							err := os.WriteFile(fmt.Sprintf("./distinct_db0_%v_%v",
 								hex.EncodeToString(prefix), hex.EncodeToString(entry.Key)), entry.Value, 0644)
 							if err != nil {
 								panic(errors.Wrapf(err, "Problem writing db0 value to db"))
 							}
-							err = os.WriteFile(fmt.Sprintf("/distinct_db1_(%v)_(%v)",
+							err = os.WriteFile(fmt.Sprintf("./distinct_db1_%v_%v",
 								hex.EncodeToString(prefix), hex.EncodeToString(entry.Key)), db1Entries[ii].Value, 0644)
 							if err != nil {
 								panic(errors.Wrapf(err, "Problem writing db1 value to db"))

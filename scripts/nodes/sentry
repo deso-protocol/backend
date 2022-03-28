@@ -16,7 +16,7 @@ rm /tmp/main.*.log
   --super-admin-public-keys=* \
   --miner-public-keys=BC1YLgKZyfgyNntCMXAZYExM8JooYqrYvVsrR8d8XVxorDruYFdq31p \
   --starter-deso-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
-  --data-dir=$HOME/data_dirs/hypersync/sentry \
+  --data-dir=$HOME/data_dirs/hypersync/real_sentry \
   --block-cypher-api-key=092dae962ea44b02809a4c74408b42a1 \
   --min-satoshis-for-profile=0 \
   --hyper-sync=false \
