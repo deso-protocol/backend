@@ -162,7 +162,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 
 	chain, params, _ := NewLowDifficultyBlockchain()
 	txIndexDb, _ := GetTestBadgerDb()
-	txIndex, _ := lib.NewTXIndex(chain, params, txIndexDb.Opts().Dir)
+	txIndex, _, _ := lib.NewTXIndex(chain, params, txIndexDb.Opts().Dir)
 	mempool, miner := NewTestMiner(t, chain, params, true /*isSender*/)
 	// Mine two blocks to give the sender some DeSo.
 	block1, err := miner.MineAndProcessSingleBlock(0 /*threadIndex*/, mempool)

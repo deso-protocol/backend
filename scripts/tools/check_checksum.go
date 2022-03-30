@@ -101,7 +101,7 @@ func main() {
 		fmt.Printf("Error reading db1 err: %v", err)
 		return
 	}
-	snap, err := lib.NewSnapshot(dirSnap, lib.SnapshotBlockHeightPeriod, false, false)
+	snap, err, _ := lib.NewSnapshot(dirSnap, lib.SnapshotBlockHeightPeriod, false, false)
 	if err != nil {
 		fmt.Printf("Error reading snap err: %v", err)
 		return
@@ -190,7 +190,7 @@ func main() {
 			}
 		}
 		check := lib.StateChecksum{}
-		check.Initialize()
+		check.ResetChecksum()
 		for key, value := range existingKeysDb {
 			keyBytes, _ := hex.DecodeString(key)
 			valueBytes, _ := hex.DecodeString(value)

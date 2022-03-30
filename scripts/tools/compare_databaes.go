@@ -47,13 +47,23 @@ func main() {
 			invalidKeys := false
 			invalidValues := false
 			invalidFull := false
+			existingEntriesDb0 := make(map[string][]byte)
 			for {
 				db0Entries, full0, err := lib.DBIteratePrefixKeys(db0, prefix, lastPrefix, maxBytes)
 				if err != nil {
 					return fmt.Errorf("Error reading db0 err: %v\n", err)
 				}
+				for _, entry := range db0Entries {
+					existingEntriesDb0[hex.EncodeToString(entry.Key)] = entry.Value
+				}
 
 				db1Entries, full1, err := lib.DBIteratePrefixKeys(db1, prefix, lastPrefix, maxBytes)
+				for _, entry := range db1Entries {
+					key := hex.EncodeToString(entry.Key)
+					if _, exists := existingEntriesDb0[key]; exists {
+						delete(existingEntriesDb0, key)
+					}
+				}
 
 				if err != nil {
 					return fmt.Errorf("Error reading db1 err: %v\n", err)
@@ -65,6 +75,9 @@ func main() {
 					break
 				}
 				for ii, entry := range db0Entries {
+					if ii >= len(db1Entries) {
+						break
+					}
 					if !reflect.DeepEqual(entry.Key, db1Entries[ii].Key) {
 						if !invalidKeys {
 							fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v; unequal keys "+
@@ -117,7 +130,10 @@ func main() {
 				brokenPrefixes = append(brokenPrefixes, prefix)
 				broken = true
 			}
-
+			fmt.Printf("The number of entries in existsMap for prefix (%v) is (%v)\n", prefix, len(existingEntriesDb0))
+			for key, entry := range existingEntriesDb0 {
+				fmt.Printf("ExistingMape entry: (key, len(value) : (%v, %v)\n", key, len(entry))
+			}
 			fmt.Printf("Status for prefix (%v): (%s)\n invalidLengths: (%v); invalidKeys: (%v); invalidValues: "+
 				"(%v); invalidFull: (%v)\n\n", prefix, status, invalidLengths, invalidKeys, invalidValues, invalidFull)
 		}

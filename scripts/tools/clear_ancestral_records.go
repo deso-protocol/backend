@@ -16,13 +16,13 @@ func main() {
 		fmt.Printf("Error reading db1 err: %v", err)
 		return
 	}
-	snap, err := lib.NewSnapshot(dbDir, lib.SnapshotBlockHeightPeriod, false, false)
+	snap, err, _ := lib.NewSnapshot(dbDir, lib.SnapshotBlockHeightPeriod, false, false)
 	if err != nil {
 		fmt.Printf("Error reading snap err: %v", err)
 		return
 	}
 	snap.CurrentEpochSnapshotMetadata.SnapshotBlockHeight = 114000
-	snap.Checksum.Initialize()
+	snap.Checksum.ResetChecksum()
 	for _, prefixByte := range []byte{0, 1, 2} {
 		prefix := []byte{prefixByte}
 		startKey := prefix

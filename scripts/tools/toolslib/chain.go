@@ -11,7 +11,7 @@ func OpenDataDir(dataDir string) (*badger.DB, error) {
 	dir := lib.GetBadgerDbPath(dataDir)
 	opts := badger.DefaultOptions(dir)
 	opts.ValueDir = lib.GetBadgerDbPath(dataDir)
-	opts.MemTableSize = 2000 << 20
+	opts.MemTableSize = 4000000000 // 4gb
 	db, err := badger.Open(opts)
 	if err != nil {
 		return nil, errors.Wrap(err, "OpenBadgerDB() failed to open badger")

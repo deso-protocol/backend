@@ -9,20 +9,20 @@ import (
 )
 
 func main() {
-	dirSnap := "/Users/piotr/data_dirs/hypersync/real_sentry"
+	dirSnap := "/Users/piotr/data_dirs/hypersync/mini_sentry_nft_copy"
 	time.Sleep(1 * time.Millisecond)
 	dbSnap, err := toolslib.OpenDataDir(dirSnap)
 	if err != nil {
 		fmt.Printf("Error reading db1 err: %v", err)
 		return
 	}
-	snap, err := lib.NewSnapshot(dirSnap, lib.SnapshotBlockHeightPeriod, false, false)
+	snap, err, _ := lib.NewSnapshot(dirSnap, lib.SnapshotBlockHeightPeriod, false, false)
 	if err != nil {
 		fmt.Printf("Error reading snap err: %v", err)
 		return
 	}
 	snap.CurrentEpochSnapshotMetadata.SnapshotBlockHeight = 114000
-	snap.Checksum.Initialize()
+	snap.Checksum.ResetChecksum()
 
 	maxBytes := uint32(8 << 20)
 	var prefixes [][]byte

@@ -141,13 +141,13 @@ func main() {
 		fmt.Printf("Error reading db1 err: %v", err)
 		return
 	}
-	snap, err := lib.NewSnapshot(dirSnap, lib.SnapshotBlockHeightPeriod, false, false)
+	snap, err, _ := lib.NewSnapshot(dirSnap, lib.SnapshotBlockHeightPeriod, false, false)
 	if err != nil {
 		fmt.Printf("Error reading snap err: %v", err)
 		return
 	}
 	snap.CurrentEpochSnapshotMetadata.SnapshotBlockHeight = 114000
-	snap.Checksum.Initialize()
+	snap.Checksum.ResetChecksum()
 
 	//optsDb := badger.DefaultOptions(dirDB)
 	//optsDb.ValueDir = lib.GetBadgerDbPath(dirDB)
