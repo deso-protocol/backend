@@ -45,24 +45,23 @@ const (
 	RoutePathGetAppState     = "/api/v0/get-app-state"
 
 	// transaction.go
-	RoutePathGetTxn                   = "/api/v0/get-txn"
-	RoutePathSubmitTransaction        = "/api/v0/submit-transaction"
-	RoutePathUpdateProfile            = "/api/v0/update-profile"
-	RoutePathExchangeBitcoin          = "/api/v0/exchange-bitcoin"
-	RoutePathSendDeSo                 = "/api/v0/send-deso"
-	RoutePathSubmitPost               = "/api/v0/submit-post"
-	RoutePathCreateFollowTxnStateless = "/api/v0/create-follow-txn-stateless"
-	RoutePathCreateLikeStateless      = "/api/v0/create-like-stateless"
-	RoutePathBuyOrSellCreatorCoin     = "/api/v0/buy-or-sell-creator-coin"
-	RoutePathTransferCreatorCoin      = "/api/v0/transfer-creator-coin"
-	RoutePathSendDiamonds             = "/api/v0/send-diamonds"
-	RoutePathAuthorizeDerivedKey      = "/api/v0/authorize-derived-key"
-	RoutePathDAOCoin                  = "/api/v0/dao-coin"
-	RoutePathTransferDAOCoin          = "/api/v0/transfer-dao-coin"
-	RoutePathCreateDAOCoinLimitOrder  = "/api/v0/create-dao-coin-limit-order"
-	RoutePathCancelDAOCoinLimitOrder  = "/api/v0/cancel-dao-coin-limit-order"
-	RoutePathAppendExtraData          = "/api/v0/append-extra-data"
-	RoutePathGetTransactionSpending   = "/api/v0/get-transaction-spending"
+	RoutePathGetTxn                          = "/api/v0/get-txn"
+	RoutePathSubmitTransaction               = "/api/v0/submit-transaction"
+	RoutePathUpdateProfile                   = "/api/v0/update-profile"
+	RoutePathExchangeBitcoin                 = "/api/v0/exchange-bitcoin"
+	RoutePathSendDeSo                        = "/api/v0/send-deso"
+	RoutePathSubmitPost                      = "/api/v0/submit-post"
+	RoutePathCreateFollowTxnStateless        = "/api/v0/create-follow-txn-stateless"
+	RoutePathCreateLikeStateless             = "/api/v0/create-like-stateless"
+	RoutePathBuyOrSellCreatorCoin            = "/api/v0/buy-or-sell-creator-coin"
+	RoutePathTransferCreatorCoin             = "/api/v0/transfer-creator-coin"
+	RoutePathSendDiamonds                    = "/api/v0/send-diamonds"
+	RoutePathAuthorizeDerivedKey             = "/api/v0/authorize-derived-key"
+	RoutePathDAOCoin                         = "/api/v0/dao-coin"
+	RoutePathTransferDAOCoin                 = "/api/v0/transfer-dao-coin"
+	RoutePathCreateOrCancelDAOCoinLimitOrder = "/api/v0/create-or-cancel-dao-coin-limit-order"
+	RoutePathAppendExtraData                 = "/api/v0/append-extra-data"
+	RoutePathGetTransactionSpending          = "/api/v0/get-transaction-spending"
 
 	RoutePathGetUsersStateless                          = "/api/v0/get-users-stateless"
 	RoutePathDeleteIdentities                           = "/api/v0/delete-identities"
@@ -87,6 +86,9 @@ const (
 	RoutePathGetUserMetadata                            = "/api/v0/get-user-metadata"
 	RoutePathGetUsernameForPublicKey                    = "/api/v0/get-user-name-for-public-key"
 	RoutePathGetPublicKeyForUsername                    = "/api/v0/get-public-key-for-user-name"
+
+	// dao_coin_exchange.go
+	RoutePathGetDaoCoinLimitOrders = "/api/v0/get-dao-coin-limit-orders"
 
 	// post.go
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
@@ -857,17 +859,10 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
-			"CreateDAOCoinLimitOrder",
+			"CreateOrCancelDAOCoinLimitOrder",
 			[]string{"POST", "OPTIONS"},
-			RoutePathCreateDAOCoinLimitOrder,
-			fes.CreateDAOCoinLimitOrder,
-			PublicAccess,
-		},
-		{
-			"CancelDAOCoinLimitOrder",
-			[]string{"POST", "OPTIONS"},
-			RoutePathCancelDAOCoinLimitOrder,
-			fes.CancelDAOCoinLimitOrder,
+			RoutePathCreateOrCancelDAOCoinLimitOrder,
+			fes.CreateOrCancelDAOCoinLimitOrder,
 			PublicAccess,
 		},
 		{
@@ -1029,6 +1024,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetPublicKeyForUsername + "/{username:[a-zA-Z0-9_]{1,26}",
 			fes.GetPublicKeyForUsername,
+			PublicAccess,
+		},
+		{
+			"GetDAOCoinLimitOrders",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetDaoCoinLimitOrders,
+			fes.GetDAOCoinLimitOrders,
 			PublicAccess,
 		},
 		// Jumio Routes
