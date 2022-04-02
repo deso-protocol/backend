@@ -1,15 +1,18 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"github.com/deso-protocol/backend/scripts/tools/toolslib"
 	"github.com/deso-protocol/core/lib"
+	"github.com/pkg/errors"
+	"golang.org/x/sync/semaphore"
 	"sort"
 	"time"
 )
 
 func main() {
-	dirSnap := "/Users/piotr/data_dirs/hypersync/mini_sentry_nft_copy"
+	dirSnap := "/Users/piotr/data_dirs/hypersync/mini_sentry_nft"
 	time.Sleep(1 * time.Millisecond)
 	dbSnap, err := toolslib.OpenDataDir(dirSnap)
 	if err != nil {
@@ -37,11 +40,25 @@ func main() {
 		return prefixes[ii][0] < prefixes[jj][0]
 	})
 	fmt.Println(prefixes)
-	err = func() error {
-		fmt.Printf("Checking prefixes: ")
-		for _, prefix := range prefixes {
-			existingEntries := make(map[string]bool)
-			fmt.Printf("%v \n", prefix)
+	fmt.Printf("Checking prefixes: ")
+	numProcesses := int64(4)
+	sem := semaphore.NewWeighted(numProcesses)
+	ctx := context.Background()
+
+	lib.Mode = lib.EnableTimer
+	timer := lib.Timer{}
+	timer.Initialize()
+
+	timer.Start("Compute checksum")
+	for _, prefix := range prefixes {
+		fmt.Printf("%v \n", prefix)
+		if err := sem.Acquire(ctx, 1); err != nil {
+			panic(errors.Wrapf(err, "Problem acquiring semaphore in the routine"))
+		}
+
+		go func(prefix []byte) {
+			defer sem.Release(1)
+
 			lastPrefix := prefix
 			for {
 				entries, fullDb, err := lib.DBIteratePrefixKeys(dbSnap, prefix, lastPrefix, maxBytes)
@@ -49,14 +66,7 @@ func main() {
 					panic(fmt.Errorf("Problem fetching snapshot chunk (%v)", err))
 				}
 				for _, entry := range entries {
-					encode := lib.EncodeKeyValue(entry.Key, entry.Value)
-					dHash := string(lib.Sha256DoubleHash(encode)[:])
-					if _, exists := existingEntries[dHash]; exists {
-						continue
-					} else {
-						existingEntries[dHash] = true
-					}
-					snap.AddChecksumBytes(encode)
+					snap.AddChecksumBytes(entry.Key, entry.Value)
 				}
 
 				if len(entries) != 0 {
@@ -69,19 +79,24 @@ func main() {
 					break
 				}
 			}
+		}(prefix[:])
 
-			//time.Sleep(1 * time.Second)
-			fmt.Println("current operations:", snap.OperationChannel.GetStatus())
-			snap.WaitForAllOperationsToFinish()
-			checksumBytes, _ := snap.Checksum.ToBytes()
-			fmt.Println("prefix", prefix, "checksum:", checksumBytes)
-		}
-		fmt.Println("Finished iterating all prefixes")
-		snap.WaitForAllOperationsToFinish()
-		checksumBytes, _ := snap.Checksum.ToBytes()
-		fmt.Println("Final checksum:", checksumBytes)
+		//time.Sleep(1 * time.Second)
+		//fmt.Println("current operations:", snap.OperationChannel.GetStatus())
+		//snap.WaitForAllOperationsToFinish()
+		//checksumBytes, _ := snap.Checksum.ToBytes()
+		//fmt.Println("prefix", prefix, "checksum:", checksumBytes)
+	}
+	if err := sem.Acquire(ctx, numProcesses); err != nil {
+		panic(errors.Wrapf(err, "Problem acquiring semaphore after routines"))
+	}
 
-		return nil
-	}()
+	fmt.Println("Finished iterating all prefixes")
+	snap.WaitForAllOperationsToFinish()
+	checksumBytes, _ := snap.Checksum.ToBytes()
+	fmt.Println("Final checksum:", checksumBytes)
+
+	timer.End("Compute checksum")
+	timer.Print("Compute checksum")
 
 }
