@@ -2614,9 +2614,11 @@ type AuthorizeDerivedKeyRequest struct {
 	// ExtraData is arbitrary key value map
 	ExtraData map[string]string `safeForLogging:"true"`
 
-	// TransactionSpendingLimit struct that will be merged with the TransactionSpendingLimitTracker for this
-	// Derived key
-	TransactionSpendingLimit TransactionSpendingLimitResponse `safeForLogging:"true"`
+	// TransactionSpendingLimitHex represents a struct that will be merged with
+	// the TransactionSpendingLimitTracker for this Derived key. We require that
+	// this be sent as hex in order to guarantee that the AccessHash computed from
+	// this value is consistent with what the user is requesting.
+	TransactionSpendingLimitHex string `safeForLogging:"true"`
 
 	// Memo is a simple string that can be used to describe a derived key
 	Memo string `safeForLogging:"true"`
@@ -2692,16 +2694,10 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Couldn't decode access signature."))
 		return
 	}
-	var transactionSpendingLimit *lib.TransactionSpendingLimit
 	var memo []byte
 	blockHeight := fes.blockchain.BlockTip().Height + 1
 	// Only add the TransactionSpendingLimit and Memo if we're passed the block height.
 	if blockHeight >= fes.Params.ForkHeights.DerivedKeySetSpendingLimitsBlockHeight {
-		transactionSpendingLimit, err = fes.ToTransactionSpendingLimit(requestData.TransactionSpendingLimit)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Error parsing TransactionSpendingLimit: %v", err))
-			return
-		}
 		var memoStr string
 		if len(requestData.Memo) != 0 {
 			memoStr = requestData.Memo
@@ -2723,7 +2719,7 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		requestData.DerivedKeySignature,
 		preprocessExtraData(requestData.ExtraData),
 		memo,
-		transactionSpendingLimit,
+		requestData.TransactionSpendingLimitHex,
 		// Standard transaction fields
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
@@ -2750,184 +2746,6 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem encoding response as JSON: %v", err))
 		return
 	}
-}
-
-// ToTransactionSpendingLimit converts a TransactionSpendingLimitResponse (backend struct) to a
-// lib.TransactionSpendingLimit struct that core can use to create an AUTHORIZE_DERIVED_KEY transaction
-func (fes *APIServer) ToTransactionSpendingLimit(tslr TransactionSpendingLimitResponse) (*lib.TransactionSpendingLimit, error) {
-	transactionSpendingLimit := &lib.TransactionSpendingLimit{}
-	// We can take the GlobalDESOLimit directly from the backend struct
-	transactionSpendingLimit.GlobalDESOLimit = tslr.GlobalDESOLimit
-
-	// Iterate over the TransactionCountLimitMap - convert TxnTypeString to TxnType and put that as the key with the
-	// transaction count in the value
-	if len(tslr.TransactionCountLimitMap) > 0 {
-		transactionSpendingLimit.TransactionCountLimitMap = make(map[lib.TxnType]uint64)
-		for txnTypeString, txnCount := range tslr.TransactionCountLimitMap {
-			txnType := lib.GetTxnTypeFromString(txnTypeString)
-			if txnType == lib.TxnTypeUnset {
-				return nil, fmt.Errorf("invalid transaction type string: %v", txnTypeString)
-			}
-			transactionSpendingLimit.TransactionCountLimitMap[txnType] = txnCount
-		}
-	}
-
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		return nil, err
-	}
-
-	// Iterate over CreatorCoinOperationLimitMap - construct key by looking up PKID from public key and converting
-	// CreatorCoinLimitOperationString to a CreatorCoinLimitOperation. Put that key in the map with the transaction
-	// count as the value.
-	if len(tslr.CreatorCoinOperationLimitMap) > 0 {
-		transactionSpendingLimit.CreatorCoinOperationLimitMap = make(map[lib.CreatorCoinOperationLimitKey]uint64)
-		for pubKey, operationMap := range tslr.CreatorCoinOperationLimitMap {
-			creatorPKID := lib.PKID{}
-			if pubKey == "" {
-				// An empty public key is a catch-all - meaning the derived key is being authorized to perform the
-				// below operations on ANY public key's DAO coin. We use a PKID that represents a nil creator in this
-				// case.
-				creatorPKID = lib.ZeroPKID
-			} else {
-				// Decode the pub key, look up PKID, and verify PKID exists
-				publicKeyBytes, _, err := lib.Base58CheckDecode(pubKey)
-				if err != nil || len(publicKeyBytes) != btcec.PubKeyBytesLenCompressed {
-					return nil, fmt.Errorf("unable to decode public key for creator coin operation: %v : %v", pubKey, err)
-				}
-				creatorPKIDEntry := utxoView.GetPKIDForPublicKey(publicKeyBytes)
-				if creatorPKIDEntry == nil || creatorPKIDEntry.PKID == nil {
-					return nil, fmt.Errorf("unable to get PKID for public key for creator coin operation: %v", pubKey)
-				}
-				creatorPKID = *creatorPKIDEntry.PKID
-			}
-
-			// Iterate over the creator coin operations in the value map
-			for ccOpString, opCount := range operationMap {
-				// Convert CreatorCoinLimitOperationString to CreatorCoinLimitOperation
-				ccOp := ccOpString.ToCreatorCoinLimitOperation()
-				if ccOp.IsUndefined() {
-					return nil, fmt.Errorf("invalid creator coin limit operation: %v", ccOpString)
-				}
-
-				// Construct key and verify it isn't already present in map before adding.
-				creatorCoinOperationLimitKey := lib.MakeCreatorCoinOperationLimitKey(creatorPKID, ccOp)
-				if _, exists := transactionSpendingLimit.CreatorCoinOperationLimitMap[creatorCoinOperationLimitKey]; exists {
-					return nil, fmt.Errorf(
-						"duplicate key detected in CreatorCoinOperationLimitMap: public key: %v, operation: %v",
-						pubKey, ccOp.ToString())
-				}
-				transactionSpendingLimit.CreatorCoinOperationLimitMap[creatorCoinOperationLimitKey] = opCount
-			}
-		}
-	}
-
-	// Iterate over DAOCoinOperationLimitMap - construct key by looking up PKID from public key and converting
-	// DAOCoinLimitOperationString to a DAOCoinLimitOperation. Put that key in the map with the transaction
-	// count as the value.
-	if len(tslr.DAOCoinOperationLimitMap) > 0 {
-		transactionSpendingLimit.DAOCoinOperationLimitMap = make(map[lib.DAOCoinOperationLimitKey]uint64)
-		for pubKey, operationMap := range tslr.DAOCoinOperationLimitMap {
-			creatorPKID := lib.PKID{}
-			if pubKey == "" {
-				// An empty public key is a catch-all - meaning the derived key is being authorized to perform the
-				// below operations on ANY public key's DAO coin. We use a PKID that represents a nil creator in this
-				// case.
-				creatorPKID = lib.ZeroPKID
-			} else {
-				// Decode the pub key, look up PKID, and verify PKID exists
-				publicKeyBytes, _, err := lib.Base58CheckDecode(pubKey)
-				if err != nil || len(publicKeyBytes) != btcec.PubKeyBytesLenCompressed {
-					return nil, fmt.Errorf("unable to decode public key for DAO Coin Operation: %v : %v", pubKey, err)
-				}
-				creatorPKIDEntry := utxoView.GetPKIDForPublicKey(publicKeyBytes)
-				if creatorPKIDEntry == nil || creatorPKIDEntry.PKID == nil {
-					return nil, fmt.Errorf("unable to get PKID for public key for DAO Coin Operation: %v", pubKey)
-				}
-				creatorPKID = *creatorPKIDEntry.PKID
-			}
-
-			// Iterate over the DAO coin operations in the value map
-			for daoOpString, opCount := range operationMap {
-				// Convert DAOCoinLimitOperationString to DAOCoinLimitOperation
-				daoOp := daoOpString.ToDAOCoinLimitOperation()
-				if daoOp.IsUndefined() {
-					return nil, fmt.Errorf("invalid DAO coin limit operation: %v", daoOpString)
-				}
-
-				// Construct key and verify it isn't already present in the map before adding.
-				daoCoinOperationLimitKey := lib.MakeDAOCoinOperationLimitKey(creatorPKID, daoOp)
-				if _, exists := transactionSpendingLimit.DAOCoinOperationLimitMap[daoCoinOperationLimitKey]; exists {
-					return nil, fmt.Errorf(
-						"duplicate key detected in DAOCoinOperationLimitMap: public key: %v, operation: %v",
-						pubKey, daoOp.ToString())
-				}
-				transactionSpendingLimit.DAOCoinOperationLimitMap[daoCoinOperationLimitKey] = opCount
-			}
-		}
-	}
-
-	// Iterate over NFTOperationLimitMap - construct key by decoding PostHashHex to BlockHash and converting
-	// NFTLimitOperationString to a NFTLimitOperation and using the serial number provided. Put that key in the map
-	// with the transaction count as the value.
-	if len(tslr.NFTOperationLimitMap) > 0 {
-		transactionSpendingLimit.NFTOperationLimitMap = make(map[lib.NFTOperationLimitKey]uint64)
-		for postHashHex, serialNumMap := range tslr.NFTOperationLimitMap {
-			postHash := &lib.BlockHash{}
-			var postEntry *lib.PostEntry
-			if postHashHex == "" {
-				// An empty post hash hex is a catch-all - meaning the derived key is being authorized to perform the
-				// below NFT operations on ANY NFT. We use a BlockHash that represents a nil Post in this case.
-				nilPostHash := lib.ZeroBlockHash
-				postHash = &nilPostHash
-			} else {
-				// Decode the post hash hex, copy the bytes into the BlockHash, verify the post exists and is an NFT
-				postHashBytes, err := hex.DecodeString(postHashHex)
-				if err != nil || len(postHashBytes) != lib.HashSizeBytes {
-					return nil, fmt.Errorf("unable to decode post hash hex %v : %v", postHashHex, err)
-				}
-				copy(postHash[:], postHashBytes)
-				postEntry = utxoView.GetPostEntryForPostHash(postHash)
-				if postEntry == nil {
-					return nil, fmt.Errorf("post entry not found for post hash hex: %v", postHashHex)
-				}
-				if !postEntry.IsNFT {
-					return nil, fmt.Errorf("cannot authorize NFT ops on a post that is not an NFT yet: %v", postHashHex)
-				}
-			}
-
-			// Iterate over value map representing serial number to authorized NFT operations
-			for serialNum, nftOpMap := range serialNumMap {
-				// Verify that we're not authorizing a non-zero serial number with a nil post. This key would never be
-				// used.
-				if postEntry == nil && serialNum > 0 {
-					return nil, fmt.Errorf("cannot authorize operations on a specific serial number if using the nil post hash")
-				}
-				// Verify that the serial number is a valid serial number for this NFT.
-				if postEntry != nil && serialNum > postEntry.NumNFTCopies {
-					return nil, fmt.Errorf("serial number #%v specified does not exist for post hash: %v", serialNum, postHashHex)
-				}
-				// Iterate over map representing NFT operation to transaction count
-				for nftOpString, opCount := range nftOpMap {
-					// Converting NFTLimitOperationString to NFTLimitOperation
-					nftOp := nftOpString.ToNFTLimitOperation()
-					if nftOp.IsUndefined() {
-						return nil, fmt.Errorf("invalid NFT limit operation: %v", nftOpString)
-					}
-					// Construct key and verify it doesn't exist in the map yet.
-					nftOperationLimitKey := lib.MakeNFTOperationLimitKey(*postHash, serialNum, nftOp)
-					if _, exists := transactionSpendingLimit.NFTOperationLimitMap[nftOperationLimitKey]; exists {
-						return nil, fmt.Errorf(
-							"duplicate key detected in NFTOperationLimitMap: post hash hex: %v, serial number: %v, operation: %v",
-							postHashHex, serialNum, nftOp.ToString())
-					}
-					transactionSpendingLimit.NFTOperationLimitMap[nftOperationLimitKey] = opCount
-				}
-			}
-
-		}
-	}
-	return transactionSpendingLimit, nil
 }
 
 // TransactionSpendingLimitToResponse converts the core struct lib.TransactionSpendingLimit to a
