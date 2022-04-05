@@ -16,14 +16,14 @@ type GetDAOCoinLimitOrdersRequest struct {
 }
 
 type GetDAOCoinLimitOrdersResponse struct {
-	Orders []DAOCoinLimitOrder
+	Orders []DAOCoinLimitOrderEntryResponse
 }
 
-type DAOCoinLimitOrder struct {
-	TransactorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+type DAOCoinLimitOrderEntryResponse struct {
+	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
 
-	BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername  string `safeForLogging:"true"`
-	SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+	BuyingDAOCoinCreatorPublicKeyBase58Check  string `safeForLogging:"true"`
+	SellingDAOCoinCreatorPublicKeyBase58Check string `safeForLogging:"true"`
 
 	// One of these two should be populated
 	ScaledExchangeRateCoinsToSellPerCoinToBuy *uint256.Int `safeForLogging:"true"`
@@ -65,42 +65,35 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 	coin1PKID := &lib.ZeroPKID
 	coin2PKID := &lib.ZeroPKID
 
-	coin1ProfilePublicKeyBytes := lib.ZeroPublicKey.ToBytes()
-	coin2ProfilePublicKeyBytes := lib.ZeroPublicKey.ToBytes()
-
 	coin1ProfilePublicBase58Check := ""
 	coin2ProfilePublicBase58Check := ""
 
 	if requestData.DAOCoin1CreatorPublicKeyBase58CheckOrUsername != "" {
-		coin1ProfilePublicKeyBytes, _, err = fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
-			requestData.DAOCoin1CreatorPublicKeyBase58CheckOrUsername,
+		coin1ProfilePublicBase58Check, coin1PKID, err = fes.validateCreatorPublicKeyBase58CheckOrUsername(
 			utxoView,
+			requestData.DAOCoin1CreatorPublicKeyBase58CheckOrUsername,
 		)
 		if err != nil {
 			_AddBadRequestError(
 				ww,
-				fmt.Sprint("GetDAOCoinLimitOrders: Invalid DAOCoin1CreatorPublicKeyBase58CheckOrUsername"),
+				fmt.Sprintf("GetDAOCoinLimitOrders: Invalid DAOCoin1CreatorPublicKeyBase58CheckOrUsername: %v", err),
 			)
 			return
 		}
-		coin1PKID = utxoView.GetPKIDForPublicKey(coin1ProfilePublicKeyBytes).PKID
-		coin1ProfilePublicBase58Check = lib.Base58CheckEncode(coin1ProfilePublicKeyBytes, false, fes.Params)
 	}
 
 	if requestData.DAOCoin2CreatorPublicKeyBase58CheckOrUsername != "" {
-		coin2ProfilePublicKeyBytes, _, err = fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
-			requestData.DAOCoin2CreatorPublicKeyBase58CheckOrUsername,
+		coin2ProfilePublicBase58Check, coin2PKID, err = fes.validateCreatorPublicKeyBase58CheckOrUsername(
 			utxoView,
+			requestData.DAOCoin2CreatorPublicKeyBase58CheckOrUsername,
 		)
 		if err != nil {
 			_AddBadRequestError(
 				ww,
-				fmt.Sprint("GetDAOCoinLimitOrders: Invalid DAOCoin2CreatorPublicKeyBase58CheckOrUsername"),
+				fmt.Sprintf("GetDAOCoinLimitOrders: Invalid DAOCoin2CreatorPublicKeyBase58CheckOrUsername: %v", err),
 			)
 			return
 		}
-		coin2PKID = utxoView.GetPKIDForPublicKey(coin2ProfilePublicKeyBytes).PKID
-		coin2ProfilePublicBase58Check = lib.Base58CheckEncode(coin2ProfilePublicKeyBytes, false, fes.Params)
 	}
 
 	adapter := utxoView.GetDbAdapter()
@@ -117,16 +110,16 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 		return
 	}
 
-	var response []DAOCoinLimitOrder
+	var response []DAOCoinLimitOrderEntryResponse
 
 	for _, order := range ordersBuyingCoin1 {
 		transactorPublicKey := utxoView.GetPublicKeyForPKID(order.TransactorPKID)
-		response = append(response, DAOCoinLimitOrder{
-			TransactorPublicKeyBase58CheckOrUsername: lib.Base58CheckEncode(transactorPublicKey, false, fes.Params),
+		response = append(response, DAOCoinLimitOrderEntryResponse{
+			TransactorPublicKeyBase58Check: lib.Base58CheckEncode(transactorPublicKey, false, fes.Params),
 
-			BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername:  coin1ProfilePublicBase58Check,
-			SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername: coin2ProfilePublicBase58Check,
-			ScaledExchangeRateCoinsToSellPerCoinToBuy:           order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
+			BuyingDAOCoinCreatorPublicKeyBase58Check:  coin1ProfilePublicBase58Check,
+			SellingDAOCoinCreatorPublicKeyBase58Check: coin2ProfilePublicBase58Check,
+			ScaledExchangeRateCoinsToSellPerCoinToBuy: order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
 			ExchangeRateCoinsToSellPerCoinToBuy: floatExchangeRateCoinsToSellPerCoinToBuy(
 				order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
 			),
@@ -137,12 +130,12 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 
 	for _, order := range ordersSellingCoin1 {
 		transactorPublicKey := utxoView.GetPublicKeyForPKID(order.TransactorPKID)
-		response = append(response, DAOCoinLimitOrder{
-			TransactorPublicKeyBase58CheckOrUsername: lib.Base58CheckEncode(transactorPublicKey, false, fes.Params),
+		response = append(response, DAOCoinLimitOrderEntryResponse{
+			TransactorPublicKeyBase58Check: lib.Base58CheckEncode(transactorPublicKey, false, fes.Params),
 
-			BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername:  coin2ProfilePublicBase58Check,
-			SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername: coin1ProfilePublicBase58Check,
-			ScaledExchangeRateCoinsToSellPerCoinToBuy:           order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
+			BuyingDAOCoinCreatorPublicKeyBase58Check:  coin2ProfilePublicBase58Check,
+			SellingDAOCoinCreatorPublicKeyBase58Check: coin1ProfilePublicBase58Check,
+			ScaledExchangeRateCoinsToSellPerCoinToBuy: order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
 			ExchangeRateCoinsToSellPerCoinToBuy: floatExchangeRateCoinsToSellPerCoinToBuy(
 				order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
 			),
@@ -152,6 +145,24 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 	}
 
 	_ = json.NewEncoder(ww).Encode(GetDAOCoinLimitOrdersResponse{Orders: response})
+}
+
+func (fes *APIServer) validateCreatorPublicKeyBase58CheckOrUsername(
+	utxoView *lib.UtxoView,
+	publicKeyBase58CheckOrUsername string,
+) (string, *lib.PKID, error) {
+	publicKeyBytes, _, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
+		publicKeyBase58CheckOrUsername,
+		utxoView,
+	)
+	if err != nil {
+		return "", &lib.ZeroPKID, err
+	}
+
+	pkid := utxoView.GetPKIDForPublicKey(publicKeyBytes).PKID
+	publicKeyBase58Check := lib.Base58CheckEncode(publicKeyBytes, false, fes.Params)
+
+	return publicKeyBase58Check, pkid, nil
 }
 
 // Given a value v, this computes v / (2 ^ 128) and returns it as float

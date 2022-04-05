@@ -2312,7 +2312,7 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Get the creator public key and make sure the profile exists
-	creatorPublicKeyBytes, profileEntry, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+	creatorPublicKeyBytes, profileEntry, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
 		requestData.ProfilePublicKeyBase58CheckOrUsername, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: error getting profile or decoding public key for "+
@@ -2465,7 +2465,7 @@ func (fes *APIServer) TransferDAOCoin(ww http.ResponseWriter, req *http.Request)
 	}
 
 	// Decode the updater public key
-	senderPublicKeyBytes, _, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+	senderPublicKeyBytes, _, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
 		requestData.SenderPublicKeyBase58Check, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem decoding sender public key %s: %v",
@@ -2481,7 +2481,7 @@ func (fes *APIServer) TransferDAOCoin(ww http.ResponseWriter, req *http.Request)
 	}
 
 	// Decode the creator public key
-	creatorPublicKeyBytes, creatorProfileEntry, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+	creatorPublicKeyBytes, creatorProfileEntry, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
 		requestData.ProfilePublicKeyBase58CheckOrUsername, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem decoding creator public key %s: %v",
@@ -2496,7 +2496,7 @@ func (fes *APIServer) TransferDAOCoin(ww http.ResponseWriter, req *http.Request)
 	}
 
 	// Get the public key for the receiver.
-	receiverPublicKeyBytes, _, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+	receiverPublicKeyBytes, _, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
 		requestData.ReceiverPublicKeyBase58CheckOrUsername, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem decoding reeceiver public key %s: %v",
@@ -2631,7 +2631,7 @@ func (fes *APIServer) CreateOrCancelDAOCoinLimitOrder(ww http.ResponseWriter, re
 	if !validateExchangeRateCoinsToSellPerCoinToBuyParam(requestData) {
 		_AddBadRequestError(
 			ww,
-			fmt.Sprint("CreateOrCancelDAOCoinLimitOrder: Must provide only one of the "+
+			fmt.Sprint("CreateOrCancelDAOCoinLimitOrder: Must provide exactly one of the "+
 				"ScaledExchangeRateCoinsToSellPerCoinToBuy or ExchangeRateCoinsToSellPerCoinToBuy params"),
 		)
 		return
@@ -2640,7 +2640,7 @@ func (fes *APIServer) CreateOrCancelDAOCoinLimitOrder(ww http.ResponseWriter, re
 	if !validateQuantityToBuyParam(requestData) {
 		_AddBadRequestError(
 			ww,
-			fmt.Sprint("CreateOrCancelDAOCoinLimitOrder: Must provide only one of the "+
+			fmt.Sprint("CreateOrCancelDAOCoinLimitOrder: Must provide exactly one of the "+
 				"ScaledExchangeRateCoinsToSellPerCoinToBuy or ExchangeRateCoinsToSellPerCoinToBuy params"),
 		)
 		return
@@ -2656,7 +2656,7 @@ func (fes *APIServer) CreateOrCancelDAOCoinLimitOrder(ww http.ResponseWriter, re
 	}
 
 	// Decode the transactor public key
-	transactorPublicKeyBytes, _, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+	transactorPublicKeyBytes, _, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
 		requestData.TransactorPublicKeyBase58Check,
 		utxoView,
 	)
@@ -2686,7 +2686,7 @@ func (fes *APIServer) CreateOrCancelDAOCoinLimitOrder(ww http.ResponseWriter, re
 	sellingCoinPublicKey := lib.ZeroPublicKey.ToBytes()
 
 	if requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername != "" {
-		buyingCoinPublicKey, _, err = fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+		buyingCoinPublicKey, _, err = fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
 			requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
 			utxoView,
 		)
@@ -2696,7 +2696,7 @@ func (fes *APIServer) CreateOrCancelDAOCoinLimitOrder(ww http.ResponseWriter, re
 	}
 
 	if requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername != "" {
-		sellingCoinPublicKey, _, err = fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+		sellingCoinPublicKey, _, err = fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
 			requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
 			utxoView,
 		)
@@ -2745,7 +2745,7 @@ func (fes *APIServer) CreateOrCancelDAOCoinLimitOrder(ww http.ResponseWriter, re
 			ScaledExchangeRateCoinsToSellPerCoinToBuy: scaledExchangeRateCoinsToSellPerCoinToBuy,
 			QuantityToBuyInBaseUnits:                  quantityToBuyInBaseUnits,
 			CancelExistingOrder:                       cancelExistingOrder,
-			MatchedBidsTransactors:                    nil,
+			BidderInputs:                              nil,
 		},
 		requestData.MinFeeRateNanosPerKB,
 		fes.backendServer.GetMempool(),
