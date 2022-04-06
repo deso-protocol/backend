@@ -1,17 +1,15 @@
 package cmd
 
 import (
-	"os"
-	"os/signal"
-	"syscall"
-
 	"github.com/deso-protocol/backend/config"
 	coreCmd "github.com/deso-protocol/core/cmd"
+	"github.com/golang/glog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-
-	"github.com/golang/glog"
+	"os"
+	"os/signal"
+	"syscall"
 )
 
 // runCmd represents the run command
@@ -23,23 +21,28 @@ var runCmd = &cobra.Command{
 }
 
 func Run(cmd *cobra.Command, args []string) {
+	shutdownListener := make(chan os.Signal)
+
 	// Start the core node
 	coreConfig := coreCmd.LoadConfig()
 	coreNode := coreCmd.NewNode(coreConfig)
-	coreNode.Start()
+	coreNode.Start(&shutdownListener)
 
 	// Start the backend node
 	nodeConfig := config.LoadConfig(coreConfig)
 	node := NewNode(nodeConfig, coreNode)
 	node.Start()
 
-	shutdownListener := make(chan os.Signal)
 	signal.Notify(shutdownListener, syscall.SIGINT, syscall.SIGTERM)
 	defer func() {
+		coreNode.Stop()
 		node.Stop()
+		if shutdownListener != nil {
+			close(shutdownListener)
+			shutdownListener = nil
+		}
 		glog.Info("Shutdown complete")
 	}()
-
 	<-shutdownListener
 }
 
