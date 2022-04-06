@@ -144,7 +144,10 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 		})
 	}
 
-	_ = json.NewEncoder(ww).Encode(GetDAOCoinLimitOrdersResponse{Orders: response})
+	if err = json.NewEncoder(ww).Encode(GetDAOCoinLimitOrdersResponse{Orders: response}); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetDAOCoinLimitOrders: Problem encoding response as JSON: %v", err))
+		return
+	}
 }
 
 func (fes *APIServer) validateCreatorPublicKeyBase58CheckOrUsername(
