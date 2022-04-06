@@ -2558,22 +2558,9 @@ type DAOCoinLimitOrderResponse struct {
 	TxnHashHex        string
 }
 
-// DAOCoinLimitOrderOperation Use this to represent any operations that can be performed on
-// a DAO coin limit order. For now, we'll only support creating and cancelling order
-type DAOCoinLimitOrderOperation string
-
-const (
-	Create DAOCoinLimitOrderOperation = "CREATE"
-	Cancel DAOCoinLimitOrderOperation = "CANCEL"
-)
-
-// CreateOrCancelDAOCoinLimitOrderRequest ...
-type CreateOrCancelDAOCoinLimitOrderRequest struct {
+type DAOCoinLimitOrderWithFloatValuesRequest struct {
 	// The public key of the user who is sending the order
 	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
-
-	// Create or Cancel this order
-	Operation DAOCoinLimitOrderOperation
 
 	// The public key or profile username of the DAO coin being bought
 	BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
@@ -2581,161 +2568,207 @@ type CreateOrCancelDAOCoinLimitOrderRequest struct {
 	// The public key or profile username of the DAO coin being sold
 	SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
 
-	// Caller has the option of populating one of these two fields, depending on if they want
-	// to submit this param as a float or want to scale it themselves first. Populating both should
-	// result in an error response
-	ScaledExchangeRateCoinsToSellPerCoinToBuy *uint256.Int `safeForLogging:"true"`
-	ExchangeRateCoinsToSellPerCoinToBuy       float64      `safeForLogging:"true"`
-
-	// Caller has the option of populating one of these two fields. Populating both should result in
-	// an error response
-	QuantityToBuyInBaseUnits *uint256.Int `safeForLogging:"true"`
-	QuantityToBuy            float64      `safeForLogging:"true"`
+	ExchangeRateCoinsToSellPerCoinToBuy float64 `safeForLogging:"true"`
+	QuantityToBuy                       float64 `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
 	TransactionFees      []TransactionFee `safeForLogging:"true"`
 }
 
-// CreateOrCancelDAOCoinLimitOrder Constructs a transaction to either create or cancel a DAO coin limit
-// order for the specified DAO coin pair, exchange rate, and quantity
-func (fes *APIServer) CreateOrCancelDAOCoinLimitOrder(ww http.ResponseWriter, req *http.Request) {
+// CreateDAOCoinLimitOrder Constructs a transaction that creates a DAO coin limit order for the specified
+// DAO coin pair, exchange rate, and quantity
+func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := CreateOrCancelDAOCoinLimitOrderRequest{}
+	requestData := DAOCoinLimitOrderWithFloatValuesRequest{}
+
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: Problem parsing request body: %v", err))
+		return
+	}
+
+	// We only do basic validation of exchange rate and quantity here. If both are valid, then we pass the scaled
+	// values and remaining the request params to the helper for further validation
+
+	if requestData.ExchangeRateCoinsToSellPerCoinToBuy <= 0 {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprint("CreateDAOCoinLimitOrder: ExchangeRateCoinsToSellPerCoinToBuy must be greater than 0"),
+		)
+		return
+	}
+	scaledExchangeRateCoinsToSellPerCoinToBuy, err := scaleExchangeRateCoinsToSellPerCoinToBuy(
+		requestData.ExchangeRateCoinsToSellPerCoinToBuy,
+	)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	if requestData.ExchangeRateCoinsToSellPerCoinToBuy <= 0 {
+		_AddBadRequestError(ww, fmt.Sprint("CreateDAOCoinLimitOrder: QuantityToBuy must be greater than 0"))
+		return
+	}
+	quantityToBuyInBaseUnits, err := scaleQuantityToBuyToBaseUnits(
+		requestData.QuantityToBuy,
+	)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	res, err := fes.validateAndCreateDAOCoinLimitOrderResponse(
+		CreateDAOCoinLimitOrder,
+		requestData.TransactorPublicKeyBase58Check,
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		scaledExchangeRateCoinsToSellPerCoinToBuy,
+		quantityToBuyInBaseUnits,
+		requestData.MinFeeRateNanosPerKB,
+		requestData.TransactionFees,
+	)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type DAOCoinLimitOrderWithScaledValuesRequest struct {
+	// The public key of the user who is sending the order
+	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// The public key or profile username of the DAO coin being bought
+	BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+
+	// The public key or profile username of the DAO coin being sold
+	SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+
+	ScaledExchangeRateCoinsToSellPerCoinToBuy *uint256.Int `safeForLogging:"true"`
+	QuantityToBuyInBaseUnits                  *uint256.Int `safeForLogging:"true"`
+
+	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
+	TransactionFees      []TransactionFee `safeForLogging:"true"`
+}
+
+// CancelDAOCoinLimitOrder Constructs a transaction that cancels an existing DAO coin limit order with the specified
+// DAO coin pair, exchange rate, and quantity
+func (fes *APIServer) CancelDAOCoinLimitOrder(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := DAOCoinLimitOrderWithScaledValuesRequest{}
+
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(
 			ww,
-			fmt.Sprintf("CreateOrCancelDAOCoinLimitOrder: Problem parsing request body: %v", err),
+			fmt.Sprintf("CancelDAOCoinLimitOrder: Problem parsing request body: %v", err),
 		)
 		return
 	}
 
-	if requestData.TransactorPublicKeyBase58Check == "" {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprint("CreateOrCancelDAOCoinLimitOrder: Must provide a TransactorPublicKeyBase58Check."),
-		)
+	res, err := fes.validateAndCreateDAOCoinLimitOrderResponse(
+		CancelDAOCoinLimitOrder,
+		requestData.TransactorPublicKeyBase58Check,
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		requestData.ScaledExchangeRateCoinsToSellPerCoinToBuy,
+		requestData.QuantityToBuyInBaseUnits,
+		requestData.MinFeeRateNanosPerKB,
+		requestData.TransactionFees,
+	)
+
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CancelDAOCoinLimitOrder: %v", err))
 		return
 	}
 
-	if requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername == "" &&
-		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername == "" {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprint("CreateOrCancelDAOCoinLimitOrder: Must provide either a "+
-				"BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername or SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername "+
-				"or both"),
-		)
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CancelDAOCoinLimitOrder: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
 
-	if !validateExchangeRateCoinsToSellPerCoinToBuyParam(requestData) {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprint("CreateOrCancelDAOCoinLimitOrder: Must provide exactly one of the "+
-				"ScaledExchangeRateCoinsToSellPerCoinToBuy or ExchangeRateCoinsToSellPerCoinToBuy params"),
-		)
-		return
+// DAOCoinLimitOrderOperation Use this to represent any operations that can be performed on
+// a DAO coin limit order. For now, we'll only support creating and cancelling order
+type DAOCoinLimitOrderOperation string
+
+const (
+	CreateDAOCoinLimitOrder DAOCoinLimitOrderOperation = "CREATE"
+	CancelDAOCoinLimitOrder DAOCoinLimitOrderOperation = "CANCEL"
+)
+
+func (fes *APIServer) validateAndCreateDAOCoinLimitOrderResponse(
+	operation DAOCoinLimitOrderOperation,
+	transactorPublicKeyBase58Check string,
+	buyingDAOCoinCreatorPublicKeyBase58CheckOrUsername string,
+	sellingDAOCoinCreatorPublicKeyBase58CheckOrUsername string,
+	scaledExchangeRateCoinsToSellPerCoinToBuy *uint256.Int,
+	quantityToBuyInBaseUnits *uint256.Int,
+	minFeeRateNanosPerKB uint64,
+	transactionFees []TransactionFee,
+) (*DAOCoinLimitOrderResponse, error) {
+
+	if transactorPublicKeyBase58Check == "" {
+		return nil, fmt.Errorf("must provide a TransactorPublicKeyBase58Check")
 	}
 
-	if !validateQuantityToBuyParam(requestData) {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprint("CreateOrCancelDAOCoinLimitOrder: Must provide exactly one of the "+
-				"ScaledExchangeRateCoinsToSellPerCoinToBuy or ExchangeRateCoinsToSellPerCoinToBuy params"),
-		)
-		return
+	if sellingDAOCoinCreatorPublicKeyBase58CheckOrUsername == "" &&
+		buyingDAOCoinCreatorPublicKeyBase58CheckOrUsername == "" {
+		return nil, fmt.Errorf("must provide at least one of BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername " +
+			"or SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername")
 	}
 
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprintf("CreateOrCancelDAOCoinLimitOrder: Problem fetching utxoView: %v", err),
-		)
-		return
+		return nil, fmt.Errorf("problem fetching utxoView: %v", err)
 	}
 
 	// Decode the transactor public key
 	transactorPublicKeyBytes, _, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
-		requestData.TransactorPublicKeyBase58Check,
+		transactorPublicKeyBase58Check,
 		utxoView,
 	)
 	if err != nil {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprintf("CreateOrCancelDAOCoinLimitOrder: Problem decoding transactor public key %s: %v",
-				requestData.TransactorPublicKeyBase58Check, err))
-		return
+		return nil, fmt.Errorf("problem decoding transactor public key %s: %v",
+			transactorPublicKeyBase58Check, err)
 	}
 
 	// Compute the additional transaction fees as specified by the request body and the node-level fees.
 	additionalOutputs, err := fes.getTransactionFee(
 		lib.TxnTypeDAOCoinTransfer,
 		transactorPublicKeyBytes,
-		requestData.TransactionFees,
+		transactionFees,
 	)
 	if err != nil {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprintf("CreateOrCancelDAOCoinLimitOrder: TransactionFees specified in Request body are invalid: %v", err),
-		)
-		return
+		return nil, fmt.Errorf("specified transactionFees are invalid: %v", err)
 	}
 
 	buyingCoinPublicKey := lib.ZeroPublicKey.ToBytes()
 	sellingCoinPublicKey := lib.ZeroPublicKey.ToBytes()
 
-	if requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername != "" {
+	if buyingDAOCoinCreatorPublicKeyBase58CheckOrUsername != "" {
 		buyingCoinPublicKey, _, err = fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
-			requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+			buyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
 			utxoView,
 		)
 		if err != nil {
-			return
+			return nil, err
 		}
 	}
 
-	if requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername != "" {
+	if sellingDAOCoinCreatorPublicKeyBase58CheckOrUsername != "" {
 		sellingCoinPublicKey, _, err = fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
-			requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+			sellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
 			utxoView,
 		)
 		if err != nil {
-			return
+			return nil, err
 		}
 	}
 
-	scaledExchangeRateCoinsToSellPerCoinToBuy := requestData.ScaledExchangeRateCoinsToSellPerCoinToBuy
-	if requestData.ExchangeRateCoinsToSellPerCoinToBuy != 0 {
-		scaledExchangeRateCoinsToSellPerCoinToBuy, err = scaleExchangeRateCoinsToSellPerCoinToBuy(
-			requestData.ExchangeRateCoinsToSellPerCoinToBuy,
-		)
-		if err != nil {
-			_AddBadRequestError(
-				ww,
-				fmt.Sprintf("CreateOrCancelDAOCoinLimitOrder: %v", err),
-			)
-			return
-		}
-	}
-
-	quantityToBuyInBaseUnits := requestData.QuantityToBuyInBaseUnits
-	if requestData.QuantityToBuy != 0 {
-		quantityToBuyInBaseUnits, err = scaleQuantityToBuyToBaseUnits(
-			requestData.QuantityToBuy,
-		)
-		if err != nil {
-			if err != nil {
-				_AddBadRequestError(
-					ww,
-					fmt.Sprintf("CreateOrCancelDAOCoinLimitOrder: %v", err),
-				)
-				return
-			}
-		}
-	}
-
-	cancelExistingOrder := requestData.Operation == Cancel
+	cancelExistingOrder := operation == CancelDAOCoinLimitOrder
 
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateDAOCoinLimitOrderTxn(
 		transactorPublicKeyBytes,
@@ -2747,20 +2780,18 @@ func (fes *APIServer) CreateOrCancelDAOCoinLimitOrder(ww http.ResponseWriter, re
 			CancelExistingOrder:                       cancelExistingOrder,
 			BidderInputs:                              nil,
 		},
-		requestData.MinFeeRateNanosPerKB,
+		minFeeRateNanosPerKB,
 		fes.backendServer.GetMempool(),
 		additionalOutputs,
 	)
 
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateOrCancelDAOCoinLimitOrder: Problem creating transaction: %v", err))
-		return
+		return nil, err
 	}
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateOrCancelDAOCoinLimitOrder: Problem serializing transaction: %v", err))
-		return
+		return nil, err
 	}
 
 	// Return all the data associated with the transaction in the response
@@ -2774,22 +2805,7 @@ func (fes *APIServer) CreateOrCancelDAOCoinLimitOrder(ww http.ResponseWriter, re
 		TxnHashHex:        txn.Hash().String(),
 	}
 
-	if err = json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateOrCancelDAOCoinLimitOrder: Problem encoding response as JSON: %v", err))
-		return
-	}
-}
-
-func validateExchangeRateCoinsToSellPerCoinToBuyParam(requestData CreateOrCancelDAOCoinLimitOrderRequest) bool {
-	scaledValueIsZero := requestData.ScaledExchangeRateCoinsToSellPerCoinToBuy.IsZero()
-	floatValueIsZero := requestData.ExchangeRateCoinsToSellPerCoinToBuy == 0
-	return scaledValueIsZero != floatValueIsZero
-}
-
-func validateQuantityToBuyParam(requestData CreateOrCancelDAOCoinLimitOrderRequest) bool {
-	scaledValueIsZero := requestData.QuantityToBuyInBaseUnits.IsZero()
-	floatValueIsZero := requestData.QuantityToBuy == 0
-	return scaledValueIsZero != floatValueIsZero
+	return &res, nil
 }
 
 // Given a float f, compute (f * 2 ^ 128), and return as uint256

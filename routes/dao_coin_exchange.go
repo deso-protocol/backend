@@ -25,11 +25,9 @@ type DAOCoinLimitOrderEntryResponse struct {
 	BuyingDAOCoinCreatorPublicKeyBase58Check  string `safeForLogging:"true"`
 	SellingDAOCoinCreatorPublicKeyBase58Check string `safeForLogging:"true"`
 
-	// One of these two should be populated
 	ScaledExchangeRateCoinsToSellPerCoinToBuy *uint256.Int `safeForLogging:"true"`
 	ExchangeRateCoinsToSellPerCoinToBuy       float64      `safeForLogging:"true"`
-
-	// One of these two should be populated
+	
 	QuantityToBuyInBaseUnits *uint256.Int `safeForLogging:"true"`
 	QuantityToBuy            float64      `safeForLogging:"true"`
 }
@@ -96,15 +94,13 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 		}
 	}
 
-	adapter := utxoView.GetDbAdapter()
-
-	ordersBuyingCoin1, err := adapter.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(coin1PKID, coin2PKID)
+	ordersBuyingCoin1, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(coin1PKID, coin2PKID)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err))
 		return
 	}
 
-	ordersSellingCoin1, err := adapter.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(coin2PKID, coin1PKID)
+	ordersSellingCoin1, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(coin2PKID, coin1PKID)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err))
 		return
