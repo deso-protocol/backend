@@ -12,14 +12,14 @@ import (
 )
 
 func main() {
-	dirSnap := "/Users/piotr/data_dirs/hypersync/mini_sentry_nft"
+	dirSnap := "/Users/piotr/data_dirs/hypersync/final_nodes/runner_node"
 	time.Sleep(1 * time.Millisecond)
 	dbSnap, err := toolslib.OpenDataDir(dirSnap)
 	if err != nil {
 		fmt.Printf("Error reading db1 err: %v", err)
 		return
 	}
-	snap, err, _ := lib.NewSnapshot(dirSnap, lib.SnapshotBlockHeightPeriod, false, false)
+	snap, err, _ := lib.NewSnapshot(dbSnap, dirSnap, lib.SnapshotBlockHeightPeriod, false, false, &lib.DeSoMainnetParams)
 	if err != nil {
 		fmt.Printf("Error reading snap err: %v", err)
 		return
@@ -41,7 +41,7 @@ func main() {
 	})
 	fmt.Println(prefixes)
 	fmt.Printf("Checking prefixes: ")
-	numProcesses := int64(4)
+	numProcesses := int64(1)
 	sem := semaphore.NewWeighted(numProcesses)
 	ctx := context.Background()
 
@@ -60,10 +60,14 @@ func main() {
 			defer sem.Release(1)
 
 			lastPrefix := prefix
+			removeFirst := false
 			for {
 				entries, fullDb, err := lib.DBIteratePrefixKeys(dbSnap, prefix, lastPrefix, maxBytes)
 				if err != nil {
 					panic(fmt.Errorf("Problem fetching snapshot chunk (%v)", err))
+				}
+				if removeFirst {
+					entries = entries[1:]
 				}
 				for _, entry := range entries {
 					snap.AddChecksumBytes(entry.Key, entry.Value)
@@ -71,6 +75,7 @@ func main() {
 
 				if len(entries) != 0 {
 					lastPrefix = entries[len(entries)-1].Key
+					removeFirst = true
 				} else if fullDb {
 					panic("Number of ancestral records should not be zero")
 				}
