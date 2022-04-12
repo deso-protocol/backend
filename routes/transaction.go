@@ -57,8 +57,7 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	txnFound := fes.mempool.IsTransactionInPool(txnHash)
-	// Only check DB in testnet for now.
-	if !txnFound && fes.Params.NetworkType == lib.NetworkType_TESTNET {
+	if !txnFound {
 		txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), txnHash)
 	}
 	res := &GetTxnResponse{
@@ -243,6 +242,9 @@ type UpdateProfileRequest struct {
 
 	IsHidden bool `safeForLogging:"true"`
 
+	// ExtraData
+	ExtraData map[string]string `safeForLogging:"true"`
+
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
@@ -389,6 +391,8 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	extraData := preprocessExtraData(requestData.ExtraData)
+
 	additionalFees, compProfileCreationTxnHash, err := fes.CompProfileCreation(profilePublicKey, userMetadata, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, err.Error())
@@ -411,6 +415,7 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		requestData.NewStakeMultipleBasisPoints,
 		requestData.IsHidden,
 		additionalFees,
+		extraData,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem creating transaction: %v", err))
@@ -1391,7 +1396,7 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	postExtraData := preprocessExtraData(requestData.PostExtraData)
+	postExtraData := preprocessPostExtraData(requestData.PostExtraData)
 
 	// Try and create the SubmitPost for the user.
 	tstamp := uint64(time.Now().UnixNano())
@@ -2564,6 +2569,28 @@ func (fes *APIServer) getTransactionFee(txnType lib.TxnType, transactorPublicKey
 	return newOutputs, nil
 }
 
+// TransactionSpendingLimitResponse is a backend struct used to describe the TransactionSpendingLimit for a Derived key
+// in a way that can be JSON encoded/decoded.
+type TransactionSpendingLimitResponse struct {
+	// GlobalDESOLimit is the total amount of DESO (in nanos) that the DerivedKey can spend
+	GlobalDESOLimit uint64
+	// TransactionCountLimitMap is a map from transaction type (as a string) to the number of transactions
+	// the derived key is authorized to perform.
+	TransactionCountLimitMap map[lib.TxnString]uint64
+	// CreatorCoinOperationLimitMap is a map with public key base58 check as keys mapped to a map of
+	// CreatorCoinLimitOperationString (buy, sell, transfer, any) keys to the number of these operations that the
+	// derived key is authorized to perform.
+	CreatorCoinOperationLimitMap map[string]map[lib.CreatorCoinLimitOperationString]uint64
+	// DAOCoinOperationLimitMap is a map with public key base58 check as keys mapped to a map of
+	// DAOCoinLimitOperationString (mint, burn, transfer, disable_minting, update_transfer_restriction status, any)
+	// keys to the number of these operations that the derived key is authorized to perform.
+	DAOCoinOperationLimitMap map[string]map[lib.DAOCoinLimitOperationString]uint64
+	// NFTOperationLimitMap is a map with post hash hex as keys mapped to a map with serial number keys mapped to a map
+	// with NFTLimitOperationString (update, nft_bid, accept_nft_bid, transfer, burn, accept_nft_transfer, any) keys to
+	// the number of these operations that the derived key is authorized to perform.
+	NFTOperationLimitMap map[string]map[uint64]map[lib.NFTLimitOperationString]uint64
+}
+
 // AuthorizeDerivedKeyRequest ...
 type AuthorizeDerivedKeyRequest struct {
 	// The original public key of the derived key owner.
@@ -2583,6 +2610,20 @@ type AuthorizeDerivedKeyRequest struct {
 
 	// If we intend to sign this transaction with a derived key.
 	DerivedKeySignature bool `safeForLogging:"true"`
+
+	// ExtraData is arbitrary key value map
+	ExtraData map[string]string `safeForLogging:"true"`
+
+	// TransactionSpendingLimitHex represents a struct that will be merged with
+	// the TransactionSpendingLimitTracker for this Derived key. We require that
+	// this be sent as hex in order to guarantee that the AccessHash computed from
+	// this value is consistent with what the user is requesting.
+	TransactionSpendingLimitHex string `safeForLogging:"true"`
+
+	// Memo is a simple string that can be used to describe a derived key
+	Memo string `safeForLogging:"true"`
+
+	AppName string `safeForLogging:"true"`
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
@@ -2653,6 +2694,21 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Couldn't decode access signature."))
 		return
 	}
+	var memo []byte
+	blockHeight := fes.blockchain.BlockTip().Height + 1
+	// Only add the TransactionSpendingLimit and Memo if we're passed the block height.
+	if blockHeight >= fes.Params.ForkHeights.DerivedKeySetSpendingLimitsBlockHeight {
+		var memoStr string
+		if len(requestData.Memo) != 0 {
+			memoStr = requestData.Memo
+		} else if len(requestData.AppName) != 0 {
+			memoStr = requestData.AppName
+		}
+		if len(memoStr) != 0 {
+			memo = make([]byte, hex.EncodedLen(len([]byte(memoStr))))
+			hex.Encode(memo, []byte(memoStr))
+		}
+	}
 
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateAuthorizeDerivedKeyTxn(
 		ownerPublicKeyBytes,
@@ -2661,6 +2717,9 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		accessSignature,
 		requestData.DeleteKey,
 		requestData.DerivedKeySignature,
+		preprocessExtraData(requestData.ExtraData),
+		memo,
+		requestData.TransactionSpendingLimitHex,
 		// Standard transaction fields
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
@@ -2683,10 +2742,188 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		TransactionHex:    hex.EncodeToString(txnBytes),
 		TxnHashHex:        txn.Hash().String(),
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+// TransactionSpendingLimitToResponse converts the core struct lib.TransactionSpendingLimit to a
+// TransactionSpendingLimitResponse
+func TransactionSpendingLimitToResponse(
+	transactionSpendingLimit *lib.TransactionSpendingLimit, utxoView *lib.UtxoView, params *lib.DeSoParams,
+) *TransactionSpendingLimitResponse {
+
+	if utxoView == nil {
+
+	}
+	// If the transactionSpendingLimit is nil, return nil.
+	if transactionSpendingLimit == nil {
+		return nil
+	}
+	transactionSpendingLimitResponse := &TransactionSpendingLimitResponse{}
+
+	// Copy the GlobalDESOLimit
+	transactionSpendingLimitResponse.GlobalDESOLimit = transactionSpendingLimit.GlobalDESOLimit
+
+	// Iterate over the TransactionCountLimit map - convert TxnType to TxnString and set as key with count as value
+	if len(transactionSpendingLimit.TransactionCountLimitMap) > 0 {
+		transactionSpendingLimitResponse.TransactionCountLimitMap = make(map[lib.TxnString]uint64)
+		for txnType, txnCount := range transactionSpendingLimit.TransactionCountLimitMap {
+			transactionSpendingLimitResponse.TransactionCountLimitMap[txnType.GetTxnString()] = txnCount
+		}
+	}
+
+	// Iterate over the CreatorCoinOperationLimitMap - convert PKID from key into base58Check public key, convert
+	// CreatorCoinLimitOperation to CreatorCoinLimitOperationString. Fill in the nested maps appropriately.
+	if len(transactionSpendingLimit.CreatorCoinOperationLimitMap) > 0 {
+		transactionSpendingLimitResponse.CreatorCoinOperationLimitMap = make(
+			map[string]map[lib.CreatorCoinLimitOperationString]uint64)
+		for ccLimitKey, opCount := range transactionSpendingLimit.CreatorCoinOperationLimitMap {
+			var creatorPublicKeyBase58Check string
+			if !reflect.DeepEqual(ccLimitKey.CreatorPKID, lib.ZeroPKID) {
+				creatorPublicKeyBase58Check = lib.PkToString(
+					utxoView.GetPublicKeyForPKID(&ccLimitKey.CreatorPKID), params)
+			}
+			// If the key doesn't exist in the map yet, put key with empty map.
+			if _, exists := transactionSpendingLimitResponse.CreatorCoinOperationLimitMap[creatorPublicKeyBase58Check]; !exists {
+				transactionSpendingLimitResponse.CreatorCoinOperationLimitMap[creatorPublicKeyBase58Check] =
+					make(map[lib.CreatorCoinLimitOperationString]uint64)
+			}
+			transactionSpendingLimitResponse.CreatorCoinOperationLimitMap[creatorPublicKeyBase58Check][ccLimitKey.Operation.ToCreatorCoinLimitOperationString()] = opCount
+		}
+	}
+
+	// Iterate over the DAOCoinOperationLimitMap - convert PKID from key into base58Check public key, convert
+	// DAOCoinLimitOperation to DAOCoinLimitOperationString. Fill in the nested maps appropriately.
+	if len(transactionSpendingLimit.DAOCoinOperationLimitMap) > 0 {
+		transactionSpendingLimitResponse.DAOCoinOperationLimitMap = make(
+			map[string]map[lib.DAOCoinLimitOperationString]uint64)
+		for daoLimitKey, opCount := range transactionSpendingLimit.DAOCoinOperationLimitMap {
+			var creatorPublicKeyBase58Check string
+			if !reflect.DeepEqual(daoLimitKey.CreatorPKID, lib.ZeroPKID) {
+				creatorPublicKeyBase58Check = lib.PkToString(
+					utxoView.GetPublicKeyForPKID(&daoLimitKey.CreatorPKID), params)
+			}
+			// If the key doesn't exist in the map yet, put key with empty map.
+			if _, exists := transactionSpendingLimitResponse.DAOCoinOperationLimitMap[creatorPublicKeyBase58Check]; !exists {
+				transactionSpendingLimitResponse.DAOCoinOperationLimitMap[creatorPublicKeyBase58Check] =
+					make(map[lib.DAOCoinLimitOperationString]uint64)
+			}
+			transactionSpendingLimitResponse.DAOCoinOperationLimitMap[creatorPublicKeyBase58Check][daoLimitKey.Operation.ToDAOCoinLimitOperationString()] = opCount
+		}
+	}
+
+	// Iterate over the NFTOperationLimitMap - convert BlockHash from key into PostHashHex, convert
+	// NFTLimitOperation to NFTLimitOperationString. Fill in the nested maps appropriately.
+	if len(transactionSpendingLimit.NFTOperationLimitMap) > 0 {
+		transactionSpendingLimitResponse.NFTOperationLimitMap = make(
+			map[string]map[uint64]map[lib.NFTLimitOperationString]uint64)
+		for nftLimitKey, opCount := range transactionSpendingLimit.NFTOperationLimitMap {
+			var postHashHex string
+			if !reflect.DeepEqual(nftLimitKey.BlockHash, lib.ZeroBlockHash) {
+				postHashHex = hex.EncodeToString(nftLimitKey.BlockHash[:])
+			}
+			// If the key doesn't exist in the map yet, put key with empty map.
+			if _, exists := transactionSpendingLimitResponse.NFTOperationLimitMap[postHashHex]; !exists {
+				transactionSpendingLimitResponse.NFTOperationLimitMap[postHashHex] =
+					make(map[uint64]map[lib.NFTLimitOperationString]uint64)
+			}
+			serialNum := nftLimitKey.SerialNumber
+			// If serial number map doesn't exist in the map yet, put key with empty map.
+			if _, exists := transactionSpendingLimitResponse.NFTOperationLimitMap[postHashHex][serialNum]; !exists {
+				transactionSpendingLimitResponse.NFTOperationLimitMap[postHashHex][serialNum] =
+					make(map[lib.NFTLimitOperationString]uint64)
+			}
+
+			transactionSpendingLimitResponse.NFTOperationLimitMap[postHashHex][serialNum][nftLimitKey.Operation.ToNFTLimitOperationString()] = opCount
+		}
+	}
+	return transactionSpendingLimitResponse
+}
+
+func (fes *APIServer) TransactionSpendingLimitFromResponse(
+	transactionSpendingLimitResponse TransactionSpendingLimitResponse) (*lib.TransactionSpendingLimit, error) {
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return nil, fmt.Errorf("TransactionSpendingLimitFromResponse: error getting utxoview: %v", err)
+	}
+	transactionSpendingLimit := &lib.TransactionSpendingLimit{
+		GlobalDESOLimit: transactionSpendingLimitResponse.GlobalDESOLimit,
+	}
+
+	if len(transactionSpendingLimitResponse.TransactionCountLimitMap) > 0 {
+		transactionSpendingLimit.TransactionCountLimitMap = make(map[lib.TxnType]uint64)
+		for txnType, value := range transactionSpendingLimitResponse.TransactionCountLimitMap {
+			transactionSpendingLimit.TransactionCountLimitMap[lib.GetTxnTypeFromString(txnType)] = value
+		}
+	}
+
+	getCreatorPKIDForBase58Check := func(pubKeyBase58Check string) (*lib.PKID, error) {
+		creatorPKID := &lib.ZeroPKID
+		if pubKeyBase58Check != "" {
+			var pkBytes []byte
+			pkBytes, _, err = lib.Base58CheckDecode(pubKeyBase58Check)
+			if err != nil {
+				return nil, err
+			}
+			pkid := utxoView.GetPKIDForPublicKey(pkBytes)
+			if pkid == nil || pkid.PKID == nil {
+				return nil, fmt.Errorf("No PKID found for public key %v", pubKeyBase58Check)
+			}
+			creatorPKID = pkid.PKID
+		}
+		return creatorPKID, nil
+	}
+
+	if len(transactionSpendingLimitResponse.CreatorCoinOperationLimitMap) > 0 {
+		transactionSpendingLimit.CreatorCoinOperationLimitMap = make(map[lib.CreatorCoinOperationLimitKey]uint64)
+		for pubKey, operationToCountMap := range transactionSpendingLimitResponse.CreatorCoinOperationLimitMap {
+			creatorPKID, err := getCreatorPKIDForBase58Check(pubKey)
+			if err != nil {
+				return nil, fmt.Errorf("Error getting PKID for pub key %v", pubKey)
+			}
+			for operation, count := range operationToCountMap {
+				transactionSpendingLimit.CreatorCoinOperationLimitMap[lib.MakeCreatorCoinOperationLimitKey(
+					*creatorPKID, operation.ToCreatorCoinLimitOperation())] = count
+			}
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.DAOCoinOperationLimitMap) > 0 {
+		transactionSpendingLimit.DAOCoinOperationLimitMap = make(map[lib.DAOCoinOperationLimitKey]uint64)
+		for pubKey, operationToCountMap := range transactionSpendingLimitResponse.DAOCoinOperationLimitMap {
+			creatorPKID, err := getCreatorPKIDForBase58Check(pubKey)
+			if err != nil {
+				return nil, fmt.Errorf("Error getting PKID for pub key %v", pubKey)
+			}
+			for operation, count := range operationToCountMap {
+				transactionSpendingLimit.DAOCoinOperationLimitMap[lib.MakeDAOCoinOperationLimitKey(
+					*creatorPKID, operation.ToDAOCoinLimitOperation())] = count
+			}
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.NFTOperationLimitMap) > 0 {
+		transactionSpendingLimit.NFTOperationLimitMap = make(map[lib.NFTOperationLimitKey]uint64)
+		for postHashHex, serialNumToOperationToCountMap := range transactionSpendingLimitResponse.NFTOperationLimitMap {
+			postHash := &lib.ZeroBlockHash
+			if postHashHex != "" {
+				postHash, err = GetPostHashFromPostHashHex(postHashHex)
+				if err != nil {
+					return nil, err
+				}
+			}
+			for serialNum, operationToCountMap := range serialNumToOperationToCountMap {
+				for operation, count := range operationToCountMap {
+					transactionSpendingLimit.NFTOperationLimitMap[lib.MakeNFTOperationLimitKey(
+						*postHash, serialNum, operation.ToNFTLimitOperation())] = count
+				}
+			}
+		}
+	}
+
+	return transactionSpendingLimit, nil
 }
 
 // AppendExtraDataRequest ...
