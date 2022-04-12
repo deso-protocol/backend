@@ -2569,7 +2569,9 @@ type DAOCoinLimitOrderWithFloatValuesRequest struct {
 	SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
 
 	ExchangeRateCoinsToSellPerCoinToBuy float64 `safeForLogging:"true"`
-	QuantityToBuy                       float64 `safeForLogging:"true"`
+	QuantityToFill                      float64 `safeForLogging:"true"`
+
+	SideToFill string `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
 	TransactionFees      []TransactionFee `safeForLogging:"true"`
@@ -2596,7 +2598,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		)
 		return
 	}
-	scaledExchangeRateCoinsToSellPerCoinToBuy, err := scaleExchangeRateCoinsToSellPerCoinToBuy(
+	scaledExchangeRateCoinsToSellPerCoinToBuy, err := lib.CalculateScaledExchangeRate(
 		requestData.ExchangeRateCoinsToSellPerCoinToBuy,
 	)
 	if err != nil {
@@ -2608,12 +2610,17 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		_AddBadRequestError(ww, fmt.Sprint("CreateDAOCoinLimitOrder: QuantityToBuy must be greater than 0"))
 		return
 	}
-	quantityToBuyInBaseUnits, err := scaleQuantityToBuyToBaseUnits(
-		requestData.QuantityToBuy,
+	quantityToFillInBaseUnits, err := scaleFloatQuantityToBaseUnits(
+		requestData.QuantityToFill,
 	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
 		return
+	}
+
+	operationType := lib.DAOCoinLimitOrderOperationTypeASK
+	if requestData.SideToFill == "BID" {
+		operationType = lib.DAOCoinLimitOrderOperationTypeBID
 	}
 
 	res, err := fes.validateAndCreateDAOCoinLimitOrderResponse(
@@ -2622,7 +2629,8 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
 		requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
 		scaledExchangeRateCoinsToSellPerCoinToBuy,
-		quantityToBuyInBaseUnits,
+		quantityToFillInBaseUnits,
+		operationType,
 		requestData.MinFeeRateNanosPerKB,
 		requestData.TransactionFees,
 	)
@@ -2648,7 +2656,9 @@ type DAOCoinLimitOrderWithScaledValuesRequest struct {
 	SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
 
 	ScaledExchangeRateCoinsToSellPerCoinToBuy *uint256.Int `safeForLogging:"true"`
-	QuantityToBuyInBaseUnits                  *uint256.Int `safeForLogging:"true"`
+	QuantityToFillInBaseUnits                 *uint256.Int `safeForLogging:"true"`
+
+	SideToFill string `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
 	TransactionFees      []TransactionFee `safeForLogging:"true"`
@@ -2668,13 +2678,19 @@ func (fes *APIServer) CancelDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
+	operationType := lib.DAOCoinLimitOrderOperationTypeASK
+	if requestData.SideToFill == "BID" {
+		operationType = lib.DAOCoinLimitOrderOperationTypeBID
+	}
+
 	res, err := fes.validateAndCreateDAOCoinLimitOrderResponse(
 		CancelDAOCoinLimitOrder,
 		requestData.TransactorPublicKeyBase58Check,
 		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
 		requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
 		requestData.ScaledExchangeRateCoinsToSellPerCoinToBuy,
-		requestData.QuantityToBuyInBaseUnits,
+		requestData.QuantityToFillInBaseUnits,
+		operationType,
 		requestData.MinFeeRateNanosPerKB,
 		requestData.TransactionFees,
 	)
@@ -2705,7 +2721,8 @@ func (fes *APIServer) validateAndCreateDAOCoinLimitOrderResponse(
 	buyingDAOCoinCreatorPublicKeyBase58CheckOrUsername string,
 	sellingDAOCoinCreatorPublicKeyBase58CheckOrUsername string,
 	scaledExchangeRateCoinsToSellPerCoinToBuy *uint256.Int,
-	quantityToBuyInBaseUnits *uint256.Int,
+	quantityToFillInBaseUnits *uint256.Int,
+	operationType lib.DAOCoinLimitOrderOperationType,
 	minFeeRateNanosPerKB uint64,
 	transactionFees []TransactionFee,
 ) (*DAOCoinLimitOrderResponse, error) {
@@ -2776,7 +2793,8 @@ func (fes *APIServer) validateAndCreateDAOCoinLimitOrderResponse(
 			BuyingDAOCoinCreatorPublicKey:             lib.NewPublicKey(buyingCoinPublicKey),
 			SellingDAOCoinCreatorPublicKey:            lib.NewPublicKey(sellingCoinPublicKey),
 			ScaledExchangeRateCoinsToSellPerCoinToBuy: scaledExchangeRateCoinsToSellPerCoinToBuy,
-			QuantityToBuyInBaseUnits:                  quantityToBuyInBaseUnits,
+			QuantityToFillInBaseUnits:                 quantityToFillInBaseUnits,
+			OperationType:                             operationType,
 			CancelExistingOrder:                       cancelExistingOrder,
 			BidderInputs:                              nil,
 		},
@@ -2808,32 +2826,11 @@ func (fes *APIServer) validateAndCreateDAOCoinLimitOrderResponse(
 	return &res, nil
 }
 
-// Given a float f, compute (f * 2 ^ 128), and return as uint256
-func scaleExchangeRateCoinsToSellPerCoinToBuy(exchangeRateFloat float64) (*uint256.Int, error) {
-	base := big.NewInt(2)
-	exponent := big.NewInt(128)
-	multiplier := big.NewFloat(0).SetInt(base.Exp(base, exponent, nil))
-
-	product := big.NewFloat(0).Mul(
-		big.NewFloat(exchangeRateFloat),
-		multiplier,
-	)
-
-	// nothing we can do about rounding errors since we're reasonable happy with the level precision we get from
-	// scaling by 2 ^ 128
-	productAsBigInt, _ := product.Int(nil)
-	productAsUint256, overflow := uint256.FromBig(productAsBigInt)
-	if overflow {
-		return nil, errors.Errorf("Overflow when converting exchange rate from float to uint256")
-	}
-	return productAsUint256, nil
-}
-
 // Given a float f, compute f * NanosPerUnit, and return as uint256
-func scaleQuantityToBuyToBaseUnits(quantityToBuy float64) (*uint256.Int, error) {
+func scaleFloatQuantityToBaseUnits(quantityToFill float64) (*uint256.Int, error) {
 	multiplier := big.NewFloat(float64(lib.NanosPerUnit))
 	product := big.NewFloat(0).Mul(
-		big.NewFloat(quantityToBuy),
+		big.NewFloat(quantityToFill),
 		multiplier,
 	)
 	productAsBigInt, _ := product.Int(nil)

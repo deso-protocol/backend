@@ -30,8 +30,10 @@ type DAOCoinLimitOrderEntryResponse struct {
 	ScaledExchangeRateCoinsToSellPerCoinToBuy *uint256.Int `safeForLogging:"true"`
 	ExchangeRateCoinsToSellPerCoinToBuy       float64      `safeForLogging:"true"`
 
-	QuantityToBuyInBaseUnits *uint256.Int `safeForLogging:"true"`
-	QuantityToBuy            float64      `safeForLogging:"true"`
+	QuantityToFillInBaseUnits *uint256.Int `safeForLogging:"true"`
+	QuantityToFill            float64      `safeForLogging:"true"`
+
+	SideToFill string
 }
 
 func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Request) {
@@ -112,6 +114,12 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 
 	for _, order := range ordersBuyingCoin1 {
 		transactorPublicKey := utxoView.GetPublicKeyForPKID(order.TransactorPKID)
+
+		sideToFill := "BID"
+		if order.OperationType == lib.DAOCoinLimitOrderOperationTypeASK {
+			sideToFill = "ASK"
+		}
+
 		response = append(response, DAOCoinLimitOrderEntryResponse{
 			TransactorPublicKeyBase58Check: lib.Base58CheckEncode(transactorPublicKey, false, fes.Params),
 
@@ -121,13 +129,21 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 			ExchangeRateCoinsToSellPerCoinToBuy: floatExchangeRateCoinsToSellPerCoinToBuy(
 				order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
 			),
-			QuantityToBuyInBaseUnits: order.QuantityToBuyInBaseUnits,
-			QuantityToBuy:            floatQuantityToBuy(order.QuantityToBuyInBaseUnits),
+			QuantityToFillInBaseUnits: order.QuantityToFillInBaseUnits,
+			QuantityToFill:            floatQuantityToFill(order.QuantityToFillInBaseUnits),
+
+			SideToFill: sideToFill,
 		})
 	}
 
 	for _, order := range ordersSellingCoin1 {
 		transactorPublicKey := utxoView.GetPublicKeyForPKID(order.TransactorPKID)
+
+		sideToFill := "BID"
+		if order.OperationType == lib.DAOCoinLimitOrderOperationTypeASK {
+			sideToFill = "ASK"
+		}
+
 		response = append(response, DAOCoinLimitOrderEntryResponse{
 			TransactorPublicKeyBase58Check: lib.Base58CheckEncode(transactorPublicKey, false, fes.Params),
 
@@ -137,8 +153,10 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 			ExchangeRateCoinsToSellPerCoinToBuy: floatExchangeRateCoinsToSellPerCoinToBuy(
 				order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
 			),
-			QuantityToBuyInBaseUnits: order.QuantityToBuyInBaseUnits,
-			QuantityToBuy:            floatQuantityToBuy(order.QuantityToBuyInBaseUnits),
+			QuantityToFillInBaseUnits: order.QuantityToFillInBaseUnits,
+			QuantityToFill:            floatQuantityToFill(order.QuantityToFillInBaseUnits),
+
+			SideToFill: sideToFill,
 		})
 	}
 
@@ -239,22 +257,22 @@ func (fes *APIServer) GetDAOCoinTrades(ww http.ResponseWriter, req *http.Request
 
 	var response []DAOCoinLimitOrderEntryResponse
 
-	for _, trade := range trades {
-		response = append(response, DAOCoinLimitOrderEntryResponse{
-			TransactorPublicKeyBase58Check: requestData.TransactorPublicKeyBase58Check,
-
-			BuyingDAOCoinCreatorPublicKeyBase58Check:  trade.BuyingDAOCoinCreatorPublicKey,
-			SellingDAOCoinCreatorPublicKeyBase58Check: trade.SellingDAOCoinCreatorPublicKey,
-			ScaledExchangeRateCoinsToSellPerCoinToBuy: trade.SellingDAOCoinQuantitySold,
-			ExchangeRateCoinsToSellPerCoinToBuy: floatExchangeRateCoinsToSellPerCoinToBuy(
-				trade.SellingDAOCoinQuantitySold,
-			),
-			QuantityToBuyInBaseUnits: trade.BuyingDAOCoinQuantityPurchased,
-			QuantityToBuy: floatQuantityToBuy(
-				trade.BuyingDAOCoinQuantityPurchased,
-			),
-		})
-	}
+	//for _, trade := range trades {
+	//	response = append(response, DAOCoinLimitOrderEntryResponse{
+	//		TransactorPublicKeyBase58Check: requestData.TransactorPublicKeyBase58Check,
+	//
+	//		BuyingDAOCoinCreatorPublicKeyBase58Check:  trade.BuyingDAOCoinCreatorPublicKey,
+	//		SellingDAOCoinCreatorPublicKeyBase58Check: trade.SellingDAOCoinCreatorPublicKey,
+	//		ScaledExchangeRateCoinsToSellPerCoinToBuy: trade.SellingDAOCoinQuantitySold,
+	//		ExchangeRateCoinsToSellPerCoinToBuy: floatExchangeRateCoinsToSellPerCoinToBuy(
+	//			trade.SellingDAOCoinQuantitySold,
+	//		),
+	//		QuantityToBuyInBaseUnits: trade.BuyingDAOCoinQuantityPurchased,
+	//		QuantityToBuy: floatQuantityToBuy(
+	//			trade.BuyingDAOCoinQuantityPurchased,
+	//		),
+	//	})
+	//}
 
 	if err = json.NewEncoder(ww).Encode(GetDAOCoinLimitOrdersResponse{Orders: response}); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDAOCoinLimitOrders: Problem encoding response as JSON: %v", err))
@@ -282,22 +300,17 @@ func (fes *APIServer) validateCreatorPublicKeyBase58CheckOrUsername(
 
 // Given a value v, this computes v / (2 ^ 128) and returns it as float
 func floatExchangeRateCoinsToSellPerCoinToBuy(scaledValue *uint256.Int) float64 {
-	base := big.NewInt(2)
-	exponent := big.NewInt(128)
-	divisor := big.NewFloat(0).SetInt(base.Exp(base, exponent, nil))
+	valueBigFloat := big.NewFloat(0).SetInt(scaledValue.ToBig())
+	divisorBigFloat := big.NewFloat(0).SetInt(lib.OneE38.ToBig())
 
-	scaledValueAsBigFloat := big.NewFloat(0).SetInt(scaledValue.ToBig())
+	quotientBigFloat := big.NewFloat(0).Quo(valueBigFloat, divisorBigFloat)
 
-	quotientAsBigFloat := big.NewFloat(0).Quo(
-		scaledValueAsBigFloat,
-		divisor,
-	)
-	quotient, _ := quotientAsBigFloat.Float64()
-	return quotient
+	quotientFloat, _ := quotientBigFloat.Float64()
+	return quotientFloat
 }
 
 // Given a quantity q, this returns q / (NanosPerUnit) as float
-func floatQuantityToBuy(quantityInBaseUnits *uint256.Int) float64 {
+func floatQuantityToFill(quantityInBaseUnits *uint256.Int) float64 {
 	quantityInBaseUnitsAsBigFloat := big.NewFloat(0).SetInt(quantityInBaseUnits.ToBig())
 	divisor := big.NewFloat(float64(lib.NanosPerUnit))
 	quotientAsBigFloat := big.NewFloat(0).Quo(
