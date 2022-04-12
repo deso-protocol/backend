@@ -1253,8 +1253,20 @@ func (fes *APIServer) GetNFTCollectionSummary(ww http.ResponseWriter, req *http.
 
 	postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPublicKeyBytes, postEntry)
 
-	nftKey := lib.MakeNFTKey(postEntry.PostHash, 1)
-	nftEntry := utxoView.GetNFTEntryForNFTKey(&nftKey)
+	// Attempt to get the nft entry details starting at SN 1, and continue to increment until a valid serial number is found.
+	// This routine is needed in order to account for burned NFTs.
+	var nftEntry *lib.NFTEntry
+	nftKeySN := uint64(1)
+	for nftEntry == nil && nftKeySN <= postEntry.NumNFTCopies {
+		nftKey := lib.MakeNFTKey(postEntry.PostHash, nftKeySN)
+		nftEntry = utxoView.GetNFTEntryForNFTKey(&nftKey)
+		nftKeySN += 1
+	}
+
+	if nftEntry == nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTCollectionSummary: Could not find a valid Serial Number for the given NFT post hash."))
+		return
+	}
 
 	res := &GetNFTCollectionSummaryResponse{
 		NFTCollectionResponse:          fes._nftEntryToNFTCollectionResponse(nftEntry, postEntry.PosterPublicKey, postEntryResponse, utxoView, readerPKID),
