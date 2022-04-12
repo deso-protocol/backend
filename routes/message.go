@@ -887,6 +887,9 @@ type RegisterMessagingGroupKeyRequest struct {
 	// the signature is only needed to register the default key.
 	MessagingKeySignatureHex      string
 
+	// MessagingGroupMembers is the list of members we intend to add to this group.
+	MessagingGroupMembers         []*MessagingGroupMemberResponse
+
 	// ExtraData is an arbitrary key value map
 	ExtraData map[string]string
 
@@ -964,9 +967,28 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 		return
 	}
 
+	messagingGroupMembers := []*lib.MessagingGroupMember{}
+	for _, member := range requestData.MessagingGroupMembers {
+		memberPublicKeyBytes, _, err := lib.Base58CheckDecode(member.GroupMemberPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Member public key %v is invalid: %v",
+				member.GroupMemberPublicKeyBase58Check, err))
+			return
+		}
+		memberPublicKey := lib.NewPublicKey(memberPublicKeyBytes)
+		groupKey := lib.NewMessagingGroupKey(memberPublicKey, []byte(member.GroupMemberKeyName))
+		encryptedKey, err := hex.DecodeString(member.EncryptedKey)
+
+		messagingGroupMembers = append(messagingGroupMembers, &lib.MessagingGroupMember{
+			GroupMemberPublicKey: memberPublicKey,
+			GroupMemberKeyName: &groupKey.GroupKeyName,
+			EncryptedKey: encryptedKey,
+		})
+	}
+
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
 		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, messagingKeySignature,
-		[]*lib.MessagingGroupMember{}, preprocessExtraData(requestData.ExtraData),
+		messagingGroupMembers, preprocessExtraData(requestData.ExtraData),
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem creating transaction: %v", err))
