@@ -2581,6 +2581,10 @@ func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredO
 }
 
 func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Check string, utxoView *lib.UtxoView) bool {
+	if txnMeta.DAOCoinLimitOrderTxindexMetadata != nil {
+		return txnMeta.DAOCoinLimitOrderTxindexMetadata.FilledDAOCoinLimitOrdersMetadata != nil
+	}
+
 	// Transactions initiated by the passed-in public key should not
 	// trigger notifications.
 	if txnMeta.TransactorPublicKeyBase58Check == publicKeyBase58Check {

@@ -11,6 +11,8 @@ import (
 )
 
 type GetDAOCoinLimitOrdersRequest struct {
+	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
+
 	DAOCoin1CreatorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
 	DAOCoin2CreatorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
 }
@@ -27,7 +29,7 @@ type DAOCoinLimitOrderEntryResponse struct {
 
 	ScaledExchangeRateCoinsToSellPerCoinToBuy *uint256.Int `safeForLogging:"true"`
 	ExchangeRateCoinsToSellPerCoinToBuy       float64      `safeForLogging:"true"`
-	
+
 	QuantityToBuyInBaseUnits *uint256.Int `safeForLogging:"true"`
 	QuantityToBuy            float64      `safeForLogging:"true"`
 }
@@ -137,6 +139,120 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 			),
 			QuantityToBuyInBaseUnits: order.QuantityToBuyInBaseUnits,
 			QuantityToBuy:            floatQuantityToBuy(order.QuantityToBuyInBaseUnits),
+		})
+	}
+
+	if err = json.NewEncoder(ww).Encode(GetDAOCoinLimitOrdersResponse{Orders: response}); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetDAOCoinLimitOrders: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) GetDAOCoinTrades(ww http.ResponseWriter, req *http.Request) {
+	// If the TxIndex flag was not passed to this node then we don't track order fills
+	if fes.TXIndex == nil {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("GetDAOCoinLimitOrderFills: Cannot be called when TXIndexChain "+
+				"is nil. This error occurs when --txindex was not passed to the program "+
+				"on startup"),
+		)
+	}
+
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetDAOCoinLimitOrdersRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("GetDAOCoinLimitOrderFills: Problem parsing request body: %v", err),
+		)
+		return
+	}
+
+	getNotificationsRequest := GetNotificationsRequest{
+		PublicKeyBase58Check:              requestData.TransactorPublicKeyBase58Check,
+		FetchStartIndex:                   -1,
+		NumToFetch:                        10000,
+		FilteredOutNotificationCategories: map[string]bool{},
+	}
+
+	// A valid mempool object is used to compute the TransactionMetadata for the mempool
+	// and to allow for things like: filtering notifications for a hidden post.
+	utxoView, err := fes.mempool.GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("GetDAOCoinLimitOrderFills: Problem getting view: %v", err),
+		)
+		return
+	}
+
+	blocked := map[string]struct{}{}
+
+	// Get notifications from the db
+	dbTxnMetadataFound, err := fes._getDBNotifications(&getNotificationsRequest, blocked, utxoView, true)
+	if err != nil {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("GetDAOCoinLimitOrderFills: Error getting DB Notifications: %v", err),
+		)
+		return
+	}
+
+	mempoolTxnMetadataFound, err := fes._getMempoolNotifications(
+		&getNotificationsRequest,
+		blocked,
+		utxoView,
+		true,
+	)
+	if err != nil {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("GetDAOCoinLimitOrderFills: Error getting mempool Notifications: %v", err),
+		)
+		return
+	}
+
+	// At this point, the combinedMempoolDBTxnMetadata either contains the latest transactions
+	// from the mempool *or* it's empty. The latter occurs when the FetchStartIndex
+	// is set to a value below the smallest index of any transaction in the mempool.
+	// In either case, appending the transactions we found in the db is the correct
+	// thing to do.
+	combinedMempoolDBTxnMetadata := append(
+		mempoolTxnMetadataFound,
+		dbTxnMetadataFound...,
+	)
+
+	trades := []*lib.FilledDAOCoinLimitOrderMetadata{}
+	for _, metadata := range combinedMempoolDBTxnMetadata {
+		if metadata.Metadata.DAOCoinLimitOrderTxindexMetadata != nil {
+			fills := metadata.Metadata.DAOCoinLimitOrderTxindexMetadata.FilledDAOCoinLimitOrdersMetadata
+			if fills != nil {
+				for _, fill := range fills {
+					if fill.TransactorPublicKeyBase58Check == requestData.TransactorPublicKeyBase58Check {
+						trades = append(trades, fill)
+					}
+				}
+			}
+		}
+	}
+
+	var response []DAOCoinLimitOrderEntryResponse
+
+	for _, trade := range trades {
+		response = append(response, DAOCoinLimitOrderEntryResponse{
+			TransactorPublicKeyBase58Check: requestData.TransactorPublicKeyBase58Check,
+
+			BuyingDAOCoinCreatorPublicKeyBase58Check:  trade.BuyingDAOCoinCreatorPublicKey,
+			SellingDAOCoinCreatorPublicKeyBase58Check: trade.SellingDAOCoinCreatorPublicKey,
+			ScaledExchangeRateCoinsToSellPerCoinToBuy: trade.SellingDAOCoinQuantitySold,
+			ExchangeRateCoinsToSellPerCoinToBuy: floatExchangeRateCoinsToSellPerCoinToBuy(
+				trade.SellingDAOCoinQuantitySold,
+			),
+			QuantityToBuyInBaseUnits: trade.BuyingDAOCoinQuantityPurchased,
+			QuantityToBuy: floatQuantityToBuy(
+				trade.BuyingDAOCoinQuantityPurchased,
+			),
 		})
 	}
 
