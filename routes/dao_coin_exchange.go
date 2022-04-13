@@ -263,7 +263,7 @@ func (fes *APIServer) GetDAOCoinTrades(ww http.ResponseWriter, req *http.Request
 	//
 	//		BuyingDAOCoinCreatorPublicKeyBase58Check:  trade.BuyingDAOCoinCreatorPublicKey,
 	//		SellingDAOCoinCreatorPublicKeyBase58Check: trade.SellingDAOCoinCreatorPublicKey,
-	//		ScaledExchangeRateCoinsToSellPerCoinToBuy: trade.SellingDAOCoinQuantitySold,
+	//		ScaledExchangeRateCoinsToSellPerCoinToBuy: trade.,
 	//		ExchangeRateCoinsToSellPerCoinToBuy: floatExchangeRateCoinsToSellPerCoinToBuy(
 	//			trade.SellingDAOCoinQuantitySold,
 	//		),
