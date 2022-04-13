@@ -305,6 +305,11 @@ type APIServer struct {
 
 	// A list of posts from the last 24hrs ordered by hotness score.
 	HotFeedOrderedList []*HotFeedEntry
+	// FIXME: Add a map version of HotFeedOrderedList mapping each post to its
+	// hotness score. Call it HotFeedPostHashToScoreMap
+	// FIXME: Add an in-memory map from post tag to post hash here. This will allow us to
+	// quickly get all the posts for a particular group:
+	// - PostTagToPostHashMap map[string]*BlockHash
 	// The height of the last block evaluated by the hotness routine.
 	HotFeedBlockHeight uint32
 	// Map of whitelisted post hashes used for serving the hot feed.

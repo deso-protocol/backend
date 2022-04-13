@@ -329,6 +329,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	blockOffsetForTesting := 0
 
 	// Grab the last 24 hours worth of blocks (288 blocks @ 5min/block).
+	// FIXME: Make this the last 90d. I think we can handle it.
 	blockTipIndex := len(fes.blockchain.BestChain()) - 1 - blockOffsetForTesting
 	relevantNodes := fes.blockchain.BestChain()
 	if len(fes.blockchain.BestChain()) > (288 + blockOffsetForTesting) {
