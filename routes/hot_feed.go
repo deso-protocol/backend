@@ -16,7 +16,7 @@ import (
 	"github.com/golang/glog"
 )
 
-// This file defines a simple go routine that tracks "hot" posts from the last 24hrs as well
+// This file defines a simple go routine that tracks "hot" posts from the specified look-back period as well
 // as API functionality for retrieving scored posts. The algorithm for assessing a post's
 // "hotness" is experimental and will likely be iterated upon depending on its results.
 
@@ -33,6 +33,14 @@ type HotFeedEntry struct {
 	PostHash     *lib.BlockHash
 	PostHashHex  string
 	HotnessScore uint64
+}
+
+// A single element in the server's HotFeedOrderedList, with the age of the post for sorting purposes.
+type HotFeedEntryTimeSortable struct {
+	PostHash     *lib.BlockHash
+	PostHashHex  string
+	HotnessScore uint64
+	PostBlockAge int
 }
 
 // A key to track whether a specific public key has interacted with a post before.
@@ -56,11 +64,14 @@ type HotFeedPKIDMultiplier struct {
 // second in order to make sure hot feed removals are processed quickly.
 func (fes *APIServer) StartHotFeedRoutine() {
 	glog.Info("Starting hot feed routine.")
+	// Initialize post tag to post hashes map
+	fes.PostTagToPostHashesMap = make(map[string]map[lib.BlockHash]bool)
+	fes.PostTagToOrderedHotFeedEntries = make(map[string][]*HotFeedEntry)
 	go func() {
 	out:
 		for {
 			select {
-			case <-time.After(1 * time.Second):
+			case <-time.After(15 * time.Second):
 				fes.UpdateHotFeed()
 			case <-fes.quit:
 				break out
@@ -80,7 +91,7 @@ func (fes *APIServer) UpdateHotFeed() {
 	fes.UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts)
 	fes.UpdateHotFeedPKIDMultipliersMap(hotFeedPKIDMultipliers)
 
-	// Update the HotFeedOrderedList based on the last 288 blocks.
+	// Update the HotFeedOrderedList based on the specified look-back period's blocks.
 	hotFeedPosts := fes.UpdateHotFeedOrderedList(hotFeedApprovedPosts, hotFeedPKIDMultipliers)
 
 	// The hotFeedPosts map will be nil unless we found new blocks in the call above.
@@ -261,7 +272,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 ) (_hotFeedPostsMap map[lib.BlockHash]*HotnessPostInfo,
 ) {
 	// Check to see if any of the algorithm constants have changed.
-	foundNewConstants := false
+	foundNewConstants := true
 	globalStateInteractionCap, globalStateTimeDecayBlocks, err := fes.GetHotFeedConstantsFromGlobalState()
 	if err != nil {
 		glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to get constants: %v", err)
@@ -328,12 +339,12 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	// which is useful for testing purposes.
 	blockOffsetForTesting := 0
 
-	// Grab the last 24 hours worth of blocks (288 blocks @ 5min/block).
-	// FIXME: Make this the last 90d. I think we can handle it.
+	// Grab the last 90 days worth of blocks (25,920 blocks @ 5min/block).
+	lookbackWindowBlocks := 90 * 24 * 60 / 5
 	blockTipIndex := len(fes.blockchain.BestChain()) - 1 - blockOffsetForTesting
 	relevantNodes := fes.blockchain.BestChain()
-	if len(fes.blockchain.BestChain()) > (288 + blockOffsetForTesting) {
-		relevantNodes = fes.blockchain.BestChain()[blockTipIndex-288-blockOffsetForTesting : blockTipIndex]
+	if len(fes.blockchain.BestChain()) > (lookbackWindowBlocks + blockOffsetForTesting) {
+		relevantNodes = fes.blockchain.BestChain()[blockTipIndex-lookbackWindowBlocks-blockOffsetForTesting : blockTipIndex]
 	}
 
 	// Iterate over the blocks and track hotness scores.
@@ -345,10 +356,10 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 			// For time decay, we care about how many blocks away from the tip this block is.
 			blockAgee := len(relevantNodes) - blockIdx
 
-			// We only care about posts created in the last 24hrs. There should always be a
+			// We only care about posts created in the specified look-back period. There should always be a
 			// transaction that creates a given post before someone interacts with it. By only
 			// scoring posts that meet this condition, we can restrict the HotFeedOrderedList
-			// to posts from the last 24hours without even looking up the post time stamp.
+			// to posts from the specified look-back period without even looking up the post time stamp.
 			isCreatePost, postHashCreated := CheckTxnForCreatePost(txn)
 			if isCreatePost {
 				hotnessInfoMap[*postHashCreated] = &HotnessPostInfo{
@@ -370,13 +381,13 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 			prevHotnessInfo, inHotnessInfoMap := hotnessInfoMap[*postHashToScore]
 			if !inHotnessInfoMap {
 				// If the post is not in the hotnessInfoMap yet, it wasn't created
-				// in the last 24hrs so we can continue.
+				// in the specified look-back period so we can continue.
 				continue
 			}
 			postBlockAge := prevHotnessInfo.PostBlockAge
 
 			// If we get here, we know we are dealing with a txn that interacts with a
-			// post that was created within the last 24 hours.
+			// post that was created within the specified look-back period.
 
 			// Evaluate the txn and attempt to update the hotnessInfoMap.
 			postHashScored, interactionPKID, txnHotnessScore :=
@@ -399,7 +410,6 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 					txnHotnessScore = uint64(
 						interactionPKIDMultiplier.InteractionMultiplier * float64(txnHotnessScore))
 				}
-
 				// Check for overflow just in case.
 				if prevHotnessInfo.HotnessScore > math.MaxInt64-txnHotnessScore {
 					continue
@@ -409,6 +419,24 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 				postEntryScored := utxoView.GetPostEntryForPostHash(postHashScored)
 				if len(postEntryScored.ParentStakeID) > 0 || lib.IsVanillaRepost(postEntryScored) {
 					continue
+				}
+				// Parse tags from post entry
+				tags, _ := ParseTagsFromPost(postEntryScored)
+				// Add each tagged post to the tag:postEntries map
+				for _, tag := range tags {
+					// If a post hash set already exists, append to it,
+					// otherwise create a new set and add it to the map.
+					if postHashSet, ok := fes.PostTagToPostHashesMap[tag]; ok {
+						// Only add to the set if the post hash isn't already present
+						if _, ok := postHashSet[*postHashScored]; !ok {
+							postHashSet[*postHashScored] = true
+						}
+						fes.PostTagToPostHashesMap[tag] = postHashSet
+					} else {
+						postHashSet := make(map[lib.BlockHash]bool)
+						postHashSet[*postHashScored] = true
+						fes.PostTagToPostHashesMap[tag] = postHashSet
+					}
 				}
 
 				// Update the hotness score.
@@ -432,6 +460,12 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		return hotFeedOrderedList[ii].HotnessScore > hotFeedOrderedList[jj].HotnessScore
 	})
 	fes.HotFeedOrderedList = hotFeedOrderedList
+	fes.HotFeedPostHashToScoreMap = hotnessInfoMap
+
+	// Set the ordered lists for hot feed based on tags.
+	fes.SaveOrderedFeedForTags(true)
+	// Set the ordered lists for newness based on tags.
+	fes.SaveOrderedFeedForTags(false)
 
 	// Update the HotFeedBlockHeight so we don't re-evaluate this set of blocks.
 	fes.HotFeedBlockHeight = blockTip.Height
@@ -440,6 +474,57 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	glog.Infof("Successfully updated HotFeedOrderedList in %s", elapsed)
 
 	return hotnessInfoMap
+}
+
+// Rank posts on a tag-by-tag basis and save them to their corresponding index in a map.
+// If sortByHotness is true, sort by their hotness score, otherwise sort by newness.
+func (fes *APIServer) SaveOrderedFeedForTags(sortByHotness bool) {
+	for tag, tagPostHashes := range fes.PostTagToPostHashesMap {
+		tagHotFeedOrderedList := []*HotFeedEntry{}
+		tagHotFeedListWithAge := []*HotFeedEntryTimeSortable{}
+		// Loop through every tagged post for the tag in question.
+		for tagPostHashKey, _ := range tagPostHashes {
+			tagPostHash := tagPostHashKey
+			if postHotnessInfo, ok := fes.HotFeedPostHashToScoreMap[tagPostHash]; ok {
+				postHotFeedEntry := &HotFeedEntryTimeSortable{
+					PostHash: &tagPostHash,
+					PostHashHex:  hex.EncodeToString(tagPostHash[:]),
+					HotnessScore: postHotnessInfo.HotnessScore,
+					PostBlockAge: postHotnessInfo.PostBlockAge,
+				}
+				tagHotFeedListWithAge = append(tagHotFeedListWithAge, postHotFeedEntry)
+			}
+		}
+		// Sort posts based on specified criteria, either age (asc) or hotness (desc).
+		sort.Slice(tagHotFeedListWithAge, func(ii, jj int) bool {
+			if sortByHotness {
+				return tagHotFeedListWithAge[ii].HotnessScore > tagHotFeedListWithAge[jj].HotnessScore
+			} else {
+				return tagHotFeedListWithAge[ii].PostBlockAge < tagHotFeedListWithAge[jj].PostBlockAge
+			}
+		})
+		// Remove age from entry to save space.
+		tagHotFeedOrderedList = removeAgeFromSortedHotFeedEntries(tagHotFeedListWithAge)
+		if sortByHotness {
+			fes.PostTagToOrderedHotFeedEntries[tag] = tagHotFeedOrderedList
+		} else {
+			fes.PostTagToOrderedNewestEntries[tag] = tagHotFeedOrderedList
+		}
+	}
+}
+
+// This function removes the age field from a sorted list of hot feed entries. This allows us to reduce the size
+// of the entries created.
+func removeAgeFromSortedHotFeedEntries(sortedHotFeedEntries []*HotFeedEntryTimeSortable) []*HotFeedEntry {
+	hotFeedEntriesWithoutAge := []*HotFeedEntry{}
+	for _, hotFeedEntryWithAge := range sortedHotFeedEntries {
+		hotFeedEntriesWithoutAge = append(hotFeedEntriesWithoutAge, &HotFeedEntry{
+			PostHash: hotFeedEntryWithAge.PostHash,
+			PostHashHex: hotFeedEntryWithAge.PostHashHex,
+			HotnessScore: hotFeedEntryWithAge.HotnessScore,
+		})
+	}
+	return hotFeedEntriesWithoutAge
 }
 
 func (fes *APIServer) GetHotFeedConstantsFromGlobalState() (
@@ -593,6 +678,10 @@ type HotFeedPageRequest struct {
 	SeenPosts []string
 	// Number of post entry responses to return.
 	ResponseLimit int
+	// If defined, only get the hot feed for posts tagged with this tag.
+	Tag string
+	// If true, sort by new instead of by hotness. Only applies to queries where "Tag" is defined.
+	SortByNew bool
 }
 
 type HotFeedPageResponse struct {
@@ -604,7 +693,6 @@ func (fes *APIServer) AdminGetUnfilteredHotFeed(ww http.ResponseWriter, req *htt
 }
 
 func (fes *APIServer) GetHotFeed(ww http.ResponseWriter, req *http.Request) {
-	// RPH-FIXME: set approvedPostsOnly to true before launch.
 	fes.HandleHotFeedPageRequest(ww, req, false /*approvedPostsOnly*/, false /*addMultiplierBool*/)
 }
 
@@ -645,7 +733,30 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 	}
 
 	hotFeed := []PostEntryResponse{}
-	for _, hotFeedEntry := range fes.HotFeedOrderedList {
+
+	// The list of posts that will be iterated on
+	var hotFeedOrderedList []*HotFeedEntry
+
+	// Only process posts tagged with a particular tag if specified in the request
+	if requestData.Tag != "" {
+		// Choose the map with the lists sorted in the manner specified by the user (hotness or newness).
+		var tagMap map[string][]*HotFeedEntry
+		if requestData.SortByNew {
+			tagMap = fes.PostTagToOrderedNewestEntries
+		} else {
+			tagMap = fes.PostTagToOrderedHotFeedEntries
+		}
+		// Check to make sure key exists in map. If not, return an empty list
+		if orderedEntriesForTag, ok := tagMap[requestData.Tag]; ok {
+			hotFeedOrderedList = orderedEntriesForTag
+		} else {
+			hotFeedOrderedList = []*HotFeedEntry{}
+		}
+	} else {
+		hotFeedOrderedList = fes.HotFeedOrderedList
+	}
+
+	for _, hotFeedEntry := range hotFeedOrderedList {
 		if requestData.ResponseLimit != 0 && len(hotFeed) > requestData.ResponseLimit {
 			break
 		}

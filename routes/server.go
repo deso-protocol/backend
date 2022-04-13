@@ -303,13 +303,19 @@ type APIServer struct {
 	// Base-58 prefix to check for to determine if a string could be a public key.
 	PublicKeyBase58Prefix string
 
-	// A list of posts from the last 24hrs ordered by hotness score.
+	// A list of posts from the specified look-back period ordered by hotness score.
 	HotFeedOrderedList []*HotFeedEntry
-	// FIXME: Add a map version of HotFeedOrderedList mapping each post to its
-	// hotness score. Call it HotFeedPostHashToScoreMap
-	// FIXME: Add an in-memory map from post tag to post hash here. This will allow us to
-	// quickly get all the posts for a particular group:
-	// - PostTagToPostHashMap map[string]*BlockHash
+	// A map version of HotFeedOrderedList mapping each post to its hotness score and post age.
+	HotFeedPostHashToScoreMap map[lib.BlockHash]*HotnessPostInfo
+	// An in-memory map from post tag to post hash. This allows us to
+	// quickly get all the posts for a particular group.
+	// This is represented as a map of strings to a set of post hashes. A set is used instead of an array to allow for
+	// quicker de-duplication checks.
+	PostTagToPostHashesMap map[string]map[lib.BlockHash]bool
+	// For each tag, store ordered slice of post hashes based on hot feed ranking.
+	PostTagToOrderedHotFeedEntries map[string][]*HotFeedEntry
+	// For each tag, store ordered slice of post hashes based on newness.
+	PostTagToOrderedNewestEntries map[string][]*HotFeedEntry
 	// The height of the last block evaluated by the hotness routine.
 	HotFeedBlockHeight uint32
 	// Map of whitelisted post hashes used for serving the hot feed.
