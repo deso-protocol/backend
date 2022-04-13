@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -3121,7 +3122,8 @@ func (fes *APIServer) GetTransactionSpendingLimitResponseFromHex(ww http.Respons
 	}
 
 	var transactionSpendingLimit lib.TransactionSpendingLimit
-	if err = transactionSpendingLimit.FromBytes(tslBytes); err != nil {
+	rr := bytes.NewReader(tslBytes)
+	if err = transactionSpendingLimit.FromBytes(rr); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetTransactionSpendingLimitResponseFromHex: Error constructing TransactionSpendingLimit from bytes"))
 		return
