@@ -67,6 +67,7 @@ func (fes *APIServer) StartHotFeedRoutine() {
 	// Initialize maps used for serving tag-specific hot feeds.
 	fes.PostTagToPostHashesMap = make(map[string]map[lib.BlockHash]bool)
 	fes.PostTagToOrderedHotFeedEntries = make(map[string][]*HotFeedEntry)
+	fes.PostTagToOrderedNewestEntries = make(map[string][]*HotFeedEntry)
 	go func() {
 	out:
 		for {
