@@ -154,8 +154,6 @@ func (fes *APIServer) AdminUpdateGlobalFeed(ww http.ResponseWriter, req *http.Re
 	}
 
 	// Add a hot feed op for this post.
-	// FIXME: We need to automatically add all posts for consideration in the hot feed when
-	// the post is submitted. To do this, copy this logic over to the SubmitPost() call.
 	hotFeedOp := HotFeedApprovedPostOp{
 		IsRemoval:  requestData.RemoveFromGlobalFeed,
 		Multiplier: 1,

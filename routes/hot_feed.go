@@ -64,7 +64,7 @@ type HotFeedPKIDMultiplier struct {
 // second in order to make sure hot feed removals are processed quickly.
 func (fes *APIServer) StartHotFeedRoutine() {
 	glog.Info("Starting hot feed routine.")
-	// Initialize post tag to post hashes map
+	// Initialize maps used for serving tag-specific hot feeds.
 	fes.PostTagToPostHashesMap = make(map[string]map[lib.BlockHash]bool)
 	fes.PostTagToOrderedHotFeedEntries = make(map[string][]*HotFeedEntry)
 	go func() {
@@ -746,7 +746,7 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 		} else {
 			tagMap = fes.PostTagToOrderedHotFeedEntries
 		}
-		// Check to make sure key exists in map. If not, return an empty list
+		// Check to make sure key exists in map. If not, return an empty list.
 		if orderedEntriesForTag, ok := tagMap[requestData.Tag]; ok {
 			hotFeedOrderedList = orderedEntriesForTag
 		} else {

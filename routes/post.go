@@ -2293,6 +2293,7 @@ func GetPostHashFromPostHashHex(postHashHex string) (*lib.BlockHash, error) {
 	return postHash, nil
 }
 
+// Parse post body, extract all tags (e.g. @diamondhands), and return them in a slice.
 func ParseTagsFromPost(postEntry *lib.PostEntry) ([]string, error){
 	// Get the body of the post.
 	bodyJSONObj := &lib.DeSoBodySchema{}
