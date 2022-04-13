@@ -33,7 +33,8 @@ func Run(cmd *cobra.Command, args []string) {
 	node := NewNode(nodeConfig, coreNode)
 	node.Start()
 
-	signal.Notify(shutdownListener, syscall.SIGINT, syscall.SIGTERM)
+	syscallChannel := make(chan os.Signal)
+	signal.Notify(syscallChannel, syscall.SIGINT, syscall.SIGTERM)
 	defer func() {
 		coreNode.Stop()
 		node.Stop()
@@ -43,7 +44,11 @@ func Run(cmd *cobra.Command, args []string) {
 		}
 		glog.Info("Shutdown complete")
 	}()
-	<-shutdownListener
+
+	select {
+	case <-shutdownListener:
+	case <-syscallChannel:
+	}
 }
 
 func init() {
