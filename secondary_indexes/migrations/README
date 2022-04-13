@@ -1,0 +1,6 @@
+To add a migration, simply do the following:
+* Choose a new filename (timestamp and suffix)
+* Copy an existing migration over to a new file with that name
+* Modify the Exec commands to suit your needs
+* The other modules will pick up the migration as long as it follows the same
+  filename format. It does this by importing the "Migrations" var defined in main.go
