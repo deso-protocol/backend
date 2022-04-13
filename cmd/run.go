@@ -21,7 +21,7 @@ var runCmd = &cobra.Command{
 }
 
 func Run(cmd *cobra.Command, args []string) {
-	shutdownListener := make(chan os.Signal)
+	shutdownListener := make(chan struct{})
 
 	// Start the core node
 	coreConfig := coreCmd.LoadConfig()
