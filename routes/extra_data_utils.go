@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -67,7 +68,7 @@ func Decode64BitIntString(bytes []byte, _ *lib.DeSoParams, _ *lib.UtxoView) stri
 }
 
 // Decode64BitUintString supports decoding integers up to a length of 8 bytes
-func Decode64BitUintString(bytes []byte, _ *lib.DeSoParams,  _ *lib.UtxoView) string {
+func Decode64BitUintString(bytes []byte, _ *lib.DeSoParams, _ *lib.UtxoView) string {
 	var decoded, _ = lib.Uvarint(bytes)
 	return strconv.FormatUint(decoded, 10)
 }
@@ -80,11 +81,11 @@ func DecodeHexString(bytes []byte, _ *lib.DeSoParams, _ *lib.UtxoView) string {
 	return hex.EncodeToString(bytes)
 }
 
-func DecodePkToString(bytes []byte, params *lib.DeSoParams,  _ *lib.UtxoView) string {
+func DecodePkToString(bytes []byte, params *lib.DeSoParams, _ *lib.UtxoView) string {
 	return lib.PkToString(bytes, params)
 }
 
-func DecodePubKeyToUint64MapString(bytes []byte, params *lib.DeSoParams,  _ *lib.UtxoView) string {
+func DecodePubKeyToUint64MapString(bytes []byte, params *lib.DeSoParams, _ *lib.UtxoView) string {
 	var decoded, _ = lib.DeserializePubKeyToUint64Map(bytes)
 	mapWithDecodedKeys := map[string]uint64{}
 	for k, v := range decoded {
@@ -93,13 +94,14 @@ func DecodePubKeyToUint64MapString(bytes []byte, params *lib.DeSoParams,  _ *lib
 	return fmt.Sprint(mapWithDecodedKeys)
 }
 
-func DecodeString(bytes []byte, _ *lib.DeSoParams,  _ *lib.UtxoView) string {
+func DecodeString(bytes []byte, _ *lib.DeSoParams, _ *lib.UtxoView) string {
 	return string(bytes)
 }
 
-func DecodeTransactionSpendingLimit(bytes []byte, params *lib.DeSoParams, utxoView *lib.UtxoView) string {
+func DecodeTransactionSpendingLimit(spendingBytes []byte, params *lib.DeSoParams, utxoView *lib.UtxoView) string {
 	var transactionSpendingLimit *lib.TransactionSpendingLimit
-	if err := transactionSpendingLimit.FromBytes(bytes); err != nil {
+	rr := bytes.NewReader(spendingBytes)
+	if err := transactionSpendingLimit.FromBytes(rr); err != nil {
 		glog.Errorf("Error decoding transaction spending limits: %v", err)
 		return ""
 	}
