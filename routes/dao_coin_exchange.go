@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/deso-protocol/core/lib"
 	"github.com/holiman/uint256"
+	"github.com/pkg/errors"
 	"io"
 	"math/big"
 	"net/http"
@@ -33,7 +34,9 @@ type DAOCoinLimitOrderEntryResponse struct {
 	QuantityToFillInBaseUnits *uint256.Int `safeForLogging:"true"`
 	QuantityToFill            float64      `safeForLogging:"true"`
 
-	SideToFill string
+	OperationType DAOCoinLimitOrderOperationTypeString
+
+	OrderID string
 }
 
 func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Request) {
@@ -115,9 +118,9 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 	for _, order := range ordersBuyingCoin1 {
 		transactorPublicKey := utxoView.GetPublicKeyForPKID(order.TransactorPKID)
 
-		sideToFill := "BID"
-		if order.OperationType == lib.DAOCoinLimitOrderOperationTypeASK {
-			sideToFill = "ASK"
+		operationType, err := orderOperationTypeToString(order.OperationType)
+		if err != nil {
+			continue
 		}
 
 		response = append(response, DAOCoinLimitOrderEntryResponse{
@@ -126,22 +129,24 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 			BuyingDAOCoinCreatorPublicKeyBase58Check:  coin1ProfilePublicBase58Check,
 			SellingDAOCoinCreatorPublicKeyBase58Check: coin2ProfilePublicBase58Check,
 			ScaledExchangeRateCoinsToSellPerCoinToBuy: order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
-			ExchangeRateCoinsToSellPerCoinToBuy: floatExchangeRateCoinsToSellPerCoinToBuy(
+			ExchangeRateCoinsToSellPerCoinToBuy: calculateFloatExchangeRate(
 				order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
 			),
 			QuantityToFillInBaseUnits: order.QuantityToFillInBaseUnits,
-			QuantityToFill:            floatQuantityToFill(order.QuantityToFillInBaseUnits),
+			QuantityToFill:            calculateQuantityToFillAsFloat(order.QuantityToFillInBaseUnits),
 
-			SideToFill: sideToFill,
+			OperationType: operationType,
+
+			OrderID: order.OrderID.String(),
 		})
 	}
 
 	for _, order := range ordersSellingCoin1 {
 		transactorPublicKey := utxoView.GetPublicKeyForPKID(order.TransactorPKID)
 
-		sideToFill := "BID"
-		if order.OperationType == lib.DAOCoinLimitOrderOperationTypeASK {
-			sideToFill = "ASK"
+		operationType, err := orderOperationTypeToString(order.OperationType)
+		if err != nil {
+			continue
 		}
 
 		response = append(response, DAOCoinLimitOrderEntryResponse{
@@ -150,129 +155,17 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 			BuyingDAOCoinCreatorPublicKeyBase58Check:  coin2ProfilePublicBase58Check,
 			SellingDAOCoinCreatorPublicKeyBase58Check: coin1ProfilePublicBase58Check,
 			ScaledExchangeRateCoinsToSellPerCoinToBuy: order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
-			ExchangeRateCoinsToSellPerCoinToBuy: floatExchangeRateCoinsToSellPerCoinToBuy(
+			ExchangeRateCoinsToSellPerCoinToBuy: calculateFloatExchangeRate(
 				order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
 			),
 			QuantityToFillInBaseUnits: order.QuantityToFillInBaseUnits,
-			QuantityToFill:            floatQuantityToFill(order.QuantityToFillInBaseUnits),
+			QuantityToFill:            calculateQuantityToFillAsFloat(order.QuantityToFillInBaseUnits),
 
-			SideToFill: sideToFill,
+			OperationType: operationType,
+
+			OrderID: order.OrderID.String(),
 		})
 	}
-
-	if err = json.NewEncoder(ww).Encode(GetDAOCoinLimitOrdersResponse{Orders: response}); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetDAOCoinLimitOrders: Problem encoding response as JSON: %v", err))
-		return
-	}
-}
-
-func (fes *APIServer) GetDAOCoinTrades(ww http.ResponseWriter, req *http.Request) {
-	// If the TxIndex flag was not passed to this node then we don't track order fills
-	if fes.TXIndex == nil {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprintf("GetDAOCoinLimitOrderFills: Cannot be called when TXIndexChain "+
-				"is nil. This error occurs when --txindex was not passed to the program "+
-				"on startup"),
-		)
-	}
-
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := GetDAOCoinLimitOrdersRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprintf("GetDAOCoinLimitOrderFills: Problem parsing request body: %v", err),
-		)
-		return
-	}
-
-	getNotificationsRequest := GetNotificationsRequest{
-		PublicKeyBase58Check:              requestData.TransactorPublicKeyBase58Check,
-		FetchStartIndex:                   -1,
-		NumToFetch:                        10000,
-		FilteredOutNotificationCategories: map[string]bool{},
-	}
-
-	// A valid mempool object is used to compute the TransactionMetadata for the mempool
-	// and to allow for things like: filtering notifications for a hidden post.
-	utxoView, err := fes.mempool.GetAugmentedUniversalView()
-	if err != nil {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprintf("GetDAOCoinLimitOrderFills: Problem getting view: %v", err),
-		)
-		return
-	}
-
-	blocked := map[string]struct{}{}
-
-	// Get notifications from the db
-	dbTxnMetadataFound, err := fes._getDBNotifications(&getNotificationsRequest, blocked, utxoView, true)
-	if err != nil {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprintf("GetDAOCoinLimitOrderFills: Error getting DB Notifications: %v", err),
-		)
-		return
-	}
-
-	mempoolTxnMetadataFound, err := fes._getMempoolNotifications(
-		&getNotificationsRequest,
-		blocked,
-		utxoView,
-		true,
-	)
-	if err != nil {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprintf("GetDAOCoinLimitOrderFills: Error getting mempool Notifications: %v", err),
-		)
-		return
-	}
-
-	// At this point, the combinedMempoolDBTxnMetadata either contains the latest transactions
-	// from the mempool *or* it's empty. The latter occurs when the FetchStartIndex
-	// is set to a value below the smallest index of any transaction in the mempool.
-	// In either case, appending the transactions we found in the db is the correct
-	// thing to do.
-	combinedMempoolDBTxnMetadata := append(
-		mempoolTxnMetadataFound,
-		dbTxnMetadataFound...,
-	)
-
-	trades := []*lib.FilledDAOCoinLimitOrderMetadata{}
-	for _, metadata := range combinedMempoolDBTxnMetadata {
-		if metadata.Metadata.DAOCoinLimitOrderTxindexMetadata != nil {
-			fills := metadata.Metadata.DAOCoinLimitOrderTxindexMetadata.FilledDAOCoinLimitOrdersMetadata
-			if fills != nil {
-				for _, fill := range fills {
-					if fill.TransactorPublicKeyBase58Check == requestData.TransactorPublicKeyBase58Check {
-						trades = append(trades, fill)
-					}
-				}
-			}
-		}
-	}
-
-	var response []DAOCoinLimitOrderEntryResponse
-
-	//for _, trade := range trades {
-	//	response = append(response, DAOCoinLimitOrderEntryResponse{
-	//		TransactorPublicKeyBase58Check: requestData.TransactorPublicKeyBase58Check,
-	//
-	//		BuyingDAOCoinCreatorPublicKeyBase58Check:  trade.BuyingDAOCoinCreatorPublicKey,
-	//		SellingDAOCoinCreatorPublicKeyBase58Check: trade.SellingDAOCoinCreatorPublicKey,
-	//		ScaledExchangeRateCoinsToSellPerCoinToBuy: trade.,
-	//		ExchangeRateCoinsToSellPerCoinToBuy: floatExchangeRateCoinsToSellPerCoinToBuy(
-	//			trade.SellingDAOCoinQuantitySold,
-	//		),
-	//		QuantityToBuyInBaseUnits: trade.BuyingDAOCoinQuantityPurchased,
-	//		QuantityToBuy: floatQuantityToBuy(
-	//			trade.BuyingDAOCoinQuantityPurchased,
-	//		),
-	//	})
-	//}
 
 	if err = json.NewEncoder(ww).Encode(GetDAOCoinLimitOrdersResponse{Orders: response}); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDAOCoinLimitOrders: Problem encoding response as JSON: %v", err))
@@ -299,7 +192,7 @@ func (fes *APIServer) validateCreatorPublicKeyBase58CheckOrUsername(
 }
 
 // Given a value v, this computes v / (2 ^ 128) and returns it as float
-func floatExchangeRateCoinsToSellPerCoinToBuy(scaledValue *uint256.Int) float64 {
+func calculateFloatExchangeRate(scaledValue *uint256.Int) float64 {
 	valueBigFloat := big.NewFloat(0).SetInt(scaledValue.ToBig())
 	divisorBigFloat := big.NewFloat(0).SetInt(lib.OneE38.ToBig())
 
@@ -310,7 +203,7 @@ func floatExchangeRateCoinsToSellPerCoinToBuy(scaledValue *uint256.Int) float64 
 }
 
 // Given a quantity q, this returns q / (NanosPerUnit) as float
-func floatQuantityToFill(quantityInBaseUnits *uint256.Int) float64 {
+func calculateQuantityToFillAsFloat(quantityInBaseUnits *uint256.Int) float64 {
 	quantityInBaseUnitsAsBigFloat := big.NewFloat(0).SetInt(quantityInBaseUnits.ToBig())
 	divisor := big.NewFloat(float64(lib.NanosPerUnit))
 	quotientAsBigFloat := big.NewFloat(0).Quo(
@@ -319,4 +212,52 @@ func floatQuantityToFill(quantityInBaseUnits *uint256.Int) float64 {
 	)
 	quotient, _ := quotientAsBigFloat.Float64()
 	return quotient
+}
+
+// Given a float f, compute f * NanosPerUnit, and return as uint256
+func calculateQuantityToFillAsBaseUnits(quantityToFill float64) (*uint256.Int, error) {
+	multiplier := big.NewFloat(float64(lib.NanosPerUnit))
+	product := big.NewFloat(0).Mul(
+		big.NewFloat(quantityToFill),
+		multiplier,
+	)
+	productAsBigInt, _ := product.Int(nil)
+	productAsUint256, overflow := uint256.FromBig(productAsBigInt)
+	if overflow {
+		return nil, errors.Errorf("Overflow when converting quantity to buy from float to uint256")
+	}
+	return productAsUint256, nil
+}
+
+// DAOCoinLimitOrderOperationTypeString A convenience type that uses a string to represent bid / ask side in the API,
+// so it's more human-readable
+type DAOCoinLimitOrderOperationTypeString string
+
+const (
+	DAOCoinLimitOrderOperationTypeStringASK DAOCoinLimitOrderOperationTypeString = "ASK"
+	DAOCoinLimitOrderOperationTypeStringBID DAOCoinLimitOrderOperationTypeString = "BID"
+)
+
+func orderOperationTypeToString(
+	operationType lib.DAOCoinLimitOrderOperationType,
+) (DAOCoinLimitOrderOperationTypeString, error) {
+	if operationType == lib.DAOCoinLimitOrderOperationTypeASK {
+		return DAOCoinLimitOrderOperationTypeStringASK, nil
+	}
+	if operationType == lib.DAOCoinLimitOrderOperationTypeBID {
+		return DAOCoinLimitOrderOperationTypeStringBID, nil
+	}
+	return "", errors.Errorf("Unknown DAOCoinLimitOrderOperationType %v", operationType)
+}
+
+func orderOperationTypeToUint64(
+	operationType DAOCoinLimitOrderOperationTypeString,
+) (lib.DAOCoinLimitOrderOperationType, error) {
+	if operationType == DAOCoinLimitOrderOperationTypeStringASK {
+		return lib.DAOCoinLimitOrderOperationTypeASK, nil
+	}
+	if operationType == DAOCoinLimitOrderOperationTypeStringBID {
+		return lib.DAOCoinLimitOrderOperationTypeBID, nil
+	}
+	return 0, errors.Errorf("Unknown string value for DAOCoinLimitOrderOperationType %v", operationType)
 }

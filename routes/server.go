@@ -90,7 +90,6 @@ const (
 
 	// dao_coin_exchange.go
 	RoutePathGetDaoCoinLimitOrders = "/api/v0/get-dao-coin-limit-orders"
-	RoutePathGetDaoCoinTrades      = "/api/v0/get-dao-coin-trades"
 
 	// post.go
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
@@ -1040,13 +1039,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetDaoCoinLimitOrders,
 			fes.GetDAOCoinLimitOrders,
-			PublicAccess,
-		},
-		{
-			"GetDAOCoinTrades",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetDaoCoinTrades,
-			fes.GetDAOCoinTrades,
 			PublicAccess,
 		},
 		// Jumio Routes
