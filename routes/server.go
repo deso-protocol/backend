@@ -307,6 +307,9 @@ type APIServer struct {
 	HotFeedOrderedList []*HotFeedEntry
 	// A map version of HotFeedOrderedList mapping each post to its hotness score and post age.
 	HotFeedPostHashToScoreMap map[lib.BlockHash]*HotnessPostInfo
+	// An in-memory map from post hash to post tags. This is used to cache tags to prevent hot feed algorithm from
+	// continuously parsing the text body from already processed posts.
+	PostHashToPostTagsMap map[lib.BlockHash][]string
 	// An in-memory map from post tag to post hash. This allows us to
 	// quickly get all the posts for a particular group.
 	// This is represented as a map of strings to a set of post hashes. A set is used instead of an array to allow for

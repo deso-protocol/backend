@@ -68,6 +68,7 @@ func (fes *APIServer) StartHotFeedRoutine() {
 	fes.PostTagToPostHashesMap = make(map[string]map[lib.BlockHash]bool)
 	fes.PostTagToOrderedHotFeedEntries = make(map[string][]*HotFeedEntry)
 	fes.PostTagToOrderedNewestEntries = make(map[string][]*HotFeedEntry)
+	fes.PostHashToPostTagsMap = make(map[lib.BlockHash][]string)
 	go func() {
 	out:
 		for {
@@ -421,8 +422,18 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 				if len(postEntryScored.ParentStakeID) > 0 || lib.IsVanillaRepost(postEntryScored) {
 					continue
 				}
-				// Parse tags from post entry
-				tags, _ := ParseTagsFromPost(postEntryScored)
+				var tags [] string
+
+				// Before parsing the text body, first check to see if this post has been processed and cached prior.
+				if postTags, ok := fes.PostHashToPostTagsMap[*postHashScored]; ok {
+					tags = postTags
+				} else {
+					// Parse tags from post entry.
+					tags, _ = ParseTagsFromPost(postEntryScored)
+					// Cache processed post in map.
+					fes.PostHashToPostTagsMap[*postHashScored] = tags
+				}
+
 				// Add each tagged post to the tag:postEntries map
 				for _, tag := range tags {
 					// If a post hash set already exists, append to it,
