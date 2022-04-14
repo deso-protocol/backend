@@ -26,11 +26,8 @@ type DAOCoinLimitOrderEntryResponse struct {
 	BuyingDAOCoinCreatorPublicKeyBase58Check  string `safeForLogging:"true"`
 	SellingDAOCoinCreatorPublicKeyBase58Check string `safeForLogging:"true"`
 
-	ScaledExchangeRateCoinsToSellPerCoinToBuy *uint256.Int `safeForLogging:"true"`
-	ExchangeRateCoinsToSellPerCoinToBuy       float64      `safeForLogging:"true"`
-
-	QuantityToFillInBaseUnits *uint256.Int `safeForLogging:"true"`
-	QuantityToFill            float64      `safeForLogging:"true"`
+	ExchangeRateCoinsToSellPerCoinToBuy float64 `safeForLogging:"true"`
+	QuantityToFill                      float64 `safeForLogging:"true"`
 
 	OperationType DAOCoinLimitOrderOperationTypeString
 
@@ -126,12 +123,10 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 
 			BuyingDAOCoinCreatorPublicKeyBase58Check:  coin1ProfilePublicBase58Check,
 			SellingDAOCoinCreatorPublicKeyBase58Check: coin2ProfilePublicBase58Check,
-			ScaledExchangeRateCoinsToSellPerCoinToBuy: order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
 			ExchangeRateCoinsToSellPerCoinToBuy: calculateFloatExchangeRate(
 				order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
 			),
-			QuantityToFillInBaseUnits: order.QuantityToFillInBaseUnits,
-			QuantityToFill:            calculateQuantityToFillAsFloat(order.QuantityToFillInBaseUnits),
+			QuantityToFill: calculateQuantityToFillAsFloat(order.QuantityToFillInBaseUnits),
 
 			OperationType: operationType,
 
@@ -152,12 +147,10 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 
 			BuyingDAOCoinCreatorPublicKeyBase58Check:  coin2ProfilePublicBase58Check,
 			SellingDAOCoinCreatorPublicKeyBase58Check: coin1ProfilePublicBase58Check,
-			ScaledExchangeRateCoinsToSellPerCoinToBuy: order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
 			ExchangeRateCoinsToSellPerCoinToBuy: calculateFloatExchangeRate(
 				order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
 			),
-			QuantityToFillInBaseUnits: order.QuantityToFillInBaseUnits,
-			QuantityToFill:            calculateQuantityToFillAsFloat(order.QuantityToFillInBaseUnits),
+			QuantityToFill: calculateQuantityToFillAsFloat(order.QuantityToFillInBaseUnits),
 
 			OperationType: operationType,
 
@@ -227,7 +220,7 @@ func calculateQuantityToFillAsBaseUnits(quantityToFill float64) (*uint256.Int, e
 	return productAsUint256, nil
 }
 
-// DAOCoinLimitOrderOperationTypeString A convenience type that uses a string to represent bid / ask side in the API,
+// DAOCoinLimitOrderOperationTypeString A convenience type that uses a string to represent BID / ASK side in the API,
 // so it's more human-readable
 type DAOCoinLimitOrderOperationTypeString string
 
