@@ -73,7 +73,7 @@ func (fes *APIServer) StartHotFeedRoutine() {
 	out:
 		for {
 			select {
-			case <-time.After(15 * time.Second):
+			case <-time.After(60 * time.Second):
 				fes.UpdateHotFeed()
 			case <-fes.quit:
 				break out
