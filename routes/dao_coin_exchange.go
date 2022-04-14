@@ -12,8 +12,6 @@ import (
 )
 
 type GetDAOCoinLimitOrdersRequest struct {
-	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
-
 	DAOCoin1CreatorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
 	DAOCoin2CreatorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
 }
