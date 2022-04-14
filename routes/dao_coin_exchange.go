@@ -102,63 +102,28 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 		return
 	}
 
-	ordersSellingCoin1, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(coin2PKID, coin1PKID)
+	ordersBuyingCoin2, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(coin2PKID, coin1PKID)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err))
 		return
 	}
 
-	var response []DAOCoinLimitOrderEntryResponse
+	responses := append(
+		fes.buildDAOCoinLimitOrderResponsesFromEntries(
+			utxoView,
+			coin1ProfilePublicBase58Check,
+			coin2ProfilePublicBase58Check,
+			ordersBuyingCoin1,
+		),
+		fes.buildDAOCoinLimitOrderResponsesFromEntries(
+			utxoView,
+			coin2ProfilePublicBase58Check,
+			coin1ProfilePublicBase58Check,
+			ordersBuyingCoin2,
+		)...,
+	)
 
-	for _, order := range ordersBuyingCoin1 {
-		transactorPublicKey := utxoView.GetPublicKeyForPKID(order.TransactorPKID)
-
-		operationType, err := orderOperationTypeToString(order.OperationType)
-		if err != nil {
-			continue
-		}
-
-		response = append(response, DAOCoinLimitOrderEntryResponse{
-			TransactorPublicKeyBase58Check: lib.Base58CheckEncode(transactorPublicKey, false, fes.Params),
-
-			BuyingDAOCoinCreatorPublicKeyBase58Check:  coin1ProfilePublicBase58Check,
-			SellingDAOCoinCreatorPublicKeyBase58Check: coin2ProfilePublicBase58Check,
-			ExchangeRateCoinsToSellPerCoinToBuy: calculateFloatExchangeRate(
-				order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
-			),
-			QuantityToFill: calculateQuantityToFillAsFloat(order.QuantityToFillInBaseUnits),
-
-			OperationType: operationType,
-
-			OrderID: order.OrderID.String(),
-		})
-	}
-
-	for _, order := range ordersSellingCoin1 {
-		transactorPublicKey := utxoView.GetPublicKeyForPKID(order.TransactorPKID)
-
-		operationType, err := orderOperationTypeToString(order.OperationType)
-		if err != nil {
-			continue
-		}
-
-		response = append(response, DAOCoinLimitOrderEntryResponse{
-			TransactorPublicKeyBase58Check: lib.Base58CheckEncode(transactorPublicKey, false, fes.Params),
-
-			BuyingDAOCoinCreatorPublicKeyBase58Check:  coin2ProfilePublicBase58Check,
-			SellingDAOCoinCreatorPublicKeyBase58Check: coin1ProfilePublicBase58Check,
-			ExchangeRateCoinsToSellPerCoinToBuy: calculateFloatExchangeRate(
-				order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
-			),
-			QuantityToFill: calculateQuantityToFillAsFloat(order.QuantityToFillInBaseUnits),
-
-			OperationType: operationType,
-
-			OrderID: order.OrderID.String(),
-		})
-	}
-
-	if err = json.NewEncoder(ww).Encode(GetDAOCoinLimitOrdersResponse{Orders: response}); err != nil {
+	if err = json.NewEncoder(ww).Encode(GetDAOCoinLimitOrdersResponse{Orders: responses}); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDAOCoinLimitOrders: Problem encoding response as JSON: %v", err))
 		return
 	}
@@ -180,6 +145,46 @@ func (fes *APIServer) validateCreatorPublicKeyBase58CheckOrUsername(
 	publicKeyBase58Check := lib.Base58CheckEncode(publicKeyBytes, false, fes.Params)
 
 	return publicKeyBase58Check, pkid, nil
+}
+
+func (fes *APIServer) buildDAOCoinLimitOrderResponsesFromEntries(
+	utxoView *lib.UtxoView,
+	buyingCoinPublicKeyBase58Check string,
+	sellingCoinPublicKeyBase58Check string,
+	orders []*lib.DAOCoinLimitOrderEntry,
+) []DAOCoinLimitOrderEntryResponse {
+	var responses []DAOCoinLimitOrderEntryResponse
+
+	for _, order := range orders {
+		transactorPublicKey := utxoView.GetPublicKeyForPKID(order.TransactorPKID)
+
+		operationType, err := orderOperationTypeToString(order.OperationType)
+		if err != nil {
+			// By the time we reach this, the caller provided params will have all been validated. Any errors here will
+			// result from an issue with the order on the book. We skip such orders with a best effort approach that
+			// return as much of the current state of the book to the caller as possible
+			continue
+		}
+
+		response := DAOCoinLimitOrderEntryResponse{
+			TransactorPublicKeyBase58Check: lib.Base58CheckEncode(transactorPublicKey, false, fes.Params),
+
+			BuyingDAOCoinCreatorPublicKeyBase58Check:  buyingCoinPublicKeyBase58Check,
+			SellingDAOCoinCreatorPublicKeyBase58Check: sellingCoinPublicKeyBase58Check,
+			ExchangeRateCoinsToSellPerCoinToBuy: calculateFloatExchangeRate(
+				order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
+			),
+			QuantityToFill: calculateQuantityToFillAsFloat(order.QuantityToFillInBaseUnits),
+
+			OperationType: operationType,
+
+			OrderID: order.OrderID.String(),
+		}
+
+		responses = append(responses, response)
+	}
+
+	return responses
 }
 
 // Given a value v, this computes v / (2 ^ 128) and returns it as float

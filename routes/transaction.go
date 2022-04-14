@@ -2599,7 +2599,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 	}
 
 	// We only do basic validation of exchange rate and quantity here. If both are valid, then we pass the scaled
-	// values and remaining the request params to the helper for further validation
+	// values and the remaining request params to the helper for further validation
 
 	if requestData.ExchangeRateCoinsToSellPerCoinToBuy <= 0 {
 		_AddBadRequestError(
@@ -2616,7 +2616,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	if requestData.ExchangeRateCoinsToSellPerCoinToBuy <= 0 {
+	if requestData.QuantityToFill <= 0 {
 		_AddBadRequestError(ww, fmt.Sprint("CreateDAOCoinLimitOrder: QuantityToFill must be greater than 0"))
 		return
 	}
@@ -2628,13 +2628,22 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
+	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
+	if err != nil {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("CreateDAOCoinLimitOrder: invalid operations type %v", requestData.OperationType),
+		)
+		return
+	}
+
 	res, err := fes.validateAndCreateDAOCoinLimitOrderResponse(
 		requestData.TransactorPublicKeyBase58Check,
 		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
 		requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
 		scaledExchangeRateCoinsToSellPerCoinToBuy,
 		quantityToFillInBaseUnits,
-		requestData.OperationType,
+		operationType,
 		nil,
 		requestData.MinFeeRateNanosPerKB,
 		requestData.TransactionFees,
@@ -2651,7 +2660,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 }
 
 type DAOCoinLimitOrderWithCancelOrderIDRequest struct {
-	// The public key of the user who is sending the order
+	// The public key of the user who is cancelling the order
 	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
 
 	CancelOrderID string `safeForLogging:"true"`
@@ -2674,25 +2683,23 @@ func (fes *APIServer) CancelDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	cancelOrderIDBigInt, success := big.NewInt(0).SetString(requestData.CancelOrderID, 16)
-	if !success {
+	cancelOrderID, err := decodeBlockHashFromHex(requestData.CancelOrderID)
+	if err != nil {
 		_AddBadRequestError(
 			ww,
-			fmt.Sprintf("CancelDAOCoinLimitOrder: Invalid CancelOrderID request param: %v", requestData.CancelOrderID),
+			fmt.Sprintf("CancelDAOCoinLimitOrder: CancelOrderID param is not a valid order id: %v", err),
 		)
 		return
 	}
-
-	cancelOrderIDBlockHash := lib.BigintToHash(cancelOrderIDBigInt)
 
 	res, err := fes.validateAndCreateDAOCoinLimitOrderResponse(
 		requestData.TransactorPublicKeyBase58Check,
 		"",
 		"",
-		uint256.NewInt(), // use default value for exchange rate and quantity, since we don't need to them to cancel an order
-		uint256.NewInt(),
-		DAOCoinLimitOrderOperationTypeStringASK, // pass in a dummy value here
-		cancelOrderIDBlockHash,
+		nil,
+		nil,
+		0,
+		cancelOrderID,
 		requestData.MinFeeRateNanosPerKB,
 		requestData.TransactionFees,
 	)
@@ -2714,7 +2721,7 @@ func (fes *APIServer) validateAndCreateDAOCoinLimitOrderResponse(
 	sellingDAOCoinCreatorPublicKeyBase58CheckOrUsername string,
 	scaledExchangeRateCoinsToSellPerCoinToBuy *uint256.Int,
 	quantityToFillInBaseUnits *uint256.Int,
-	operationTypeString DAOCoinLimitOrderOperationTypeString,
+	operationType lib.DAOCoinLimitOrderOperationType,
 	cancelOrderId *lib.BlockHash,
 	minFeeRateNanosPerKB uint64,
 	transactionFees []TransactionFee,
@@ -2722,11 +2729,6 @@ func (fes *APIServer) validateAndCreateDAOCoinLimitOrderResponse(
 
 	if transactorPublicKeyBase58Check == "" {
 		return nil, fmt.Errorf("must provide a TransactorPublicKeyBase58Check")
-	}
-
-	operationType, err := orderOperationTypeToUint64(operationTypeString)
-	if err != nil {
-		return nil, err
 	}
 
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
