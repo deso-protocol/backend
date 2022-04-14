@@ -422,6 +422,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 				if len(postEntryScored.ParentStakeID) > 0 || lib.IsVanillaRepost(postEntryScored) {
 					continue
 				}
+
 				var tags [] string
 
 				// Before parsing the text body, first check to see if this post has been processed and cached prior.
@@ -432,22 +433,21 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 					tags, _ = ParseTagsFromPost(postEntryScored)
 					// Cache processed post in map.
 					fes.PostHashToPostTagsMap[*postHashScored] = tags
-				}
-
-				// Add each tagged post to the tag:postEntries map
-				for _, tag := range tags {
-					// If a post hash set already exists, append to it,
-					// otherwise create a new set and add it to the map.
-					if postHashSet, ok := fes.PostTagToPostHashesMap[tag]; ok {
-						// Only add to the set if the post hash isn't already present
-						if _, ok := postHashSet[*postHashScored]; !ok {
+					// Add each tagged post to the tag:postEntries map
+					for _, tag := range tags {
+						// If a post hash set already exists, append to it,
+						// otherwise create a new set and add it to the map.
+						if postHashSet, ok := fes.PostTagToPostHashesMap[tag]; ok {
+							// Only add to the set if the post hash isn't already present
+							if _, ok := postHashSet[*postHashScored]; !ok {
+								postHashSet[*postHashScored] = true
+							}
+							fes.PostTagToPostHashesMap[tag] = postHashSet
+						} else {
+							postHashSet := make(map[lib.BlockHash]bool)
 							postHashSet[*postHashScored] = true
+							fes.PostTagToPostHashesMap[tag] = postHashSet
 						}
-						fes.PostTagToPostHashesMap[tag] = postHashSet
-					} else {
-						postHashSet := make(map[lib.BlockHash]bool)
-						postHashSet[*postHashScored] = true
-						fes.PostTagToPostHashesMap[tag] = postHashSet
 					}
 				}
 
