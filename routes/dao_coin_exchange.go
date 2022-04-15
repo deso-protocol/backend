@@ -138,7 +138,7 @@ func (fes *APIServer) validateCreatorPublicKeyBase58CheckOrUsername(
 		utxoView,
 	)
 	if err != nil {
-		return "", &lib.ZeroPKID, err
+		return "", nil, err
 	}
 
 	pkid := utxoView.GetPKIDForPublicKey(publicKeyBytes).PKID

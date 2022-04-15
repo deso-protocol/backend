@@ -10,18 +10,16 @@ import (
 // BlockHash, this returns the corresponding error
 func decodeBlockHashFromHex(hexEncoding string) (*lib.BlockHash, error) {
 	if hexEncoding == "" {
-		return &lib.ZeroBlockHash, errors.Errorf("expected valid hex encoded string but received empty string")
+		return nil, errors.Errorf("expected valid hex encoded string but received empty string")
 	}
 
 	decodedBytes, err := hex.DecodeString(hexEncoding)
 	if err != nil {
-		return &lib.ZeroBlockHash,
-			errors.Errorf("error decoding block hash from hex encoded string %v: %v", hexEncoding, err)
+		return nil, errors.Errorf("error decoding block hash from hex encoded string %v: %v", hexEncoding, err)
 	}
 
 	if len(decodedBytes) != lib.HashSizeBytes {
-		return &lib.ZeroBlockHash,
-			errors.Errorf("the hex encoded string %v does not decode into a valid block hash", hexEncoding)
+		return nil, errors.Errorf("the hex encoded string %v does not decode into a valid block hash", hexEncoding)
 	}
 	return lib.NewBlockHash(decodedBytes), nil
 }
