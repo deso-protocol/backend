@@ -2588,7 +2588,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	// Start with the most basic set of input param validations that are cheap to compute
+	// An empty string for a buying or selling coin represents $DESO. At least of the coins must be a DAO coin however
 	if requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername == "" &&
 		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername == "" {
 		_AddBadRequestError(
@@ -2598,6 +2598,8 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		)
 		return
 	}
+
+	// Basic validation that we have a transactor
 	if requestData.TransactorPublicKeyBase58Check == "" {
 		_AddBadRequestError(
 			ww,
@@ -2606,6 +2608,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
+	// Validate and scale exchange rate
 	if requestData.ExchangeRateCoinsToSellPerCoinToBuy <= 0 {
 		_AddBadRequestError(
 			ww,
@@ -2621,6 +2624,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
+	// Validate and convert quantity to base units
 	if requestData.QuantityToFill <= 0 {
 		_AddBadRequestError(ww, fmt.Sprint("CreateDAOCoinLimitOrder: QuantityToFill must be greater than 0"))
 		return
@@ -2633,6 +2637,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
+	// Validate operation type
 	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
 	if err != nil {
 		_AddBadRequestError(
@@ -2642,14 +2647,13 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	// Decode and validate the buying / selling coin public keys
-
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: problem fetching utxoView: %v", err))
 		return
 	}
 
+	// Decode and validate the buying / selling coin public keys
 	buyingCoinPublicKey := lib.ZeroPublicKey.ToBytes()
 	sellingCoinPublicKey := lib.ZeroPublicKey.ToBytes()
 
