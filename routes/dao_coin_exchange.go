@@ -160,9 +160,9 @@ func (fes *APIServer) buildDAOCoinLimitOrderResponsesFromEntries(
 
 		operationType, err := orderOperationTypeToString(order.OperationType)
 		if err != nil {
-			// By the time we reach this, the caller provided params will have all been validated. Any errors here will
-			// result from an issue with the order on the book. We skip such orders with a best effort approach that
-			// return as much of the current state of the book to the caller as possible
+			// It should not be possible to hit this error. If we do hit it , it means an order with an unsupported
+			// operation type made it through all validations during order creation, and was placed on the book. For
+			// these read-only API endpoints, we just skip the bad order and return all the valid orders we know of
 			continue
 		}
 
