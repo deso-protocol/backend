@@ -2309,7 +2309,7 @@ func ParseTagsFromPost(postEntry *lib.PostEntry) ([]string, error){
 
 	// Search each word to see if it's an @ mention (starts w/ @ and is at least of length 2).
 	for _, word := range bodyWords {
-		if len(word) >= 2 && word[0:1] == "$" {
+		if len(word) >= 2 && word[0:1] == "@" {
 			// Remove @ from returned word and normalize to lower-case.
 			tags = append(tags, strings.ToLower(word[1:]))
 		}
