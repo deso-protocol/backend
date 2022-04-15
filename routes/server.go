@@ -59,6 +59,8 @@ const (
 	RoutePathAuthorizeDerivedKey      = "/api/v0/authorize-derived-key"
 	RoutePathDAOCoin                  = "/api/v0/dao-coin"
 	RoutePathTransferDAOCoin          = "/api/v0/transfer-dao-coin"
+	RoutePathCreateDAOCoinLimitOrder  = "/api/v0/create-dao-coin-limit-order"
+	RoutePathCancelDAOCoinLimitOrder  = "/api/v0/cancel-dao-coin-limit-order"
 	RoutePathAppendExtraData          = "/api/v0/append-extra-data"
 	RoutePathGetTransactionSpending   = "/api/v0/get-transaction-spending"
 
@@ -85,6 +87,9 @@ const (
 	RoutePathGetUserMetadata                            = "/api/v0/get-user-metadata"
 	RoutePathGetUsernameForPublicKey                    = "/api/v0/get-user-name-for-public-key"
 	RoutePathGetPublicKeyForUsername                    = "/api/v0/get-public-key-for-user-name"
+
+	// dao_coin_exchange.go
+	RoutePathGetDaoCoinLimitOrders = "/api/v0/get-dao-coin-limit-orders"
 
 	// post.go
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
@@ -855,6 +860,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"CreateDAOCoinLimitOrder",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateDAOCoinLimitOrder,
+			fes.CreateDAOCoinLimitOrder,
+			PublicAccess,
+		},
+		{
+			"CancelDAOCoinLimitOrder",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCancelDAOCoinLimitOrder,
+			fes.CancelDAOCoinLimitOrder,
+			PublicAccess,
+		},
+		{
 			"AppendExtraData",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAppendExtraData,
@@ -1013,6 +1032,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetPublicKeyForUsername + "/{username:[a-zA-Z0-9_]{1,26}",
 			fes.GetPublicKeyForUsername,
+			PublicAccess,
+		},
+		{
+			"GetDAOCoinLimitOrders",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetDaoCoinLimitOrders,
+			fes.GetDAOCoinLimitOrders,
 			PublicAccess,
 		},
 		// Jumio Routes
