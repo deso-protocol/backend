@@ -2578,7 +2578,7 @@ type DAOCoinLimitOrderWithExchangeRateAndQuantityRequest struct {
 }
 
 // CreateDAOCoinLimitOrder Constructs a transaction that creates a DAO coin limit order for the specified
-// DAO coin pair, exchange rate, and quantity
+// DAO coin pair, exchange rate, quantity, and operation type
 func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := DAOCoinLimitOrderWithExchangeRateAndQuantityRequest{}

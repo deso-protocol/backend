@@ -15,11 +15,13 @@ func decodeBlockHashFromHex(hexEncoding string) (*lib.BlockHash, error) {
 
 	decodedBytes, err := hex.DecodeString(hexEncoding)
 	if err != nil {
-		return &lib.ZeroBlockHash, errors.Errorf("error decoding block hash hex: %v", hexEncoding)
+		return &lib.ZeroBlockHash,
+			errors.Errorf("error decoding block hash from hex encoded string %v: %v", hexEncoding, err)
 	}
 
 	if len(decodedBytes) != lib.HashSizeBytes {
-		return &lib.ZeroBlockHash, errors.Errorf("block hash hex %v does not decode into a valid block has", hexEncoding)
+		return &lib.ZeroBlockHash,
+			errors.Errorf("the hex encoded string %v does not decode into a valid block hash", hexEncoding)
 	}
 	return lib.NewBlockHash(decodedBytes), nil
 }
