@@ -2312,7 +2312,7 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Get the creator public key and make sure the profile exists
-	creatorPublicKeyBytes, profileEntry, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+	creatorPublicKeyBytes, profileEntry, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
 		requestData.ProfilePublicKeyBase58CheckOrUsername, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: error getting profile or decoding public key for "+
@@ -2465,7 +2465,7 @@ func (fes *APIServer) TransferDAOCoin(ww http.ResponseWriter, req *http.Request)
 	}
 
 	// Decode the updater public key
-	senderPublicKeyBytes, _, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+	senderPublicKeyBytes, _, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
 		requestData.SenderPublicKeyBase58Check, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem decoding sender public key %s: %v",
@@ -2481,7 +2481,7 @@ func (fes *APIServer) TransferDAOCoin(ww http.ResponseWriter, req *http.Request)
 	}
 
 	// Decode the creator public key
-	creatorPublicKeyBytes, creatorProfileEntry, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+	creatorPublicKeyBytes, creatorProfileEntry, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
 		requestData.ProfilePublicKeyBase58CheckOrUsername, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem decoding creator public key %s: %v",
@@ -2496,7 +2496,7 @@ func (fes *APIServer) TransferDAOCoin(ww http.ResponseWriter, req *http.Request)
 	}
 
 	// Get the public key for the receiver.
-	receiverPublicKeyBytes, _, err := fes.GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+	receiverPublicKeyBytes, _, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
 		requestData.ReceiverPublicKeyBase58CheckOrUsername, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem decoding reeceiver public key %s: %v",
@@ -2545,6 +2545,313 @@ func (fes *APIServer) TransferDAOCoin(ww http.ResponseWriter, req *http.Request)
 		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+// DAOCoinLimitOrderResponse ...
+type DAOCoinLimitOrderResponse struct {
+	SpendAmountNanos  uint64
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgDeSoTxn
+	TransactionHex    string
+	TxnHashHex        string
+}
+
+type DAOCoinLimitOrderWithExchangeRateAndQuantityRequest struct {
+	// The public key of the user who is sending the order
+	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// The public key or profile username of the DAO coin being bought
+	BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+
+	// The public key or profile username of the DAO coin being sold
+	SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+
+	ExchangeRateCoinsToSellPerCoinToBuy float64 `safeForLogging:"true"`
+	QuantityToFill                      float64 `safeForLogging:"true"`
+
+	OperationType DAOCoinLimitOrderOperationTypeString `safeForLogging:"true"`
+
+	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
+	TransactionFees      []TransactionFee `safeForLogging:"true"`
+}
+
+// CreateDAOCoinLimitOrder Constructs a transaction that creates a DAO coin limit order for the specified
+// DAO coin pair, exchange rate, quantity, and operation type
+func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := DAOCoinLimitOrderWithExchangeRateAndQuantityRequest{}
+
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: Problem parsing request body: %v", err))
+		return
+	}
+
+	// An empty string for a buying or selling coin represents $DESO. At least of the coins must be a DAO coin however
+	if requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername == "" &&
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername == "" {
+		_AddBadRequestError(
+			ww,
+			"CreateDAOCoinLimitOrder: must provide at least one of BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername "+
+				"or SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername",
+		)
+		return
+	}
+
+	// Basic validation that we have a transactor
+	if requestData.TransactorPublicKeyBase58Check == "" {
+		_AddBadRequestError(
+			ww,
+			"CreateDAOCoinLimitOrder: must provide a TransactorPublicKeyBase58Check",
+		)
+		return
+	}
+
+	// Validate and scale exchange rate
+	if requestData.ExchangeRateCoinsToSellPerCoinToBuy <= 0 {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprint("CreateDAOCoinLimitOrder: ExchangeRateCoinsToSellPerCoinToBuy must be greater than 0"),
+		)
+		return
+	}
+	scaledExchangeRateCoinsToSellPerCoinToBuy, err := lib.CalculateScaledExchangeRate(
+		requestData.ExchangeRateCoinsToSellPerCoinToBuy,
+	)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	// Validate and convert quantity to base units
+	if requestData.QuantityToFill <= 0 {
+		_AddBadRequestError(ww, fmt.Sprint("CreateDAOCoinLimitOrder: QuantityToFill must be greater than 0"))
+		return
+	}
+	quantityToFillInBaseUnits, err := calculateQuantityToFillAsBaseUnits(
+		requestData.QuantityToFill,
+	)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	// Validate operation type
+	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
+	if err != nil {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("CreateDAOCoinLimitOrder: invalid OperationType %v", requestData.OperationType),
+		)
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: problem fetching utxoView: %v", err))
+		return
+	}
+
+	// Decode and validate the buying / selling coin public keys
+	buyingCoinPublicKey := lib.ZeroPublicKey.ToBytes()
+	sellingCoinPublicKey := lib.ZeroPublicKey.ToBytes()
+
+	if requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername != "" {
+		buyingCoinPublicKey, _, err = fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
+			requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+			utxoView,
+		)
+		if err != nil {
+			_AddBadRequestError(
+				ww,
+				fmt.Sprintf(
+					"CreateDAOCoinLimitOrder: Error getting public key for %v: %v",
+					requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+					err,
+				),
+			)
+		}
+	}
+
+	if requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername != "" {
+		sellingCoinPublicKey, _, err = fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
+			requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+			utxoView,
+		)
+		if err != nil {
+			_AddBadRequestError(
+				ww,
+				fmt.Sprintf(
+					"CreateDAOCoinLimitOrder: Error getting public key for %v: %v",
+					requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+					err,
+				),
+			)
+		}
+	}
+
+	res, err := fes.createDAOCoinLimitOrderResponse(
+		utxoView,
+		requestData.TransactorPublicKeyBase58Check,
+		buyingCoinPublicKey,
+		sellingCoinPublicKey,
+		scaledExchangeRateCoinsToSellPerCoinToBuy,
+		quantityToFillInBaseUnits,
+		operationType,
+		nil,
+		requestData.MinFeeRateNanosPerKB,
+		requestData.TransactionFees,
+	)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type DAOCoinLimitOrderWithCancelOrderIDRequest struct {
+	// The public key of the user who is cancelling the order
+	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
+
+	CancelOrderID string `safeForLogging:"true"`
+
+	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
+	TransactionFees      []TransactionFee `safeForLogging:"true"`
+}
+
+// CancelDAOCoinLimitOrder Constructs a transaction that cancels an existing DAO coin limit order with the specified
+// order id
+func (fes *APIServer) CancelDAOCoinLimitOrder(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := DAOCoinLimitOrderWithCancelOrderIDRequest{}
+
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("CancelDAOCoinLimitOrder: Problem parsing request body: %v", err),
+		)
+		return
+	}
+
+	if requestData.TransactorPublicKeyBase58Check == "" {
+		_AddBadRequestError(
+			ww,
+			"CancelDAOCoinLimitOrder: must provide a TransactorPublicKeyBase58Check",
+		)
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CancelDAOCoinLimitOrder: problem fetching utxoView: %v", err))
+		return
+	}
+
+	cancelOrderID, err := decodeBlockHashFromHex(requestData.CancelOrderID)
+	if err != nil {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("CancelDAOCoinLimitOrder: CancelOrderID param is not a valid order id: %v", err),
+		)
+		return
+	}
+
+	res, err := fes.createDAOCoinLimitOrderResponse(
+		utxoView,
+		requestData.TransactorPublicKeyBase58Check,
+		nil,
+		nil,
+		nil,
+		nil,
+		0,
+		cancelOrderID,
+		requestData.MinFeeRateNanosPerKB,
+		requestData.TransactionFees,
+	)
+
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CancelDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CancelDAOCoinLimitOrder: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) createDAOCoinLimitOrderResponse(
+	utxoView *lib.UtxoView,
+	transactorPublicKeyBase58Check string,
+	buyingCoinPublicKeyBytes []byte,
+	sellingCoinPublicKeyBytes []byte,
+	scaledExchangeRateCoinsToSellPerCoinToBuy *uint256.Int,
+	quantityToFillInBaseUnits *uint256.Int,
+	operationType lib.DAOCoinLimitOrderOperationType,
+	cancelOrderId *lib.BlockHash,
+	minFeeRateNanosPerKB uint64,
+	transactionFees []TransactionFee,
+) (*DAOCoinLimitOrderResponse, error) {
+
+	transactorPublicKeyBytes, _, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
+		transactorPublicKeyBase58Check,
+		utxoView,
+	)
+	if err != nil {
+		return nil, errors.Errorf("Error getting public key for the transactor: %v", err)
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(
+		lib.TxnTypeDAOCoinLimitOrder,
+		transactorPublicKeyBytes,
+		transactionFees,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("specified transactionFees are invalid: %v", err)
+	}
+
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateDAOCoinLimitOrderTxn(
+		transactorPublicKeyBytes,
+		&lib.DAOCoinLimitOrderMetadata{
+			BuyingDAOCoinCreatorPublicKey:             lib.NewPublicKey(buyingCoinPublicKeyBytes),
+			SellingDAOCoinCreatorPublicKey:            lib.NewPublicKey(sellingCoinPublicKeyBytes),
+			ScaledExchangeRateCoinsToSellPerCoinToBuy: scaledExchangeRateCoinsToSellPerCoinToBuy,
+			QuantityToFillInBaseUnits:                 quantityToFillInBaseUnits,
+			OperationType:                             operationType,
+			CancelOrderID:                             cancelOrderId,
+		},
+		minFeeRateNanosPerKB,
+		fes.backendServer.GetMempool(),
+		additionalOutputs,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := DAOCoinLimitOrderResponse{
+		SpendAmountNanos:  totalInput - changeAmount - fees,
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+		TxnHashHex:        txn.Hash().String(),
+	}
+
+	return &res, nil
 }
 
 // getTransactionFee transforms transactionFees specified in an API request body to DeSoOutput and combines that with node-level transaction fees for this transaction type.

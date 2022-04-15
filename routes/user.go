@@ -2581,6 +2581,10 @@ func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredO
 }
 
 func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Check string, utxoView *lib.UtxoView) bool {
+	if txnMeta.DAOCoinLimitOrderTxindexMetadata != nil {
+		return txnMeta.DAOCoinLimitOrderTxindexMetadata.FilledDAOCoinLimitOrdersMetadata != nil
+	}
+
 	// Transactions initiated by the passed-in public key should not
 	// trigger notifications.
 	if txnMeta.TransactorPublicKeyBase58Check == publicKeyBase58Check {
@@ -2983,7 +2987,7 @@ type UserDerivedKey struct {
 	// ExtraData is an arbitrary key value map
 	ExtraData map[string]string `safeForLogging:"true"`
 
-  // TransactionSpendingLimit represents the current state of the TransactionSpendingLimitTracker
+	// TransactionSpendingLimit represents the current state of the TransactionSpendingLimitTracker
 	TransactionSpendingLimit *TransactionSpendingLimitResponse `safeForLogging:"true"`
 
 	// Memo is a string that describes the Derived Key
@@ -3244,7 +3248,7 @@ func (fes *APIServer) GetBlacklistState(pkid *lib.PKID) []byte {
 	return fes.BlacklistedPKIDMap[*pkid]
 }
 
-func (fes *APIServer) GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+func (fes *APIServer) GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
 	pubKeyOrUsername string, utxoView *lib.UtxoView) (_pubKeyBytes []byte, _profileEntry *lib.ProfileEntry, _err error) {
 	var pubKeyBytes []byte
 	var profileEntry *lib.ProfileEntry
