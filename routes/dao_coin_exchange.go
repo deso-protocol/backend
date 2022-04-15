@@ -160,7 +160,7 @@ func (fes *APIServer) buildDAOCoinLimitOrderResponsesFromEntries(
 
 		operationType, err := orderOperationTypeToString(order.OperationType)
 		if err != nil {
-			// It should not be possible to hit this error. If we do hit it , it means an order with an unsupported
+			// It should not be possible to hit this error. If we do hit it, it means an order with an unsupported
 			// operation type made it through all validations during order creation, and was placed on the book. For
 			// these read-only API endpoints, we just skip the bad order and return all the valid orders we know of
 			continue
@@ -187,7 +187,7 @@ func (fes *APIServer) buildDAOCoinLimitOrderResponsesFromEntries(
 	return responses
 }
 
-// Given a value v, this computes v / (2 ^ 128) and returns it as float
+// calculate (scaledValue / 10^38)
 func calculateFloatExchangeRate(scaledValue *uint256.Int) float64 {
 	valueBigFloat := big.NewFloat(0).SetInt(scaledValue.ToBig())
 	divisorBigFloat := big.NewFloat(0).SetInt(lib.OneE38.ToBig())
@@ -198,7 +198,7 @@ func calculateFloatExchangeRate(scaledValue *uint256.Int) float64 {
 	return quotientFloat
 }
 
-// Given a quantity q, this returns q / (NanosPerUnit) as float
+// calculate (quantityInBaseUnits * 10^9)
 func calculateQuantityToFillAsFloat(quantityInBaseUnits *uint256.Int) float64 {
 	quantityInBaseUnitsAsBigFloat := big.NewFloat(0).SetInt(quantityInBaseUnits.ToBig())
 	divisor := big.NewFloat(float64(lib.NanosPerUnit))
@@ -210,7 +210,7 @@ func calculateQuantityToFillAsFloat(quantityInBaseUnits *uint256.Int) float64 {
 	return quotient
 }
 
-// Given a float f, compute f * NanosPerUnit, and return as uint256
+// calculate (quantityInBaseUnits / 10^9)
 func calculateQuantityToFillAsBaseUnits(quantityToFill float64) (*uint256.Int, error) {
 	multiplier := big.NewFloat(float64(lib.NanosPerUnit))
 	product := big.NewFloat(0).Mul(

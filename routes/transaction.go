@@ -2598,8 +2598,8 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	// We only do basic validation of exchange rate and quantity here. If both are valid, then we pass the scaled
-	// values and the remaining request params to the helper for further validation
+	// We do some basic validation of exchange rate and quantity here. If both are valid, then we pass the scaled
+	// values and the remaining request params to the helper function for further validation
 
 	if requestData.ExchangeRateCoinsToSellPerCoinToBuy <= 0 {
 		_AddBadRequestError(
@@ -2632,7 +2632,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 	if err != nil {
 		_AddBadRequestError(
 			ww,
-			fmt.Sprintf("CreateDAOCoinLimitOrder: invalid operations type %v", requestData.OperationType),
+			fmt.Sprintf("CreateDAOCoinLimitOrder: invalid OperationType %v", requestData.OperationType),
 		)
 		return
 	}
@@ -2670,7 +2670,7 @@ type DAOCoinLimitOrderWithCancelOrderIDRequest struct {
 }
 
 // CancelDAOCoinLimitOrder Constructs a transaction that cancels an existing DAO coin limit order with the specified
-// DAO coin pair, exchange rate, and quantity
+// order id
 func (fes *APIServer) CancelDAOCoinLimitOrder(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := DAOCoinLimitOrderWithCancelOrderIDRequest{}
