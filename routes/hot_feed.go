@@ -298,8 +298,24 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 			return nil
 		}
 		err = fes.GlobalState.Put(
+			_GlobalStatePrefixForHotFeedTagInteractionCap,
+			lib.EncodeUint64(DefaultHotFeedTagInteractionCap),
+		)
+		if err != nil {
+			glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put InteractionCap: %v", err)
+			return nil
+		}
+		err = fes.GlobalState.Put(
 			_GlobalStatePrefixForHotFeedTimeDecayBlocks,
 			lib.EncodeUint64(DefaultHotFeedTimeDecayBlocks),
+		)
+		if err != nil {
+			glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put TimeDecayBlocks: %v", err)
+			return nil
+		}
+		err = fes.GlobalState.Put(
+			_GlobalStatePrefixForHotFeedTagTimeDecayBlocks,
+			lib.EncodeUint64(DefaultHotFeedTagTimeDecayBlocks),
 		)
 		if err != nil {
 			glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put TimeDecayBlocks: %v", err)
@@ -312,7 +328,31 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		fes.HotFeedTimeDecayBlocks = DefaultHotFeedTimeDecayBlocks
 		fes.HotFeedTagTimeDecayBlocks = DefaultHotFeedTagTimeDecayBlocks
 		fes.HotFeedTxnTypeMultiplierMap = make(map[lib.TxnType]uint64)
-	} else if fes.HotFeedInteractionCap != globalStateInteractionCap ||
+	// Check to see if only the tag-specific feed configuration variables are unset and set just those.
+	} else if globalStateTagInteractionCap == 0 || globalStateTagTimeDecayBlocks == 0 {
+		// The hot feed go routine has not been run yet since constants have not been set.
+		foundNewConstants = true
+		err = fes.GlobalState.Put(
+			_GlobalStatePrefixForHotFeedTagInteractionCap,
+			lib.EncodeUint64(DefaultHotFeedTagInteractionCap),
+		)
+		if err != nil {
+			glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put InteractionCap: %v", err)
+			return nil
+		}
+		err = fes.GlobalState.Put(
+			_GlobalStatePrefixForHotFeedTagTimeDecayBlocks,
+			lib.EncodeUint64(DefaultHotFeedTagTimeDecayBlocks),
+		)
+		if err != nil {
+			glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put TimeDecayBlocks: %v", err)
+			return nil
+		}
+		// Now that we've successfully updated global state, set them on the server object.
+		fes.HotFeedTagInteractionCap = DefaultHotFeedTagInteractionCap
+		fes.HotFeedTagTimeDecayBlocks = DefaultHotFeedTagTimeDecayBlocks
+		fes.HotFeedTxnTypeMultiplierMap = make(map[lib.TxnType]uint64)
+	}  else if fes.HotFeedInteractionCap != globalStateInteractionCap ||
 		fes.HotFeedTimeDecayBlocks != globalStateTimeDecayBlocks ||
 		fes.HotFeedTagInteractionCap != globalStateTagInteractionCap ||
 		fes.HotFeedTagTimeDecayBlocks != globalStateTagTimeDecayBlocks ||
