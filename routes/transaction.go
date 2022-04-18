@@ -3091,7 +3091,7 @@ func TransactionSpendingLimitToResponse(
 			map[string]map[lib.CreatorCoinLimitOperationString]uint64)
 		for ccLimitKey, opCount := range transactionSpendingLimit.CreatorCoinOperationLimitMap {
 			var creatorPublicKeyBase58Check string
-			if !reflect.DeepEqual(ccLimitKey.CreatorPKID, lib.ZeroPKID) {
+			if !ccLimitKey.CreatorPKID.IsZeroPKID() {
 				creatorPublicKeyBase58Check = lib.PkToString(
 					utxoView.GetPublicKeyForPKID(&ccLimitKey.CreatorPKID), params)
 			}
@@ -3111,7 +3111,7 @@ func TransactionSpendingLimitToResponse(
 			map[string]map[lib.DAOCoinLimitOperationString]uint64)
 		for daoLimitKey, opCount := range transactionSpendingLimit.DAOCoinOperationLimitMap {
 			var creatorPublicKeyBase58Check string
-			if !reflect.DeepEqual(daoLimitKey.CreatorPKID, lib.ZeroPKID) {
+			if !daoLimitKey.CreatorPKID.IsZeroPKID() {
 				creatorPublicKeyBase58Check = lib.PkToString(
 					utxoView.GetPublicKeyForPKID(&daoLimitKey.CreatorPKID), params)
 			}

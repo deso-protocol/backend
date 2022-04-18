@@ -259,7 +259,7 @@ func (fes *APIServer) buildDAOCoinLimitOrderResponsesForTransactor(
 
 func (fes *APIServer) getPublicKeyBase58CheckForPKID(utxoView *lib.UtxoView, pkid *lib.PKID) string {
 	base58Check := ""
-	if *pkid != lib.ZeroPKID {
+	if !pkid.IsZeroPKID() {
 		base58Check = lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(pkid), false, fes.Params)
 	}
 	return base58Check
