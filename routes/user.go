@@ -2983,7 +2983,7 @@ type UserDerivedKey struct {
 	// ExtraData is an arbitrary key value map
 	ExtraData map[string]string `safeForLogging:"true"`
 
-  // TransactionSpendingLimit represents the current state of the TransactionSpendingLimitTracker
+	// TransactionSpendingLimit represents the current state of the TransactionSpendingLimitTracker
 	TransactionSpendingLimit *TransactionSpendingLimitResponse `safeForLogging:"true"`
 
 	// Memo is a string that describes the Derived Key

@@ -305,8 +305,8 @@ type APIServer struct {
 
 	// A list of posts from the specified look-back period ordered by hotness score.
 	HotFeedOrderedList []*HotFeedEntry
-	// A map version of HotFeedOrderedList mapping each post to its hotness score and post age.
-	HotFeedPostHashToScoreMap map[lib.BlockHash]*HotnessPostInfo
+	// A map version of HotFeedOrderedList mapping each post to its hotness score for the tag feed and post age.
+	HotFeedPostHashToTagScoreMap map[lib.BlockHash]*HotnessPostInfo
 	// An in-memory map from post hash to post tags. This is used to cache tags to prevent hot feed algorithm from
 	// continuously parsing the text body from already processed posts.
 	PostHashToPostTagsMap map[lib.BlockHash][]string
@@ -331,7 +331,10 @@ type APIServer struct {
 	LastHotFeedPKIDMultiplierOpProcessedTstampNanos uint64
 	// Constants for the hotness score algorithm.
 	HotFeedInteractionCap        uint64
+	HotFeedTagInteractionCap     uint64
 	HotFeedTimeDecayBlocks       uint64
+	HotFeedTagTimeDecayBlocks    uint64
+	HotFeedTxnTypeMultiplierMap  map[lib.TxnType]uint64
 	HotFeedPostMultiplierUpdated bool
 	HotFeedPKIDMultiplierUpdated bool
 
