@@ -58,7 +58,7 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetDAOCoinLimitOrders: Problem fetching utxoView: %v", err))
+		_AddInternalServerError(ww, fmt.Sprintf("GetDAOCoinLimitOrders: Problem fetching utxoView: %v", err))
 		return
 	}
 
@@ -69,7 +69,7 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 	coin2ProfilePublicBase58Check := ""
 
 	if requestData.DAOCoin1CreatorPublicKeyBase58CheckOrUsername != "" {
-		coin1ProfilePublicBase58Check, coin1PKID, err = fes.validateCreatorPublicKeyBase58CheckOrUsername(
+		coin1ProfilePublicBase58Check, coin1PKID, err = fes.getPublicKeyBase58CheckAndPKIDForPublicKeyBase58CheckOrUsername(
 			utxoView,
 			requestData.DAOCoin1CreatorPublicKeyBase58CheckOrUsername,
 		)
@@ -83,7 +83,7 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 	}
 
 	if requestData.DAOCoin2CreatorPublicKeyBase58CheckOrUsername != "" {
-		coin2ProfilePublicBase58Check, coin2PKID, err = fes.validateCreatorPublicKeyBase58CheckOrUsername(
+		coin2ProfilePublicBase58Check, coin2PKID, err = fes.getPublicKeyBase58CheckAndPKIDForPublicKeyBase58CheckOrUsername(
 			utxoView,
 			requestData.DAOCoin2CreatorPublicKeyBase58CheckOrUsername,
 		)
@@ -98,24 +98,24 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 
 	ordersBuyingCoin1, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(coin1PKID, coin2PKID)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err))
+		_AddInternalServerError(ww, fmt.Sprintf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err))
 		return
 	}
 
 	ordersBuyingCoin2, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(coin2PKID, coin1PKID)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err))
+		_AddInternalServerError(ww, fmt.Sprintf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err))
 		return
 	}
 
 	responses := append(
-		fes.buildDAOCoinLimitOrderResponsesFromEntries(
+		fes.buildDAOCoinLimitOrderResponsesFromEntriesForCoinPair(
 			utxoView,
 			coin1ProfilePublicBase58Check,
 			coin2ProfilePublicBase58Check,
 			ordersBuyingCoin1,
 		),
-		fes.buildDAOCoinLimitOrderResponsesFromEntries(
+		fes.buildDAOCoinLimitOrderResponsesFromEntriesForCoinPair(
 			utxoView,
 			coin2ProfilePublicBase58Check,
 			coin1ProfilePublicBase58Check,
@@ -129,7 +129,54 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 	}
 }
 
-func (fes *APIServer) validateCreatorPublicKeyBase58CheckOrUsername(
+type GetTransactorDAOCoinLimitOrdersRequest struct {
+	TransactorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+}
+
+func (fes *APIServer) GetTransactorDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetTransactorDAOCoinLimitOrdersRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("GetTransactorDAOCoinLimitOrders: Problem parsing request body: %v", err),
+		)
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetTransactorDAOCoinLimitOrders: Problem fetching utxoView: %v", err))
+		return
+	}
+
+	transactorPublicKeyBase58Check, transactorPKID, err := fes.getPublicKeyBase58CheckAndPKIDForPublicKeyBase58CheckOrUsername(
+		utxoView,
+		requestData.TransactorPublicKeyBase58CheckOrUsername,
+	)
+	if err != nil {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("GetTransactorDAOCoinLimitOrders: Invalid TransactorPublicKeyBase58CheckOrUsername: %v", err),
+		)
+		return
+	}
+
+	orders, err := utxoView.GetAllDAOCoinLimitOrdersForThisTransactor(transactorPKID)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetTransactorDAOCoinLimitOrders: Error getting limit orders: %v", err))
+		return
+	}
+
+	responses := fes.buildDAOCoinLimitOrderResponsesForTransactor(utxoView, transactorPublicKeyBase58Check, orders)
+
+	if err = json.NewEncoder(ww).Encode(GetDAOCoinLimitOrdersResponse{Orders: responses}); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetTransactorDAOCoinLimitOrders: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) getPublicKeyBase58CheckAndPKIDForPublicKeyBase58CheckOrUsername(
 	utxoView *lib.UtxoView,
 	publicKeyBase58CheckOrUsername string,
 ) (string, *lib.PKID, error) {
@@ -147,7 +194,7 @@ func (fes *APIServer) validateCreatorPublicKeyBase58CheckOrUsername(
 	return publicKeyBase58Check, pkid, nil
 }
 
-func (fes *APIServer) buildDAOCoinLimitOrderResponsesFromEntries(
+func (fes *APIServer) buildDAOCoinLimitOrderResponsesFromEntriesForCoinPair(
 	utxoView *lib.UtxoView,
 	buyingCoinPublicKeyBase58Check string,
 	sellingCoinPublicKeyBase58Check string,
@@ -166,25 +213,79 @@ func (fes *APIServer) buildDAOCoinLimitOrderResponsesFromEntries(
 			continue
 		}
 
-		response := DAOCoinLimitOrderEntryResponse{
-			TransactorPublicKeyBase58Check: lib.Base58CheckEncode(transactorPublicKey, false, fes.Params),
-
-			BuyingDAOCoinCreatorPublicKeyBase58Check:  buyingCoinPublicKeyBase58Check,
-			SellingDAOCoinCreatorPublicKeyBase58Check: sellingCoinPublicKeyBase58Check,
-			ExchangeRateCoinsToSellPerCoinToBuy: calculateFloatExchangeRate(
-				order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
-			),
-			QuantityToFill: calculateQuantityToFillAsFloat(order.QuantityToFillInBaseUnits),
-
-			OperationType: operationType,
-
-			OrderID: order.OrderID.String(),
-		}
+		response := buildDAOCoinLimitOrderResponse(
+			lib.Base58CheckEncode(transactorPublicKey, false, fes.Params),
+			buyingCoinPublicKeyBase58Check,
+			sellingCoinPublicKeyBase58Check,
+			operationType,
+			order,
+		)
 
 		responses = append(responses, response)
 	}
 
 	return responses
+}
+
+func (fes *APIServer) buildDAOCoinLimitOrderResponsesForTransactor(
+	utxoView *lib.UtxoView,
+	transactorPublicKeyBase58Check string,
+	orders []*lib.DAOCoinLimitOrderEntry,
+) []DAOCoinLimitOrderEntryResponse {
+	var responses []DAOCoinLimitOrderEntryResponse
+
+	for _, order := range orders {
+		operationType, err := orderOperationTypeToString(order.OperationType)
+		if err != nil {
+			continue
+		}
+
+		buyingCoinPublicKeyBase58Check := fes.getPublicKeyBase58CheckForPKID(utxoView, order.BuyingDAOCoinCreatorPKID)
+		sellingCoinPublicKeyBase58Check := fes.getPublicKeyBase58CheckForPKID(utxoView, order.SellingDAOCoinCreatorPKID)
+
+		response := buildDAOCoinLimitOrderResponse(
+			transactorPublicKeyBase58Check,
+			buyingCoinPublicKeyBase58Check,
+			sellingCoinPublicKeyBase58Check,
+			operationType,
+			order,
+		)
+
+		responses = append(responses, response)
+	}
+
+	return responses
+}
+
+func (fes *APIServer) getPublicKeyBase58CheckForPKID(utxoView *lib.UtxoView, pkid *lib.PKID) string {
+	base58Check := ""
+	if *pkid != lib.ZeroPKID {
+		base58Check = lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(pkid), false, fes.Params)
+	}
+	return base58Check
+}
+
+func buildDAOCoinLimitOrderResponse(
+	transactorPublicKeyBase58Check string,
+	buyingCoinPublicKeyBase58Check string,
+	sellingCoinPublicKeyBase58Check string,
+	operationType DAOCoinLimitOrderOperationTypeString,
+	order *lib.DAOCoinLimitOrderEntry,
+) DAOCoinLimitOrderEntryResponse {
+	return DAOCoinLimitOrderEntryResponse{
+		TransactorPublicKeyBase58Check: transactorPublicKeyBase58Check,
+
+		BuyingDAOCoinCreatorPublicKeyBase58Check:  buyingCoinPublicKeyBase58Check,
+		SellingDAOCoinCreatorPublicKeyBase58Check: sellingCoinPublicKeyBase58Check,
+		ExchangeRateCoinsToSellPerCoinToBuy: calculateFloatExchangeRate(
+			order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
+		),
+		QuantityToFill: calculateQuantityToFillAsFloat(order.QuantityToFillInBaseUnits),
+
+		OperationType: operationType,
+
+		OrderID: order.OrderID.String(),
+	}
 }
 
 // calculate (scaledValue / 10^38)
