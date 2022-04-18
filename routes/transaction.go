@@ -2896,6 +2896,10 @@ type TransactionSpendingLimitResponse struct {
 	// with NFTLimitOperationString (update, nft_bid, accept_nft_bid, transfer, burn, accept_nft_transfer, any) keys to
 	// the number of these operations that the derived key is authorized to perform.
 	NFTOperationLimitMap map[string]map[uint64]map[lib.NFTLimitOperationString]uint64
+	// DAOCoinLimitOrderLimitMap is a map with BuyingCoinPublicKey as keys mapped to a map
+	// of SellingCoinPublicKey mapped to the number of DAO Coin Limit Order transactions with
+	// this Buying and Selling coin pair that the derived key is authorized to perform.
+	DAOCoinLimitOrderLimitMap map[string]map[string]uint64
 }
 
 // AuthorizeDerivedKeyRequest ...
@@ -3055,15 +3059,14 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 	}
 }
 
+const DAOCoinLimitOrderDESOPublicKey = "DESO"
+
 // TransactionSpendingLimitToResponse converts the core struct lib.TransactionSpendingLimit to a
 // TransactionSpendingLimitResponse
 func TransactionSpendingLimitToResponse(
 	transactionSpendingLimit *lib.TransactionSpendingLimit, utxoView *lib.UtxoView, params *lib.DeSoParams,
 ) *TransactionSpendingLimitResponse {
 
-	if utxoView == nil {
-
-	}
 	// If the transactionSpendingLimit is nil, return nil.
 	if transactionSpendingLimit == nil {
 		return nil
@@ -3146,6 +3149,29 @@ func TransactionSpendingLimitToResponse(
 			transactionSpendingLimitResponse.NFTOperationLimitMap[postHashHex][serialNum][nftLimitKey.Operation.ToNFTLimitOperationString()] = opCount
 		}
 	}
+
+	// Iterate over the DAOCoinLimitOrderLimitMap - convert PKID from key into base58Check public key.
+	// Fill in the nested maps appropriately.
+	if len(transactionSpendingLimit.DAOCoinLimitOrderLimitMap) > 0 {
+		transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap = make(
+			map[string]map[string]uint64)
+		for daoCoinLimitOrderLimitKey, opCount := range transactionSpendingLimit.DAOCoinLimitOrderLimitMap {
+			buyingPublicKey := DAOCoinLimitOrderDESOPublicKey
+			if !daoCoinLimitOrderLimitKey.BuyingDAOCoinCreatorPKID.IsZeroPKID() {
+				buyingPkBytes := utxoView.GetPublicKeyForPKID(&daoCoinLimitOrderLimitKey.BuyingDAOCoinCreatorPKID)
+				buyingPublicKey = lib.PkToString(buyingPkBytes, params)
+			}
+			sellingPublicKey := DAOCoinLimitOrderDESOPublicKey
+			if !daoCoinLimitOrderLimitKey.SellingDAOCoinCreatorPKID.IsZeroPKID() {
+				sellingPkBytes := utxoView.GetPublicKeyForPKID(&daoCoinLimitOrderLimitKey.SellingDAOCoinCreatorPKID)
+				sellingPublicKey = lib.PkToString(sellingPkBytes, params)
+			}
+			if _, exists := transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap[buyingPublicKey]; !exists {
+				transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap[buyingPublicKey] = make(map[string]uint64)
+			}
+			transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap[buyingPublicKey][sellingPublicKey] = opCount
+		}
+	}
 	return transactionSpendingLimitResponse
 }
 
@@ -3226,6 +3252,31 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 					transactionSpendingLimit.NFTOperationLimitMap[lib.MakeNFTOperationLimitKey(
 						*postHash, serialNum, operation.ToNFTLimitOperation())] = count
 				}
+			}
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap) > 0 {
+		transactionSpendingLimit.DAOCoinLimitOrderLimitMap = make(map[lib.DAOCoinLimitOrderLimitKey]uint64)
+		for buyingPublicKey, sellingPublicKeyToCountMap :=
+			range transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap {
+			buyingPKID := &lib.ZeroPKID
+			if buyingPublicKey != DAOCoinLimitOrderDESOPublicKey {
+				buyingPKID, err = getCreatorPKIDForBase58Check(buyingPublicKey)
+				if err != nil {
+					return nil, err
+				}
+			}
+			for sellingPublicKey, count := range sellingPublicKeyToCountMap {
+				sellingPKID := &lib.ZeroPKID
+				if sellingPublicKey != DAOCoinLimitOrderDESOPublicKey {
+					sellingPKID, err = getCreatorPKIDForBase58Check(sellingPublicKey)
+					if err != nil {
+						return nil, err
+					}
+				}
+				transactionSpendingLimit.DAOCoinLimitOrderLimitMap[lib.MakeDAOCoinLimitOrderLimitKey(
+					*buyingPKID, *sellingPKID)] = count
 			}
 		}
 	}
