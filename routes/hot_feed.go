@@ -78,7 +78,7 @@ func (fes *APIServer) StartHotFeedRoutine() {
 	out:
 		for {
 			select {
-			case <-time.After(5 * time.Minute):
+			case <-time.After(5 * time.Second):
 				fes.UpdateHotFeed()
 			case <-fes.quit:
 				break out
@@ -758,11 +758,18 @@ func (fes *APIServer) GetHotnessScoreInfoForTxn(
 
 	// Finally return the post hash and the txn's hotness score.
 	interactionProfile := utxoView.GetProfileEntryForPKID(interactionPKIDEntry.PKID)
-	// It is possible for the profile to be nil since you don't need a profile for diamonds.
-	if interactionProfile == nil || interactionProfile.IsDeleted() {
+	interactionUserBalance, err := utxoView.GetDeSoBalanceNanosForPublicKey(txn.PublicKey)
+	if err != nil {
 		return nil, nil, 0
 	}
-	hotnessScore := interactionProfile.CreatorCoinEntry.DeSoLockedNanos
+
+	var hotnessScore uint64
+	// It is possible for the profile to be nil since you don't need a profile for diamonds.
+	if interactionProfile == nil || interactionProfile.IsDeleted() {
+		hotnessScore = interactionUserBalance
+	} else {
+		hotnessScore = interactionProfile.CreatorCoinEntry.DeSoLockedNanos + interactionUserBalance
+	}
 
 	// Apply transaction type multiplier if key is defined.
 	// Multipliers are defined in basis points, so the resulting product is divided by 10,000.
