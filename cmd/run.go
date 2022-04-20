@@ -169,6 +169,8 @@ func init() {
 	runCmd.PersistentFlags().Bool("hypersync", true, "Use hyper sync protocol for faster block syncing")
 	// Snapshot
 	runCmd.PersistentFlags().Uint64("snapshot-block-height-period", 1000, "Set the snapshot epoch period. Snapshots are taken at block heights divisible by the period.")
+	// Archival mode
+	runCmd.PersistentFlags().Bool("archival-mode", false, "Download all historical blocks after finishing hypersync.")
 
 	// Run Supply Monitoring Routine
 	runCmd.PersistentFlags().Bool("run-supply-monitoring-routine", false, "Run a goroutine to monitor total supply and rich list")

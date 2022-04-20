@@ -304,11 +304,29 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		fes.HotFeedPKIDMultiplierUpdated = false
 	}
 
+	// This offset allows us to see what the hot feed would look like in the past,
+	// which is useful for testing purposes.
+	blockOffsetForTesting := 0
+	// 24 hours worth of blocks (288 blocks @ 5min/block).
+	block24hPeriod := 288
+
 	// If the constants for the algorithm haven't changed and we have already seen the latest
 	// block or the chain is out of sync, bail.
 	blockTip := fes.blockchain.BlockTip()
 	chainState := fes.blockchain.ChainState()
-	chainFullyStored := fes.blockchain.ChainFullyStored()
+
+	// Check if the most recent blocks that we'll be considering in hot feed computation have been processed.
+	chainFullyStored := true
+	for _, blockNode := range fes.blockchain.BestChain() {
+		if blockNode.Height < blockTip.Height-uint32(block24hPeriod+blockOffsetForTesting) {
+			continue
+		}
+
+		if !blockNode.Status.IsFullyProcessed() {
+			chainFullyStored = false
+			break
+		}
+	}
 	if (!foundNewConstants && blockTip.Height <= fes.HotFeedBlockHeight) ||
 		chainState != lib.SyncStateFullyCurrent || !chainFullyStored {
 		return nil
@@ -325,15 +343,10 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		return nil
 	}
 
-	// This offset allows us to see what the hot feed would look like in the past,
-	// which is useful for testing purposes.
-	blockOffsetForTesting := 0
-
-	// Grab the last 24 hours worth of blocks (288 blocks @ 5min/block).
 	blockTipIndex := len(fes.blockchain.BestChain()) - 1 - blockOffsetForTesting
 	relevantNodes := fes.blockchain.BestChain()
-	if len(fes.blockchain.BestChain()) > (288 + blockOffsetForTesting) {
-		relevantNodes = fes.blockchain.BestChain()[blockTipIndex-288-blockOffsetForTesting : blockTipIndex]
+	if len(fes.blockchain.BestChain()) > (block24hPeriod + blockOffsetForTesting) {
+		relevantNodes = fes.blockchain.BestChain()[blockTipIndex-block24hPeriod-blockOffsetForTesting : blockTipIndex]
 	}
 
 	// Iterate over the blocks and track hotness scores.
