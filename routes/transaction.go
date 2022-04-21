@@ -3258,8 +3258,7 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 
 	if len(transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap) > 0 {
 		transactionSpendingLimit.DAOCoinLimitOrderLimitMap = make(map[lib.DAOCoinLimitOrderLimitKey]uint64)
-		for buyingPublicKey, sellingPublicKeyToCountMap :=
-			range transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap {
+		for buyingPublicKey, sellingPublicKeyToCountMap := range transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap {
 			buyingPKID := &lib.ZeroPKID
 			if buyingPublicKey != DAOCoinLimitOrderDESOPublicKey {
 				buyingPKID, err = getCreatorPKIDForBase58Check(buyingPublicKey)

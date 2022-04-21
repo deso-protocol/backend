@@ -70,7 +70,7 @@ func (fes *APIServer) GetUSDCentsToDeSoReserveExchangeRate(ww http.ResponseWrite
 func (fes *APIServer) SetUSDCentsToDeSoReserveExchangeRateFromGlobalState() {
 	val, err := fes.GlobalState.Get(GlobalStateKeyForUSDCentsToDeSoReserveExchangeRate())
 	if err != nil {
-		glog.Errorf("SetUSDCentsToDeSoReserveExchangeRateFromGlobalState: Error getting Reserve exchange rate " +
+		glog.Errorf("SetUSDCentsToDeSoReserveExchangeRateFromGlobalState: Error getting Reserve exchange rate "+
 			"from global state: %v", err)
 		return
 	}
@@ -143,7 +143,7 @@ func (fes *APIServer) GetBuyDeSoFeeBasisPoints(ww http.ResponseWriter, req *http
 func (fes *APIServer) SetBuyDeSoFeeBasisPointsResponseFromGlobalState() {
 	val, err := fes.GlobalState.Get(GlobalStateKeyForBuyDeSoFeeBasisPoints())
 	if err != nil {
-		glog.Errorf("SetBuyDeSoFeeBasisPointsResponseFromGlobalState: Error getting Buy DESO Fee Basis Points " +
+		glog.Errorf("SetBuyDeSoFeeBasisPointsResponseFromGlobalState: Error getting Buy DESO Fee Basis Points "+
 			"from global state: %v", err)
 		return
 	}
