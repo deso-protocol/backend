@@ -575,17 +575,14 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 					for _, tag := range tags {
 						// If a post hash set already exists, append to it,
 						// otherwise create a new set and add it to the map.
-						if postHashSet, ok := fes.PostTagToPostHashesMap[tag]; !ok {
-							newPostHashSet := make(map[lib.BlockHash]bool)
-							newPostHashSet[*postHashScored] = true
-							fes.PostTagToPostHashesMap[tag] = newPostHashSet
-						} else {
-							// Only add to the set if the post hash isn't already present
-							if _, ok := postHashSet[*postHashScored]; !ok {
-								postHashSet[*postHashScored] = true
-							}
-							fes.PostTagToPostHashesMap[tag] = postHashSet
+						var postHashSet map[lib.BlockHash]bool
+						if postHashSet, ok = fes.PostTagToPostHashesMap[tag]; !ok {
+							postHashSet = make(map[lib.BlockHash]bool)
 						}
+						if _, ok = postHashSet[*postHashScored]; !ok {
+							postHashSet[*postHashScored] = true
+						}
+						fes.PostTagToPostHashesMap[tag] = postHashSet
 					}
 				}
 
