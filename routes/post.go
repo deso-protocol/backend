@@ -2305,11 +2305,11 @@ func ParseTagsFromPost(postEntry *lib.PostEntry) ([]string, error) {
 
 	var tags []string
 
-	// Search each word to see if it's an @ mention (starts w/ @ and is at least of length 2).
+	// Search each word to see if it's an @ mention, $ mention, or # tag (starts w/ symbol and is at least of length 2).
 	for _, word := range bodyWords {
-		if len(word) >= 2 && word[0:1] == "@" {
+		if len(word) >= 2 && (word[0:1] == "@" || word[0:1] == "#" || word[0:1] == "$") {
 			// Remove @ from returned word and normalize to lower-case.
-			tags = append(tags, strings.ToLower(word[1:]))
+			tags = append(tags, strings.ToLower(word))
 		}
 	}
 
