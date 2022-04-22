@@ -403,14 +403,24 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		relevantNodes = fes.blockchain.BestChain()[blockTipIndex-lookbackWindowBlocks-blockOffsetForTesting : blockTipIndex]
 	}
 
+	var hotnessInfoBlocks []*hotnessInfoBlock
+	for blockIdx, node := range relevantNodes {
+		block, _ := lib.GetBlock(node.Hash, utxoView.Handle)
+		hotnessInfoBlocks = append(hotnessInfoBlocks, &hotnessInfoBlock{
+			Block:    block,
+			// For time decay, we care about how many blocks away from the tip this block is.
+			BlockAge: len(relevantNodes) - blockIdx,
+		})
+	}
+
 	// Iterate over the blocks and track global feed hotness scores for each post.
-	hotnessInfoMapGlobalFeed, err := fes.PopulateHotnessInfoMap(relevantNodes, utxoView, postsToMultipliers, pkidsToMultipliers, false)
+	hotnessInfoMapGlobalFeed, err := fes.PopulateHotnessInfoMap(utxoView, postsToMultipliers, pkidsToMultipliers, false, hotnessInfoBlocks)
 	if err != nil {
 		glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put PopulateHotnessInfoMap for global feed: %v", err)
 		return nil
 	}
 	// Iterate over the blocks and track tag feed hotness scores for each post.
-	hotnessInfoMapTagFeed, err := fes.PopulateHotnessInfoMap(relevantNodes, utxoView, postsToMultipliers, pkidsToMultipliers, true)
+	hotnessInfoMapTagFeed, err := fes.PopulateHotnessInfoMap(utxoView, postsToMultipliers, pkidsToMultipliers, true, hotnessInfoBlocks)
 	if err != nil {
 		glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put PopulateHotnessInfoMap for tag feed: %v", err)
 		return nil
@@ -450,22 +460,25 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	return hotnessInfoMapGlobalFeed
 }
 
+type hotnessInfoBlock struct {
+	Block *lib.MsgDeSoBlock
+	BlockAge int
+}
+
 func (fes *APIServer) PopulateHotnessInfoMap(
-	relevantNodes []*lib.BlockNode,
 	utxoView *lib.UtxoView,
 	postsToMultipliers map[lib.BlockHash]float64,
 	pkidsToMultipliers map[lib.PKID]*HotFeedPKIDMultiplier,
 	isTagFeed bool,
+	hotnessInfoBlocks []*hotnessInfoBlock,
 ) (map[lib.BlockHash]*HotnessPostInfo, error) {
 	hotnessInfoMap := make(map[lib.BlockHash]*HotnessPostInfo)
 	// Map of interaction key to transaction type multiplier applied.
 	postInteractionMap := make(map[HotFeedInteractionKey]uint64)
-	for blockIdx, node := range relevantNodes {
-		block, _ := lib.GetBlock(node.Hash, utxoView.Handle)
+	for _, hotnessInfoBlock := range hotnessInfoBlocks {
+		block := hotnessInfoBlock.Block
+		blockAgee := hotnessInfoBlock.BlockAge
 		for _, txn := range block.Txns {
-			// For time decay, we care about how many blocks away from the tip this block is.
-			blockAgee := len(relevantNodes) - blockIdx
-
 			// We only care about posts created in the specified look-back period. There should always be a
 			// transaction that creates a given post before someone interacts with it. By only
 			// scoring posts that meet this condition, we can restrict the HotFeedOrderedList
