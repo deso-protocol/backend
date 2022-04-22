@@ -74,6 +74,7 @@ func (fes *APIServer) StartHotFeedRoutine() {
 	fes.PostTagToOrderedHotFeedEntries = make(map[string][]*HotFeedEntry)
 	fes.PostTagToOrderedNewestEntries = make(map[string][]*HotFeedEntry)
 	fes.PostHashToPostTagsMap = make(map[lib.BlockHash][]string)
+	fes.HotFeedBlockCache = make(map[lib.BlockHash]*lib.MsgDeSoBlock)
 	go func() {
 	out:
 		for {
