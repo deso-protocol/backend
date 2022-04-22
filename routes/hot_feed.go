@@ -405,7 +405,13 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 
 	var hotnessInfoBlocks []*hotnessInfoBlock
 	for blockIdx, node := range relevantNodes {
-		block, _ := lib.GetBlock(node.Hash, utxoView.Handle)
+		var block *lib.MsgDeSoBlock
+		if cachedBlock, ok := fes.HotFeedBlockCache[*node.Hash]; ok {
+			block = cachedBlock
+		} else {
+			block, _ = lib.GetBlock(node.Hash, utxoView.Handle)
+			fes.HotFeedBlockCache[*node.Hash] = block
+		}
 		hotnessInfoBlocks = append(hotnessInfoBlocks, &hotnessInfoBlock{
 			Block:    block,
 			// For time decay, we care about how many blocks away from the tip this block is.

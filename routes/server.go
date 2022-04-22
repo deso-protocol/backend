@@ -321,6 +321,8 @@ type APIServer struct {
 	PostTagToOrderedNewestEntries map[string][]*HotFeedEntry
 	// The height of the last block evaluated by the hotness routine.
 	HotFeedBlockHeight uint32
+	// A cache to store blocks for the block feed - in order to reduce processing time.
+	HotFeedBlockCache map[lib.BlockHash]*lib.MsgDeSoBlock
 	// Map of whitelisted post hashes used for serving the hot feed.
 	// The float64 value is a multiplier than can be modified and used in scoring.
 	HotFeedApprovedPostsToMultipliers             map[lib.BlockHash]float64
