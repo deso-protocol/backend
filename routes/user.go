@@ -27,6 +27,7 @@ import (
 type GetUsersStatelessRequest struct {
 	PublicKeysBase58Check []string `safeForLogging:"true"`
 	SkipForLeaderboard    bool     `safeForLogging:"true"`
+	IncludeBalance        bool     `safeForLogging:"true"`
 	GetUnminedBalance     bool     `safeForLogging:"true"`
 }
 
@@ -56,7 +57,7 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 	}
 
 	globalParams, err := fes.updateUsersStateless(userList, getUsersRequest.SkipForLeaderboard,
-		getUsersRequest.GetUnminedBalance)
+		getUsersRequest.GetUnminedBalance, getUsersRequest.IncludeBalance)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUsersStateless: Error fetching data for user: %v", err))
 		return
@@ -86,7 +87,8 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 	}
 }
 
-func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard bool, getUnminedBalance bool) (
+func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard bool, getUnminedBalance bool,
+	includeBalance bool) (
 	*lib.GlobalParamsEntry, error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
@@ -95,7 +97,8 @@ func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard 
 	globalParams := utxoView.GlobalParamsEntry
 	for _, user := range userList {
 		// If we get an error updating the user, log it but don't stop the show.
-		if err = fes.updateUserFieldsStateless(user, utxoView, skipForLeaderboard, getUnminedBalance); err != nil {
+		if err = fes.updateUserFieldsStateless(
+			user, utxoView, skipForLeaderboard, getUnminedBalance, includeBalance); err != nil {
 			glog.Errorf(fmt.Sprintf("updateUsers: Problem updating user with pk %s: %v", user.PublicKeyBase58Check, err))
 		}
 	}
@@ -104,7 +107,7 @@ func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard 
 }
 
 func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoView, skipForLeaderboard bool,
-	getUnminedBalance bool) error {
+	getUnminedBalance bool, includeBalance bool) error {
 	// If there's no public key, then return an error. We need a public key on
 	// the user object in order to be able to update the fields.
 	if user.PublicKeyBase58Check == "" {
@@ -127,7 +130,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	}
 
 	// We do not need a user's balance for the leaderboard
-	if !skipForLeaderboard {
+	if !skipForLeaderboard || includeBalance {
 		if getUnminedBalance {
 			// Get the UtxoEntries from the augmented view
 			utxoEntries, err := fes.blockchain.GetSpendableUtxosForPublicKey(
