@@ -217,9 +217,11 @@ func (fes *APIServer) validatePhoneNumberNotAlreadyInUse(phoneNumber string, use
 			"validatePhoneNumberNotAlreadyInUse: Error with getPhoneNumberMetadataFromGlobalState: %v", err)
 	}
 
-	// TODO: this threshold should really be controlled by an admin on the node.
-	if len(multiPhoneNumberMetadata) >= 10 {
-		return fmt.Errorf("validatePhoneNumberNotAlreadyInUse: Phone number has been used over 10 times: %v", err)
+	// TODO: this threshold should really be controlled by an admin on the node instead of via a flag.
+	if uint64(len(multiPhoneNumberMetadata)) >= fes.Config.PhoneNumberUseThreshold {
+		return fmt.Errorf(
+			"validatePhoneNumberNotAlreadyInUse: Phone number has been used over %v times",
+			fes.Config.PhoneNumberUseThreshold)
 	}
 
 	for _, phoneNumberMetadata := range multiPhoneNumberMetadata {
@@ -318,8 +320,8 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 	}
 
 	phoneNumberMetadata := &PhoneNumberMetadata{
-		PublicKey: userMetadata.PublicKey,
-		PhoneNumber: requestData.PhoneNumber,
+		PublicKey:                 userMetadata.PublicKey,
+		PhoneNumber:               requestData.PhoneNumber,
 		ShouldCompProfileCreation: true,
 	}
 	// Parse the raw phone number
