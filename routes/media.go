@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 	"io"
 	"net/http"
@@ -209,12 +208,7 @@ func preprocessExtraData(extraData map[string]string) map[string][]byte {
 	}
 	extraDataProcessed := make(map[string][]byte)
 	for k, v := range extraData {
-		valBytes, err := hex.DecodeString(v)
-		if err != nil {
-			glog.Errorf("preprocessExtraData: Error decoding value %v: %v", v, err)
-			continue
-		}
-		extraDataProcessed[k] = valBytes
+		extraDataProcessed[k] = []byte(v)
 	}
 	return extraDataProcessed
 }
@@ -225,7 +219,7 @@ func extraDataToResponse(extraData map[string][]byte) map[string]string {
 	}
 	extraDataResponse := make(map[string]string)
 	for k, v := range extraData {
-		extraDataResponse[k] = hex.EncodeToString(v)
+		extraDataResponse[k] = string(v)
 	}
 	return extraDataResponse
 }
