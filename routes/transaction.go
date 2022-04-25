@@ -486,14 +486,24 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	// If a user is jumio verified, we just comp the profile even if their balance is greater than the create profile fee.
 	// If a user has a phone number verified but is not jumio verified, we need to check that they haven't spent all their
 	// starter deso already and that ShouldCompProfileCreation is true
-	var phoneNumberMetadata *PhoneNumberMetadata
+	var multiPhoneNumberMetadata []*PhoneNumberMetadata
 	if userMetadata.PhoneNumber != "" && !userMetadata.JumioVerified {
-		phoneNumberMetadata, err = fes.getPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
+		multiPhoneNumberMetadata, err = fes.getMultiPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
 		if err != nil {
-			return 0, nil, errors.Wrap(fmt.Errorf("UpdateProfile: error getting phone number metadata for public key %v: %v", profilePublicKey, err), "")
+			return 0, nil, fmt.Errorf("UpdateProfile: error getting phone number metadata for public key %v: %v", profilePublicKey, err)
+		}
+		if len(multiPhoneNumberMetadata) == 0 {
+			return 0, nil, fmt.Errorf("UpdateProfile: no phone number metadata for phone number %v", userMetadata.PhoneNumber)
+		}
+		var phoneNumberMetadata *PhoneNumberMetadata
+		for _, phoneNumMetadata := range multiPhoneNumberMetadata {
+			if bytes.Equal(phoneNumMetadata.PublicKey, profilePublicKey) {
+				phoneNumberMetadata = phoneNumMetadata
+				break
+			}
 		}
 		if phoneNumberMetadata == nil {
-			return 0, nil, errors.Wrap(fmt.Errorf("UpdateProfile: no phone number metadata for phone number %v", userMetadata.PhoneNumber), "")
+			return 0, nil, fmt.Errorf("UpdateProfile: phone number metadata not found in slice for public key")
 		}
 		if !phoneNumberMetadata.ShouldCompProfileCreation || currentBalanceNanos > createProfileFeeNanos {
 			return additionalFees, nil, nil
@@ -523,9 +533,15 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	}
 	// Set should comp to false so we don't continually comp a public key.  PhoneNumberMetadata is only non-nil if
 	// a user verified their phone number but is not jumio verified.
-	if phoneNumberMetadata != nil {
-		phoneNumberMetadata.ShouldCompProfileCreation = false
-		if err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata); err != nil {
+	if len(multiPhoneNumberMetadata) > 0 {
+		newPhoneNumberMetadata := []*PhoneNumberMetadata{}
+		for _, phoneNumMetadata := range multiPhoneNumberMetadata {
+			if bytes.Equal(phoneNumMetadata.PublicKey, profilePublicKey) {
+				phoneNumMetadata.ShouldCompProfileCreation = false
+			}
+			newPhoneNumberMetadata = append(newPhoneNumberMetadata, phoneNumMetadata)
+		}
+		if err = fes.putPhoneNumberMetadataInGlobalState(newPhoneNumberMetadata, userMetadata.PhoneNumber); err != nil {
 			return 0, nil, errors.Wrap(fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for phone number metadata: %v", err), "")
 		}
 	} else {

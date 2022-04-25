@@ -43,9 +43,6 @@ type AdminUpdateUserGlobalMetadataRequest struct {
 	AdminPublicKey string
 }
 
-// AdminUpdateUserGlobalMetadataResponse ...
-type AdminUpdateUserGlobalMetadataResponse struct{}
-
 // AdminUpdateUserGlobalMetadata ...
 //
 // This endpoint differs from the standard "UpdateUserGlobalMetadata" in that it allows
@@ -74,17 +71,6 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 				requestData.UserPublicKeyBase58Check, err))
 			return
 		}
-	}
-
-	// Check if the username provided was a actually a phone number. If it is,
-	// search for the associated public key in global state.
-	if userPublicKeyBytes == nil && requestData.Username != "" && requestData.Username[0] == '+' {
-		phoneNumberMetadata, err := fes.getPhoneNumberMetadataFromGlobalState(requestData.Username)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Error getting phone number metadata: %v", err))
-			return
-		}
-		userPublicKeyBytes = phoneNumberMetadata.PublicKey
 	}
 
 	// If we do not have a public key by this point, try and get one from the profile associated with the username.
@@ -116,26 +102,33 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 			_AddBadRequestError(ww, "AdminUpdateUserGlobalMetadata: User does not have a phone number")
 			return
 		}
-		phoneNumberMetadata, err := fes.getPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
+		multiPhoneNumberMetadata, err := fes.getMultiPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Error getting phone number metadata: %v", err))
 			return
 		}
-		phoneNumberMetadata.PublicKey = nil
-		// We set PublicKeyDeleted to false so that this phone number can be used again for verification.
-		phoneNumberMetadata.PublicKeyDeleted = false
-		err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata)
-		if err != nil {
+		newMetadata := []*PhoneNumberMetadata{}
+		for _, phoneNumberMetadata := range multiPhoneNumberMetadata {
+			if !bytes.Equal(phoneNumberMetadata.PublicKey, userPublicKeyBytes) {
+				newMetadata = append(newMetadata, phoneNumberMetadata)
+			}
+		}
+
+		if err = fes.putPhoneNumberMetadataInGlobalState(newMetadata, userMetadata.PhoneNumber); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Error saving phone number metadata: %v", err))
 			return
 		}
 
-		// If we made it this far we were successful at removing phone metadata, return without error.
-		res := AdminUpdateUserGlobalMetadataResponse{}
-		if err := json.NewEncoder(ww).Encode(res); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem encoding response as JSON: %v", err))
+		userMetadata.PhoneNumber = ""
+		userMetadata.PhoneNumberCountryCode = ""
+
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem putting updated user metadata after deleting phone number: %v", err))
 			return
 		}
+
+		// If we made it this far we were successful at removing phone metadata, return without error.
+		// Simply return a 200 status code
 		return
 	}
 
@@ -219,9 +212,25 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 	}
 
 	// If we made it this far we were successful, return without error.
-	res := AdminUpdateUserGlobalMetadataResponse{}
-	if err = json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem encoding response as JSON: %v", err))
+	// Simply return with a 200 status code
+}
+
+type AdminResetPhoneNumberRequest struct {
+	PhoneNumber string
+}
+
+// Clears all phone number metadata for a given phone number - thus allowing it to be used again.
+func (fes *APIServer) AdminResetPhoneNumber(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminResetPhoneNumberRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminResetPhoneNumber: Problem parsing request body: %v", err))
+		return
+	}
+	if err := fes.putPhoneNumberMetadataInGlobalState([]*PhoneNumberMetadata{}, requestData.PhoneNumber); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AdminResetPhoneNumber: Problem putting empty slice in global state for phone number %v: %v",
+			requestData.PhoneNumber, err))
 		return
 	}
 }
