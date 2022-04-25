@@ -90,6 +90,7 @@ var (
 
 	// The prefix for accessing a phone number's metadata
 	// <prefix,  PhoneNumber [variableLength]byte> -> <PhoneNumberMetadata>
+	// DEPRECATED: use new GlobalStatePrefixPhoneNumberToMultiPhoneNumberMetadata
 	_GlobalStatePrefixPhoneNumberToPhoneNumberMetadata = []byte{2}
 
 	// The prefix for accessing the verified users map.
@@ -212,12 +213,14 @@ var (
 	// This key is used to manage sign up bonus configurations for a country
 	_GlobalStatePrefixForCountryCodeToCountrySignUpBonus = []byte{38}
 
+	_GlobalStatePrefixPhoneNumberToMultiPhoneNumberMetadata = []byte{41}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
 
-	// NEXT_TAG: 41
+	// NEXT_TAG: 42
 )
 
 type HotFeedApprovedPostOp struct {
@@ -438,6 +441,7 @@ func GlobalStateKeyForNFTDropEntry(dropNumber uint64) []byte {
 }
 
 // countryCode is a string like 'US' (Note: the phonenumbers lib calls this a "region code")
+// Deprecated
 func GlobalStateKeyForPhoneNumberStringToPhoneNumberMetadata(phoneNumber string) (_key []byte, _err error) {
 	parsedNumber, err := phonenumbers.Parse(phoneNumber, "")
 	if err != nil {
@@ -453,8 +457,31 @@ func GlobalStateKeyForPhoneNumberStringToPhoneNumberMetadata(phoneNumber string)
 // Key for accessing a user's global metadata.
 // External callers should use GlobalStateKeyForPhoneNumberStringToPhoneNumberMetadata, not this function,
 // to ensure that the phone number key is formatted in a standard way
+// Deprecated
 func globalStateKeyForPhoneNumberBytesToPhoneNumberMetadata(phoneNumberBytes []byte) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixPhoneNumberToPhoneNumberMetadata...)
+	key := append(prefixCopy, phoneNumberBytes[:]...)
+	return key
+}
+
+// countryCode is a string like 'US' (Note: the phonenumbers lib calls this a "region code")
+func GlobalStateKeyForPhoneNumberStringToMultiPhoneNumberMetadata(phoneNumber string) (_key []byte, _err error) {
+	parsedNumber, err := phonenumbers.Parse(phoneNumber, "")
+	if err != nil {
+		return nil, errors.Wrap(fmt.Errorf(
+			"GlobalStateKeyForPhoneNumberStringToMultiPhoneNumberMetadata: Problem with phonenumbers.Parse: %v", err), "")
+	}
+	formattedNumber := phonenumbers.Format(parsedNumber, phonenumbers.E164)
+
+	// Get the key for the formatted number
+	return globalStateKeyForPhoneNumberBytesToMultiPhoneNumberMetadata([]byte(formattedNumber)), nil
+}
+
+// Key for accessing a user's global metadata.
+// External callers should use GlobalStateKeyForPhoneNumberStringToMultiPhoneNumberMetadata, not this function,
+// to ensure that the phone number key is formatted in a standard way
+func globalStateKeyForPhoneNumberBytesToMultiPhoneNumberMetadata(phoneNumberBytes []byte) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixPhoneNumberToMultiPhoneNumberMetadata...)
 	key := append(prefixCopy, phoneNumberBytes[:]...)
 	return key
 }
