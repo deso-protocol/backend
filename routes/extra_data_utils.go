@@ -46,18 +46,13 @@ var ExtraDataKeyToDecoders = map[string]ExtraDataDecoder{
 	lib.TransactionSpendingLimitKey: DecodeTransactionSpendingLimit,
 }
 
-// GetExtraDataDecoder Values in ExtraData field
-// in transaction may have special encoding. In such cases
-// we'll need specialized decoders too
-func GetExtraDataDecoder(txnType lib.TxnType, key string) ExtraDataDecoder {
+// GetExtraDataDecoder Values in the ExtraData map can have custom encoding. In those isolated cases, we want matching
+// custom decoders. For all other cases, we use raw string <-> []byte casting for encoding & decoding.
+func GetExtraDataDecoder(_ lib.TxnType, key string) ExtraDataDecoder {
 	if decoder, exists := ExtraDataKeyToDecoders[key]; exists {
 		return decoder
 	}
-	if txnType == lib.TxnTypeSubmitPost {
-		return DecodeString
-	}
-	// Default, just return hex encoding for bytes
-	return DecodeHexString
+	return DecodeString
 }
 
 // Decode64BitIntString supports decoding integers up to a length of 8 bytes
@@ -67,7 +62,7 @@ func Decode64BitIntString(bytes []byte, _ *lib.DeSoParams, _ *lib.UtxoView) stri
 }
 
 // Decode64BitUintString supports decoding integers up to a length of 8 bytes
-func Decode64BitUintString(bytes []byte, _ *lib.DeSoParams,  _ *lib.UtxoView) string {
+func Decode64BitUintString(bytes []byte, _ *lib.DeSoParams, _ *lib.UtxoView) string {
 	var decoded, _ = lib.Uvarint(bytes)
 	return strconv.FormatUint(decoded, 10)
 }
@@ -80,11 +75,11 @@ func DecodeHexString(bytes []byte, _ *lib.DeSoParams, _ *lib.UtxoView) string {
 	return hex.EncodeToString(bytes)
 }
 
-func DecodePkToString(bytes []byte, params *lib.DeSoParams,  _ *lib.UtxoView) string {
+func DecodePkToString(bytes []byte, params *lib.DeSoParams, _ *lib.UtxoView) string {
 	return lib.PkToString(bytes, params)
 }
 
-func DecodePubKeyToUint64MapString(bytes []byte, params *lib.DeSoParams,  _ *lib.UtxoView) string {
+func DecodePubKeyToUint64MapString(bytes []byte, params *lib.DeSoParams, _ *lib.UtxoView) string {
 	var decoded, _ = lib.DeserializePubKeyToUint64Map(bytes)
 	mapWithDecodedKeys := map[string]uint64{}
 	for k, v := range decoded {
@@ -93,7 +88,7 @@ func DecodePubKeyToUint64MapString(bytes []byte, params *lib.DeSoParams,  _ *lib
 	return fmt.Sprint(mapWithDecodedKeys)
 }
 
-func DecodeString(bytes []byte, _ *lib.DeSoParams,  _ *lib.UtxoView) string {
+func DecodeString(bytes []byte, _ *lib.DeSoParams, _ *lib.UtxoView) string {
 	return string(bytes)
 }
 
