@@ -2631,7 +2631,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 	if err != nil {
 		_AddBadRequestError(
 			ww,
-			fmt.Sprintf("CreateDAOCoinLimitOrder: invalid OperationType %v", requestData.OperationType),
+			fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err),
 		)
 		return
 	}
@@ -2642,7 +2642,6 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	// Decode and validate the buying / selling coin public keys
 	// Decode and validate the buying / selling coin public keys
 	buyingCoinPublicKey, sellingCoinPublicKey, err := fes.getBuyingAndSellingDAOCoinPublicKeys(
 		utxoView,
@@ -2681,7 +2680,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 	}
 }
 
-type DAOCoinMarketOrderWithQuantityAndFillTypeRequest struct {
+type DAOCoinMarketOrderWithQuantityRequest struct {
 	// The public key of the user who is sending the order
 	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
 
@@ -2702,7 +2701,7 @@ type DAOCoinMarketOrderWithQuantityAndFillTypeRequest struct {
 
 func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := DAOCoinMarketOrderWithQuantityAndFillTypeRequest{}
+	requestData := DAOCoinMarketOrderWithQuantityRequest{}
 
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: Problem parsing request body: %v", err))
@@ -2736,7 +2735,7 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 	if err != nil {
 		_AddBadRequestError(
 			ww,
-			fmt.Sprintf("CreateDAOCoinMarketOrder: invalid OperationType %v", requestData.OperationType),
+			fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err),
 		)
 		return
 	}
@@ -2746,7 +2745,7 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 	if err != nil {
 		_AddBadRequestError(
 			ww,
-			fmt.Sprintf("CreateDAOCoinMarketOrder: invalid OperationType %v", requestData.FillType),
+			fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err),
 		)
 		return
 	}
