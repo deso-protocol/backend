@@ -31,6 +31,8 @@ const (
 	DefaultHotFeedInteractionCap uint64 = 4e12
 	// Maximum score amount that any individual PKID can contribute before time decay for a particular tag grouping.
 	DefaultHotFeedTagInteractionCap uint64 = 4e12
+	// How many iterations of the hot feed calculation until the built-up caches should be reset. (Once per day)
+	ResetCachesIterationLimit int = 50
 )
 
 // A single element in the server's HotFeedOrderedList.
@@ -75,12 +77,19 @@ func (fes *APIServer) StartHotFeedRoutine() {
 	fes.PostTagToOrderedNewestEntries = make(map[string][]*HotFeedEntry)
 	fes.PostHashToPostTagsMap = make(map[lib.BlockHash][]string)
 	fes.HotFeedBlockCache = make(map[lib.BlockHash]*lib.MsgDeSoBlock)
+	cacheResetCounter := 0
 	go func() {
 	out:
 		for {
 			select {
 			case <-time.After(5 * time.Minute):
-				fes.UpdateHotFeed()
+				resetCache := false
+				if cacheResetCounter >= ResetCachesIterationLimit {
+					resetCache = true
+					cacheResetCounter = 0
+				}
+				fes.UpdateHotFeed(resetCache)
+				cacheResetCounter += 1
 			case <-fes.quit:
 				break out
 			}
@@ -89,7 +98,15 @@ func (fes *APIServer) StartHotFeedRoutine() {
 }
 
 // The business.
-func (fes *APIServer) UpdateHotFeed() {
+func (fes *APIServer) UpdateHotFeed(resetCache bool) {
+	if resetCache {
+		glog.Info("Resetting hot feed cache.")
+		fes.PostTagToPostHashesMap = make(map[string]map[lib.BlockHash]bool)
+		fes.PostHashToPostTagsMap = make(map[lib.BlockHash][]string)
+		fes.HotFeedBlockCache = make(map[lib.BlockHash]*lib.MsgDeSoBlock)
+	}
+
+
 	// We copy the HotFeedApprovedPosts map and HotFeedPKIDMultiplier maps so we can access
 	// them safely without locking them.
 	hotFeedApprovedPosts := fes.CopyHotFeedApprovedPostsMap()
@@ -273,7 +290,6 @@ type HotnessPostInfo struct {
 	PostBlockAge int
 	HotnessScore uint64
 }
-
 func (fes *APIServer) UpdateHotFeedOrderedList(
 	postsToMultipliers map[lib.BlockHash]float64,
 	pkidsToMultipliers map[lib.PKID]*HotFeedPKIDMultiplier,
@@ -454,9 +470,15 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	fes.HotFeedPostHashToTagScoreMap = hotnessInfoMapTagFeed
 
 	// Set the ordered lists for hot feed based on tags.
-	fes.SaveOrderedFeedForTags(true)
+	postTagToOrderedHotFeedEntries := make(map[string][]*HotFeedEntry)
+	postTagToOrderedHotFeedEntries = fes.SaveOrderedFeedForTags(true, postTagToOrderedHotFeedEntries)
+	fes.PostTagToOrderedHotFeedEntries = postTagToOrderedHotFeedEntries
+
 	// Set the ordered lists for newness based on tags.
-	fes.SaveOrderedFeedForTags(false)
+	postTagToOrderedNewestEntries := map[string][]*HotFeedEntry{}
+	postTagToOrderedNewestEntries = fes.SaveOrderedFeedForTags(false, postTagToOrderedNewestEntries)
+	fes.PostTagToOrderedNewestEntries = postTagToOrderedNewestEntries
+
 
 	// Update the HotFeedBlockHeight so we don't re-evaluate this set of blocks.
 	fes.HotFeedBlockHeight = blockTip.Height
@@ -603,7 +625,7 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 
 // Rank posts on a tag-by-tag basis and save them to their corresponding index in a map.
 // If sortByHotness is true, sort by their hotness score, otherwise sort by newness.
-func (fes *APIServer) SaveOrderedFeedForTags(sortByHotness bool) {
+func (fes *APIServer) SaveOrderedFeedForTags(sortByHotness bool, PostTagToOrderedEntries map[string][]*HotFeedEntry) map[string][]*HotFeedEntry {
 	for tag, tagPostHashes := range fes.PostTagToPostHashesMap {
 		tagHotFeedOrderedList := []*HotFeedEntry{}
 		tagHotFeedListWithAge := []*HotFeedEntryTimeSortable{}
@@ -630,12 +652,9 @@ func (fes *APIServer) SaveOrderedFeedForTags(sortByHotness bool) {
 		})
 		// Remove age from entry to save space.
 		tagHotFeedOrderedList = removeAgeFromSortedHotFeedEntries(tagHotFeedListWithAge)
-		if sortByHotness {
-			fes.PostTagToOrderedHotFeedEntries[tag] = tagHotFeedOrderedList
-		} else {
-			fes.PostTagToOrderedNewestEntries[tag] = tagHotFeedOrderedList
-		}
+		PostTagToOrderedEntries[tag] = tagHotFeedOrderedList
 	}
+	return PostTagToOrderedEntries
 }
 
 // This function removes the age field from a sorted list of hot feed entries. This allows us to reduce the size
