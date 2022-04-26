@@ -2731,6 +2731,13 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
 		return
 	}
+	if fillType == lib.DAOCoinLimitOrderFillTypeGoodTillCancelled {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("CreateDAOCoinMarketOrder: %v fill type not supported for market orders", requestData.FillType),
+		)
+		return
+	}
 
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
