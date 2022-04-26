@@ -469,7 +469,7 @@ func (fes *APIServer) GetPostEntriesByTimePaginated(
 	postEntries,
 		commentsByPostHash,
 		err := fes.GetPostsByTime(utxoView, startPostHash, readerPK, numToFetch,
-			true /*skipHidden*/, true, mediaRequired)
+		true /*skipHidden*/, true, mediaRequired)
 
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("GetAllPostEntries: Error fetching posts from view: %v", err)
@@ -856,7 +856,7 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 			profileEntryMap,
 			readerStateMap,
 			err = fes.GetPostEntriesForFollowFeed(startPostHash, readerPublicKeyBytes, numToFetch, utxoView,
-				requestData.MediaRequired)
+			requestData.MediaRequired)
 		// if we're getting posts for follow feed, no comments are returned (they aren't necessary)
 		commentsByPostHash = make(map[lib.BlockHash][]*lib.PostEntry)
 	} else if requestData.GetPostsForGlobalWhitelist {
@@ -864,21 +864,21 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 			profileEntryMap,
 			readerStateMap,
 			err = fes.GetPostEntriesForGlobalWhitelist(startPostHash, readerPublicKeyBytes, numToFetch, utxoView,
-				requestData.MediaRequired)
+			requestData.MediaRequired)
 		// if we're getting posts for the global whitelist, no comments are returned (they aren't necessary)
 		commentsByPostHash = make(map[lib.BlockHash][]*lib.PostEntry)
 	} else if requestData.GetPostsByDESO || requestData.GetPostsByClout {
 		postEntries,
 			profileEntryMap,
 			err = fes.GetPostEntriesByDESOAfterTimePaginated(readerPublicKeyBytes,
-				requestData.PostsByDESOMinutesLookback, numToFetch, requestData.MediaRequired)
+			requestData.PostsByDESOMinutesLookback, numToFetch, requestData.MediaRequired)
 	} else {
 		postEntries,
 			commentsByPostHash,
 			profileEntryMap,
 			readerStateMap,
 			err = fes.GetPostEntriesByTimePaginated(startPostHash, readerPublicKeyBytes, numToFetch,
-				utxoView, requestData.MediaRequired)
+			utxoView, requestData.MediaRequired)
 	}
 
 	if err != nil {
@@ -992,11 +992,11 @@ type GetSinglePostRequest struct {
 	CommentLimit               uint32 `safeForLogging:"true"`
 	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
 	// How many levels of replies will be retrieved. If unset, will only retrieve the top-level replies.
-	ThreadLevelLimit           uint32 `safeForLogging:"true"`
+	ThreadLevelLimit uint32 `safeForLogging:"true"`
 	// How many child replies of a parent comment will be considered when returning a comment thread. Setting this to -1 will include all child replies. This limit does not affect the top-level replies to a post.
 	ThreadLeafLimit int32 `safeForLogging:"true"`
 	// If the post contains a comment thread where all comments are created by the author, include that thread in the response.
-	LoadAuthorThread           bool   `safeForLogging:"true"`
+	LoadAuthorThread bool `safeForLogging:"true"`
 
 	// If set to true, then the posts in the response will contain a boolean about whether they're in the global feed.
 	AddGlobalFeedBool bool `safeForLogging:"true"`
@@ -1201,7 +1201,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		blockedPublicKeys,
 		0,
 		postEntryResponse.PosterPublicKeyBase58Check,
-		)
+	)
 
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error Getting Comments: %v", err))
@@ -1223,8 +1223,8 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 
 // Include poster public key in comments response
 type CommentsPostEntryResponse struct {
-	PostEntryResponse *PostEntryResponse
-	PosterPublicKeyBytes [] byte
+	PostEntryResponse    *PostEntryResponse
+	PosterPublicKeyBytes []byte
 }
 
 // Get the comments associated with a single post.
@@ -1232,8 +1232,8 @@ func (fes *APIServer) GetSinglePostComments(
 	utxoView *lib.UtxoView,
 	postEntryResponse *PostEntryResponse,
 	requestData GetSinglePostRequest,
-	posterPublicKeyBytes [] byte,
-	readerPublicKeyBytes [] byte,
+	posterPublicKeyBytes []byte,
+	readerPublicKeyBytes []byte,
 	blockedPublicKeys map[string]struct{},
 	commentLevel uint32,
 	topLevelPosterPublicKeyBase58Check string,
@@ -1422,15 +1422,13 @@ func (fes *APIServer) GetSinglePostComments(
 				blockedPublicKeys,
 				commentLevel+1,
 				topLevelPosterPublicKeyBase58Check,
-				)
+			)
 			if err != nil {
 				return nil, err
 			}
 			comment.PostEntryResponse.Comments = commentReplies
 		}
 	}
-
-
 
 	// Limit comments to leaf limit, if it's not the first reply level and the leaf limit isn't -1
 	// The leaf limit should not apply to the first level of comments (comment lvl === 0) - that limit is defined by the CommentLimit
@@ -2291,4 +2289,29 @@ func GetPostHashFromPostHashHex(postHashHex string) (*lib.BlockHash, error) {
 	postHash = &lib.BlockHash{}
 	copy(postHash[:], postHashBytes)
 	return postHash, nil
+}
+
+// Parse post body, extract all tags (e.g. @diamondhands), and return them in a slice.
+func ParseTagsFromPost(postEntry *lib.PostEntry) ([]string, error) {
+	// Get the body of the post.
+	bodyJSONObj := &lib.DeSoBodySchema{}
+	err := json.Unmarshal(postEntry.Body, bodyJSONObj)
+	if err != nil {
+		return nil, fmt.Errorf("Error parsing tags from post: %v", err)
+	}
+	// Get body text from body and split on whitespace characters.
+	bodyString := bodyJSONObj.Body
+	bodyWords := strings.Fields(bodyString)
+
+	var tags []string
+
+	// Search each word to see if it's an @ mention, $ mention, or # tag (starts w/ symbol and is at least of length 2).
+	for _, word := range bodyWords {
+		if len(word) >= 2 && (word[0:1] == "@" || word[0:1] == "#" || word[0:1] == "$") {
+			// Remove @ from returned word and normalize to lower-case.
+			tags = append(tags, strings.ToLower(word))
+		}
+	}
+
+	return tags, nil
 }

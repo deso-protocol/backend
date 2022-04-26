@@ -59,7 +59,7 @@ type TransactionInfo struct {
 // MessageEntryResponse ...
 type MessageEntryResponse struct {
 	// SenderPublicKeyBase58Check is the main public key of the sender in base58check.
-	SenderPublicKeyBase58Check    string
+	SenderPublicKeyBase58Check string
 
 	// RecipientPublicKeyBase58Check is the main public key of the recipient in base58check.
 	RecipientPublicKeyBase58Check string
@@ -67,7 +67,7 @@ type MessageEntryResponse struct {
 	// EncryptedText is the encrypted message in hex format.
 	EncryptedText string
 	// TstampNanos is the message's timestamp.
-	TstampNanos   uint64
+	TstampNanos uint64
 
 	// Whether or not the user is the sender of the message.
 	IsSender bool
@@ -106,7 +106,7 @@ type MessageContactResponse struct {
 	PublicKeyBase58Check string
 
 	// Messages is the list of messages within this contact.
-	Messages             []*MessageEntryResponse
+	Messages []*MessageEntryResponse
 
 	// ProfileEntryResponse is the profile entry corresponding to the contact.
 	ProfileEntryResponse *ProfileEntryResponse
@@ -427,7 +427,7 @@ func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, 
 	return hash, err
 }
 
-func (fes *APIServer) AddNodeSourceToTxnMetadata (txn *lib.MsgDeSoTxn) {
+func (fes *APIServer) AddNodeSourceToTxnMetadata(txn *lib.MsgDeSoTxn) {
 	if fes.Config.NodeSource != 0 {
 		if len(txn.ExtraData) == 0 {
 			txnExtraData := make(map[string][]byte)

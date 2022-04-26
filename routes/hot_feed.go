@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"reflect"
 	"sort"
 	"time"
 
@@ -16,16 +17,22 @@ import (
 	"github.com/golang/glog"
 )
 
-// This file defines a simple go routine that tracks "hot" posts from the last 24hrs as well
+// This file defines a simple go routine that tracks "hot" posts from the specified look-back period as well
 // as API functionality for retrieving scored posts. The algorithm for assessing a post's
 // "hotness" is experimental and will likely be iterated upon depending on its results.
 
 // HotnessFeed scoring algorithm knobs.
 const (
-	// Number of blocks per halving for the scoring time decay.
+	// Number of blocks per halving for the scoring time decay for the global hot feed.
 	DefaultHotFeedTimeDecayBlocks uint64 = 72
+	// Number of blocks per halving for the scoring time decay for a tag hot feed.
+	DefaultHotFeedTagTimeDecayBlocks uint64 = 96
 	// Maximum score amount that any individual PKID can contribute before time decay.
 	DefaultHotFeedInteractionCap uint64 = 4e12
+	// Maximum score amount that any individual PKID can contribute before time decay for a particular tag grouping.
+	DefaultHotFeedTagInteractionCap uint64 = 4e12
+	// How many iterations of the hot feed calculation until the built-up caches should be reset. (Once per day)
+	ResetCachesIterationLimit int = 288
 )
 
 // A single element in the server's HotFeedOrderedList.
@@ -33,6 +40,14 @@ type HotFeedEntry struct {
 	PostHash     *lib.BlockHash
 	PostHashHex  string
 	HotnessScore uint64
+}
+
+// A single element in the server's HotFeedOrderedList, with the age of the post for sorting purposes.
+type HotFeedEntryTimeSortable struct {
+	PostHash     *lib.BlockHash
+	PostHashHex  string
+	HotnessScore uint64
+	PostBlockAge int
 }
 
 // A key to track whether a specific public key has interacted with a post before.
@@ -56,12 +71,25 @@ type HotFeedPKIDMultiplier struct {
 // second in order to make sure hot feed removals are processed quickly.
 func (fes *APIServer) StartHotFeedRoutine() {
 	glog.Info("Starting hot feed routine.")
+	// Initialize maps used for serving tag-specific hot feeds.
+	fes.PostTagToPostHashesMap = make(map[string]map[lib.BlockHash]bool)
+	fes.PostTagToOrderedHotFeedEntries = make(map[string][]*HotFeedEntry)
+	fes.PostTagToOrderedNewestEntries = make(map[string][]*HotFeedEntry)
+	fes.PostHashToPostTagsMap = make(map[lib.BlockHash][]string)
+	fes.HotFeedBlockCache = make(map[lib.BlockHash]*lib.MsgDeSoBlock)
+	cacheResetCounter := 0
 	go func() {
 	out:
 		for {
 			select {
-			case <-time.After(1 * time.Second):
-				fes.UpdateHotFeed()
+			case <-time.After(5 * time.Minute):
+				resetCache := false
+				if cacheResetCounter >= ResetCachesIterationLimit {
+					resetCache = true
+					cacheResetCounter = 0
+				}
+				fes.UpdateHotFeed(resetCache)
+				cacheResetCounter += 1
 			case <-fes.quit:
 				break out
 			}
@@ -70,7 +98,15 @@ func (fes *APIServer) StartHotFeedRoutine() {
 }
 
 // The business.
-func (fes *APIServer) UpdateHotFeed() {
+func (fes *APIServer) UpdateHotFeed(resetCache bool) {
+	if resetCache {
+		glog.Info("Resetting hot feed cache.")
+		fes.PostTagToPostHashesMap = make(map[string]map[lib.BlockHash]bool)
+		fes.PostHashToPostTagsMap = make(map[lib.BlockHash][]string)
+		fes.HotFeedBlockCache = make(map[lib.BlockHash]*lib.MsgDeSoBlock)
+	}
+
+
 	// We copy the HotFeedApprovedPosts map and HotFeedPKIDMultiplier maps so we can access
 	// them safely without locking them.
 	hotFeedApprovedPosts := fes.CopyHotFeedApprovedPostsMap()
@@ -80,7 +116,7 @@ func (fes *APIServer) UpdateHotFeed() {
 	fes.UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts)
 	fes.UpdateHotFeedPKIDMultipliersMap(hotFeedPKIDMultipliers)
 
-	// Update the HotFeedOrderedList based on the last 288 blocks.
+	// Update the HotFeedOrderedList based on the specified look-back period's blocks.
 	hotFeedPosts := fes.UpdateHotFeedOrderedList(hotFeedApprovedPosts, hotFeedPKIDMultipliers)
 
 	// The hotFeedPosts map will be nil unless we found new blocks in the call above.
@@ -254,7 +290,6 @@ type HotnessPostInfo struct {
 	PostBlockAge int
 	HotnessScore uint64
 }
-
 func (fes *APIServer) UpdateHotFeedOrderedList(
 	postsToMultipliers map[lib.BlockHash]float64,
 	pkidsToMultipliers map[lib.PKID]*HotFeedPKIDMultiplier,
@@ -262,7 +297,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 ) {
 	// Check to see if any of the algorithm constants have changed.
 	foundNewConstants := false
-	globalStateInteractionCap, globalStateTimeDecayBlocks, err := fes.GetHotFeedConstantsFromGlobalState()
+	globalStateInteractionCap, globalStateTagInteractionCap, globalStateTimeDecayBlocks, globalStateTagTimeDecayBlocks, globalStateTxnTypeMultiplierMap, err := fes.GetHotFeedConstantsFromGlobalState()
 	if err != nil {
 		glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to get constants: %v", err)
 		return nil
@@ -280,6 +315,14 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 			return nil
 		}
 		err = fes.GlobalState.Put(
+			_GlobalStatePrefixForHotFeedTagInteractionCap,
+			lib.EncodeUint64(DefaultHotFeedTagInteractionCap),
+		)
+		if err != nil {
+			glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put InteractionCap for tag feeds: %v", err)
+			return nil
+		}
+		err = fes.GlobalState.Put(
 			_GlobalStatePrefixForHotFeedTimeDecayBlocks,
 			lib.EncodeUint64(DefaultHotFeedTimeDecayBlocks),
 		)
@@ -287,15 +330,56 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 			glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put TimeDecayBlocks: %v", err)
 			return nil
 		}
+		err = fes.GlobalState.Put(
+			_GlobalStatePrefixForHotFeedTagTimeDecayBlocks,
+			lib.EncodeUint64(DefaultHotFeedTagTimeDecayBlocks),
+		)
+		if err != nil {
+			glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put TimeDecayBlocks for tag feeds: %v", err)
+			return nil
+		}
 
 		// Now that we've successfully updated global state, set them on the server object.
 		fes.HotFeedInteractionCap = DefaultHotFeedInteractionCap
+		fes.HotFeedTagInteractionCap = DefaultHotFeedTagInteractionCap
 		fes.HotFeedTimeDecayBlocks = DefaultHotFeedTimeDecayBlocks
-	} else if fes.HotFeedInteractionCap != globalStateInteractionCap ||
-		fes.HotFeedTimeDecayBlocks != globalStateTimeDecayBlocks {
+		fes.HotFeedTagTimeDecayBlocks = DefaultHotFeedTagTimeDecayBlocks
+		fes.HotFeedTxnTypeMultiplierMap = make(map[lib.TxnType]uint64)
+	// Check to see if only the tag-specific feed configuration variables are unset and set just those.
+	} else if globalStateTagInteractionCap == 0 || globalStateTagTimeDecayBlocks == 0 {
+		// The hot feed go routine has not been run yet since constants have not been set.
+		foundNewConstants = true
+		err = fes.GlobalState.Put(
+			_GlobalStatePrefixForHotFeedTagInteractionCap,
+			lib.EncodeUint64(DefaultHotFeedTagInteractionCap),
+		)
+		if err != nil {
+			glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put InteractionCap: %v", err)
+			return nil
+		}
+		err = fes.GlobalState.Put(
+			_GlobalStatePrefixForHotFeedTagTimeDecayBlocks,
+			lib.EncodeUint64(DefaultHotFeedTagTimeDecayBlocks),
+		)
+		if err != nil {
+			glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put TimeDecayBlocks: %v", err)
+			return nil
+		}
+		// Now that we've successfully updated global state, set them on the server object.
+		fes.HotFeedTagInteractionCap = DefaultHotFeedTagInteractionCap
+		fes.HotFeedTagTimeDecayBlocks = DefaultHotFeedTagTimeDecayBlocks
+		fes.HotFeedTxnTypeMultiplierMap = make(map[lib.TxnType]uint64)
+	}  else if fes.HotFeedInteractionCap != globalStateInteractionCap ||
+		fes.HotFeedTimeDecayBlocks != globalStateTimeDecayBlocks ||
+		fes.HotFeedTagInteractionCap != globalStateTagInteractionCap ||
+		fes.HotFeedTagTimeDecayBlocks != globalStateTagTimeDecayBlocks ||
+		!reflect.DeepEqual(fes.HotFeedTxnTypeMultiplierMap, globalStateTxnTypeMultiplierMap){
 		// New constants were found in global state. Set them and proceed.
 		fes.HotFeedInteractionCap = globalStateInteractionCap
 		fes.HotFeedTimeDecayBlocks = globalStateTimeDecayBlocks
+		fes.HotFeedTagInteractionCap = globalStateTagInteractionCap
+		fes.HotFeedTagTimeDecayBlocks = globalStateTagTimeDecayBlocks
+		fes.HotFeedTxnTypeMultiplierMap = globalStateTxnTypeMultiplierMap
 		foundNewConstants = true
 	} else if fes.HotFeedPostMultiplierUpdated || fes.HotFeedPKIDMultiplierUpdated {
 		// If a post's multiplier was updated, we need to recompute scores.
@@ -328,31 +412,125 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	// which is useful for testing purposes.
 	blockOffsetForTesting := 0
 
-	// Grab the last 24 hours worth of blocks (288 blocks @ 5min/block).
+	// Grab the last 90 days worth of blocks (25,920 blocks @ 5min/block).
+	lookbackWindowBlocks := 90 * 24 * 60 / 5
 	blockTipIndex := len(fes.blockchain.BestChain()) - 1 - blockOffsetForTesting
 	relevantNodes := fes.blockchain.BestChain()
-	if len(fes.blockchain.BestChain()) > (288 + blockOffsetForTesting) {
-		relevantNodes = fes.blockchain.BestChain()[blockTipIndex-288-blockOffsetForTesting : blockTipIndex]
+	if len(fes.blockchain.BestChain()) > (lookbackWindowBlocks + blockOffsetForTesting) {
+		relevantNodes = fes.blockchain.BestChain()[blockTipIndex-lookbackWindowBlocks-blockOffsetForTesting : blockTipIndex]
 	}
 
-	// Iterate over the blocks and track hotness scores.
-	hotnessInfoMap := make(map[lib.BlockHash]*HotnessPostInfo)
-	postInteractionMap := make(map[HotFeedInteractionKey][]byte)
+	var hotnessInfoBlocks []*hotnessInfoBlock
 	for blockIdx, node := range relevantNodes {
-		block, _ := lib.GetBlock(node.Hash, utxoView.Handle)
-		for _, txn := range block.Txns {
+		var block *lib.MsgDeSoBlock
+		if cachedBlock, ok := fes.HotFeedBlockCache[*node.Hash]; ok {
+			block = cachedBlock
+		} else {
+			block, _ = lib.GetBlock(node.Hash, utxoView.Handle)
+			fes.HotFeedBlockCache[*node.Hash] = block
+		}
+		hotnessInfoBlocks = append(hotnessInfoBlocks, &hotnessInfoBlock{
+			Block:    block,
 			// For time decay, we care about how many blocks away from the tip this block is.
-			blockAgee := len(relevantNodes) - blockIdx
+			BlockAge: len(relevantNodes) - blockIdx,
+		})
+	}
 
-			// We only care about posts created in the last 24hrs. There should always be a
+	// Iterate over the blocks and track global feed hotness scores for each post.
+	hotnessInfoMapGlobalFeed, err := fes.PopulateHotnessInfoMap(utxoView, postsToMultipliers, pkidsToMultipliers, false, hotnessInfoBlocks)
+	if err != nil {
+		glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put PopulateHotnessInfoMap for global feed: %v", err)
+		return nil
+	}
+	// Iterate over the blocks and track tag feed hotness scores for each post.
+	hotnessInfoMapTagFeed, err := fes.PopulateHotnessInfoMap(utxoView, postsToMultipliers, pkidsToMultipliers, true, hotnessInfoBlocks)
+	if err != nil {
+		glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put PopulateHotnessInfoMap for tag feed: %v", err)
+		return nil
+	}
+	// Sort the map into an ordered list and set it as the server's new HotFeedOrderedList.
+	hotFeedOrderedList := []*HotFeedEntry{}
+	for postHashKey, hotnessInfo := range hotnessInfoMapGlobalFeed {
+		postHash := postHashKey
+		hotFeedEntry := &HotFeedEntry{
+			PostHash:     &postHash,
+			PostHashHex:  hex.EncodeToString(postHash[:]),
+			HotnessScore: hotnessInfo.HotnessScore,
+		}
+		hotFeedOrderedList = append(hotFeedOrderedList, hotFeedEntry)
+	}
+	sort.Slice(hotFeedOrderedList, func(ii, jj int) bool {
+		if hotFeedOrderedList[ii].HotnessScore != hotFeedOrderedList[jj].HotnessScore {
+			return hotFeedOrderedList[ii].HotnessScore > hotFeedOrderedList[jj].HotnessScore
+		} else {
+			return hotFeedOrderedList[ii].PostHashHex > hotFeedOrderedList[jj].PostHashHex
+		}
+	})
+	fes.HotFeedOrderedList = hotFeedOrderedList
+	fes.HotFeedPostHashToTagScoreMap = hotnessInfoMapTagFeed
+
+	// Set the ordered lists for hot feed based on tags.
+	postTagToOrderedHotFeedEntries := make(map[string][]*HotFeedEntry)
+	postTagToOrderedHotFeedEntries = fes.SaveOrderedFeedForTags(true, postTagToOrderedHotFeedEntries)
+	fes.PostTagToOrderedHotFeedEntries = postTagToOrderedHotFeedEntries
+
+	// Set the ordered lists for newness based on tags.
+	postTagToOrderedNewestEntries := map[string][]*HotFeedEntry{}
+	postTagToOrderedNewestEntries = fes.SaveOrderedFeedForTags(false, postTagToOrderedNewestEntries)
+	fes.PostTagToOrderedNewestEntries = postTagToOrderedNewestEntries
+
+
+	// Update the HotFeedBlockHeight so we don't re-evaluate this set of blocks.
+	fes.HotFeedBlockHeight = blockTip.Height
+
+	elapsed := time.Since(start)
+	glog.Infof("Successfully updated HotFeedOrderedList in %s", elapsed)
+
+	return hotnessInfoMapGlobalFeed
+}
+
+type hotnessInfoBlock struct {
+	Block *lib.MsgDeSoBlock
+	BlockAge int
+}
+
+func (fes *APIServer) PopulateHotnessInfoMap(
+	utxoView *lib.UtxoView,
+	postsToMultipliers map[lib.BlockHash]float64,
+	pkidsToMultipliers map[lib.PKID]*HotFeedPKIDMultiplier,
+	isTagFeed bool,
+	hotnessInfoBlocks []*hotnessInfoBlock,
+) (map[lib.BlockHash]*HotnessPostInfo, error) {
+	hotnessInfoMap := make(map[lib.BlockHash]*HotnessPostInfo)
+	// Map of interaction key to transaction type multiplier applied.
+	postInteractionMap := make(map[HotFeedInteractionKey]uint64)
+	for _, hotnessInfoBlock := range hotnessInfoBlocks {
+		block := hotnessInfoBlock.Block
+		blockAgee := hotnessInfoBlock.BlockAge
+		for _, txn := range block.Txns {
+			// We only care about posts created in the specified look-back period. There should always be a
 			// transaction that creates a given post before someone interacts with it. By only
 			// scoring posts that meet this condition, we can restrict the HotFeedOrderedList
-			// to posts from the last 24hours without even looking up the post time stamp.
+			// to posts from the specified look-back period without even looking up the post time stamp.
 			isCreatePost, postHashCreated := CheckTxnForCreatePost(txn)
 			if isCreatePost {
 				hotnessInfoMap[*postHashCreated] = &HotnessPostInfo{
 					PostBlockAge: blockAgee,
 					HotnessScore: 0,
+				}
+				continue
+			}
+
+			// If the post has been edited, remove all tags associated with that post.
+			// This ensures that the categorization reflects the most recently edited version.
+			isEditPost, postHashEdited := CheckTxnForEditPost(txn)
+			if isEditPost {
+				tags := fes.PostHashToPostTagsMap[*postHashEdited]
+				delete(fes.PostHashToPostTagsMap, *postHashEdited)
+				for _, tag := range tags {
+					if postHashes, ok := fes.PostTagToPostHashesMap[tag]; ok {
+						delete(postHashes, *postHashEdited)
+					}
 				}
 				continue
 			}
@@ -369,17 +547,17 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 			prevHotnessInfo, inHotnessInfoMap := hotnessInfoMap[*postHashToScore]
 			if !inHotnessInfoMap {
 				// If the post is not in the hotnessInfoMap yet, it wasn't created
-				// in the last 24hrs so we can continue.
+				// in the specified look-back period so we can continue.
 				continue
 			}
 			postBlockAge := prevHotnessInfo.PostBlockAge
 
 			// If we get here, we know we are dealing with a txn that interacts with a
-			// post that was created within the last 24 hours.
+			// post that was created within the specified look-back period.
 
 			// Evaluate the txn and attempt to update the hotnessInfoMap.
 			postHashScored, interactionPKID, txnHotnessScore :=
-				fes.GetHotnessScoreInfoForTxn(txn, postBlockAge, postInteractionMap, utxoView)
+				fes.GetHotnessScoreInfoForTxn(txn, postBlockAge, postInteractionMap,  utxoView, isTagFeed)
 			if txnHotnessScore != 0 && postHashScored != nil {
 				// Check for a post-specific multiplier.
 				multiplier, hasMultiplier := postsToMultipliers[*postHashScored]
@@ -398,7 +576,6 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 					txnHotnessScore = uint64(
 						interactionPKIDMultiplier.InteractionMultiplier * float64(txnHotnessScore))
 				}
-
 				// Check for overflow just in case.
 				if prevHotnessInfo.HotnessScore > math.MaxInt64-txnHotnessScore {
 					continue
@@ -410,59 +587,137 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 					continue
 				}
 
+				var tags []string
+				var err error
+				// Before parsing the text body, first check to see if this post has been processed and cached prior.
+				if postTags, ok := fes.PostHashToPostTagsMap[*postHashScored]; ok {
+					tags = postTags
+				} else {
+					// Parse tags from post entry.
+					tags, err = ParseTagsFromPost(postEntryScored)
+					if err != nil {
+						return nil, err
+					}
+					// Cache processed post in map.
+					fes.PostHashToPostTagsMap[*postHashScored] = tags
+					// Add each tagged post to the tag:postEntries map
+					for _, tag := range tags {
+						// If a post hash set already exists, append to it,
+						// otherwise create a new set and add it to the map.
+						var postHashSet map[lib.BlockHash]bool
+						if postHashSet, ok = fes.PostTagToPostHashesMap[tag]; !ok {
+							postHashSet = make(map[lib.BlockHash]bool)
+						}
+						if _, ok = postHashSet[*postHashScored]; !ok {
+							postHashSet[*postHashScored] = true
+						}
+						fes.PostTagToPostHashesMap[tag] = postHashSet
+					}
+				}
+
 				// Update the hotness score.
 				prevHotnessInfo.HotnessScore += txnHotnessScore
 			}
 		}
 	}
+	return hotnessInfoMap, nil
+}
 
-	// Sort the map into an ordered list and set it as the server's new HotFeedOrderedList.
-	hotFeedOrderedList := []*HotFeedEntry{}
-	for postHashKey, hotnessInfo := range hotnessInfoMap {
-		postHash := postHashKey
-		hotFeedEntry := &HotFeedEntry{
-			PostHash:     &postHash,
-			PostHashHex:  hex.EncodeToString(postHash[:]),
-			HotnessScore: hotnessInfo.HotnessScore,
+// Rank posts on a tag-by-tag basis and save them to their corresponding index in a map.
+// If sortByHotness is true, sort by their hotness score, otherwise sort by newness.
+func (fes *APIServer) SaveOrderedFeedForTags(sortByHotness bool, PostTagToOrderedEntries map[string][]*HotFeedEntry) map[string][]*HotFeedEntry {
+	for tag, tagPostHashes := range fes.PostTagToPostHashesMap {
+		tagHotFeedOrderedList := []*HotFeedEntry{}
+		tagHotFeedListWithAge := []*HotFeedEntryTimeSortable{}
+		// Loop through every tagged post for the tag in question.
+		for tagPostHashKey, _ := range tagPostHashes {
+			tagPostHash := tagPostHashKey
+			if postHotnessInfo, ok := fes.HotFeedPostHashToTagScoreMap[tagPostHash]; ok {
+				postHotFeedEntry := &HotFeedEntryTimeSortable{
+					PostHash:     &tagPostHash,
+					PostHashHex:  hex.EncodeToString(tagPostHash[:]),
+					HotnessScore: postHotnessInfo.HotnessScore,
+					PostBlockAge: postHotnessInfo.PostBlockAge,
+				}
+				tagHotFeedListWithAge = append(tagHotFeedListWithAge, postHotFeedEntry)
+			}
 		}
-		hotFeedOrderedList = append(hotFeedOrderedList, hotFeedEntry)
+		// Sort posts based on specified criteria, either age (asc) or hotness (desc).
+		sort.Slice(tagHotFeedListWithAge, func(ii, jj int) bool {
+			if sortByHotness {
+				return tagHotFeedListWithAge[ii].HotnessScore > tagHotFeedListWithAge[jj].HotnessScore
+			} else {
+				return tagHotFeedListWithAge[ii].PostBlockAge < tagHotFeedListWithAge[jj].PostBlockAge
+			}
+		})
+		// Remove age from entry to save space.
+		tagHotFeedOrderedList = removeAgeFromSortedHotFeedEntries(tagHotFeedListWithAge)
+		PostTagToOrderedEntries[tag] = tagHotFeedOrderedList
 	}
-	sort.Slice(hotFeedOrderedList, func(ii, jj int) bool {
-		return hotFeedOrderedList[ii].HotnessScore > hotFeedOrderedList[jj].HotnessScore
-	})
-	fes.HotFeedOrderedList = hotFeedOrderedList
+	return PostTagToOrderedEntries
+}
 
-	// Update the HotFeedBlockHeight so we don't re-evaluate this set of blocks.
-	fes.HotFeedBlockHeight = blockTip.Height
+// This function removes the age field from a sorted list of hot feed entries. This allows us to reduce the size
+// of the entries created.
+func removeAgeFromSortedHotFeedEntries(sortedHotFeedEntries []*HotFeedEntryTimeSortable) []*HotFeedEntry {
+	hotFeedEntriesWithoutAge := []*HotFeedEntry{}
+	for _, hotFeedEntryWithAge := range sortedHotFeedEntries {
+		hotFeedEntriesWithoutAge = append(hotFeedEntriesWithoutAge, &HotFeedEntry{
+			PostHash:     hotFeedEntryWithAge.PostHash,
+			PostHashHex:  hotFeedEntryWithAge.PostHashHex,
+			HotnessScore: hotFeedEntryWithAge.HotnessScore,
+		})
+	}
+	return hotFeedEntriesWithoutAge
+}
 
-	elapsed := time.Since(start)
-	glog.Infof("Successfully updated HotFeedOrderedList in %s", elapsed)
-
-	return hotnessInfoMap
+func (fes *APIServer) GetHotFeedParamFromGlobalState(prefix []byte) (uint64, error) {
+	valueBytes, err := fes.GlobalState.Get(prefix)
+	if err != nil {
+		return 0, err
+	}
+	value := uint64(0)
+	if len(valueBytes) > 0 {
+		value = lib.DecodeUint64(valueBytes)
+	}
+	return value, nil
 }
 
 func (fes *APIServer) GetHotFeedConstantsFromGlobalState() (
-	_interactionCap uint64, _timeDecayBlocks uint64, _err error,
+	_interactionCap uint64, _interactionTagCap uint64, _timeDecayBlocks uint64, _timeDecayTagBlocks uint64, _tnxTypeMultiplierMap map[lib.TxnType]uint64, _err error,
 ) {
-	interactionCapBytes, err := fes.GlobalState.Get(_GlobalStatePrefixForHotFeedInteractionCap)
+	interactionCap, err := fes.GetHotFeedParamFromGlobalState(_GlobalStatePrefixForHotFeedInteractionCap)
 	if err != nil {
-		return 0, 0, nil
-	}
-	interactionCap := uint64(0)
-	if len(interactionCapBytes) > 0 {
-		interactionCap = lib.DecodeUint64(interactionCapBytes)
+		return 0, 0, 0, 0, nil, nil
 	}
 
-	timeDecayBlocksBytes, err := fes.GlobalState.Get(_GlobalStatePrefixForHotFeedTimeDecayBlocks)
+	interactionCapTag, err := fes.GetHotFeedParamFromGlobalState(_GlobalStatePrefixForHotFeedTagInteractionCap)
 	if err != nil {
-		return 0, 0, nil
-	}
-	timeDecayBlocks := uint64(0)
-	if len(timeDecayBlocksBytes) > 0 {
-		timeDecayBlocks = lib.DecodeUint64(timeDecayBlocksBytes)
+		return 0, 0, 0, 0, nil, nil
 	}
 
-	return interactionCap, timeDecayBlocks, nil
+	timeDecayBlocks, err := fes.GetHotFeedParamFromGlobalState(_GlobalStatePrefixForHotFeedTimeDecayBlocks)
+	if err != nil {
+		return 0, 0, 0, 0, nil, nil
+	}
+
+	timeDecayBlocksTag, err := fes.GetHotFeedParamFromGlobalState(_GlobalStatePrefixForHotFeedTagTimeDecayBlocks)
+	if err != nil {
+		return 0, 0, 0, 0, nil, nil
+	}
+
+	txnTypeMultiplierMapBytes, err := fes.GlobalState.Get(_GlobalStatePrefixHotFeedTxnTypeMultiplierBasisPoints)
+	if err != nil {
+		return 0, 0, 0, 0, nil, nil
+	}
+	txnTypeMultiplierMap := make(map[lib.TxnType]uint64)
+	if len(txnTypeMultiplierMapBytes) > 0 {
+		if err = gob.NewDecoder(bytes.NewReader(txnTypeMultiplierMapBytes)).Decode(&txnTypeMultiplierMap); err != nil {
+			return 0, 0, 0, 0, nil, fmt.Errorf("Error decoding txnTypeMultiplierMapBytes to map: %v", err)
+		}
+	}
+
+	return interactionCap, interactionCapTag, timeDecayBlocks, timeDecayBlocksTag, txnTypeMultiplierMap, nil
 }
 
 func CheckTxnForCreatePost(txn *lib.MsgDeSoTxn) (
@@ -472,6 +727,20 @@ func CheckTxnForCreatePost(txn *lib.MsgDeSoTxn) (
 		// The post hash of a brand new post is the same as its txn hash.
 		if len(txMeta.PostHashToModify) == 0 {
 			return true, txn.Hash()
+		}
+	}
+
+	return false, nil
+}
+
+func CheckTxnForEditPost(txn *lib.MsgDeSoTxn) (
+	_isEditPostTxn bool, _postHashCreated *lib.BlockHash) {
+	if txn.TxnMeta.GetTxnType() == lib.TxnTypeSubmitPost {
+		txMeta := txn.TxnMeta.(*lib.SubmitPostMetadata)
+		// The post hash of a brand new post is the same as its txn hash.
+		if len(txMeta.PostHashToModify) != 0 {
+			blockHashToModify := lib.NewBlockHash(txMeta.PostHashToModify)
+			return true, blockHashToModify
 		}
 	}
 
@@ -540,8 +809,9 @@ func GetPostHashToScoreForTxn(txn *lib.MsgDeSoTxn,
 func (fes *APIServer) GetHotnessScoreInfoForTxn(
 	txn *lib.MsgDeSoTxn,
 	blockAge int, // Number of blocks this txn is from the blockTip.  Not block height.
-	postInteractionMap map[HotFeedInteractionKey][]byte,
+	postInteractionMap map[HotFeedInteractionKey]uint64,
 	utxoView *lib.UtxoView,
+	isTagFeed bool,
 ) (_postHashScored *lib.BlockHash, _interactionPKID *lib.PKID, _hotnessScore uint64,
 ) {
 	// Figure out who is responsible for the transaction.
@@ -554,24 +824,54 @@ func (fes *APIServer) GetHotnessScoreInfoForTxn(
 		InteractionPKID:     *interactionPKIDEntry.PKID,
 		InteractionPostHash: *interactionPostHash,
 	}
-	if _, exists := postInteractionMap[interactionKey]; exists {
-		return nil, nil, 0
+
+	// Transaction type multiplier for current transaction.
+	multiplier := fes.getTxnMultiplier(txn)
+
+	// Get previously applied multiplier for post, if post has been counted already for this user.
+	if prevMultiplier, exists := postInteractionMap[interactionKey]; exists {
+		// If the previously applied multiplier is greater, skip this transaction.
+		if prevMultiplier > multiplier {
+			return nil, nil, 0
+		}
+		postInteractionMap[interactionKey] = multiplier
+		// We want to count the difference of the new multiplier and the previously counted multiplier.
+		multiplier = multiplier - prevMultiplier
 	} else {
-		postInteractionMap[interactionKey] = []byte{}
+		postInteractionMap[interactionKey] = multiplier
 	}
 
 	// Finally return the post hash and the txn's hotness score.
 	interactionProfile := utxoView.GetProfileEntryForPKID(interactionPKIDEntry.PKID)
-	// It is possible for the profile to be nil since you don't need a profile for diamonds.
-	if interactionProfile == nil || interactionProfile.IsDeleted() {
+	interactionUserBalance, err := utxoView.GetDeSoBalanceNanosForPublicKey(txn.PublicKey)
+	if err != nil {
 		return nil, nil, 0
 	}
-	hotnessScore := interactionProfile.CreatorCoinEntry.DeSoLockedNanos
-	if hotnessScore > fes.HotFeedInteractionCap {
+
+	hotnessScore := interactionUserBalance
+	// It is possible for the profile to be nil since you don't need a profile for diamonds.
+	if interactionProfile != nil && !interactionProfile.IsDeleted() {
+		hotnessScore += interactionProfile.CreatorCoinEntry.DeSoLockedNanos
+	}
+
+	// Apply transaction type multiplier.
+	// Multipliers are defined in basis points, so the resulting product is divided by 10,000.
+	hotnessScore = hotnessScore * multiplier / 10000
+
+	if hotnessScore > fes.HotFeedInteractionCap && !isTagFeed {
 		hotnessScore = fes.HotFeedInteractionCap
+	} else if hotnessScore > fes.HotFeedTagInteractionCap && isTagFeed {
+		hotnessScore = fes.HotFeedTagInteractionCap
+	}
+	var timeDecayBlocks uint64
+	if isTagFeed {
+		timeDecayBlocks = fes.HotFeedTagTimeDecayBlocks
+	} else {
+		timeDecayBlocks = fes.HotFeedTimeDecayBlocks
 	}
 	hotnessScoreTimeDecayed := uint64(float64(hotnessScore) *
-		math.Pow(0.5, float64(blockAge)/float64(fes.HotFeedTimeDecayBlocks)))
+		math.Pow(0.5, float64(blockAge)/float64(timeDecayBlocks)))
+
 	return interactionPostHash, interactionPKIDEntry.PKID, hotnessScoreTimeDecayed
 }
 
@@ -585,6 +885,17 @@ func (fes *APIServer) PruneHotFeedApprovedPostsMap(
 	}
 }
 
+// Get the transaction type multiplier associated with a particular transaction
+func (fes *APIServer) getTxnMultiplier(txn *lib.MsgDeSoTxn) uint64 {
+	if multiplier, ok := fes.HotFeedTxnTypeMultiplierMap[txn.TxnMeta.GetTxnType()]; ok {
+		return multiplier
+	} else {
+		// If transaction doesn't have a multiplier defined, multiply by 1x (in basis points)
+		return 10000
+	}
+
+}
+
 type HotFeedPageRequest struct {
 	ReaderPublicKeyBase58Check string
 	// Since the hot feed is constantly changing, we pass a list of posts that have already
@@ -592,6 +903,10 @@ type HotFeedPageRequest struct {
 	SeenPosts []string
 	// Number of post entry responses to return.
 	ResponseLimit int
+	// If defined, only get the hot feed for posts tagged with this tag.
+	Tag string
+	// If true, sort by new instead of by hotness. Only applies to queries where "Tag" is defined.
+	SortByNew bool
 }
 
 type HotFeedPageResponse struct {
@@ -603,7 +918,6 @@ func (fes *APIServer) AdminGetUnfilteredHotFeed(ww http.ResponseWriter, req *htt
 }
 
 func (fes *APIServer) GetHotFeed(ww http.ResponseWriter, req *http.Request) {
-	// RPH-FIXME: set approvedPostsOnly to true before launch.
 	fes.HandleHotFeedPageRequest(ww, req, false /*approvedPostsOnly*/, false /*addMultiplierBool*/)
 }
 
@@ -644,7 +958,30 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 	}
 
 	hotFeed := []PostEntryResponse{}
-	for _, hotFeedEntry := range fes.HotFeedOrderedList {
+
+	// The list of posts that will be iterated on
+	var hotFeedOrderedList []*HotFeedEntry
+
+	// Only process posts tagged with a particular tag if specified in the request
+	if requestData.Tag != "" {
+		// Choose the map with the lists sorted in the manner specified by the user (hotness or newness).
+		var tagMap map[string][]*HotFeedEntry
+		if requestData.SortByNew {
+			tagMap = fes.PostTagToOrderedNewestEntries
+		} else {
+			tagMap = fes.PostTagToOrderedHotFeedEntries
+		}
+		// Check to make sure key exists in map. If not, return an empty list.
+		if orderedEntriesForTag, ok := tagMap[requestData.Tag]; ok {
+			hotFeedOrderedList = orderedEntriesForTag
+		} else {
+			hotFeedOrderedList = []*HotFeedEntry{}
+		}
+	} else {
+		hotFeedOrderedList = fes.HotFeedOrderedList
+	}
+
+	for _, hotFeedEntry := range hotFeedOrderedList {
 		if requestData.ResponseLimit != 0 && len(hotFeed) > requestData.ResponseLimit {
 			break
 		}
@@ -729,11 +1066,18 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 }
 
 type AdminUpdateHotFeedAlgorithmRequest struct {
-	// Maximum score amount that any individual PKID can contribute to the hot feed score
+	// Maximum score amount that any individual PKID can contribute to the global hot feed score
 	// before time decay. Ignored if set to zero.
 	InteractionCap int
-	// Number of blocks per halving for the hot feed score time decay. Ignored if set to zero.
+	// Maximum score amount that any individual PKID can contribute to a particular tag's hot feed score
+	// before time decay. Ignored if set to zero.
+	InteractionCapTag int
+	// Number of blocks per halving for the global hot feed score time decay. Ignored if set to zero.
 	TimeDecayBlocks int
+	// Number of blocks per halving for a tag's hot feed score time decay. Ignored if set to zero.
+	TimeDecayBlocksTag int
+	// Multiplier which alters the hotness score for a particular transaction type. Multiplier is stored in basis points.
+	TxnTypeMultiplierMap map[lib.TxnType]uint64
 }
 
 type AdminUpdateHotFeedAlgorithmResponse struct{}
@@ -746,31 +1090,46 @@ func (fes *APIServer) AdminUpdateHotFeedAlgorithm(ww http.ResponseWriter, req *h
 		return
 	}
 
-	if requestData.InteractionCap < 0 || requestData.TimeDecayBlocks < 0 {
+	if requestData.InteractionCap < 0 || requestData.TimeDecayBlocks < 0 || requestData.InteractionCapTag < 0 || requestData.TimeDecayBlocksTag < 0 {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"AdminUpdateHotFeedAlgorithm: InteractionCap (%d) and TimeDecayBlocks (%d) can't be negative.",
-			requestData.InteractionCap, requestData.TimeDecayBlocks))
+			"AdminUpdateHotFeedAlgorithm: InteractionCap (%d, %d) and TimeDecayBlocks (%d, %d) can't be negative.",
+			requestData.InteractionCap, requestData.InteractionCapTag, requestData.TimeDecayBlocks, requestData.TimeDecayBlocksTag))
 		return
 	}
 
-	if requestData.InteractionCap > 0 {
-		err := fes.GlobalState.Put(
-			_GlobalStatePrefixForHotFeedInteractionCap,
-			lib.EncodeUint64(uint64(requestData.InteractionCap)),
-		)
-		if err != nil {
-			_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateHotFeedAlgorithm: Error putting InteractionCap: %v", err))
-			return
-		}
+	err := fes.AddHotFeedParamToGlobalState(_GlobalStatePrefixForHotFeedInteractionCap, requestData.InteractionCap)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateHotFeedAlgorithm: Error putting InteractionCap: %v", err))
+		return
 	}
 
-	if requestData.TimeDecayBlocks > 0 {
-		err := fes.GlobalState.Put(
-			_GlobalStatePrefixForHotFeedTimeDecayBlocks,
-			lib.EncodeUint64(uint64(requestData.TimeDecayBlocks)),
-		)
-		if err != nil {
-			_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateHotFeedAlgorithm: Error putting TimeDecayBlocks: %v", err))
+	err = fes.AddHotFeedParamToGlobalState(_GlobalStatePrefixForHotFeedTagInteractionCap, requestData.InteractionCapTag)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateHotFeedAlgorithm: Error putting InteractionCapTag: %v", err))
+		return
+	}
+
+	err = fes.AddHotFeedParamToGlobalState(_GlobalStatePrefixForHotFeedTimeDecayBlocks, requestData.TimeDecayBlocks)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateHotFeedAlgorithm: Error putting TimeDecayBlocks: %v", err))
+		return
+	}
+
+	err = fes.AddHotFeedParamToGlobalState(_GlobalStatePrefixForHotFeedTagTimeDecayBlocks, requestData.TimeDecayBlocksTag)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateHotFeedAlgorithm: Error putting TimeDecayBlocksTag: %v", err))
+		return
+	}
+
+
+	if len(requestData.TxnTypeMultiplierMap) > 0 {
+		txnTypeMultiplierMapBuffer := bytes.NewBuffer([]byte{})
+		if err := gob.NewEncoder(txnTypeMultiplierMapBuffer).Encode(requestData.TxnTypeMultiplierMap); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateHotFeedAlgorithm: Problem encoding transaction multiplier map: %v", err))
+			return
+		}
+		if err := fes.GlobalState.Put(_GlobalStatePrefixHotFeedTxnTypeMultiplierBasisPoints, txnTypeMultiplierMapBuffer.Bytes()); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateHotFeedAlgorithm: Problem putting txn type multiplier map in global state: %v", err))
 			return
 		}
 	}
@@ -782,11 +1141,25 @@ func (fes *APIServer) AdminUpdateHotFeedAlgorithm(ww http.ResponseWriter, req *h
 	}
 }
 
+func (fes *APIServer) AddHotFeedParamToGlobalState(prefix []byte, value int) error {
+	if value > 0 {
+		err := fes.GlobalState.Put(
+			prefix,
+			lib.EncodeUint64(uint64(value)),
+		)
+		return err
+	}
+	return nil
+}
+
 type AdminGetHotFeedAlgorithmRequest struct{}
 
 type AdminGetHotFeedAlgorithmResponse struct {
-	InteractionCap  uint64
-	TimeDecayBlocks uint64
+	InteractionCap       uint64
+	InteractionCapTag    uint64
+	TimeDecayBlocks      uint64
+	TimeDecayBlocksTag   uint64
+	TxnTypeMultiplierMap map[lib.TxnType]uint64
 }
 
 func (fes *APIServer) AdminGetHotFeedAlgorithm(ww http.ResponseWriter, req *http.Request) {
@@ -797,15 +1170,18 @@ func (fes *APIServer) AdminGetHotFeedAlgorithm(ww http.ResponseWriter, req *http
 		return
 	}
 
-	interactionCap, timeDecayBlocks, err := fes.GetHotFeedConstantsFromGlobalState()
+	interactionCap, interactionCapTag, timeDecayBlocks, timeDecayBlocksTag, txnTypeMultiplierMap, err := fes.GetHotFeedConstantsFromGlobalState()
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("AdminGetHotFeedAlgorithm: Error getting constants: %v", err))
 		return
 	}
 
 	res := AdminGetHotFeedAlgorithmResponse{
-		InteractionCap:  interactionCap,
-		TimeDecayBlocks: timeDecayBlocks,
+		InteractionCap:       interactionCap,
+		InteractionCapTag:    interactionCapTag,
+		TimeDecayBlocks:      timeDecayBlocks,
+		TimeDecayBlocksTag:   timeDecayBlocksTag,
+		TxnTypeMultiplierMap: txnTypeMultiplierMap,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetHotFeedAlgorithm: Problem encoding response as JSON: %v", err))
