@@ -60,6 +60,7 @@ const (
 	RoutePathDAOCoin                  = "/api/v0/dao-coin"
 	RoutePathTransferDAOCoin          = "/api/v0/transfer-dao-coin"
 	RoutePathCreateDAOCoinLimitOrder  = "/api/v0/create-dao-coin-limit-order"
+	RoutePathCreateDAOCoinMarketOrder = "/api/v0/create-dao-coin-market-order"
 	RoutePathCancelDAOCoinLimitOrder  = "/api/v0/cancel-dao-coin-limit-order"
 	RoutePathAppendExtraData          = "/api/v0/append-extra-data"
 	RoutePathGetTransactionSpending   = "/api/v0/get-transaction-spending"
@@ -884,6 +885,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathCreateDAOCoinLimitOrder,
 			fes.CreateDAOCoinLimitOrder,
+			PublicAccess,
+		},
+		{
+			"CreateDAOCoinMarketOrder",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateDAOCoinMarketOrder,
+			fes.CreateDAOCoinMarketOrder,
 			PublicAccess,
 		},
 		{
