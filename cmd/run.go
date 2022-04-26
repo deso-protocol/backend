@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"github.com/deso-protocol/backend/secondary_indexes"
+	"github.com/deso-protocol/core/lib"
 	"os"
 	"os/signal"
 	"syscall"
@@ -23,13 +25,25 @@ var runCmd = &cobra.Command{
 }
 
 func Run(cmd *cobra.Command, args []string) {
-	// Start the core node
+	// Load up the configs for the core node, and this node.
 	coreConfig := coreCmd.LoadConfig()
+	nodeConfig := config.LoadConfig(coreConfig)
+
+	// Start the core node with a hook to compute secondary indexes.
 	coreNode := coreCmd.NewNode(coreConfig)
-	coreNode.Start()
+	// Create an EventManager and run a hook every time we process a block.
+	// We use this hook to build up secondary indexes like Postgres once the
+	// node becomes fully synced.
+	eventManager := lib.NewEventManager()
+	secondaryIndex := secondary_indexes.NewSecondaryIndex(
+		coreNode)
+	eventManager.OnBlockAccepted(secondaryIndex.BuildSecondaryIndexesAfterSyncCompleted)
+	// Start the core node.
+	coreNode.StartWithOptions(eventManager)
+
+	// Wire up the block processor
 
 	// Start the backend node
-	nodeConfig := config.LoadConfig(coreConfig)
 	node := NewNode(nodeConfig, coreNode)
 	node.Start()
 
@@ -162,6 +176,12 @@ func init() {
 
 	// Tag transaction with node source
 	runCmd.PersistentFlags().Uint64("node-source", 0, "Node ID to tag transaction with. Maps to ../core/lib/nodes.go")
+
+	runCmd.PersistentFlags().Bool("force-recompute-secondary-indexes-on-startup", false,
+		"Useful for testing. When set to true, the secondary indexes will "+
+			"be recomputed on startup, making it easy to find bugs.")
+	runCmd.PersistentFlags().String("secondary-index-postgres-uri", "",
+		"When set, this Postgres DB is used to compute secondary indexes.")
 
 	runCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
 		viper.BindPFlag(flag.Name, flag)

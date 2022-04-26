@@ -79,6 +79,12 @@ type Config struct {
 
 	// ID to tag node source
 	NodeSource uint64
+
+	// Useful for testing. When set to true, the secondary indexes will be
+	// recomputed on startup, making it easy to find bugs.
+	ForceRecomputeSecondaryIndexesOnStartup bool
+	// When set, this Postgres DB is used to compute secondary indexes.
+	SecondaryIndexPostgresURI string
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -174,6 +180,10 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 
 	// Node source ID
 	config.NodeSource = viper.GetUint64("node-source")
+
+	// Params for secondary indexes
+	config.ForceRecomputeSecondaryIndexesOnStartup = viper.GetBool("force-recompute-secondary-indexes-on-startup")
+	config.SecondaryIndexPostgresURI = viper.GetString("secondary-index-postgres-uri")
 
 	return &config
 }
