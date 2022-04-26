@@ -2290,3 +2290,28 @@ func GetPostHashFromPostHashHex(postHashHex string) (*lib.BlockHash, error) {
 	copy(postHash[:], postHashBytes)
 	return postHash, nil
 }
+
+// Parse post body, extract all tags (e.g. @diamondhands), and return them in a slice.
+func ParseTagsFromPost(postEntry *lib.PostEntry) ([]string, error) {
+	// Get the body of the post.
+	bodyJSONObj := &lib.DeSoBodySchema{}
+	err := json.Unmarshal(postEntry.Body, bodyJSONObj)
+	if err != nil {
+		return nil, fmt.Errorf("Error parsing tags from post: %v", err)
+	}
+	// Get body text from body and split on whitespace characters.
+	bodyString := bodyJSONObj.Body
+	bodyWords := strings.Fields(bodyString)
+
+	var tags []string
+
+	// Search each word to see if it's an @ mention, $ mention, or # tag (starts w/ symbol and is at least of length 2).
+	for _, word := range bodyWords {
+		if len(word) >= 2 && (word[0:1] == "@" || word[0:1] == "#" || word[0:1] == "$") {
+			// Remove @ from returned word and normalize to lower-case.
+			tags = append(tags, strings.ToLower(word))
+		}
+	}
+
+	return tags, nil
+}
