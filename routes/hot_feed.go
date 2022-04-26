@@ -32,7 +32,7 @@ const (
 	// Maximum score amount that any individual PKID can contribute before time decay for a particular tag grouping.
 	DefaultHotFeedTagInteractionCap uint64 = 4e12
 	// How many iterations of the hot feed calculation until the built-up caches should be reset. (Once per day)
-	ResetCachesIterationLimit int = 50
+	ResetCachesIterationLimit int = 288
 )
 
 // A single element in the server's HotFeedOrderedList.
