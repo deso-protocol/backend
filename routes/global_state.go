@@ -212,12 +212,19 @@ var (
 	// This key is used to manage sign up bonus configurations for a country
 	_GlobalStatePrefixForCountryCodeToCountrySignUpBonus = []byte{38}
 
+	// Prefixes for accessing more hot feed score constants.  <prefix> -> <uint64>
+	_GlobalStatePrefixForHotFeedTagInteractionCap  = []byte{41}
+	_GlobalStatePrefixForHotFeedTagTimeDecayBlocks = []byte{42}
+
+	// Prefix for transaction type multipliers. <prefix> -> <map[lib.TxnType]uint64>
+	_GlobalStatePrefixHotFeedTxnTypeMultiplierBasisPoints = []byte{43}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
 
-	// NEXT_TAG: 41
+	// NEXT_TAG: 44
 )
 
 type HotFeedApprovedPostOp struct {

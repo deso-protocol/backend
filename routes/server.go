@@ -309,10 +309,26 @@ type APIServer struct {
 	// Base-58 prefix to check for to determine if a string could be a public key.
 	PublicKeyBase58Prefix string
 
-	// A list of posts from the last 24hrs ordered by hotness score.
+	// A list of posts from the specified look-back period ordered by hotness score.
 	HotFeedOrderedList []*HotFeedEntry
+	// A map version of HotFeedOrderedList mapping each post to its hotness score for the tag feed and post age.
+	HotFeedPostHashToTagScoreMap map[lib.BlockHash]*HotnessPostInfo
+	// An in-memory map from post hash to post tags. This is used to cache tags to prevent hot feed algorithm from
+	// continuously parsing the text body from already processed posts.
+	PostHashToPostTagsMap map[lib.BlockHash][]string
+	// An in-memory map from post tag to post hash. This allows us to
+	// quickly get all the posts for a particular group.
+	// This is represented as a map of strings to a set of post hashes. A set is used instead of an array to allow for
+	// quicker de-duplication checks.
+	PostTagToPostHashesMap map[string]map[lib.BlockHash]bool
+	// For each tag, store ordered slice of post hashes based on hot feed ranking.
+	PostTagToOrderedHotFeedEntries map[string][]*HotFeedEntry
+	// For each tag, store ordered slice of post hashes based on newness.
+	PostTagToOrderedNewestEntries map[string][]*HotFeedEntry
 	// The height of the last block evaluated by the hotness routine.
 	HotFeedBlockHeight uint32
+	// A cache to store blocks for the block feed - in order to reduce processing time.
+	HotFeedBlockCache map[lib.BlockHash]*lib.MsgDeSoBlock
 	// Map of whitelisted post hashes used for serving the hot feed.
 	// The float64 value is a multiplier than can be modified and used in scoring.
 	HotFeedApprovedPostsToMultipliers             map[lib.BlockHash]float64
@@ -323,7 +339,10 @@ type APIServer struct {
 	LastHotFeedPKIDMultiplierOpProcessedTstampNanos uint64
 	// Constants for the hotness score algorithm.
 	HotFeedInteractionCap        uint64
+	HotFeedTagInteractionCap     uint64
 	HotFeedTimeDecayBlocks       uint64
+	HotFeedTagTimeDecayBlocks    uint64
+	HotFeedTxnTypeMultiplierMap  map[lib.TxnType]uint64
 	HotFeedPostMultiplierUpdated bool
 	HotFeedPKIDMultiplierUpdated bool
 

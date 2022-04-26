@@ -343,8 +343,8 @@ type InfuraTx struct {
 }
 
 type QueryETHRPCRequest struct {
-	Method               string
-	Params               []interface{}
+	Method string
+	Params []interface{}
 }
 
 // QueryETHRPC is an endpoint used to execute queries through Infura
