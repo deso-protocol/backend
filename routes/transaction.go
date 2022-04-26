@@ -2695,7 +2695,7 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 	requestData := DAOCoinMarketOrderWithQuantityRequest{}
 
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: Problem parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: Problem parsing request body: %v", err))
 		return
 	}
 
@@ -2791,7 +2791,7 @@ func (fes *APIServer) getBuyingAndSellingDAOCoinPublicKeys(
 	utxoView *lib.UtxoView,
 	buyingDAOCoinCreatorPublicKeyBase58CheckOrUsername string,
 	sellingDAOCoinCreatorPublicKeyBase58CheckOrUsername string,
-) (_buyingCoinPublicKey []byte, _sellingCoinPublicKey []byte, _err error) {
+) ([]byte, []byte, error) {
 	if sellingDAOCoinCreatorPublicKeyBase58CheckOrUsername == "" &&
 		buyingDAOCoinCreatorPublicKeyBase58CheckOrUsername == "" {
 		return nil, nil, errors.Errorf("empty string provided for both the " +
@@ -2799,13 +2799,13 @@ func (fes *APIServer) getBuyingAndSellingDAOCoinPublicKeys(
 			"will be bought or sold")
 	}
 
-	_buyingCoinPublicKey = lib.ZeroPublicKey.ToBytes()
-	_sellingCoinPublicKey = lib.ZeroPublicKey.ToBytes()
+	buyingCoinPublicKey := lib.ZeroPublicKey.ToBytes()
+	sellingCoinPublicKey := lib.ZeroPublicKey.ToBytes()
 
 	var err error
 
 	if buyingDAOCoinCreatorPublicKeyBase58CheckOrUsername != "" {
-		_buyingCoinPublicKey, _, err = fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
+		buyingCoinPublicKey, _, err = fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
 			buyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
 			utxoView,
 		)
@@ -2815,7 +2815,7 @@ func (fes *APIServer) getBuyingAndSellingDAOCoinPublicKeys(
 	}
 
 	if sellingDAOCoinCreatorPublicKeyBase58CheckOrUsername != "" {
-		_sellingCoinPublicKey, _, err = fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
+		sellingCoinPublicKey, _, err = fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
 			sellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
 			utxoView,
 		)
@@ -2824,7 +2824,7 @@ func (fes *APIServer) getBuyingAndSellingDAOCoinPublicKeys(
 		}
 	}
 
-	return _buyingCoinPublicKey, _sellingCoinPublicKey, nil
+	return buyingCoinPublicKey, sellingCoinPublicKey, nil
 }
 
 type DAOCoinLimitOrderWithCancelOrderIDRequest struct {
