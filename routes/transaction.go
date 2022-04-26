@@ -2590,10 +2590,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 
 	// Basic validation that we have a transactor
 	if requestData.TransactorPublicKeyBase58Check == "" {
-		_AddBadRequestError(
-			ww,
-			"CreateDAOCoinLimitOrder: must provide a TransactorPublicKeyBase58Check",
-		)
+		_AddBadRequestError(ww, "CreateDAOCoinLimitOrder: must provide a TransactorPublicKeyBase58Check")
 		return
 	}
 
@@ -2629,10 +2626,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 	// Validate operation type
 	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
 	if err != nil {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err),
-		)
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
 		return
 	}
 
@@ -2649,10 +2643,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
 	)
 	if err != nil {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err),
-		)
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
 		return
 	}
 
@@ -2710,10 +2701,7 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 
 	// Basic validation that we have a transactor
 	if requestData.TransactorPublicKeyBase58Check == "" {
-		_AddBadRequestError(
-			ww,
-			"CreateDAOCoinMarketOrder: must provide a TransactorPublicKeyBase58Check",
-		)
+		_AddBadRequestError(ww, "CreateDAOCoinMarketOrder: must provide a TransactorPublicKeyBase58Check")
 		return
 	}
 
@@ -2733,20 +2721,14 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 	// Validate operation type
 	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
 	if err != nil {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err),
-		)
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
 		return
 	}
 
 	// Validate fill type
 	fillType, err := orderFillTypeToUint64(requestData.FillType)
 	if err != nil {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err),
-		)
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
 		return
 	}
 
@@ -2763,10 +2745,7 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 		requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
 	)
 	if err != nil {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err),
-		)
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
 		return
 	}
 
@@ -2797,16 +2776,20 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 	}
 }
 
+// getBuyingAndSellingDAOCoinPublicKeys
+// An empty string for the buying or selling coin represents $DESO. This enables $DESO <> DAO coin trades, and
+// DAO coin <> DAO coin trades. At most one of the buying or selling coin can specify $DESO as we don't enable
+// $DESO <> $DESO trades
 func (fes *APIServer) getBuyingAndSellingDAOCoinPublicKeys(
 	utxoView *lib.UtxoView,
 	buyingDAOCoinCreatorPublicKeyBase58CheckOrUsername string,
 	sellingDAOCoinCreatorPublicKeyBase58CheckOrUsername string,
 ) (_buyingCoinPublicKey []byte, _sellingCoinPublicKey []byte, _err error) {
-	// An empty string for a buying or selling coin represents $DESO. At least of the coins must be a DAO coin however
 	if sellingDAOCoinCreatorPublicKeyBase58CheckOrUsername == "" &&
 		buyingDAOCoinCreatorPublicKeyBase58CheckOrUsername == "" {
-		return nil, nil, errors.Errorf("must provide at least one of " +
-			"BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername or SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername")
+		return nil, nil, errors.Errorf("empty string provided for both the " +
+			"coin to buy and the coin to sell. At least one must specify a valid DAO public key or username whose coin " +
+			"will be bought or sold")
 	}
 
 	_buyingCoinPublicKey = lib.ZeroPublicKey.ToBytes()
