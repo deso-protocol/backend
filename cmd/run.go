@@ -73,7 +73,7 @@ func init() {
 		"Users won't be able to create a profile unless they buy this "+
 			"amount of satoshis or provide a phone number.")
 	// How many times can a phone number be used to receive starter DESO.
-	runCmd.PersistentFlags().Uint64("phone-number-use-threshold", 1, "A phone number will "+
+	runCmd.PersistentFlags().Uint64("phone-number-use-threshold", 10, "A phone number will "+
 		"be allowed to be used this many times to receive starter DESO. Set this to a higher value "+
 		"if you want users to be able to create multiple accounts more easily.")
 
