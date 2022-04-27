@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"github.com/deso-protocol/backend/scripts/tools/toolslib"
 	"github.com/deso-protocol/core/lib"
+	"github.com/pkg/errors"
+	"os"
 	"reflect"
-	"time"
+	"sort"
 )
 
 func main() {
-	//dir0 := "/home/daddy/data_dirs/n0_20220315_021"
-	dir0 := "/home/daddy/data_dirs/n0_20220315_021"
-	dir1 := "/home/daddy/data_dirs/n1_20220315_045_9999"
-	//dir2 := "/Users/piotr/data_dirs/n7_1"
+	dir0 := "/Users/piotr/data_dirs/hypersync/mini_sentry_nft"
+	dir1 := "/Users/piotr/data_dirs/hypersync/control_sentry_nft"
 
 	db0, err := toolslib.OpenDataDir(dir0)
 	if err != nil {
@@ -25,73 +25,49 @@ func main() {
 		fmt.Printf("Error reading db1 err: %v", err)
 		return
 	}
-	//db2, err := toolslib.OpenDataDir(dir2)
-	//if err != nil {
-	//	fmt.Printf("Error reading db2 err: %v", err)
-	//	return
-	//}
 
-	//snap, _ := lib.NewSnapshot(100000)
-	//fmt.Println(snap.GetSnapshotChunk(db0, []byte{5}, []byte{5}))
-	//fmt.Println(snap.GetSnapshotChunk(db1, []byte{5}, []byte{5}))
-	maxBytes := uint32(8 << 20)
-	totalLen := 0
-	var timeElapsed float64
-	var currentTime time.Time
-	timeElapsed = 0.0
-	currentTime = time.Now()
+	maxBytes := uint32(8 << 22)
 	broken := false
-	existingKeysSnap := make(map[string]string)
-	existingKeysDb := make(map[string]string)
+	var prefixes, brokenPrefixes [][]byte
+	for prefix, isState := range lib.StatePrefixes.StatePrefixesMap {
+		if !isState {
+			continue
+		}
+
+		prefixes = append(prefixes, []byte{prefix})
+	}
+	sort.Slice(prefixes, func(ii, jj int) bool {
+		return prefixes[ii][0] < prefixes[jj][0]
+	})
 	err = func() error {
-		for prefixByte := range lib.StatePrefixes.StatePrefixesMap {
-			prefix := []byte{prefixByte}
+		for _, prefix := range prefixes {
 			fmt.Printf("Checking prefix: (%v)\n", prefix)
 			lastPrefix := prefix
 			invalidLengths := false
 			invalidKeys := false
 			invalidValues := false
 			invalidFull := false
+			existingEntriesDb0 := make(map[string][]byte)
 			for {
-				timeElapsed += time.Since(currentTime).Seconds()
-				currentTime = time.Now()
-				//fmt.Println("Starting the fetch time elapsed (%v) current time (%v)", timeElapsed, currentTime)
-				//timeElapsed += time.Since(currentTime).Seconds()
-				//currentTime = time.Now()
-				//fmt.Println("Starting the fetch time elapsed (%v) current time (%v)", timeElapsed, currentTime)
-				//if err != nil {
-				//	return fmt.Errorf("Error reading db0 err: %v\n", err)
-				//}
-				//fmt.Println("Current key %v", (*k0)[0])
-				//db2.Update(func(txn *badger.Txn) error {
-				//	for i, _ := range *k0 {
-				//		keyBytes, _ := hex.DecodeString((*k0)[i])
-				//		valueBytes, _ := hex.DecodeString((*v0)[i])
-				//		lib.DBSetWithTxn(txn, nil, keyBytes, valueBytes)
-				//	}
-				//	return nil
-				//})
-				//lapsed += time.Since(currentTime).Seconds()
-				//currentTime = time.Now()
-				//fmt.Println("Finished writing data time elapsed (%v) current time (%v)", timeElapsed, currentTime)
 				db0Entries, full0, err := lib.DBIteratePrefixKeys(db0, prefix, lastPrefix, maxBytes)
+				if err != nil {
+					return fmt.Errorf("Error reading db0 err: %v\n", err)
+				}
 				for _, entry := range db0Entries {
-					keyHex := hex.EncodeToString(entry.Key)
-					valueHex := hex.EncodeToString(entry.Value)
-					existingKeysSnap[keyHex] = valueHex
+					existingEntriesDb0[hex.EncodeToString(entry.Key)] = entry.Value
 				}
 
 				db1Entries, full1, err := lib.DBIteratePrefixKeys(db1, prefix, lastPrefix, maxBytes)
 				for _, entry := range db1Entries {
-					keyHex := hex.EncodeToString(entry.Key)
-					valueHex := hex.EncodeToString(entry.Value)
-					existingKeysDb[keyHex] = valueHex
+					key := hex.EncodeToString(entry.Key)
+					if _, exists := existingEntriesDb0[key]; exists {
+						delete(existingEntriesDb0, key)
+					}
 				}
 
 				if err != nil {
 					return fmt.Errorf("Error reading db1 err: %v\n", err)
 				}
-				fmt.Printf("Number of snap keys (%v) number of db keys (%v)\n", len(db0Entries), len(db1Entries))
 				if len(db0Entries) != len(db1Entries) {
 					invalidLengths = true
 					fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v;"+
@@ -99,6 +75,9 @@ func main() {
 					break
 				}
 				for ii, entry := range db0Entries {
+					if ii >= len(db1Entries) {
+						break
+					}
 					if !reflect.DeepEqual(entry.Key, db1Entries[ii].Key) {
 						if !invalidKeys {
 							fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v; unequal keys "+
@@ -110,8 +89,19 @@ func main() {
 				for ii, entry := range db0Entries {
 					if !reflect.DeepEqual(entry.Value, db1Entries[ii].Value) {
 						if !invalidValues {
-							fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v; unequal values "+
-								"(db0, db1) : (%v, %v)\n", prefix, lastPrefix, entry.Value, db1Entries[ii].Value)
+							fmt.Printf("Databases not equal on prefix: %v, and lastPrefix: %v; the key is (%v); "+
+								"unequal values len (db0, db1) : (%v, %v)\n", prefix, lastPrefix, entry.Key,
+								len(entry.Value), len(db1Entries[ii].Value))
+							err := os.WriteFile(fmt.Sprintf("./distinct_db0_%v_%v",
+								hex.EncodeToString(prefix), hex.EncodeToString(entry.Key)), entry.Value, 0644)
+							if err != nil {
+								panic(errors.Wrapf(err, "Problem writing db0 value to db"))
+							}
+							err = os.WriteFile(fmt.Sprintf("./distinct_db1_%v_%v",
+								hex.EncodeToString(prefix), hex.EncodeToString(entry.Key)), db1Entries[ii].Value, 0644)
+							if err != nil {
+								panic(errors.Wrapf(err, "Problem writing db1 value to db"))
+							}
 							invalidValues = true
 						}
 					}
@@ -123,8 +113,7 @@ func main() {
 						invalidFull = true
 					}
 				}
-				//fmt.Println("lastPrefix", lastPrefix, "full", full0, len(*k0))
-				totalLen += len(db0Entries) - 1
+
 				if len(db0Entries) > 0 {
 					lastPrefix = db0Entries[len(db0Entries)-1].Key
 				} else {
@@ -138,44 +127,26 @@ func main() {
 			status := "PASS"
 			if invalidLengths || invalidKeys || invalidValues || invalidFull {
 				status = "FAIL"
+				brokenPrefixes = append(brokenPrefixes, prefix)
 				broken = true
 			}
-
+			fmt.Printf("The number of entries in existsMap for prefix (%v) is (%v)\n", prefix, len(existingEntriesDb0))
+			for key, entry := range existingEntriesDb0 {
+				fmt.Printf("ExistingMape entry: (key, len(value) : (%v, %v)\n", key, len(entry))
+			}
 			fmt.Printf("Status for prefix (%v): (%s)\n invalidLengths: (%v); invalidKeys: (%v); invalidValues: "+
 				"(%v); invalidFull: (%v)\n\n", prefix, status, invalidLengths, invalidKeys, invalidValues, invalidFull)
 		}
 		return nil
 	}()
-	for key, value := range existingKeysSnap {
-		if dbVal, exists := existingKeysDb[key]; exists {
-			if value != dbVal {
-				fmt.Printf("Error on key (%v); values don't match\n snap value: (%v)\n db value: (%v)\n",
-					key, value, dbVal)
-			}
-		} else {
-			fmt.Printf("Error value doesn't exist in db for key (%v)\n", key)
-		}
-	}
-	fmt.Println()
+
 	if err == nil {
 		if broken {
-			fmt.Println("Databases differ!")
+			fmt.Println("Databases differ! Broken prefixes:", brokenPrefixes)
 		} else {
 			fmt.Println("Databases identical!")
 		}
 	} else {
 		fmt.Println("Error! Databases not equal: ", err)
 	}
-	//for _, prefix := range lib.StatePrefixes {
-	//	k0, v0, full0, err := lib.DBIteratePrefixKeys(db0, prefix, prefix, maxBytes)
-	//	if err != nil {
-	//		fmt.Printf("Error reading db0 err: %v", err)
-	//		return
-	//	}
-	//	k1, v1, full1, err := lib.DBIteratePrefixKeys(db1, prefix, prefix, maxBytes)
-	//	if err != nil {
-	//		fmt.Printf("Error reading db1 err: %v", err)
-	//		return
-	//	}
-	//}
 }

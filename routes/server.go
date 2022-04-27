@@ -43,7 +43,6 @@ const (
 	RoutePathHealthCheck     = "/api/v0/health-check"
 	RoutePathGetExchangeRate = "/api/v0/get-exchange-rate"
 	RoutePathGetAppState     = "/api/v0/get-app-state"
-	RouteGetStateForPrefix   = "/api/v0/get-state-for-prefix"
 
 	// transaction.go
 	RoutePathGetTxn                   = "/api/v0/get-txn"
@@ -60,30 +59,39 @@ const (
 	RoutePathAuthorizeDerivedKey      = "/api/v0/authorize-derived-key"
 	RoutePathDAOCoin                  = "/api/v0/dao-coin"
 	RoutePathTransferDAOCoin          = "/api/v0/transfer-dao-coin"
+	RoutePathCreateDAOCoinLimitOrder  = "/api/v0/create-dao-coin-limit-order"
+	RoutePathCreateDAOCoinMarketOrder = "/api/v0/create-dao-coin-market-order"
+	RoutePathCancelDAOCoinLimitOrder  = "/api/v0/cancel-dao-coin-limit-order"
 	RoutePathAppendExtraData          = "/api/v0/append-extra-data"
 	RoutePathGetTransactionSpending   = "/api/v0/get-transaction-spending"
 
-	RoutePathGetUsersStateless           = "/api/v0/get-users-stateless"
-	RoutePathDeleteIdentities            = "/api/v0/delete-identities"
-	RoutePathGetProfiles                 = "/api/v0/get-profiles"
-	RoutePathGetSingleProfile            = "/api/v0/get-single-profile"
-	RoutePathGetSingleProfilePicture     = "/api/v0/get-single-profile-picture"
-	RoutePathGetHodlersForPublicKey      = "/api/v0/get-hodlers-for-public-key"
-	RoutePathGetDiamondsForPublicKey     = "/api/v0/get-diamonds-for-public-key"
-	RoutePathGetFollowsStateless         = "/api/v0/get-follows-stateless"
-	RoutePathGetUserGlobalMetadata       = "/api/v0/get-user-global-metadata"
-	RoutePathUpdateUserGlobalMetadata    = "/api/v0/update-user-global-metadata"
-	RoutePathGetNotifications            = "/api/v0/get-notifications"
-	RoutePathGetUnreadNotificationsCount = "/api/v0/get-unread-notifications-count"
-	RoutePathSetNotificationMetadata     = "/api/v0/set-notification-metadata"
-	RoutePathBlockPublicKey              = "/api/v0/block-public-key"
-	RoutePathIsFollowingPublicKey        = "/api/v0/is-following-public-key"
-	RoutePathIsHodlingPublicKey          = "/api/v0/is-hodling-public-key"
-	RoutePathGetUserDerivedKeys          = "/api/v0/get-user-derived-keys"
-	RoutePathDeletePII                   = "/api/v0/delete-pii"
-	RoutePathGetUserMetadata             = "/api/v0/get-user-metadata"
-	RoutePathGetUsernameForPublicKey     = "/api/v0/get-user-name-for-public-key"
-	RoutePathGetPublicKeyForUsername     = "/api/v0/get-public-key-for-user-name"
+	RoutePathGetUsersStateless                          = "/api/v0/get-users-stateless"
+	RoutePathDeleteIdentities                           = "/api/v0/delete-identities"
+	RoutePathGetProfiles                                = "/api/v0/get-profiles"
+	RoutePathGetSingleProfile                           = "/api/v0/get-single-profile"
+	RoutePathGetSingleProfilePicture                    = "/api/v0/get-single-profile-picture"
+	RoutePathGetHodlersForPublicKey                     = "/api/v0/get-hodlers-for-public-key"
+	RoutePathGetDiamondsForPublicKey                    = "/api/v0/get-diamonds-for-public-key"
+	RoutePathGetFollowsStateless                        = "/api/v0/get-follows-stateless"
+	RoutePathGetUserGlobalMetadata                      = "/api/v0/get-user-global-metadata"
+	RoutePathUpdateUserGlobalMetadata                   = "/api/v0/update-user-global-metadata"
+	RoutePathGetNotifications                           = "/api/v0/get-notifications"
+	RoutePathGetUnreadNotificationsCount                = "/api/v0/get-unread-notifications-count"
+	RoutePathSetNotificationMetadata                    = "/api/v0/set-notification-metadata"
+	RoutePathBlockPublicKey                             = "/api/v0/block-public-key"
+	RoutePathIsFollowingPublicKey                       = "/api/v0/is-following-public-key"
+	RoutePathIsHodlingPublicKey                         = "/api/v0/is-hodling-public-key"
+	RoutePathGetUserDerivedKeys                         = "/api/v0/get-user-derived-keys"
+	RoutePathGetTransactionSpendingLimitHexString       = "/api/v0/get-transaction-spending-limit-hex-string"
+	RoutePathGetTransactionSpendingLimitResponseFromHex = "/api/v0/get-transaction-spending-limit-response-from-hex"
+	RoutePathDeletePII                                  = "/api/v0/delete-pii"
+	RoutePathGetUserMetadata                            = "/api/v0/get-user-metadata"
+	RoutePathGetUsernameForPublicKey                    = "/api/v0/get-user-name-for-public-key"
+	RoutePathGetPublicKeyForUsername                    = "/api/v0/get-public-key-for-user-name"
+
+	// dao_coin_exchange.go
+	RoutePathGetDaoCoinLimitOrders           = "/api/v0/get-dao-coin-limit-orders"
+	RoutePathGetTransactorDaoCoinLimitOrders = "/api/v0/get-transactor-dao-coin-limit-orders"
 
 	// post.go
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
@@ -123,13 +131,13 @@ const (
 	RoutePathGetVideoStatus   = "/api/v0/get-video-status"
 
 	// message.go
-	RoutePathSendMessageStateless       = "/api/v0/send-message-stateless"
-	RoutePathGetMessagesStateless       = "/api/v0/get-messages-stateless"
-	RoutePathMarkContactMessagesRead    = "/api/v0/mark-contact-messages-read"
-	RoutePathMarkAllMessagesRead        = "/api/v0/mark-all-messages-read"
+	RoutePathSendMessageStateless      = "/api/v0/send-message-stateless"
+	RoutePathGetMessagesStateless      = "/api/v0/get-messages-stateless"
+	RoutePathMarkContactMessagesRead   = "/api/v0/mark-contact-messages-read"
+	RoutePathMarkAllMessagesRead       = "/api/v0/mark-all-messages-read"
 	RoutePathRegisterMessagingGroupKey = "/api/v0/register-messaging-group-key"
-	RoutePathGetAllMessagingGroupKeys   = "/api/v0/get-all-messaging-group-keys"
-	RoutePathCheckPartyMessagingKeys    = "/api/v0/check-party-messaging-keys"
+	RoutePathGetAllMessagingGroupKeys  = "/api/v0/get-all-messaging-group-keys"
+	RoutePathCheckPartyMessagingKeys   = "/api/v0/check-party-messaging-keys"
 
 	// verify.go
 	RoutePathSendPhoneNumberVerificationText   = "/api/v0/send-phone-number-verification-text"
@@ -302,10 +310,26 @@ type APIServer struct {
 	// Base-58 prefix to check for to determine if a string could be a public key.
 	PublicKeyBase58Prefix string
 
-	// A list of posts from the last 24hrs ordered by hotness score.
+	// A list of posts from the specified look-back period ordered by hotness score.
 	HotFeedOrderedList []*HotFeedEntry
+	// A map version of HotFeedOrderedList mapping each post to its hotness score for the tag feed and post age.
+	HotFeedPostHashToTagScoreMap map[lib.BlockHash]*HotnessPostInfo
+	// An in-memory map from post hash to post tags. This is used to cache tags to prevent hot feed algorithm from
+	// continuously parsing the text body from already processed posts.
+	PostHashToPostTagsMap map[lib.BlockHash][]string
+	// An in-memory map from post tag to post hash. This allows us to
+	// quickly get all the posts for a particular group.
+	// This is represented as a map of strings to a set of post hashes. A set is used instead of an array to allow for
+	// quicker de-duplication checks.
+	PostTagToPostHashesMap map[string]map[lib.BlockHash]bool
+	// For each tag, store ordered slice of post hashes based on hot feed ranking.
+	PostTagToOrderedHotFeedEntries map[string][]*HotFeedEntry
+	// For each tag, store ordered slice of post hashes based on newness.
+	PostTagToOrderedNewestEntries map[string][]*HotFeedEntry
 	// The height of the last block evaluated by the hotness routine.
 	HotFeedBlockHeight uint32
+	// A cache to store blocks for the block feed - in order to reduce processing time.
+	HotFeedBlockCache map[lib.BlockHash]*lib.MsgDeSoBlock
 	// Map of whitelisted post hashes used for serving the hot feed.
 	// The float64 value is a multiplier than can be modified and used in scoring.
 	HotFeedApprovedPostsToMultipliers             map[lib.BlockHash]float64
@@ -316,7 +340,10 @@ type APIServer struct {
 	LastHotFeedPKIDMultiplierOpProcessedTstampNanos uint64
 	// Constants for the hotness score algorithm.
 	HotFeedInteractionCap        uint64
+	HotFeedTagInteractionCap     uint64
 	HotFeedTimeDecayBlocks       uint64
+	HotFeedTagTimeDecayBlocks    uint64
+	HotFeedTxnTypeMultiplierMap  map[lib.TxnType]uint64
 	HotFeedPostMultiplierUpdated bool
 	HotFeedPKIDMultiplierUpdated bool
 
@@ -361,9 +388,9 @@ type APIServer struct {
 
 	// Frequently accessed data from global state
 	USDCentsToDESOReserveExchangeRate uint64
-	BuyDESOFeeBasisPoints uint64
-	JumioUSDCents uint64
-	JumioKickbackUSDCents uint64
+	BuyDESOFeeBasisPoints             uint64
+	JumioUSDCents                     uint64
+	JumioKickbackUSDCents             uint64
 
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
@@ -854,6 +881,27 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"CreateDAOCoinLimitOrder",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateDAOCoinLimitOrder,
+			fes.CreateDAOCoinLimitOrder,
+			PublicAccess,
+		},
+		{
+			"CreateDAOCoinMarketOrder",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateDAOCoinMarketOrder,
+			fes.CreateDAOCoinMarketOrder,
+			PublicAccess,
+		},
+		{
+			"CancelDAOCoinLimitOrder",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCancelDAOCoinLimitOrder,
+			fes.CancelDAOCoinLimitOrder,
+			PublicAccess,
+		},
+		{
 			"AppendExtraData",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAppendExtraData,
@@ -893,13 +941,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetAppState,
 			fes.GetAppState,
-			PublicAccess,
-		},
-		{
-			"GetStateForPrefix",
-			[]string{"POST", "OPTIONS"},
-			RouteGetStateForPrefix,
-			fes.GetStateForPrefix,
 			PublicAccess,
 		},
 		{
@@ -980,6 +1021,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"GetTransactionSpendingLimitHexString",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetTransactionSpendingLimitHexString,
+			fes.GetTransactionSpendingLimitHexString,
+			PublicAccess,
+		},
+		{
+			"GetTransactionSpendingLimitResponseFromHex",
+			[]string{"GET"},
+			RoutePathGetTransactionSpendingLimitResponseFromHex + "/{transactionSpendingLimitHex:[a-fA-F0-9]+$}",
+			fes.GetTransactionSpendingLimitResponseFromHex,
+			PublicAccess,
+		},
+		{
 			"DeletePII",
 			[]string{"POST", "OPTIONS"},
 			RoutePathDeletePII,
@@ -1005,6 +1060,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetPublicKeyForUsername + "/{username:[a-zA-Z0-9_]{1,26}",
 			fes.GetPublicKeyForUsername,
+			PublicAccess,
+		},
+		{
+			"GetDAOCoinLimitOrders",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetDaoCoinLimitOrders,
+			fes.GetDAOCoinLimitOrders,
+			PublicAccess,
+		},
+		{
+			"GetTransactorDAOCoinLimitOrders",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetTransactorDaoCoinLimitOrders,
+			fes.GetTransactorDAOCoinLimitOrders,
 			PublicAccess,
 		},
 		// Jumio Routes

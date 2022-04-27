@@ -1,17 +1,12 @@
 package cmd
 
 import (
-	"os"
-	"os/signal"
-	"syscall"
-
 	"github.com/deso-protocol/backend/config"
 	coreCmd "github.com/deso-protocol/core/cmd"
+	"github.com/golang/glog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-
-	"github.com/golang/glog"
 )
 
 // runCmd represents the run command
@@ -23,19 +18,20 @@ var runCmd = &cobra.Command{
 }
 
 func Run(cmd *cobra.Command, args []string) {
+	shutdownListener := make(chan struct{})
+
 	// Start the core node
 	coreConfig := coreCmd.LoadConfig()
 	coreNode := coreCmd.NewNode(coreConfig)
-	coreNode.Start()
+	coreNode.Start(&shutdownListener)
 
 	// Start the backend node
 	nodeConfig := config.LoadConfig(coreConfig)
 	node := NewNode(nodeConfig, coreNode)
 	node.Start()
 
-	shutdownListener := make(chan os.Signal)
-	signal.Notify(shutdownListener, syscall.SIGINT, syscall.SIGTERM)
 	defer func() {
+		coreNode.Stop()
 		node.Stop()
 		glog.Info("Shutdown complete")
 	}()
@@ -156,14 +152,6 @@ func init() {
 	// Global State
 	runCmd.PersistentFlags().Bool("expose-global-state", false, "Expose global state data to all origins")
 	runCmd.PersistentFlags().String("global-state-api-url", "", "URL to use to fetch global state data. Only used if expose-global-state is false. If not provided, use own global state.")
-
-	// Hyper Sync
-	runCmd.PersistentFlags().Bool("hypersync", true, "Build ancestral records for hypersync and "+
-		"attempt to sync from other nodes using hypersync as well, if they support it")
-	runCmd.PersistentFlags().Bool("disable-slow-sync", false, "When enabled, the node will refuse "+
-		"to sync with any method other than Hypersync. Note that it is possible to have --hypersync enabled "+
-		"with this value set to false, in which case a node may try to sync by downloading and connecting historical txns "+
-		"if the first node it encounters does not support hypersync")
 
 	// Run Supply Monitoring Routine
 	runCmd.PersistentFlags().Bool("run-supply-monitoring-routine", false, "Run a goroutine to monitor total supply and rich list")
