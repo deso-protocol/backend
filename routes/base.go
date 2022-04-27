@@ -2,7 +2,6 @@ package routes
 
 import (
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/backend/apis"
@@ -400,57 +399,6 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetNotifications: Problem encoding response as JSON: %v", err))
-		return
-	}
-}
-
-type GetStateForPrefixRequest struct {
-	Prefix  int
-	LastKey string
-}
-
-type DbEntry struct {
-	Key   string
-	Value string
-}
-
-type GetStateForPrefixResponse struct {
-	Full      bool
-	DBEntries []*DbEntry
-}
-
-func (fes *APIServer) GetStateForPrefix(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := GetStateForPrefixRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetStateForPrefix: Problem parsing request body: %v", err))
-		return
-	}
-
-	prefix := []byte{byte(requestData.Prefix)}
-	lastKey := prefix[:]
-	if len(requestData.LastKey) != 0 {
-		lastKey, _ = hex.DecodeString(requestData.LastKey)
-	}
-	fmt.Println("prefix", prefix)
-	dbEntries, full, _, _ := fes.blockchain.Snapshot().GetSnapshotChunk(fes.blockchain.DB(), prefix, lastKey)
-
-	var entries []*DbEntry
-	for _, entry := range dbEntries {
-		entries = append(entries, &DbEntry{
-			Key:   hex.EncodeToString(entry.Key),
-			Value: hex.EncodeToString(entry.Value),
-		})
-	}
-
-	res := GetStateForPrefixResponse{
-		Full:      full,
-		DBEntries: entries,
-	}
-
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetStateForPrefix: Problem encoding response as JSON: %v", err))
 		return
 	}
 }

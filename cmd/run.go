@@ -7,9 +7,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	"os"
-	"os/signal"
-	"syscall"
 )
 
 // runCmd represents the run command
@@ -33,22 +30,13 @@ func Run(cmd *cobra.Command, args []string) {
 	node := NewNode(nodeConfig, coreNode)
 	node.Start()
 
-	syscallChannel := make(chan os.Signal)
-	signal.Notify(syscallChannel, syscall.SIGINT, syscall.SIGTERM)
 	defer func() {
 		coreNode.Stop()
 		node.Stop()
-		if shutdownListener != nil {
-			close(shutdownListener)
-			shutdownListener = nil
-		}
 		glog.Info("Shutdown complete")
 	}()
 
-	select {
-	case <-shutdownListener:
-	case <-syscallChannel:
-	}
+	<-shutdownListener
 }
 
 func init() {
@@ -171,6 +159,8 @@ func init() {
 	runCmd.PersistentFlags().Uint64("snapshot-block-height-period", 1000, "Set the snapshot epoch period. Snapshots are taken at block heights divisible by the period.")
 	// Archival mode
 	runCmd.PersistentFlags().Bool("archival-mode", false, "Download all historical blocks after finishing hypersync.")
+	// Disable encoder migrations
+	runCmd.PersistentFlags().Bool("disable-encoder-migrations", false, "Disable badgerDB encoder migrations")
 
 	// Run Supply Monitoring Routine
 	runCmd.PersistentFlags().Bool("run-supply-monitoring-routine", false, "Run a goroutine to monitor total supply and rich list")

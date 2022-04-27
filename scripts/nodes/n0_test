@@ -22,24 +22,24 @@ rm /tmp/main.*.log
 
 (cd ../../ && go build -o backend -gcflags="all=-N -l" main.go && ./backend run \
   --glog-v=0 \
-  --glog-vmodule="*api*=0,*bitcoin_manager*=0,*balance*=0,*frontend*=0,*peer*=0,*config*=0,*addr*=0,*network*=0,*utils*=0,*connection*=2,*main*=2,server*=2,*mempool*=2,*miner*=0,*blockchain*=2,*block_producer*=0" \
-  --add-ips=localhost:18000 \
+  --glog-vmodule="*api*=0,*bitcoin_manager*=2,*balance*=0,*frontend*=0,*peer*=0,*addr*=0,*network*=0,*utils*=0,*connection*=0,*main*=0,server*=0,*mempool*=0,*miner*=0,*blockchain*=0,*block_producer*=1" \
+  --add-ips=localhost:19000 \
   --testnet=true  \
-  --api-port=19001 \
-  --protocol-port=19000 \
+  --regtest \
+  --api-port=18001 \
+  --protocol-port=18000 \
   --txindex \
   --admin-public-keys=* \
   --super-admin-public-keys=* \
   --num-mining-threads=1 \
-  --hyper-sync=true \
-  --miner-public-keys=tBCKXyutsCWVbECXqE5zqP7NyGjmXg1SHkYJgKUsNujHfVF7GsVxzU \
+  --miner-public-keys=BC1YLg7Bk5sq9iNY17bAwoAYiChLYpmWEi6nY6q5gnA1UQV6xixHjfV \
   --block-producer-seed='essence camp ghost remove document vault ladder swim pupil index apart ring' \
   --starter-deso-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
-  --data-dir=/tmp/n0_test_10000 \
-  --access-control-allow-origins=http://localhost:4200,http://localhost:4300,http://localhost:80,http://localhost:18002, http://localhost:18001 \
-  --secure-header-allow-hosts=localhost:4200,localhost:4300 \
+  --data-dir=/tmp/n0_test_00000 \
+  --access-control-allow-origins=http://localhost:4200,http://localhost:80,http://localhost:18002,http://localhost:4201,http://localhost:18001 \
+  --secure-header-allow-hosts=localhost:4200 \
   --secure-header-development=true \
   --block-cypher-api-key=092dae962ea44b02809a4c74408b42a1 \
-  --expose-global-state=true \
   --min-satoshis-for-profile=0 \
+  --expose-global-state=true \
   --show-processing-spinners=true )

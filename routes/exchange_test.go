@@ -53,6 +53,7 @@ func GetTestBadgerDb() (_db *badger.DB, _dir string) {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	return db, dir
 }
 

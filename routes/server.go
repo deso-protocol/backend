@@ -43,7 +43,6 @@ const (
 	RoutePathHealthCheck     = "/api/v0/health-check"
 	RoutePathGetExchangeRate = "/api/v0/get-exchange-rate"
 	RoutePathGetAppState     = "/api/v0/get-app-state"
-	RouteGetStateForPrefix   = "/api/v0/get-state-for-prefix"
 
 	// transaction.go
 	RoutePathGetTxn                   = "/api/v0/get-txn"
@@ -895,13 +894,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetAppState,
 			fes.GetAppState,
-			PublicAccess,
-		},
-		{
-			"GetStateForPrefix",
-			[]string{"POST", "OPTIONS"},
-			RouteGetStateForPrefix,
-			fes.GetStateForPrefix,
 			PublicAccess,
 		},
 		{
