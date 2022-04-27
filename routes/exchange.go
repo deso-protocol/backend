@@ -562,18 +562,7 @@ func APITransactionToResponse(
 			AmountNanos:          output.AmountNanos,
 		})
 	}
-	if txnn.ExtraData != nil && len(txnn.ExtraData) > 0 {
-		ret.ExtraData = make(map[string]string)
-		for extraDataKey, extraDataValue := range txnn.ExtraData {
-			extraDataDecoder := GetExtraDataDecoder(extraDataKey)
-			decodedValue, err := extraDataDecoder(extraDataValue, params, utxoView)
-			if err != nil {
-				ret.ExtraData[extraDataKey], _ = DecodeString(extraDataValue, params, utxoView)
-			} else {
-				ret.ExtraData[extraDataKey] = decodedValue
-			}
-		}
-	}
+	ret.ExtraData = extraDataToResponse(params, utxoView, txnn.ExtraData)
 
 	if txnMeta != nil {
 		ret.BlockHashHex = txnMeta.BlockHashHex

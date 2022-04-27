@@ -700,9 +700,9 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
-	extraData, err := preprocessExtraData(fes.Params, requestData.ExtraData)
+	extraData, err := preprocessExtraData(requestData.ExtraData)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem encoding extra data: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem encoding ExtraData: %v", err))
 	}
 
 	// Try and create the message for the user.
@@ -972,9 +972,9 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 		return
 	}
 
-	extraData, err := preprocessExtraData(fes.Params, requestData.ExtraData)
+	extraData, err := preprocessExtraData(requestData.ExtraData)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem encoding extra data: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem encoding ExtraData: %v", err))
 	}
 
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(

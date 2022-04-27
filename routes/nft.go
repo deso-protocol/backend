@@ -238,9 +238,9 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 
 	nftFee := utxoView.GlobalParamsEntry.CreateNFTFeeNanos * uint64(requestData.NumCopies)
 
-	extraData, err := preprocessExtraData(fes.Params, requestData.ExtraData)
+	extraData, err := preprocessExtraData(requestData.ExtraData)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Problem encoding extra data: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Problem encoding ExtraData: %v", err))
 		return
 	}
 

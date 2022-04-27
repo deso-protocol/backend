@@ -190,12 +190,12 @@ func getImageHex(base64EncodedImage string) string {
 	return hex.EncodeToString(chainhash.HashB([]byte(base64EncodedImage)))
 }
 
-func preprocessExtraData(params *lib.DeSoParams, extraData map[string]string) (map[string][]byte, error) {
+func preprocessExtraData(extraData map[string]string) (map[string][]byte, error) {
 	extraDataProcessed := make(map[string][]byte)
 	for k, v := range extraData {
 		if len(v) > 0 {
-			encoder := GetExtraDataEncoder(k)
-			encodedValue, err := encoder(v)
+			encoderFunc := GetExtraDataEncoder(k)
+			encodedValue, err := encoderFunc(v)
 			if err != nil {
 				return nil, err
 			}
@@ -211,13 +211,8 @@ func extraDataToResponse(params *lib.DeSoParams, utxoView *lib.UtxoView, extraDa
 	}
 	extraDataResponse := make(map[string]string)
 	for k, v := range extraData {
-		decoder := GetExtraDataDecoder(k)
-		decodedValue, err := decoder(v, params, utxoView)
-		if err != nil {
-			extraDataResponse[k], _ = DecodeString(v, params, utxoView)
-		} else {
-			extraDataResponse[k] = decodedValue
-		}
+		decoderFunc := GetExtraDataDecoder(k)
+		extraDataResponse[k] = decoderFunc(v, params, utxoView)
 	}
 	return extraDataResponse
 }
