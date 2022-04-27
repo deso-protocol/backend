@@ -153,15 +153,6 @@ func init() {
 	runCmd.PersistentFlags().Bool("expose-global-state", false, "Expose global state data to all origins")
 	runCmd.PersistentFlags().String("global-state-api-url", "", "URL to use to fetch global state data. Only used if expose-global-state is false. If not provided, use own global state.")
 
-	// Hyper Sync
-	runCmd.PersistentFlags().Bool("hypersync", true, "Use hyper sync protocol for faster block syncing")
-	// Snapshot
-	runCmd.PersistentFlags().Uint64("snapshot-block-height-period", 1000, "Set the snapshot epoch period. Snapshots are taken at block heights divisible by the period.")
-	// Archival mode
-	runCmd.PersistentFlags().Bool("archival-mode", false, "Download all historical blocks after finishing hypersync.")
-	// Disable encoder migrations
-	runCmd.PersistentFlags().Bool("disable-encoder-migrations", false, "Disable badgerDB encoder migrations")
-
 	// Run Supply Monitoring Routine
 	runCmd.PersistentFlags().Bool("run-supply-monitoring-routine", false, "Run a goroutine to monitor total supply and rich list")
 
