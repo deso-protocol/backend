@@ -238,7 +238,7 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 
 	nftFee := utxoView.GlobalParamsEntry.CreateNFTFeeNanos * uint64(requestData.NumCopies)
 
-	extraData, err := PreprocessExtraData(requestData.ExtraData)
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Problem encoding ExtraData: %v", err))
 		return
@@ -1406,7 +1406,7 @@ func (fes *APIServer) _nftEntryToResponse(nftEntry *lib.NFTEntry, postEntryRespo
 		EncryptedUnlockableText:       encryptedUnlockableText,
 		LastOwnerPublicKeyBase58Check: lastOwnerPublicKeyBase58Check,
 		LastAcceptedBidAmountNanos:    nftEntry.LastAcceptedBidAmountNanos,
-		ExtraData:                     ExtraDataToResponse(fes.Params, utxoView, nftEntry.ExtraData),
+		ExtraData:                     DecodeExtraDataMap(fes.Params, utxoView, nftEntry.ExtraData),
 	}
 }
 

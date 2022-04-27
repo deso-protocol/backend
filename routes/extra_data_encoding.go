@@ -60,7 +60,7 @@ var specialExtraDataKeysToEncoding = map[string]ExtraDataEncoding{
 	lib.TransactionSpendingLimitKey: {Decode: DecodeTransactionSpendingLimit, Encode: ReservedFieldCannotOverride},
 }
 
-func PreprocessExtraData(extraData map[string]string) (map[string][]byte, error) {
+func EncodeExtraDataMap(extraData map[string]string) (map[string][]byte, error) {
 	extraDataProcessed := make(map[string][]byte)
 	for k, v := range extraData {
 		if len(v) > 0 {
@@ -74,7 +74,7 @@ func PreprocessExtraData(extraData map[string]string) (map[string][]byte, error)
 	return extraDataProcessed, nil
 }
 
-func ExtraDataToResponse(params *lib.DeSoParams, utxoView *lib.UtxoView, extraData map[string][]byte) map[string]string {
+func DecodeExtraDataMap(params *lib.DeSoParams, utxoView *lib.UtxoView, extraData map[string][]byte) map[string]string {
 	if extraData == nil || len(extraData) == 0 {
 		return nil
 	}
@@ -87,7 +87,7 @@ func ExtraDataToResponse(params *lib.DeSoParams, utxoView *lib.UtxoView, extraDa
 }
 
 // GetExtraDataEncoding For special fields, this gets the encoding used for that field. For all others, it uses an agnostic
-// []byte <-> string cast for encoding.
+// []byte <-> string cast for encoding / decoding.
 func GetExtraDataEncoding(extraDataKey string) ExtraDataEncoding {
 	if encoding, exists := specialExtraDataKeysToEncoding[extraDataKey]; exists {
 		return encoding
@@ -124,13 +124,13 @@ func Encode64BitIntString(str string) ([]byte, error) {
 	return buffer, nil
 }
 
-// Decode64BitUintString supports decoding integers up to a length of 8 bytes
+// Decode64BitUintString supports decoding unsigned integers up to a length of 8 bytes
 func Decode64BitUintString(bytes []byte, _ *lib.DeSoParams, _ *lib.UtxoView) string {
 	var decoded, _ = lib.Uvarint(bytes)
 	return strconv.FormatUint(decoded, 10)
 }
 
-// Encode64BitUintString supports decoding integers up to a length of 8 bytes
+// Encode64BitUintString supports decoding unsigned integers up to a length of 8 bytes
 func Encode64BitUintString(str string) ([]byte, error) {
 	var encoded, err = strconv.ParseUint(str, 10, 64)
 	if err != nil {

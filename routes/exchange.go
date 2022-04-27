@@ -562,7 +562,7 @@ func APITransactionToResponse(
 			AmountNanos:          output.AmountNanos,
 		})
 	}
-	ret.ExtraData = ExtraDataToResponse(params, utxoView, txnn.ExtraData)
+	ret.ExtraData = DecodeExtraDataMap(params, utxoView, txnn.ExtraData)
 
 	if txnMeta != nil {
 		ret.BlockHashHex = txnMeta.BlockHashHex

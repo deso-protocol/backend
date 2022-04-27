@@ -353,7 +353,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			SenderMessagingGroupKeyName:    string(lib.MessagingKeyNameDecode(messageEntry.SenderMessagingGroupKeyName)),
 			RecipientMessagingPublicKey:    lib.PkToString(messageEntry.RecipientMessagingPublicKey[:], fes.Params),
 			RecipientMessagingGroupKeyName: string(lib.MessagingKeyNameDecode(messageEntry.RecipientMessagingGroupKeyName)),
-			ExtraData:                      ExtraDataToResponse(fes.Params, utxoView, messageEntry.ExtraData),
+			ExtraData:                      DecodeExtraDataMap(fes.Params, utxoView, messageEntry.ExtraData),
 		}
 		contactEntry, _ := contactMap[lib.PkToString(otherPartyPublicKeyBytes, fes.Params)]
 		contactEntry.Messages = append(contactEntry.Messages, messageEntryRes)
@@ -445,7 +445,7 @@ func (fes *APIServer) ParseMessagingGroupEntries(
 			MessagingPublicKeyBase58Check:  lib.PkToString(key.MessagingPublicKey[:], fes.Params),
 			MessagingGroupKeyName:          string(lib.MessagingKeyNameDecode(key.MessagingGroupKeyName)),
 			EncryptedKey:                   "",
-			ExtraData:                      ExtraDataToResponse(fes.Params, utxoView, key.ExtraData),
+			ExtraData:                      DecodeExtraDataMap(fes.Params, utxoView, key.ExtraData),
 		}
 
 		// Add all messaging group recipients from the messagingGroupEntries parameter.
@@ -700,7 +700,7 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
-	extraData, err := PreprocessExtraData(requestData.ExtraData)
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem encoding ExtraData: %v", err))
 	}
@@ -972,7 +972,7 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 		return
 	}
 
-	extraData, err := PreprocessExtraData(requestData.ExtraData)
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem encoding ExtraData: %v", err))
 	}
