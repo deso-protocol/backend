@@ -392,7 +392,11 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	extraData := preprocessExtraData(requestData.ExtraData)
+	extraData, err := preprocessExtraData(fes.Params, requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem encoding extra data: %v", err))
+		return
+	}
 
 	additionalFees, compProfileCreationTxnHash, err := fes.CompProfileCreation(profilePublicKey, userMetadata, utxoView)
 	if err != nil {
@@ -1397,7 +1401,11 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	postExtraData := preprocessPostExtraData(requestData.PostExtraData)
+	postExtraData, err := preprocessExtraData(fes.Params, requestData.PostExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Unable to encode extra data %v", err))
+		return
+	}
 
 	// Try and create the SubmitPost for the user.
 	tstamp := uint64(time.Now().UnixNano())
@@ -2952,6 +2960,9 @@ func (fes *APIServer) createDAOCoinLimitOrderResponse(
 		return nil, err
 	}
 
+	txn.TxnMeta.(*lib.DAOCoinLimitOrderMetadata).FillType = 4
+	txn.TxnMeta.(*lib.DAOCoinLimitOrderMetadata).OperationType = 5
+
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
 		return nil, err
@@ -3138,6 +3149,12 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		}
 	}
 
+	extraData, err := preprocessExtraData(fes.Params, requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Could not encode extra data %v", err))
+		return
+	}
+
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateAuthorizeDerivedKeyTxn(
 		ownerPublicKeyBytes,
 		derivedPublicKeyBytes,
@@ -3145,7 +3162,7 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		accessSignature,
 		requestData.DeleteKey,
 		requestData.DerivedKeySignature,
-		preprocessExtraData(requestData.ExtraData),
+		extraData,
 		memo,
 		requestData.TransactionSpendingLimitHex,
 		// Standard transaction fields
@@ -3441,17 +3458,10 @@ func (fes *APIServer) AppendExtraData(ww http.ResponseWriter, req *http.Request)
 	}
 
 	// Append ExtraData entries
-	if txn.ExtraData == nil {
-		txn.ExtraData = make(map[string][]byte)
-	}
-
-	for k, v := range requestData.ExtraData {
-		vBytes, err := hex.DecodeString(v)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem decoding ExtraData: %v", err))
-			return
-		}
-		txn.ExtraData[k] = vBytes
+	txn.ExtraData, err = preprocessExtraData(fes.Params, requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem decoding ExtraData: %v", err))
+		return
 	}
 
 	// Get the final transaction bytes.

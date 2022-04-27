@@ -190,36 +190,34 @@ func getImageHex(base64EncodedImage string) string {
 	return hex.EncodeToString(chainhash.HashB([]byte(base64EncodedImage)))
 }
 
-// For backwards compatibility, we continue to cast the values of the extra data map to bytes for Post transactions.
-func preprocessPostExtraData(extraData map[string]string) map[string][]byte {
+func preprocessExtraData(params *lib.DeSoParams, extraData map[string]string) (map[string][]byte, error) {
 	extraDataProcessed := make(map[string][]byte)
 	for k, v := range extraData {
 		if len(v) > 0 {
-			extraDataProcessed[k] = []byte(v)
+			encoder := GetExtraDataEncoder(k)
+			encodedValue, err := encoder(v)
+			if err != nil {
+				return nil, err
+			}
+			extraDataProcessed[k] = encodedValue
 		}
 	}
-	return extraDataProcessed
+	return extraDataProcessed, nil
 }
 
-// All txn types other than Post's should use preprocessExtraData to encode the values of the extra data map.
-func preprocessExtraData(extraData map[string]string) map[string][]byte {
-	if len(extraData) == 0 {
-		return nil
-	}
-	extraDataProcessed := make(map[string][]byte)
-	for k, v := range extraData {
-		extraDataProcessed[k] = []byte(v)
-	}
-	return extraDataProcessed
-}
-
-func extraDataToResponse(extraData map[string][]byte) map[string]string {
+func extraDataToResponse(params *lib.DeSoParams, utxoView *lib.UtxoView, extraData map[string][]byte) map[string]string {
 	if extraData == nil || len(extraData) == 0 {
 		return nil
 	}
 	extraDataResponse := make(map[string]string)
 	for k, v := range extraData {
-		extraDataResponse[k] = string(v)
+		decoder := GetExtraDataDecoder(k)
+		decodedValue, err := decoder(v, params, utxoView)
+		if err != nil {
+			extraDataResponse[k], _ = DecodeString(v, params, utxoView)
+		} else {
+			extraDataResponse[k] = decodedValue
+		}
 	}
 	return extraDataResponse
 }
