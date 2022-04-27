@@ -190,33 +190,6 @@ func getImageHex(base64EncodedImage string) string {
 	return hex.EncodeToString(chainhash.HashB([]byte(base64EncodedImage)))
 }
 
-func preprocessExtraData(extraData map[string]string) (map[string][]byte, error) {
-	extraDataProcessed := make(map[string][]byte)
-	for k, v := range extraData {
-		if len(v) > 0 {
-			encoderFunc := GetExtraDataEncoder(k)
-			encodedValue, err := encoderFunc(v)
-			if err != nil {
-				return nil, err
-			}
-			extraDataProcessed[k] = encodedValue
-		}
-	}
-	return extraDataProcessed, nil
-}
-
-func extraDataToResponse(params *lib.DeSoParams, utxoView *lib.UtxoView, extraData map[string][]byte) map[string]string {
-	if extraData == nil || len(extraData) == 0 {
-		return nil
-	}
-	extraDataResponse := make(map[string]string)
-	for k, v := range extraData {
-		decoderFunc := GetExtraDataDecoder(k)
-		extraDataResponse[k] = decoderFunc(v, params, utxoView)
-	}
-	return extraDataResponse
-}
-
 func _resizeImage(imageObj *bimg.Image, maxDim uint) (_imgObj *bimg.Image, _err error) {
 	// Get the width and height.
 	imgSize, err := imageObj.Size()

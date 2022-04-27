@@ -7,79 +7,104 @@ import (
 	"fmt"
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
+	"github.com/pkg/errors"
 	"strconv"
 )
 
-type ExtraDataEncoderFunc func(string) ([]byte, error)
 type ExtraDataDecoderFunc func([]byte, *lib.DeSoParams, *lib.UtxoView) string
+type ExtraDataEncoderFunc func(string) ([]byte, error)
 
-// ExtraDataKeysToEncoders A subset of user-provided extra data fields need custom encoding as they're used in core. We
-// special-case these keys
-var ExtraDataKeysToEncoders = map[string]ExtraDataEncoderFunc{
-	lib.DerivedPublicKey: EncodePkStringToBytes,
+type ExtraDataEncoding struct {
+	Decode ExtraDataDecoderFunc
+	Encode ExtraDataEncoderFunc
 }
 
-// ExtraDataKeysToDecoders Reserved extra data fields within core that require special decoding when being exposed to clients
-var ExtraDataKeysToDecoders = map[string]ExtraDataDecoderFunc{
-	lib.RepostedPostHash:  DecodeHexString,
-	lib.IsQuotedRepostKey: DecodeBoolString,
+// specialExtraDataKeysToEncoding These are reserved extra data fields used in core that have special encoding / decoding.
+// These fields are populated directly in core, but we still want to allow clients to be able to populate them directly
+// through the API. In such cases, we'll want to use the same encoding mechanism as what's used in core
+var specialExtraDataKeysToEncoding = map[string]ExtraDataEncoding{
+	lib.RepostedPostHash:  {Decode: DecodeHexString, Encode: EncodeHexString},
+	lib.IsQuotedRepostKey: {Decode: DecodeBoolString, Encode: EncodeBoolString},
 
-	lib.USDCentsPerBitcoinKey:      Decode64BitUintString,
-	lib.MinNetworkFeeNanosPerKBKey: Decode64BitUintString,
-	lib.CreateProfileFeeNanosKey:   Decode64BitUintString,
-	lib.CreateNFTFeeNanosKey:       Decode64BitUintString,
-	lib.MaxCopiesPerNFTKey:         Decode64BitUintString,
+	lib.USDCentsPerBitcoinKey:      {Decode: Decode64BitUintString, Encode: Encode64BitUintString},
+	lib.MinNetworkFeeNanosPerKBKey: {Decode: Decode64BitUintString, Encode: Encode64BitUintString},
+	lib.CreateProfileFeeNanosKey:   {Decode: Decode64BitUintString, Encode: Encode64BitUintString},
+	lib.CreateNFTFeeNanosKey:       {Decode: Decode64BitUintString, Encode: Encode64BitUintString},
+	lib.MaxCopiesPerNFTKey:         {Decode: Decode64BitUintString, Encode: Encode64BitUintString},
 
-	lib.ForbiddenBlockSignaturePubKeyKey: DecodePkToString,
+	lib.ForbiddenBlockSignaturePubKeyKey: {Decode: DecodePkToString, Encode: EncodePkStringToBytes},
 
-	lib.DiamondLevelKey:    Decode64BitIntString,
-	lib.DiamondPostHashKey: DecodeHexString,
+	lib.DiamondLevelKey:    {Decode: Decode64BitIntString, Encode: Encode64BitIntString},
+	lib.DiamondPostHashKey: {Decode: DecodeHexString, Encode: EncodeHexString},
 
-	lib.DerivedPublicKey: DecodePkToString,
+	lib.DerivedPublicKey: {Decode: DecodePkToString, Encode: EncodePkStringToBytes},
 
-	lib.MessagingPublicKey:             DecodePkToString,
-	lib.SenderMessagingPublicKey:       DecodePkToString,
-	lib.SenderMessagingGroupKeyName:    DecodeString,
-	lib.RecipientMessagingPublicKey:    DecodePkToString,
-	lib.RecipientMessagingGroupKeyName: DecodeString,
+	lib.MessagingPublicKey:             {Decode: DecodePkToString, Encode: EncodePkStringToBytes},
+	lib.SenderMessagingPublicKey:       {Decode: DecodePkToString, Encode: EncodePkStringToBytes},
+	lib.SenderMessagingGroupKeyName:    {Decode: DecodeString, Encode: EncodeString},
+	lib.RecipientMessagingPublicKey:    {Decode: DecodePkToString, Encode: EncodePkStringToBytes},
+	lib.RecipientMessagingGroupKeyName: {Decode: DecodeString, Encode: EncodeString},
 
-	lib.DESORoyaltiesMapKey: DecodePubKeyToUint64MapString,
-	lib.CoinRoyaltiesMapKey: DecodePubKeyToUint64MapString,
+	// TODO: @iamsofonias, do we want to support clients populating these through the API? This seems very error prone
+	// as the client has to marshall the map to string in a specific format, and we unmarshall & encode to binary
+	lib.DESORoyaltiesMapKey: {Decode: DecodePubKeyToUint64MapString, Encode: ReservedFieldCannotOverride},
+	lib.CoinRoyaltiesMapKey: {Decode: DecodePubKeyToUint64MapString, Encode: ReservedFieldCannotOverride},
 
-	lib.MessagesVersionString: Decode64BitIntString,
+	lib.MessagesVersionString: {Decode: Decode64BitIntString, Encode: Encode64BitIntString},
 
-	lib.NodeSourceMapKey: Decode64BitUintString,
+	lib.NodeSourceMapKey: {Decode: Decode64BitUintString, Encode: Encode64BitUintString},
 
-	lib.DerivedKeyMemoKey: DecodeHexString,
+	lib.DerivedKeyMemoKey: {Decode: DecodeHexString, Encode: EncodeHexString},
 
-	lib.TransactionSpendingLimitKey: DecodeTransactionSpendingLimit,
+	// TODO: @iamsofonias, similar to the above. Do we want to support this encoding this directly through the API?
+	lib.TransactionSpendingLimitKey: {Decode: DecodeTransactionSpendingLimit, Encode: ReservedFieldCannotOverride},
 }
 
-// GetExtraDataEncoder A subset of client-provided extra data fields are reserved and are used in core. The API will
-// require special encoding for these keys. For all others, we default to an agnostic string -> []byte cast
-func GetExtraDataEncoder(extraDataKey string) ExtraDataEncoderFunc {
-	if encoder, exists := ExtraDataKeysToEncoders[extraDataKey]; exists {
-		return encoder
+func PreprocessExtraData(extraData map[string]string) (map[string][]byte, error) {
+	extraDataProcessed := make(map[string][]byte)
+	for k, v := range extraData {
+		if len(v) > 0 {
+			encodedValue, err := GetExtraDataEncoding(k).Encode(v)
+			if err != nil {
+				return nil, errors.Errorf("Problem encoding to extra data field %v: %v", k, err)
+			}
+			extraDataProcessed[k] = encodedValue
+		}
 	}
-	return EncodeString
+	return extraDataProcessed, nil
 }
 
-// GetExtraDataDecoder A subset of extra data fields are populated directly in core and have special use-cases.
-// The API will provide special decoding schemes when exposing these fields to clients. For all others, we use an agnostic
-// []byte -> string cast
-func GetExtraDataDecoder(extraDataKey string) ExtraDataDecoderFunc {
-	if decoder, exists := ExtraDataKeysToDecoders[extraDataKey]; exists {
-		return decoder
+func ExtraDataToResponse(params *lib.DeSoParams, utxoView *lib.UtxoView, extraData map[string][]byte) map[string]string {
+	if extraData == nil || len(extraData) == 0 {
+		return nil
 	}
-	return DecodeString
+	extraDataResponse := make(map[string]string)
+	for k, v := range extraData {
+		encoding := GetExtraDataEncoding(k)
+		extraDataResponse[k] = encoding.Decode(v, params, utxoView)
+	}
+	return extraDataResponse
 }
 
-func EncodeString(str string) ([]byte, error) {
-	return []byte(str), nil
+// GetExtraDataEncoding For special fields, this gets the encoding used for that field. For all others, it uses an agnostic
+// []byte <-> string cast for encoding.
+func GetExtraDataEncoding(extraDataKey string) ExtraDataEncoding {
+	if encoding, exists := specialExtraDataKeysToEncoding[extraDataKey]; exists {
+		return encoding
+	}
+	return ExtraDataEncoding{Decode: DecodeString, Encode: EncodeString}
+}
+
+func ReservedFieldCannotOverride(_ string) ([]byte, error) {
+	return nil, errors.Errorf("Reserved extra data field. Client writes to this field not supported.")
 }
 
 func DecodeString(bytes []byte, _ *lib.DeSoParams, _ *lib.UtxoView) string {
 	return string(bytes)
+}
+
+func EncodeString(str string) ([]byte, error) {
+	return []byte(str), nil
 }
 
 // Decode64BitIntString supports decoding integers up to a length of 8 bytes
@@ -88,18 +113,48 @@ func Decode64BitIntString(bytes []byte, _ *lib.DeSoParams, _ *lib.UtxoView) stri
 	return strconv.FormatInt(decoded, 10)
 }
 
+// Encode64BitIntString supports encoding integers up to a length of 8 bytes
+func Encode64BitIntString(str string) ([]byte, error) {
+	var encoded, err = strconv.ParseInt(str, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	var buffer []byte
+	lib.PutVarint(buffer, encoded)
+	return buffer, nil
+}
+
 // Decode64BitUintString supports decoding integers up to a length of 8 bytes
 func Decode64BitUintString(bytes []byte, _ *lib.DeSoParams, _ *lib.UtxoView) string {
 	var decoded, _ = lib.Uvarint(bytes)
 	return strconv.FormatUint(decoded, 10)
 }
 
+// Encode64BitUintString supports decoding integers up to a length of 8 bytes
+func Encode64BitUintString(str string) ([]byte, error) {
+	var encoded, err = strconv.ParseUint(str, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	var buffer []byte
+	lib.PutUvarint(buffer, encoded)
+	return buffer, nil
+}
+
 func DecodeBoolString(bytes []byte, params *lib.DeSoParams, utxoView *lib.UtxoView) string {
 	return Decode64BitUintString(bytes, params, utxoView)
 }
 
+func EncodeBoolString(str string) ([]byte, error) {
+	return Encode64BitUintString(str)
+}
+
 func DecodeHexString(bytes []byte, _ *lib.DeSoParams, _ *lib.UtxoView) string {
 	return hex.EncodeToString(bytes)
+}
+
+func EncodeHexString(str string) ([]byte, error) {
+	return hex.DecodeString(str)
 }
 
 func EncodePkStringToBytes(str string) ([]byte, error) {
@@ -118,6 +173,7 @@ func DecodePubKeyToUint64MapString(bytes []byte, params *lib.DeSoParams, utxoVie
 	var decoded, err = lib.DeserializePubKeyToUint64Map(bytes)
 	if err != nil {
 		glog.Errorf("Error marshaling public key to uint64 map to string: %v", err)
+		// Fall back to default []byte -> string casting
 		return DecodeString(bytes, params, utxoView)
 	}
 	mapWithDecodedKeys := map[string]uint64{}
@@ -132,12 +188,14 @@ func DecodeTransactionSpendingLimit(bytes []byte, params *lib.DeSoParams, utxoVi
 	rr := bytes.NewReader(spendingBytes)
 	if err := transactionSpendingLimit.FromBytes(rr); err != nil {
 		glog.Errorf("Error decoding transaction spending limits: %v", err)
+		// Fall back to default []byte -> string casting
 		return DecodeString(bytes, params, utxoView)
 	}
 	response := TransactionSpendingLimitToResponse(transactionSpendingLimit, utxoView, params)
 	responseJSON, err := json.Marshal(response)
 	if err != nil {
 		glog.Errorf("Error marshaling transaction limit to string: %v", err)
+		// Fall back to default []byte -> string casting
 		return DecodeString(bytes, params, utxoView)
 	}
 	return string(responseJSON)
