@@ -381,7 +381,8 @@ func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
 	}
 	// Start by fetching the posts we have in the db.
 	dbPostHashes, _, _, err := lib.DBGetPaginatedPostsOrderedByTime(
-		utxoView.Handle, startTstampNanos, nil, -1, false /*fetchEntries*/, false)
+		utxoView.Handle, fes.blockchain.Snapshot(), startTstampNanos, nil, -1,
+		false /*fetchEntries*/, false)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "GetPostEntriesByDESO: Problem fetching ProfileEntrys from db: ")
 	}
@@ -686,7 +687,8 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 		}
 
 		_, dbPostAndCommentHashes, _, err := lib.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
-			utxoView.Handle, readerPK, false /*fetchEntries*/, minTimestampNanos, maxTimestampNanos,
+			utxoView.Handle, fes.blockchain.Snapshot(), readerPK, false /*fetchEntries*/,
+			minTimestampNanos, maxTimestampNanos,
 		)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("GetPostEntriesForGlobalWhitelist: Getting posts for reader: %v", err)

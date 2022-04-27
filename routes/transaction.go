@@ -58,7 +58,7 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 
 	txnFound := fes.mempool.IsTransactionInPool(txnHash)
 	if !txnFound {
-		txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), txnHash)
+		txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
 	}
 	res := &GetTxnResponse{
 		TxnFound: txnFound,
@@ -190,7 +190,8 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgDeSoTxn, re
 		if userMetadata.WhitelistPosts && len(postEntry.ParentStakeID) == 0 && (postEntry.IsQuotedRepost || postEntry.RepostedPostHash == nil) {
 			minTimestampNanos := time.Now().UTC().AddDate(0, 0, -1).UnixNano() // last 24 hours
 			_, dbPostAndCommentHashes, _, err := lib.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
-				fes.blockchain.DB(), updaterPublicKeyBytes, false /*fetchEntries*/, uint64(minTimestampNanos), 0, /*maxTimestampNanos*/
+				fes.blockchain.DB(), fes.blockchain.Snapshot(), updaterPublicKeyBytes, false, /*fetchEntries*/
+				uint64(minTimestampNanos), 0, /*maxTimestampNanos*/
 			)
 			if err != nil {
 				return errors.Errorf("Problem fetching last 24 hours of user posts: %v", err)
