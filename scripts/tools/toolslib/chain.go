@@ -9,9 +9,8 @@ import (
 // Returns the badgerDB handler associated with a dataDir path.
 func OpenDataDir(dataDir string) (*badger.DB, error) {
 	dir := lib.GetBadgerDbPath(dataDir)
-	opts := badger.DefaultOptions(dir)
+	opts := lib.PerformanceBadgerOptions(dir)
 	opts.ValueDir = lib.GetBadgerDbPath(dataDir)
-	opts.MemTableSize = 4000000000 // 4gb
 	db, err := badger.Open(opts)
 	if err != nil {
 		return nil, errors.Wrap(err, "OpenBadgerDB() failed to open badger")
