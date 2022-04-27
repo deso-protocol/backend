@@ -47,18 +47,13 @@ var ExtraDataKeyToDecoders = map[string]ExtraDataDecoder{
 	lib.TransactionSpendingLimitKey: DecodeTransactionSpendingLimit,
 }
 
-// GetExtraDataDecoder Values in ExtraData field
-// in transaction may have special encoding. In such cases
-// we'll need specialized decoders too
-func GetExtraDataDecoder(txnType lib.TxnType, key string) ExtraDataDecoder {
+// GetExtraDataDecoder Values in the ExtraData map can have custom encoding. In those isolated cases, we want matching
+// custom decoders. For all other cases, we use raw string <-> []byte casting for encoding & decoding.
+func GetExtraDataDecoder(_ lib.TxnType, key string) ExtraDataDecoder {
 	if decoder, exists := ExtraDataKeyToDecoders[key]; exists {
 		return decoder
 	}
-	if txnType == lib.TxnTypeSubmitPost {
-		return DecodeString
-	}
-	// Default, just return hex encoding for bytes
-	return DecodeHexString
+	return DecodeString
 }
 
 // Decode64BitIntString supports decoding integers up to a length of 8 bytes

@@ -20,7 +20,6 @@ rm /tmp/main.*.log
   --min-satoshis-for-profile=0 \
   --hypersync=true \
   --connect-ips=deso-seed-2.io:17000 \
-  --run-hot-feed-routine=true \
 )
 
 # These are nodes that can be relied upon if the decentralized seed
