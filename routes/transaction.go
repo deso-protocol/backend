@@ -2960,9 +2960,6 @@ func (fes *APIServer) createDAOCoinLimitOrderResponse(
 		return nil, err
 	}
 
-	txn.TxnMeta.(*lib.DAOCoinLimitOrderMetadata).FillType = 4
-	txn.TxnMeta.(*lib.DAOCoinLimitOrderMetadata).OperationType = 5
-
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
 		return nil, err
