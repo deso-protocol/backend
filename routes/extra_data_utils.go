@@ -170,12 +170,7 @@ func DecodePkToString(bytes []byte, params *lib.DeSoParams, _ *lib.UtxoView) str
 }
 
 func DecodePubKeyToUint64MapString(bytes []byte, params *lib.DeSoParams, utxoView *lib.UtxoView) string {
-	var decoded, err = lib.DeserializePubKeyToUint64Map(bytes)
-	if err != nil {
-		glog.Errorf("Error marshaling public key to uint64 map to string: %v", err)
-		// Fall back to default []byte -> string casting
-		return DecodeString(bytes, params, utxoView)
-	}
+	var decoded, _ = lib.DeserializePubKeyToUint64Map(bytes)
 	mapWithDecodedKeys := map[string]uint64{}
 	for k, v := range decoded {
 		mapWithDecodedKeys[lib.PkToString(k.ToBytes(), params)] = v
@@ -188,15 +183,13 @@ func DecodeTransactionSpendingLimit(bytes []byte, params *lib.DeSoParams, utxoVi
 	rr := bytes.NewReader(spendingBytes)
 	if err := transactionSpendingLimit.FromBytes(rr); err != nil {
 		glog.Errorf("Error decoding transaction spending limits: %v", err)
-		// Fall back to default []byte -> string casting
-		return DecodeString(bytes, params, utxoView)
+		return ""
 	}
 	response := TransactionSpendingLimitToResponse(transactionSpendingLimit, utxoView, params)
 	responseJSON, err := json.Marshal(response)
 	if err != nil {
-		glog.Errorf("Error marshaling transaction limit to string: %v", err)
-		// Fall back to default []byte -> string casting
-		return DecodeString(bytes, params, utxoView)
+		glog.Errorf("Error marshaling transaction limit response: %v", err)
+		return ""
 	}
 	return string(responseJSON)
 }
