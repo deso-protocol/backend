@@ -19,9 +19,9 @@ type ExtraDataEncoding struct {
 	Encode ExtraDataEncoderFunc
 }
 
-// specialExtraDataKeysToEncoding These are reserved extra data fields used in core that have special encoding / decoding.
-// These fields are populated directly in core, but we still want to allow clients to be able to populate them directly
-// through the API. In such cases, we'll want to use the same encoding mechanism as what's used in core
+// specialExtraDataKeysToEncoding These are reserved extra data fields used in core that have special encoding. These
+// fields are populated directly in core, but we still want to allow clients to be able to populate them directly using
+// the ExtraData map through the API. In such cases, we'll want to use the same encoding mechanism as what's used in core
 var specialExtraDataKeysToEncoding = map[string]ExtraDataEncoding{
 	lib.RepostedPostHash:  {Decode: DecodeHexString, Encode: EncodeHexString},
 	lib.IsQuotedRepostKey: {Decode: DecodeBoolString, Encode: EncodeBoolString},
@@ -46,9 +46,9 @@ var specialExtraDataKeysToEncoding = map[string]ExtraDataEncoding{
 	lib.RecipientMessagingGroupKeyName: {Decode: DecodeString, Encode: EncodeString},
 
 	// TODO: @iamsofonias, do we want to support clients populating these through the API? This seems very error prone
-	// as the client has to marshall the map to string in a specific format, and we unmarshall & encode to binary
-	lib.DESORoyaltiesMapKey: {Decode: DecodePubKeyToUint64MapString, Encode: ReservedFieldCannotOverride},
-	lib.CoinRoyaltiesMapKey: {Decode: DecodePubKeyToUint64MapString, Encode: ReservedFieldCannotOverride},
+	// as the client has to marshall the map to string in a specific format, and we unmarshall & encode to binary here
+	lib.DESORoyaltiesMapKey: {Decode: DecodePubKeyToUint64MapString, Encode: ReservedFieldCannotEncode},
+	lib.CoinRoyaltiesMapKey: {Decode: DecodePubKeyToUint64MapString, Encode: ReservedFieldCannotEncode},
 
 	lib.MessagesVersionString: {Decode: Decode64BitIntString, Encode: Encode64BitIntString},
 
@@ -56,15 +56,16 @@ var specialExtraDataKeysToEncoding = map[string]ExtraDataEncoding{
 
 	lib.DerivedKeyMemoKey: {Decode: DecodeHexString, Encode: EncodeHexString},
 
-	// TODO: @iamsofonias, similar to the above. Do we want to support this encoding this directly through the API?
-	lib.TransactionSpendingLimitKey: {Decode: DecodeTransactionSpendingLimit, Encode: ReservedFieldCannotOverride},
+	// TODO: @iamsofonias, similar to the above. Do we want to encourage clients to build, marshall, and pass in the
+	// transaction spending limit maps directly through as ExtraData fields. This will be very error prone?
+	lib.TransactionSpendingLimitKey: {Decode: DecodeTransactionSpendingLimit, Encode: ReservedFieldCannotEncode},
 }
 
 func EncodeExtraDataMap(extraData map[string]string) (map[string][]byte, error) {
 	extraDataProcessed := make(map[string][]byte)
 	for k, v := range extraData {
 		if len(v) > 0 {
-			encodedValue, err := GetExtraDataEncoding(k).Encode(v)
+			encodedValue, err := GetExtraDataFieldEncoding(k).Encode(v)
 			if err != nil {
 				return nil, errors.Errorf("Problem encoding to extra data field %v: %v", k, err)
 			}
@@ -80,23 +81,23 @@ func DecodeExtraDataMap(params *lib.DeSoParams, utxoView *lib.UtxoView, extraDat
 	}
 	extraDataResponse := make(map[string]string)
 	for k, v := range extraData {
-		encoding := GetExtraDataEncoding(k)
+		encoding := GetExtraDataFieldEncoding(k)
 		extraDataResponse[k] = encoding.Decode(v, params, utxoView)
 	}
 	return extraDataResponse
 }
 
-// GetExtraDataEncoding For special fields, this gets the encoding used for that field. For all others, it uses an agnostic
-// []byte <-> string cast for encoding / decoding.
-func GetExtraDataEncoding(extraDataKey string) ExtraDataEncoding {
+// GetExtraDataFieldEncoding For special fields, this gets the encoding used for that field. For all others, it uses an
+// agnostic []byte <-> string cast for encoding / decoding.
+func GetExtraDataFieldEncoding(extraDataKey string) ExtraDataEncoding {
 	if encoding, exists := specialExtraDataKeysToEncoding[extraDataKey]; exists {
 		return encoding
 	}
 	return ExtraDataEncoding{Decode: DecodeString, Encode: EncodeString}
 }
 
-func ReservedFieldCannotOverride(_ string) ([]byte, error) {
-	return nil, errors.Errorf("Reserved extra data field. Client writes to this field not supported.")
+func ReservedFieldCannotEncode(_ string) ([]byte, error) {
+	return nil, errors.Errorf("Reserved extra data field. This field cannot be written to directly.")
 }
 
 func DecodeString(bytes []byte, _ *lib.DeSoParams, _ *lib.UtxoView) string {
