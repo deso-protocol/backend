@@ -50,6 +50,14 @@ func (node *Node) Start() {
 		twilioClient = twilio.NewClient(node.Config.TwilioAccountSID, node.Config.TwilioAuthToken, nil)
 	}
 
+	if node.CoreNode.Config.HyperSync == true && node.Config.RunHotFeedRoutine == true {
+		if !node.CoreNode.Config.ArchivalMode == true {
+			node.Config.RunHotFeedRoutine = false
+			glog.Errorf(lib.CLog(lib.Red, "Hot feed is not compatible with non-archival mode. You need "+
+				"to set --archival-mode=true if you want to run hot feed with hypersync."))
+		}
+	}
+
 	node.APIServer, err = routes.NewAPIServer(
 		node.CoreNode.Server,
 		node.CoreNode.Server.GetMempool(),

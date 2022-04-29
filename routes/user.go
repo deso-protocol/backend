@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -901,7 +902,7 @@ func (fes *APIServer) GetProfilesByUsernamePrefixAndDeSoLocked(
 	db *badger.DB, usernamePrefix string, readerPK []byte, utxoView *lib.UtxoView) (
 	_profileEntries []*lib.ProfileEntry, _err error) {
 
-	profileEntries, err := lib.DBGetProfilesByUsernamePrefixAndDeSoLocked(db, usernamePrefix, utxoView)
+	profileEntries, err := lib.DBGetProfilesByUsernamePrefixAndDeSoLocked(db, fes.blockchain.Snapshot(), usernamePrefix, utxoView)
 
 	pubKeyMap := make(map[lib.PkMapKey][]byte)
 	for _, profileEntry := range profileEntries {
@@ -2244,7 +2245,7 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 
 			// In this case we need to look up the full transaction and convert
 			// it into a proper transaction response.
-			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txID)
+			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), nil, txID)
 			if txnMeta == nil {
 				// We should never be missing a transaction for a given txid, but
 				// just continue in this case.
@@ -2325,7 +2326,7 @@ func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest,
 	// Get the NextIndex from the db. This will be used to determine whether
 	// or not it's appropriate to fetch txns from the mempool. It will also be
 	// used to assign consistent index values to memppool txns.
-	NextIndexVal := lib.DbGetTxindexNextIndexForPublicKey(fes.TXIndex.TXIndexChain.DB(), pkBytes)
+	NextIndexVal := lib.DbGetTxindexNextIndexForPublicKey(fes.TXIndex.TXIndexChain.DB(), nil, pkBytes)
 	if NextIndexVal == nil {
 		return nil, fmt.Errorf("Unable to get next index for public key: %v", request.PublicKeyBase58Check)
 	}
@@ -3128,7 +3129,8 @@ func (fes *APIServer) GetTransactionSpendingLimitResponseFromHex(ww http.Respons
 	}
 
 	var transactionSpendingLimit lib.TransactionSpendingLimit
-	if err = transactionSpendingLimit.FromBytes(tslBytes); err != nil {
+	rr := bytes.NewReader(tslBytes)
+	if err = transactionSpendingLimit.FromBytes(rr); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetTransactionSpendingLimitResponseFromHex: Error constructing TransactionSpendingLimit from bytes"))
 		return

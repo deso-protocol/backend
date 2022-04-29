@@ -150,7 +150,7 @@ func (fes *APIServer) APIBase(ww http.ResponseWriter, rr *http.Request) {
 	blockNode := fes.blockchain.BlockTip()
 
 	// Take the hash computed from above and find the corresponding block.
-	blockMsg, err := lib.GetBlock(blockNode.Hash, fes.blockchain.DB())
+	blockMsg, err := lib.GetBlock(blockNode.Hash, fes.blockchain.DB(), fes.blockchain.Snapshot())
 	if err != nil {
 		APIAddError(ww, fmt.Sprintf("APIBase: Problem fetching block: %v", err))
 		return
@@ -172,7 +172,7 @@ func (fes *APIServer) APIBase(ww http.ResponseWriter, rr *http.Request) {
 
 	for _, txn := range blockMsg.Txns {
 		// Look up the metadata for each transaction.
-		txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txn.Hash())
+		txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), nil, txn.Hash())
 
 		res.Transactions = append(
 			res.Transactions, APITransactionToResponse(
@@ -939,7 +939,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		copy(txID[:], txIDBytes)
 
 		// Use the txID to lookup the requested transaction.
-		txn, txnMeta := lib.DbGetTxindexFullTransactionByTxID(fes.TXIndex.TXIndexChain.DB(), fes.blockchain.DB(), txID)
+		txn, txnMeta := lib.DbGetTxindexFullTransactionByTxID(fes.TXIndex.TXIndexChain.DB(), nil, fes.blockchain.DB(), txID)
 
 		if txn == nil {
 			// Try to look the transaction up in the mempool before giving up.
@@ -1019,7 +1019,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			})
 		} else {
 			// In this case we need to look up the full transaction and convert it into a proper transaction response.
-			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txID)
+			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), nil, txID)
 			blockHashBytes, err := hex.DecodeString(txnMeta.BlockHashHex)
 			if err != nil {
 				APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error parsing block: %v %v", txnMeta.BlockHashHex, err))
@@ -1031,7 +1031,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			copy(blockHash[:], blockHashBytes)
 			block := blockMap[blockHash]
 			if block == nil {
-				block, err = lib.GetBlock(blockHash, fes.blockchain.DB())
+				block, err = lib.GetBlock(blockHash, fes.blockchain.DB(), fes.blockchain.Snapshot())
 				if block == nil || err != nil {
 					fmt.Errorf("DbGetTxindexFullTransactionByTxID: Block corresponding to txn not found")
 					return
@@ -1238,7 +1238,7 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 	}
 
 	// Take the hash computed from above and find the corresponding block.
-	blockMsg, err := lib.GetBlock(blockHash, fes.blockchain.DB())
+	blockMsg, err := lib.GetBlock(blockHash, fes.blockchain.DB(), fes.blockchain.Snapshot())
 	if err != nil {
 		APIAddError(ww, fmt.Sprintf("APIBlockRequest: Problem fetching block: %v", err))
 		return
@@ -1261,7 +1261,7 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 	if blockRequest.FullBlock {
 		for _, txn := range blockMsg.Txns {
 			// Look up the metadata for each transaction.
-			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txn.Hash())
+			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), nil, txn.Hash())
 
 			res.Transactions = append(
 				res.Transactions, APITransactionToResponse(
@@ -1458,7 +1458,7 @@ func (fes *APIServer) GetProfilesByCoinValue(
 
 	var startProfile *lib.ProfileEntry
 	if startProfilePubKey != nil {
-		startProfile = lib.DBGetProfileEntryForPKID(bav.Handle, lib.DBGetPKIDEntryForPublicKey(bav.Handle, startProfilePubKey).PKID)
+		startProfile = lib.DBGetProfileEntryForPKID(bav.Handle, fes.blockchain.Snapshot(), lib.DBGetPKIDEntryForPublicKey(bav.Handle, fes.blockchain.Snapshot(), startProfilePubKey).PKID)
 	}
 
 	var startDeSoLockedNanos uint64
@@ -1476,7 +1476,7 @@ func (fes *APIServer) GetProfilesByCoinValue(
 		prevCount = len(validProfilePubKeys)
 		// Fetch some profile pub keys from the db.
 		dbProfilePubKeys, _, err := lib.DBGetPaginatedProfilesByDeSoLocked(
-			bav.Handle, startDeSoLockedNanos, nextStartKey, numToFetch, false /*fetchEntries*/)
+			bav.Handle, fes.blockchain.Snapshot(), startDeSoLockedNanos, nextStartKey, numToFetch, false /*fetchEntries*/)
 		if err != nil {
 			return nil, nil, nil, errors.Wrapf(err, "GetAllProfiles: Problem fetching ProfilePubKeys from db: ")
 		}
@@ -1530,7 +1530,7 @@ func (fes *APIServer) GetProfilesByCoinValue(
 
 			// Load all the posts
 			_, dbPostAndCommentHashes, _, err := lib.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
-				bav.Handle, profileEntry.PublicKey, false /*fetchEntries*/, 0 /*minTimestamp*/, 0, /*maxTimestamp*/
+				bav.Handle, fes.blockchain.Snapshot(), profileEntry.PublicKey, false /*fetchEntries*/, 0 /*minTimestamp*/, 0, /*maxTimestamp*/
 			)
 			if err != nil {
 				return nil, nil, nil, errors.Wrapf(
@@ -1626,7 +1626,7 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 	for _, followedPubKey := range filteredPubKeysMap {
 
 		_, dbPostAndCommentHashes, _, err := lib.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
-			bav.Handle, followedPubKey, false /*fetchEntries*/, minTimestampNanos, 0, /*maxTimestampNanos*/
+			bav.Handle, fes.blockchain.Snapshot(), followedPubKey, false /*fetchEntries*/, minTimestampNanos, 0, /*maxTimestampNanos*/
 		)
 		if err != nil {
 			return nil, errors.Wrapf(err, "GetPostsForFollowFeedForPublicKey: Problem fetching PostEntry's from db: ")
@@ -1705,7 +1705,7 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 	for len(allCorePosts) < numToFetch {
 		// Start by fetching the posts we have in the db.
 		dbPostHashes, _, _, err := lib.DBGetPaginatedPostsOrderedByTime(
-			bav.Handle, startTstampNanos, startPostHash, numToFetch, false /*fetchEntries*/, true)
+			bav.Handle, fes.blockchain.Snapshot(), startTstampNanos, startPostHash, numToFetch, false /*fetchEntries*/, true)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "GetAllProfiles: Problem fetching ProfileEntrys from db: ")
 		}

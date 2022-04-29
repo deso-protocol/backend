@@ -358,3 +358,25 @@ func orderOperationTypeToUint64(
 	}
 	return 0, errors.Errorf("Unknown string value for DAOCoinLimitOrderOperationType %v", operationType)
 }
+
+type DAOCoinLimitOrderFillTypeString string
+
+const (
+	DAOCoinLimitOrderFillTypeGoodTillCancelled DAOCoinLimitOrderFillTypeString = "GOOD_TILL_CANCELLED"
+	DAOCoinLimitOrderFillTypeFillOrKill        DAOCoinLimitOrderFillTypeString = "FILL_OR_KILL"
+	DAOCoinLimitOrderFillTypeImmediateOrCancel DAOCoinLimitOrderFillTypeString = "IMMEDIATE_OR_CANCEL"
+)
+
+func orderFillTypeToUint64(
+	fillType DAOCoinLimitOrderFillTypeString,
+) (lib.DAOCoinLimitOrderFillType, error) {
+	switch fillType {
+	case DAOCoinLimitOrderFillTypeGoodTillCancelled:
+		return lib.DAOCoinLimitOrderFillTypeGoodTillCancelled, nil
+	case DAOCoinLimitOrderFillTypeFillOrKill:
+		return lib.DAOCoinLimitOrderFillTypeFillOrKill, nil
+	case DAOCoinLimitOrderFillTypeImmediateOrCancel:
+		return lib.DAOCoinLimitOrderFillTypeImmediateOrCancel, nil
+	}
+	return 0, errors.Errorf("Unknown DAO coin limit order fill type %v", fillType)
+}

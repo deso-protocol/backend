@@ -118,8 +118,8 @@ func NewLowDifficultyBlockchainWithParams(params *lib.DeSoParams) (
 
 	// Temporarily modify the seed balances to make a specific public
 	// key have some DeSo
-	chain, err := lib.NewBlockchain([]string{blockSignerPk}, 0,
-		&paramsCopy, timesource, db, nil, nil)
+	chain, err := lib.NewBlockchain([]string{blockSignerPk}, 0, 0,
+		&paramsCopy, timesource, db, nil, nil, nil, false)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 
 	chain, params, _ := NewLowDifficultyBlockchain()
 	txIndexDb, _ := GetTestBadgerDb()
-	txIndex, _ := lib.NewTXIndex(chain, params, txIndexDb.Opts().Dir)
+	txIndex, _, _ := lib.NewTXIndex(chain, params, txIndexDb.Opts().Dir)
 	mempool, miner := NewTestMiner(t, chain, params, true /*isSender*/)
 	// Mine two blocks to give the sender some DeSo.
 	block1, err := miner.MineAndProcessSingleBlock(0 /*threadIndex*/, mempool)
