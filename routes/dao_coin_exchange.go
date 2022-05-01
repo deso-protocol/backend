@@ -299,10 +299,10 @@ func calculateFloatExchangeRate(scaledValue *uint256.Int) float64 {
 	return quotientFloat
 }
 
-// calculate (quantityInBaseUnits * 10^9)
+// calculate (quantityInBaseUnits * 10^18)
 func calculateQuantityToFillAsFloat(quantityInBaseUnits *uint256.Int) float64 {
 	quantityInBaseUnitsAsBigFloat := big.NewFloat(0).SetInt(quantityInBaseUnits.ToBig())
-	divisor := big.NewFloat(float64(lib.NanosPerUnit))
+	divisor := big.NewFloat(0).SetInt(lib.BaseUnitsPerCoin.ToBig())
 	quotientAsBigFloat := big.NewFloat(0).Quo(
 		quantityInBaseUnitsAsBigFloat,
 		divisor,
@@ -311,9 +311,9 @@ func calculateQuantityToFillAsFloat(quantityInBaseUnits *uint256.Int) float64 {
 	return quotient
 }
 
-// calculate (quantityInBaseUnits / 10^9)
+// calculate (quantityInBaseUnits / 10^18)
 func calculateQuantityToFillAsBaseUnits(quantityToFill float64) (*uint256.Int, error) {
-	multiplier := big.NewFloat(float64(lib.NanosPerUnit))
+	multiplier := big.NewFloat(0).SetInt(lib.BaseUnitsPerCoin.ToBig())
 	product := big.NewFloat(0).Mul(
 		big.NewFloat(quantityToFill),
 		multiplier,
