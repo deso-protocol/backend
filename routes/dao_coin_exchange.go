@@ -470,7 +470,7 @@ func calculateQuantityToFillToBaseUnitsWithScalingFactor(
 	)
 }
 
-// isCoinToFillDESO given a buying coin, selling coin, and operation type, this determines if the QuantityToFill field
+// given a buying coin, selling coin, and operation type, this determines if the QuantityToFill field
 // for the coin the quantity field refers to is $DESO. If it's not $DESO, then it's assumed to be a DAO coin
 func isCoinToFillDESO(
 	buyingCoinPublicKeyBase58CheckOrUsername string,
