@@ -264,9 +264,9 @@ func buildDAOCoinLimitOrderResponse(
 	sellingCoinPublicKeyBase58Check string,
 	order *lib.DAOCoinLimitOrderEntry,
 ) (*DAOCoinLimitOrderEntryResponse, error) {
-	// It should not be possible to hit errors in this function error. If we do hit them, it means an order with an
-	// unsupported values made it through all validations during order creation, and was placed on the book. For
-	// these read-only API endpoints, we just skip such bad orders and return all the valid orders we know of
+	// It should not be possible to hit errors in this function. If we do hit them, it means an order with invalid
+	// values made it through all validations during order creation, and was placed on the book. In
+	// the read-only API endpoints, we just skip such bad orders and return all the valid orders we know of
 	operationTypeString, err := orderOperationTypeToString(order.OperationType)
 	if err != nil {
 		return nil, err
@@ -317,6 +317,9 @@ func CalculateScaledExchangeRate(
 	if err != nil {
 		return nil, err
 	}
+	if rawScaledExchangeRate.Eq(uint256.NewInt().SetUint64(0)) {
+		return nil, errors.Errorf("The float value %f is too small to produce a scaled exchange rate", exchangeRateCoinsToSellPerCoinToBuy)
+	}
 	if buyingCoinPublicKeyBase58CheckOrUsername == "" {
 		// Buying coin is $DESO
 		product := uint256.NewInt()
@@ -329,7 +332,7 @@ func CalculateScaledExchangeRate(
 		// Selling coin is $DESO
 		quotient := uint256.NewInt().Div(rawScaledExchangeRate, getDESOToDAOCoinBaseUnitsScalingFactor())
 		if quotient.Eq(uint256.NewInt().SetUint64(0)) {
-			return nil, errors.Errorf("The exchange rate %f is too small to produce a scaled exchange rate", exchangeRateCoinsToSellPerCoinToBuy)
+			return nil, errors.Errorf("The float value %f is too small to produce a scaled exchange rate", exchangeRateCoinsToSellPerCoinToBuy)
 		}
 		return quotient, nil
 	}
@@ -344,22 +347,23 @@ func CalculateExchangeRateAsFloat(
 	sellingCoinPublicKeyBase58CheckOrUsername string,
 	scaledValue *uint256.Int,
 ) (float64, error) {
-	scaledValueCopyAsBigInt := scaledValue.ToBig()
+	scaledValueAsBigInt := scaledValue.ToBig()
 	if buyingCoinPublicKeyBase58CheckOrUsername == "" {
-		scaledValueCopyAsBigInt.Div(scaledValueCopyAsBigInt, getDESOToDAOCoinBaseUnitsScalingFactor().ToBig())
+		scaledValueAsBigInt.Div(scaledValueAsBigInt, getDESOToDAOCoinBaseUnitsScalingFactor().ToBig())
 	} else if sellingCoinPublicKeyBase58CheckOrUsername == "" {
-		scaledValueCopyAsBigInt.Mul(scaledValueCopyAsBigInt, getDESOToDAOCoinBaseUnitsScalingFactor().ToBig())
+		scaledValueAsBigInt.Mul(scaledValueAsBigInt, getDESOToDAOCoinBaseUnitsScalingFactor().ToBig())
 	}
 
-	oneE38AsBig := lib.OneE38.ToBig()
+	oneE38AsBigInt := lib.OneE38.ToBig()
 
-	whole := big.NewInt(0).Div(scaledValueCopyAsBigInt, oneE38AsBig)
-	decimal := big.NewInt(0).Mod(scaledValueCopyAsBigInt, oneE38AsBig)
-	decimalLeadingZeros := strings.Repeat("0", getNumDigits(oneE38AsBig)-getNumDigits(decimal)-1)
+	whole := big.NewInt(0).Div(scaledValueAsBigInt, oneE38AsBigInt)
+	decimal := big.NewInt(0).Mod(scaledValueAsBigInt, oneE38AsBigInt)
+	decimalLeadingZeros := strings.Repeat("0", getNumDigits(oneE38AsBigInt)-getNumDigits(decimal)-1)
 
 	str := fmt.Sprintf("%d.%s%d", whole, decimalLeadingZeros, decimal)
 	parsedFloat, err := strconv.ParseFloat(str, 64)
 	if err != nil {
+		// This should never happen since we're formatting the float ourselves above
 		return 0, err
 	}
 	return parsedFloat, nil
@@ -411,6 +415,7 @@ func calculateQuantityToFillAsFloatWithScalingFactor(
 	str := fmt.Sprintf("%d.%s%d", whole, decimalLeadingZeros, decimal)
 	parsedFloat, err := strconv.ParseFloat(str, 64)
 	if err != nil {
+		// This should never happen since we're formatting the float ourselves above
 		return 0, err
 	}
 	return parsedFloat, nil
@@ -531,6 +536,7 @@ func orderFillTypeToUint64(
 	return 0, errors.Errorf("Unknown DAO coin limit order fill type %v", fillType)
 }
 
+// returns (1e18 / 1e9), which represents the difference in scaling factor for DAO coin base units and $DESO nanos
 func getDESOToDAOCoinBaseUnitsScalingFactor() *uint256.Int {
 	return uint256.NewInt().Div(
 		lib.BaseUnitsPerCoin,
@@ -538,23 +544,40 @@ func getDESOToDAOCoinBaseUnitsScalingFactor() *uint256.Int {
 	)
 }
 
+// 15 is a magic number that represents the precision supported by the IEEE-754 float64 standard.
+//
+// If f is large (1e15 or higher), then we truncate any values beyond the first 15 digits, as
+// the lack of precision can introduce garbage when printing as string
+//
+// If f is small (ex: 1e-15), then we print up to 15 digits to the right of the decimal point
+// to make sure we capture all digits within the supported precision, but without introducing garbage
+//
+// The range of supported values for f is [1e-15, 1e308] with precision for the 15 most significant digits. The
+// minimum value for this range artificially set to 1e-15, but can be extended all the way 1e-308 with a bit better math
+func formatFloatAsString(f float64) string {
+	fAsBigInt, _ := big.NewFloat(0).SetFloat64(f).Int(nil)
+	supportedPrecisionDigits := 15
+	numWholeNumberDigits := getNumDigits(fAsBigInt)
+	// f is small, we'll print up to 15 total digits to the right of the decimal point
+	if numWholeNumberDigits <= supportedPrecisionDigits {
+		return fmt.Sprintf("%."+fmt.Sprintf("%d", supportedPrecisionDigits-numWholeNumberDigits)+"f", f)
+	}
+	// f is a large number > 1e15, so we truncate any values after the first 15 digits
+	divisorToDropDigits := big.NewInt(10)
+	divisorToDropDigits.Exp(divisorToDropDigits, big.NewInt(int64(numWholeNumberDigits-supportedPrecisionDigits)), nil)
+	fAsBigInt.Div(fAsBigInt, divisorToDropDigits)
+	fAsBigInt.Mul(fAsBigInt, divisorToDropDigits)
+	return fmt.Sprintf("%d.0", fAsBigInt)
+}
+
 func getNumDigits(val *big.Int) int {
+	quotient := big.NewInt(0).Set(val)
 	zero := big.NewInt(0)
 	ten := big.NewInt(10)
-	quotient := big.NewInt(0).Set(val)
 	numDigits := 0
 	for quotient.Cmp(zero) != 0 {
 		numDigits += 1
 		quotient.Div(quotient, ten)
 	}
 	return numDigits
-}
-
-func formatFloatAsString(f float64) string {
-	numWholeNumberDigits := getNumDigits(big.NewInt(int64(f)))
-	formatString := "%f"
-	if numWholeNumberDigits < 15 { // 15 is a magic number for level of precision supported by float64
-		formatString = "%." + fmt.Sprintf("%d", 15-numWholeNumberDigits) + "f"
-	}
-	return fmt.Sprintf(formatString, f)
 }

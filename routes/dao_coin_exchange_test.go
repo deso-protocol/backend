@@ -4,7 +4,6 @@ import (
 	"github.com/deso-protocol/core/lib"
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
-	"math"
 	"testing"
 )
 
@@ -14,18 +13,46 @@ const (
 )
 
 func TestCalculateScaledExchangeRate(t *testing.T) {
-	// scaling factor = 1e18 / 1e9
+	// equivalent to 1e9
 	desoToDaoCoinBaseUnitsScalingFactor := getDESOToDAOCoinBaseUnitsScalingFactor()
 
-	exchangeRate := 100.00000001
-	// equivalent to 100.00000001
-	expectedScaledExchangeRate := uint256.NewInt().Add(
-		uint256.NewInt().Mul(lib.OneE38, uint256.NewInt().SetUint64(100)),       // 100
-		uint256.NewInt().Div(lib.OneE38, uint256.NewInt().SetUint64(100000000)), // 0.00000001
-	)
+	type testCaseType struct {
+		floatValue                float64
+		expectedWholeNumberDigits int64
+		decimalDigitExponent      int64
+	}
 
-	// Test successful scaling when buying coin is a DAO coin, and selling coin is a DAO coin order. Exchange rate should be 1e38
-	{
+	// Convenience type to define exchange rates and expected uint256 scaled exchange rates.
+	// Given a test case {100.1, 100, -1}, it means that our float exchangeRate is 100.1
+	// and the expected uint256 scaled exchange rate is (1e38 * 100) + (1e38 / 10). This is an easy
+	// way to test a sliding window of precision with both large and small numbers
+	successTestCases := []testCaseType{
+		{1.1, 1, -10},                                 // 2 digits
+		{0.00000000000001, 0, -100000000000000},       // smallest supported number
+		{1.0000000000001, 1, -10000000000000},         // 15 digits, no truncate
+		{1000000000000.1, 1000000000000, -10},         // 15 digits, no truncate
+		{10000000000000.01, 10000000000000, 0},        // 16 digits, which truncates everything after decimal point
+		{100000000000001, 100000000000001, 0},         // 15 digits, no truncate
+		{1000000000000001, 1000000000000000, 0},       // 16 digits, truncates everything below top 15 digits
+		{1234567890123456789, 1234567890123450000, 0}, // 19 digits, truncates everything below top 15 digits
+	}
+
+	// Test when buying coin is a DAO coin and selling coin is a DAO coin, for various exchange rates
+	for _, testCase := range successTestCases {
+		exchangeRate := testCase.floatValue
+		expectedScaledExchangeRate := uint256.NewInt()
+		if testCase.expectedWholeNumberDigits > 0 {
+			expectedScaledExchangeRate = uint256.NewInt().Mul(
+				lib.OneE38, uint256.NewInt().SetUint64(uint64(testCase.expectedWholeNumberDigits)),
+			)
+		}
+
+		if testCase.decimalDigitExponent < 0 {
+			expectedScaledExchangeRate.Add(
+				expectedScaledExchangeRate,
+				uint256.NewInt().Div(lib.OneE38, uint256.NewInt().SetUint64(uint64(-testCase.decimalDigitExponent))),
+			)
+		}
 		scaledExchangeRate, err := CalculateScaledExchangeRate(
 			daoCoinPubKeyBase58Check,
 			daoCoinPubKeyBase58Check,
@@ -35,58 +62,50 @@ func TestCalculateScaledExchangeRate(t *testing.T) {
 		require.Equal(t, expectedScaledExchangeRate, scaledExchangeRate)
 	}
 
-	// Test successful scaling when buying coin is a DAO coin, and selling coin  is $DESO. Exchange rate should be 1e38 / 1e9
+	// Test when buying coin is a DAO coin and selling coin is $DESO
 	{
 		scaledExchangeRate, err := CalculateScaledExchangeRate(
 			daoCoinPubKeyBase58Check,
 			desoPubKeyBase58Check,
-			exchangeRate,
+			1.0,
 		)
 		require.NoError(t, err)
-		expectedScaledExchangeRate := uint256.NewInt().Div(expectedScaledExchangeRate, desoToDaoCoinBaseUnitsScalingFactor)
+		// expectedScaledExchangeRate / 1e9
+		expectedScaledExchangeRate := uint256.NewInt().Div(lib.OneE38, desoToDaoCoinBaseUnitsScalingFactor)
 		require.Equal(t, expectedScaledExchangeRate, scaledExchangeRate)
 	}
 
-	// Test successful scaling when buying coin is $DESO coin, and buying coin is $DESO. Exchange rate should be 1e38 * 1e9
+	// Test when buying coin is $DESO and selling coin is DAO coin
 	{
 		scaledExchangeRate, err := CalculateScaledExchangeRate(
 			desoPubKeyBase58Check,
 			daoCoinPubKeyBase58Check,
-			exchangeRate,
+			1.0,
 		)
 		require.NoError(t, err)
 		expectedScaledExchangeRate := uint256.NewInt().Mul(
-			expectedScaledExchangeRate,
+			lib.OneE38,
 			desoToDaoCoinBaseUnitsScalingFactor,
 		)
 		require.Equal(t, expectedScaledExchangeRate, scaledExchangeRate)
 	}
 
-	// Test failed scaling when buying coin is a DAO coin, selling coin  is $DESO, but exchange rate is too small
-	{
-		exchangeRate := 0.0000000000000000000000000000001 // 1e-31
-		_, err := CalculateScaledExchangeRate(
-			daoCoinPubKeyBase58Check,
-			desoPubKeyBase58Check,
-			exchangeRate,
-		)
-		require.Error(t, err) // expected to fail because the resulting value 1e-39 is too small to be represented
+	failingTestCases := []float64{
+		0.0000000000000001,                        // 1e-16 is too small
+		10000000000000000000000000000000000000000, // 1e40 is too big
 	}
 
-	// Test failed scaling when buying coin is a DAO coin, selling coin  is $DESO, but exchange rate is too small
-	{
-		exchangeRate := math.Exp(260)
+	for _, exchangeRate := range failingTestCases {
 		_, err := CalculateScaledExchangeRate(
 			daoCoinPubKeyBase58Check,
-			desoPubKeyBase58Check,
+			daoCoinPubKeyBase58Check,
 			exchangeRate,
 		)
-		require.Error(t, err) // expected to fail because 2^260 overflows
+		require.Error(t, err)
 	}
 }
 
 func TestCalculateExchangeRateAsFloat(t *testing.T) {
-	// scaling factor = 1e18 / 1e9
 	desoToDaoCoinBaseUnitsScalingFactor := getDESOToDAOCoinBaseUnitsScalingFactor()
 
 	// equivalent to 100.00000001
@@ -96,7 +115,7 @@ func TestCalculateExchangeRateAsFloat(t *testing.T) {
 	)
 	expectedExchangeRate := 100.00000001
 
-	// Test when buying coin is a DAO coin, and selling coin is a DAO coin order. Exchange rate should be 1
+	// Test when buying coin is a DAO coin and selling coin is a DAO coin order
 	{
 		scaledValue, err := CalculateExchangeRateAsFloat(
 			daoCoinPubKeyBase58Check,
@@ -107,28 +126,28 @@ func TestCalculateExchangeRateAsFloat(t *testing.T) {
 		require.Equal(t, expectedExchangeRate, scaledValue)
 	}
 
-	// Test when buying coin is a DAO coin, and selling coin  is $DESO. Exchange rate should be 1e9
+	// Test when buying coin is a DAO coin and selling coin is $DESO
 	{
-		scaledExchangeRate, err := CalculateExchangeRateAsFloat(
+		exchangeRate, err := CalculateExchangeRateAsFloat(
 			daoCoinPubKeyBase58Check,
 			desoPubKeyBase58Check,
 			scaledExchangeRate,
 		)
 		require.NoError(t, err)
 		expectedReScaledExchangeRate := expectedExchangeRate * float64(desoToDaoCoinBaseUnitsScalingFactor.Uint64())
-		require.Equal(t, expectedReScaledExchangeRate, scaledExchangeRate)
+		require.Equal(t, expectedReScaledExchangeRate, exchangeRate)
 	}
 
-	// Test when buying coin is $DESO coin, and buying coin is $DESO. Exchange rate should be 1e-9
+	// Test when buying coin is $DESO coin and buying coin is $DESO
 	{
-		scaledExchangeRate, err := CalculateExchangeRateAsFloat(
+		exchangeRate, err := CalculateExchangeRateAsFloat(
 			desoPubKeyBase58Check,
 			daoCoinPubKeyBase58Check,
 			scaledExchangeRate,
 		)
 		require.NoError(t, err)
 		expectedReScaledExchangeRate := expectedExchangeRate / float64(desoToDaoCoinBaseUnitsScalingFactor.Uint64())
-		require.Equal(t, expectedReScaledExchangeRate, scaledExchangeRate)
+		require.Equal(t, expectedReScaledExchangeRate, exchangeRate)
 	}
 }
 
@@ -150,7 +169,7 @@ func TestCalculateQuantityToFillAsBaseUnits(t *testing.T) {
 		require.Equal(t, expectedValueIfDESO, scaledQuantity)
 	}
 
-	// Bid order to buy DAO coin using $DESO
+	// Bid order to buy a DAO coin using $DESO
 	{
 		scaledQuantity, err := CalculateQuantityToFillAsBaseUnits(
 			daoCoinPubKeyBase58Check,
@@ -174,7 +193,7 @@ func TestCalculateQuantityToFillAsBaseUnits(t *testing.T) {
 		require.Equal(t, expectedValueIfDESO, scaledQuantity)
 	}
 
-	// Ask order to sell DAO coin for $DESO
+	// Ask order to sell a DAO coin for $DESO
 	{
 		scaledQuantity, err := CalculateQuantityToFillAsBaseUnits(
 			desoPubKeyBase58Check,
@@ -204,7 +223,7 @@ func TestCalculateQuantityToFillAsFloat(t *testing.T) {
 		require.Equal(t, expectedValueIfDESO, quantity)
 	}
 
-	// Bid order to buy DAO coin using $DESO
+	// Bid order to buy a DAO coin using $DESO
 	{
 		quantity, err := CalculateQuantityToFillAsFloat(
 			daoCoinPubKeyBase58Check,
@@ -228,7 +247,7 @@ func TestCalculateQuantityToFillAsFloat(t *testing.T) {
 		require.Equal(t, expectedValueIfDESO, quantity)
 	}
 
-	// Ask order to sell DAO coin for $DESO
+	// Ask order to sell a DAO coin for $DESO
 	{
 		quantity, err := CalculateQuantityToFillAsFloat(
 			desoPubKeyBase58Check,
