@@ -179,7 +179,7 @@ func DecodePubKeyToUint64MapString(bytes []byte, params *lib.DeSoParams, utxoVie
 	return fmt.Sprint(mapWithDecodedKeys)
 }
 
-func DecodeTransactionSpendingLimit(bytes []byte, params *lib.DeSoParams, utxoView *lib.UtxoView) (string, error) {
+func DecodeTransactionSpendingLimit(spendingBytes []byte, params *lib.DeSoParams, utxoView *lib.UtxoView) string {
 	var transactionSpendingLimit *lib.TransactionSpendingLimit
 	rr := bytes.NewReader(spendingBytes)
 	if err := transactionSpendingLimit.FromBytes(rr); err != nil {
