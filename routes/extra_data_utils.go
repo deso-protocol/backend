@@ -45,8 +45,6 @@ var specialExtraDataKeysToEncoding = map[string]ExtraDataEncoding{
 	lib.RecipientMessagingPublicKey:    {Decode: DecodePkToString, Encode: EncodePkStringToBytes},
 	lib.RecipientMessagingGroupKeyName: {Decode: DecodeString, Encode: EncodeString},
 
-	// TODO: @iamsofonias, do we want to support clients populating these through the API? This seems very error prone
-	// as the client has to marshall the map to string in a specific format, and we unmarshall & encode to binary here
 	lib.DESORoyaltiesMapKey: {Decode: DecodePubKeyToUint64MapString, Encode: ReservedFieldCannotEncode},
 	lib.CoinRoyaltiesMapKey: {Decode: DecodePubKeyToUint64MapString, Encode: ReservedFieldCannotEncode},
 
@@ -56,21 +54,17 @@ var specialExtraDataKeysToEncoding = map[string]ExtraDataEncoding{
 
 	lib.DerivedKeyMemoKey: {Decode: DecodeHexString, Encode: EncodeHexString},
 
-	// TODO: @iamsofonias, similar to the above. Do we want to encourage clients to build, marshall, and pass in the
-	// transaction spending limit maps directly through as ExtraData fields. This will be very error prone?
 	lib.TransactionSpendingLimitKey: {Decode: DecodeTransactionSpendingLimit, Encode: ReservedFieldCannotEncode},
 }
 
 func EncodeExtraDataMap(extraData map[string]string) (map[string][]byte, error) {
 	extraDataProcessed := make(map[string][]byte)
 	for k, v := range extraData {
-		if len(v) > 0 {
-			encodedValue, err := GetExtraDataFieldEncoding(k).Encode(v)
-			if err != nil {
-				return nil, errors.Errorf("Problem encoding to extra data field %v: %v", k, err)
-			}
-			extraDataProcessed[k] = encodedValue
+		encodedValue, err := GetExtraDataFieldEncoding(k).Encode(v)
+		if err != nil {
+			return nil, errors.Errorf("Problem encoding to extra data field %v: %v", k, err)
 		}
+		extraDataProcessed[k] = encodedValue
 	}
 	return extraDataProcessed, nil
 }
@@ -120,7 +114,7 @@ func Encode64BitIntString(str string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var buffer []byte
+	buffer := make([]byte, lib.MaxVarintLen64)
 	lib.PutVarint(buffer, encoded)
 	return buffer, nil
 }
@@ -137,7 +131,7 @@ func Encode64BitUintString(str string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var buffer []byte
+	buffer := make([]byte, lib.MaxVarintLen64)
 	lib.PutUvarint(buffer, encoded)
 	return buffer, nil
 }
@@ -147,6 +141,9 @@ func DecodeBoolString(bytes []byte, params *lib.DeSoParams, utxoView *lib.UtxoVi
 }
 
 func EncodeBoolString(str string) ([]byte, error) {
+	if str != "0" && str != "1" {
+		return nil, errors.Errorf("%v is not a boolean string. Only values \"0\" or \"1\" are supported", str)
+	}
 	return Encode64BitUintString(str)
 }
 
@@ -170,7 +167,7 @@ func DecodePkToString(bytes []byte, params *lib.DeSoParams, _ *lib.UtxoView) str
 	return lib.PkToString(bytes, params)
 }
 
-func DecodePubKeyToUint64MapString(bytes []byte, params *lib.DeSoParams, utxoView *lib.UtxoView) string {
+func DecodePubKeyToUint64MapString(bytes []byte, params *lib.DeSoParams, _ *lib.UtxoView) string {
 	var decoded, _ = lib.DeserializePubKeyToUint64Map(bytes)
 	mapWithDecodedKeys := map[string]uint64{}
 	for k, v := range decoded {
@@ -180,13 +177,13 @@ func DecodePubKeyToUint64MapString(bytes []byte, params *lib.DeSoParams, utxoVie
 }
 
 func DecodeTransactionSpendingLimit(spendingBytes []byte, params *lib.DeSoParams, utxoView *lib.UtxoView) string {
-	var transactionSpendingLimit *lib.TransactionSpendingLimit
+	var transactionSpendingLimit lib.TransactionSpendingLimit
 	rr := bytes.NewReader(spendingBytes)
 	if err := transactionSpendingLimit.FromBytes(rr); err != nil {
 		glog.Errorf("Error decoding transaction spending limits: %v", err)
 		return ""
 	}
-	response := TransactionSpendingLimitToResponse(transactionSpendingLimit, utxoView, params)
+	response := TransactionSpendingLimitToResponse(&transactionSpendingLimit, utxoView, params)
 	responseJSON, err := json.Marshal(response)
 	if err != nil {
 		glog.Errorf("Error marshaling transaction limit response: %v", err)
