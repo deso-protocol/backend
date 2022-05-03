@@ -643,7 +643,7 @@ func (fes *APIServer) SaveOrderedFeedForTags(sortByHotness bool, PostTagToOrdere
 		tagHotFeedOrderedList := []*HotFeedEntry{}
 		tagHotFeedListWithAge := []*HotFeedEntryTimeSortable{}
 		// Loop through every tagged post for the tag in question.
-		for tagPostHashKey, _ := range tagPostHashes {
+		for tagPostHashKey := range tagPostHashes {
 			tagPostHash := tagPostHashKey
 			if postHotnessInfo, ok := fes.HotFeedPostHashToTagScoreMap[tagPostHash]; ok {
 				postHotFeedEntry := &HotFeedEntryTimeSortable{
