@@ -8,16 +8,20 @@ require (
 	cloud.google.com/go/storage v1.15.0
 	github.com/btcsuite/btcd v0.21.0-beta
 	github.com/btcsuite/btcutil v1.0.2
+	github.com/cloudflare/circl v1.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.1
 	github.com/deso-protocol/core v0.0.0-00010101000000-000000000000
 	github.com/deso-protocol/go-deadlock v1.0.0
 	github.com/dgraph-io/badger/v3 v3.2103.0
+	github.com/elliotchance/orderedmap v1.4.0 // indirect
+	github.com/fatih/color v1.13.0 // indirect
 	github.com/fatih/structs v1.1.0
 	github.com/gofrs/uuid v4.0.0+incompatible // indirect
 	github.com/golang-jwt/jwt/v4 v4.1.0
 	github.com/golang/glog v1.0.0
 	github.com/gorilla/mux v1.8.0
 	github.com/h2non/bimg v1.1.5
+	github.com/holiman/uint256 v1.1.1 // indirect
 	github.com/kevinburke/go-types v0.0.0-20210723172823-2deba1f80ba7 // indirect
 	github.com/kevinburke/rest v0.0.0-20210506044642-5611499aa33c // indirect
 	github.com/kevinburke/twilio-go v0.0.0-20210327194925-1623146bcf73
@@ -35,7 +39,7 @@ require (
 	github.com/ttacon/builder v0.0.0-20170518171403-c099f663e1c2 // indirect
 	github.com/ttacon/libphonenumber v1.2.1 // indirect
 	github.com/tyler-smith/go-bip39 v1.1.0
-	golang.org/x/crypto v0.0.0-20210513164829-c07d793c2f9a
+	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519
 	google.golang.org/api v0.46.0
 	gopkg.in/DataDog/dd-trace-go.v1 v1.29.0
 )

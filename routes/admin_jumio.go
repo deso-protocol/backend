@@ -160,6 +160,8 @@ func (fes *APIServer) AdminUpdateJumioUSDCents(ww http.ResponseWriter, req *http
 		return
 	}
 
+	fes.JumioUSDCents = requestData.USDCents
+
 	// Update the cache of all country level sign up bonus metadata explicitly in case
 	// some are using the default amount
 	fes.SetAllCountrySignUpBonusMetadata()
@@ -196,6 +198,8 @@ func (fes *APIServer) AdminUpdateJumioKickbackUSDCents(ww http.ResponseWriter, r
 		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateJumioKickbackUSDCents: Problem putting default jumio kickback USD cents in global state: %v", err))
 		return
 	}
+
+	fes.JumioKickbackUSDCents = requestData.USDCents
 
 	// Update the cache of all country level sign up bonus metadata explicitly in case
 	// some are using the default amount

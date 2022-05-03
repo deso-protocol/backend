@@ -190,16 +190,6 @@ func getImageHex(base64EncodedImage string) string {
 	return hex.EncodeToString(chainhash.HashB([]byte(base64EncodedImage)))
 }
 
-func preprocessExtraData(extraData map[string]string) map[string][]byte {
-	extraDataProcessed := make(map[string][]byte)
-	for k, v := range extraData {
-		if len(v) > 0 {
-			extraDataProcessed[k] = []byte(v)
-		}
-	}
-	return extraDataProcessed
-}
-
 func _resizeImage(imageObj *bimg.Image, maxDim uint) (_imgObj *bimg.Image, _err error) {
 	// Get the width and height.
 	imgSize, err := imageObj.Size()
@@ -367,6 +357,8 @@ type CFVideoDetailsResponse struct {
 
 type GetVideoStatusResponse struct {
 	ReadyToStream bool
+	Duration      float64
+	Dimensions    map[string]interface{}
 }
 
 func (fes *APIServer) GetVideoStatus(ww http.ResponseWriter, req *http.Request) {
@@ -405,8 +397,13 @@ func (fes *APIServer) GetVideoStatus(ww http.ResponseWriter, req *http.Request) 
 		return
 	}
 	isReady, _ := cfVideoDetailsResponse.Result["readyToStream"]
+	duration, _ := cfVideoDetailsResponse.Result["duration"]
+	dimensions, _ := cfVideoDetailsResponse.Result["input"]
+
 	res := &GetVideoStatusResponse{
 		ReadyToStream: isReady.(bool),
+		Duration:      duration.(float64),
+		Dimensions:    dimensions.(map[string]interface{}),
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetVideoStatus: Problem serializing object to JSON: %v", err))

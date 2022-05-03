@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/holiman/uint256"
 	"net/http"
 	"time"
 
@@ -55,29 +56,100 @@ type TransactionInfo struct {
 	TimeAdded int64
 }
 
+// MessageEntryResponse ...
 type MessageEntryResponse struct {
-	SenderPublicKeyBase58Check    string
+	// SenderPublicKeyBase58Check is the main public key of the sender in base58check.
+	SenderPublicKeyBase58Check string
+
+	// RecipientPublicKeyBase58Check is the main public key of the recipient in base58check.
 	RecipientPublicKeyBase58Check string
 
+	// EncryptedText is the encrypted message in hex format.
 	EncryptedText string
-	TstampNanos   uint64
+	// TstampNanos is the message's timestamp.
+	TstampNanos uint64
 
 	// Whether or not the user is the sender of the message.
 	IsSender bool
 
 	// Indicate if message was encrypted using shared secret
-	V2 bool
+	V2 bool // Deprecated
+
+	// Indicate message version
+	Version uint32
+
+	// ---------------------------------------------------------
+	// DeSo V3 Messages Fields
+	// ---------------------------------------------------------
+
+	// SenderMessagingPublicKey is the sender's messaging public key that was used
+	// to encrypt the corresponding message.
+	SenderMessagingPublicKey string
+
+	// SenderMessagingGroupKeyName is the sender's group key name of SenderMessagingPublicKey
+	SenderMessagingGroupKeyName string
+
+	// RecipientMessagingPublicKey is the recipient's messaging public key that was
+	// used to encrypt the corresponding message.
+	RecipientMessagingPublicKey string
+
+	// RecipientMessagingGroupKeyName is the recipient's group key name of RecipientMessagingPublicKey
+	RecipientMessagingGroupKeyName string
+
+	// ExtraData is an arbitrary key value map
+	ExtraData map[string]string
 }
 
+// MessageContactResponse ...
 type MessageContactResponse struct {
+	// PublicKeyBase58Check is the public key in base58check format of the message contact.
 	PublicKeyBase58Check string
-	Messages             []*MessageEntryResponse
 
+	// Messages is the list of messages within this contact.
+	Messages []*MessageEntryResponse
+
+	// ProfileEntryResponse is the profile entry corresponding to the contact.
 	ProfileEntryResponse *ProfileEntryResponse
 
 	// The number of messages this user has read from this contact. This is
 	// used to show a notification badge for unread messages.
 	NumMessagesRead int64
+}
+
+// MessagingGroupEntryResponse ...
+type MessagingGroupEntryResponse struct {
+	// GroupOwnerPublicKeyBase58Check is the main public key of the group owner, or, equivalently, the public key that
+	// registered the group.
+	GroupOwnerPublicKeyBase58Check string
+
+	// MessagingPublicKeyBase58Check is the group messaging public key in base58check.
+	MessagingPublicKeyBase58Check string
+
+	// MessagingGroupKeyName is the name of the group messaging key.
+	MessagingGroupKeyName string
+
+	// MessagingGroupMembers is the list of the members in the group chat.
+	MessagingGroupMembers []*MessagingGroupMemberResponse
+
+	// EncryptedKey is the hex string of the encrypted private corresponding with the MessagingPublicKeyBase58Check.
+	EncryptedKey string
+
+	// ExtraData is an arbitrary key value map
+	ExtraData map[string]string
+}
+
+type MessagingGroupMemberResponse struct {
+	// GroupMemberPublicKeyBase58Check is the main public key of the group member.
+	GroupMemberPublicKeyBase58Check string
+
+	// GroupMemberKeyName is the key name of the member that we encrypt the group messaging public key to. The group
+	// messaging public key should not be confused with the GroupMemberPublicKeyBase58Check, the former is the public
+	// key of the whole group, while the latter is the public key of the group member.
+	GroupMemberKeyName string
+
+	// EncryptedKey is the encrypted private key corresponding to the group messaging public key that's encrypted
+	// to the member's registered messaging key labeled with GroupMemberKeyName.
+	EncryptedKey string
 }
 
 // User ...
@@ -151,6 +223,10 @@ type BalanceEntryResponse struct {
 
 	// How much this HODLer owns of a particular creator coin.
 	BalanceNanos uint64
+
+	// For simplicity, we create a new field for the uint256 balance for DAO coins
+	BalanceNanosUint256 uint256.Int
+
 	// The net effect of transactions in the mempool on a given BalanceEntry's BalanceNanos.
 	// This is used by the frontend to convey info about mining.
 	NetBalanceInMempool int64
@@ -351,7 +427,7 @@ func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, 
 	return hash, err
 }
 
-func (fes *APIServer) AddNodeSourceToTxnMetadata (txn *lib.MsgDeSoTxn) {
+func (fes *APIServer) AddNodeSourceToTxnMetadata(txn *lib.MsgDeSoTxn) {
 	if fes.Config.NodeSource != 0 {
 		if len(txn.ExtraData) == 0 {
 			txnExtraData := make(map[string][]byte)

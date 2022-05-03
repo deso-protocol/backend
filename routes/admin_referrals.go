@@ -389,7 +389,11 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeR
 		if len(isActiveBytes) == 0 {
 			return nil, fmt.Errorf("fes.getReferralInfoResponsesForPubKey: got zero isActiveBytes: %s", referralHash)
 		}
-		isActive := lib.ReadBoolByte(bytes.NewReader(isActiveBytes))
+		isActive, err := lib.ReadBoolByte(bytes.NewReader(isActiveBytes))
+		if err != nil {
+			return nil, errors.Wrapf(err, "fes.getReferralInfoResponsesForPubKey:" +
+				"problem reading isActiveBytes")
+		}
 
 		// Look up and decode the referral info for the hash.
 		dbKey := GlobalStateKeyForReferralHashToReferralInfo(referralHashBytes)
@@ -623,7 +627,11 @@ func (fes *APIServer) AdminDownloadReferralCSV(ww http.ResponseWriter, req *http
 	}
 
 	for statusValIdx, statusBytes := range statusVals {
-		status := lib.ReadBoolByte(bytes.NewReader(statusBytes))
+		status, err := lib.ReadBoolByte(bytes.NewReader(statusBytes))
+		if err != nil {
+			_AddInternalServerError(
+				ww, fmt.Sprintf("AdminDownloadReferralCSV: problem reading statusBytes with statusValIdx (%v)", statusValIdx))
+		}
 		// Note we have to add one to the idx here since csvRows has a header.
 		csvRows[statusValIdx+1] = append(csvRows[statusValIdx+1], strconv.FormatBool(status))
 	}
