@@ -74,7 +74,7 @@ func (fes *APIServer) GetVerifiedUsernameMap() (
 	// cache.
 	verifiedUsernameMapLocal, err = fes.GetVerifiedUsernameToPKIDMapFromGlobalState()
 	if err != nil {
-		return  nil, fmt.Errorf("GetVerifiedUsernameMap: Error getting verified username map %v", err)
+		return nil, fmt.Errorf("GetVerifiedUsernameMap: Error getting verified username map %v", err)
 	}
 
 	for username, pkid := range verifiedUsernameMapLocal {
@@ -153,7 +153,7 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, utxoView *lib.UtxoV
 	return pkidMap, nil
 }
 
-func (fes *APIServer) GetGlobalFeedCache(utxoView *lib.UtxoView) (_postHashes []*lib.BlockHash, _postEntries []*lib.PostEntry, _err error){
+func (fes *APIServer) GetGlobalFeedCache(utxoView *lib.UtxoView) (_postHashes []*lib.BlockHash, _postEntries []*lib.PostEntry, _err error) {
 	var postHashes []*lib.BlockHash
 	if fes.Config.GlobalStateAPIUrl != "" {
 		body, err := fes.FetchFromExternalGlobalState(RoutePathGetGlobalFeed)

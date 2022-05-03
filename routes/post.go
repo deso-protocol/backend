@@ -594,7 +594,7 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 				}
 			}
 		}
-		endIndex := lib.MinInt(index + numToFetch - len(postEntries), len(fes.GlobalFeedPostHashes))
+		endIndex := lib.MinInt(index+numToFetch-len(postEntries), len(fes.GlobalFeedPostHashes))
 		// At the next iteration, we can start looking endIndex for the post hash we need.
 		newPostEntries := fes.GlobalFeedPostEntries[index:endIndex]
 		index = endIndex - 1
@@ -617,7 +617,7 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 			}
 		}
 
-		lastPostEntry := newPostEntries[len(newPostEntries) - 1]
+		lastPostEntry := newPostEntries[len(newPostEntries)-1]
 		// If there are no post entries and no last post, we don't continue to fetch.
 		if len(postEntries) == 0 && lastPostEntry == nil {
 			break
