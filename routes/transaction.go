@@ -2611,9 +2611,18 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		)
 		return
 	}
-	scaledExchangeRateCoinsToSellPerCoinToBuy, err := lib.CalculateScaledExchangeRate(
+	scaledExchangeRateCoinsToSellPerCoinToBuy, err := CalculateScaledExchangeRate(
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
 		requestData.ExchangeRateCoinsToSellPerCoinToBuy,
 	)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	// Validate operation type
+	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
 		return
@@ -2624,16 +2633,13 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		_AddBadRequestError(ww, fmt.Sprint("CreateDAOCoinLimitOrder: QuantityToFill must be greater than 0"))
 		return
 	}
-	quantityToFillInBaseUnits, err := calculateQuantityToFillAsBaseUnits(
+
+	quantityToFillInBaseUnits, err := CalculateQuantityToFillAsBaseUnits(
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		requestData.OperationType,
 		requestData.QuantityToFill,
 	)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-		return
-	}
-
-	// Validate operation type
-	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
 		return
@@ -2714,21 +2720,25 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 		return
 	}
 
-	// Validate and convert quantity to base units
-	if requestData.QuantityToFill <= 0 {
-		_AddBadRequestError(ww, fmt.Sprint("CreateDAOCoinMarketOrder: QuantityToFill must be greater than 0"))
-		return
-	}
-	quantityToFillInBaseUnits, err := calculateQuantityToFillAsBaseUnits(
-		requestData.QuantityToFill,
-	)
+	// Validate operation type
+	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
 		return
 	}
 
-	// Validate operation type
-	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
+	// Validate and convert quantity to base units
+	if requestData.QuantityToFill <= 0 {
+		_AddBadRequestError(ww, fmt.Sprint("CreateDAOCoinMarketOrder: QuantityToFill must be greater than 0"))
+		return
+	}
+
+	quantityToFillInBaseUnits, err := CalculateQuantityToFillAsBaseUnits(
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		requestData.OperationType,
+		requestData.QuantityToFill,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
 		return
