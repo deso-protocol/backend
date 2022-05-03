@@ -687,7 +687,7 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 		}
 
 		_, dbPostAndCommentHashes, _, err := lib.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
-			utxoView.Handle, fes.blockchain.Snapshot(), readerPK, false /*fetchEntries*/,
+			utxoView.Handle, fes.blockchain.Snapshot(), readerPK, false, /*fetchEntries*/
 			minTimestampNanos, maxTimestampNanos,
 		)
 		if err != nil {

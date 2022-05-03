@@ -391,7 +391,7 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeR
 		}
 		isActive, err := lib.ReadBoolByte(bytes.NewReader(isActiveBytes))
 		if err != nil {
-			return nil, errors.Wrapf(err, "fes.getReferralInfoResponsesForPubKey:" +
+			return nil, errors.Wrapf(err, "fes.getReferralInfoResponsesForPubKey:"+
 				"problem reading isActiveBytes")
 		}
 
