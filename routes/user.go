@@ -1295,6 +1295,9 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 		if hodlList[jj].CreatorPublicKeyBase58Check == hodlList[jj].HODLerPublicKeyBase58Check {
 			return false
 		}
+		if requestData.IsDAOCoin {
+			return hodlList[ii].BalanceNanosUint256.Gt(&hodlList[jj].BalanceNanosUint256)
+		}
 		return hodlList[ii].BalanceNanos > hodlList[jj].BalanceNanos
 	})
 	if !requestData.FetchAll {
