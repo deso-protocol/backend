@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core/lib"
+	"github.com/golang/glog"
 	"github.com/holiman/uint256"
 	"github.com/pkg/errors"
 	"io"
@@ -241,6 +242,10 @@ func (fes *APIServer) buildDAOCoinLimitOrderResponsesForTransactor(
 			order,
 		)
 		if err != nil {
+			glog.Errorf(
+				"buildDAOCoinLimitOrderResponsesForTransactor: Unable to build DAO coin limit order response for limit order with OrderID: %v",
+				order.OrderID,
+			)
 			continue
 		}
 
@@ -317,7 +322,7 @@ func CalculateScaledExchangeRate(
 	if err != nil {
 		return nil, err
 	}
-	if rawScaledExchangeRate.Eq(uint256.NewInt().SetUint64(0)) {
+	if rawScaledExchangeRate.IsZero() {
 		return nil, errors.Errorf("The float value %f is too small to produce a scaled exchange rate", exchangeRateCoinsToSellPerCoinToBuy)
 	}
 	if buyingCoinPublicKeyBase58CheckOrUsername == "" {
@@ -331,7 +336,7 @@ func CalculateScaledExchangeRate(
 	} else if sellingCoinPublicKeyBase58CheckOrUsername == "" {
 		// Selling coin is $DESO
 		quotient := uint256.NewInt().Div(rawScaledExchangeRate, getDESOToDAOCoinBaseUnitsScalingFactor())
-		if quotient.Eq(uint256.NewInt().SetUint64(0)) {
+		if quotient.IsZero() {
 			return nil, errors.Errorf("The float value %f is too small to produce a scaled exchange rate", exchangeRateCoinsToSellPerCoinToBuy)
 		}
 		return quotient, nil
