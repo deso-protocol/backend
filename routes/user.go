@@ -989,7 +989,7 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		IsHidden:               profileEntry.IsHidden,
 		IsReserved:             isReserved,
 		IsVerified:             isVerified,
-		ExtraData:              extraDataToResponse(profileEntry.ExtraData),
+		ExtraData:              DecodeExtraDataMap(fes.Params, utxoView, profileEntry.ExtraData),
 	}
 
 	return profResponse
@@ -3059,7 +3059,7 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 			DerivedPublicKeyBase58Check: lib.PkToString(entry.DerivedPublicKey[:], fes.Params),
 			ExpirationBlock:             entry.ExpirationBlock,
 			IsValid:                     isValid,
-			ExtraData:                   extraDataToResponse(entry.ExtraData),
+			ExtraData:                   DecodeExtraDataMap(fes.Params, utxoView, entry.ExtraData),
 			TransactionSpendingLimit:    TransactionSpendingLimitToResponse(entry.TransactionSpendingLimitTracker, utxoView, fes.Params),
 			Memo:                        hex.EncodeToString(entry.Memo),
 		}
