@@ -174,7 +174,11 @@ func (fes *APIServer) GetGlobalFeedCache(utxoView *lib.UtxoView) (_postHashes []
 	}
 	var postEntries []*lib.PostEntry
 	for _, postHash := range postHashes {
-		postEntries = append(postEntries, utxoView.GetPostEntryForPostHash(postHash))
+		postEntry := utxoView.GetPostEntryForPostHash(postHash)
+		if postEntry == nil {
+			continue
+		}
+		postEntries = append(postEntries, postEntry)
 	}
 	sort.Slice(postEntries, func(ii, jj int) bool {
 		return postEntries[ii].TimestampNanos > postEntries[jj].TimestampNanos
