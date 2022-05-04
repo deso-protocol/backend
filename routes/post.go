@@ -611,6 +611,16 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 				continue
 			}
 
+			// Skip deleted / hidden posts and any comments.
+			if postEntry.IsDeleted() || postEntry.IsHidden || len(postEntry.ParentStakeID) != 0 {
+				continue
+			}
+
+			// mediaRequired set to determine if we only want posts that include media and ignore posts without
+			if mediaRequired && !postEntry.HasMedia() {
+				continue
+			}
+
 			if readerPK != nil && postEntry != nil && !reflect.DeepEqual(postEntry.PosterPublicKey, readerPK) {
 				// We add the readers posts later so we can skip them here to avoid duplicates.
 				postEntries = append(postEntries, postEntry)
