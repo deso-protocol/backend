@@ -611,7 +611,7 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 				continue
 			}
 
-			if readerPK != nil && postEntry != nil && reflect.DeepEqual(postEntry.PosterPublicKey, readerPK) {
+			if readerPK != nil && postEntry != nil && !reflect.DeepEqual(postEntry.PosterPublicKey, readerPK) {
 				// We add the readers posts later so we can skip them here to avoid duplicates.
 				postEntries = append(postEntries, postEntry)
 			}
