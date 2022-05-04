@@ -128,7 +128,7 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, utxoView *lib.UtxoV
 			pkidMap[*pkid] = v
 		}
 	}
-	// Now, get  we're using our own global state. Seek global state for all restricted public keys of this type.
+	// Now, we're using our own global state. Seek global state for all restricted public keys of this type.
 	publicKeys, states, err := fes.GlobalState.Seek(
 		prefix,
 		prefix, /*validForPrefix*/
