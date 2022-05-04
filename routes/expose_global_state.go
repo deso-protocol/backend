@@ -44,11 +44,8 @@ func (fes *APIServer) WriteGlobalStateDataToResponse(data interface{}, functionN
 	}
 }
 
-// GetVerifiedUsernameMapResponse gets the verified username map (both map[string]string and map[string]*lib.PKID) from
+// GetVerifiedUsernameMap gets the verified username map (both map[string]string and map[string]*lib.PKID) from
 // the configured GlobalStateAPIUrl and merges it with this node's global state.
-// Note that it is not possible to remove a verification from a user who has been granted verification on the node
-// configured at the GlobalStateAPIUrl.
-
 func (fes *APIServer) GetVerifiedUsernameMap() (
 	_verifiedUsernameToPKID map[string]*lib.PKID, _err error,
 ) {

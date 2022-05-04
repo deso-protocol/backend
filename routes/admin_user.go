@@ -738,16 +738,16 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 		return
 	}
 
-	// Kill the key in our map.
-	delete(verifiedMapStruct.VerifiedUsernameToPKID, strings.ToLower(usernameToRemove))
+	// We set the value for this username to an empty PKID to signify that it has been removed.
+	verifiedMapStruct.VerifiedUsernameToPKID[strings.ToLower(usernameToRemove)] = &lib.ZeroPKID
 
 	// Encode the updated entry and stick it in the database.
 	metadataDataBuf := bytes.NewBuffer([]byte{})
 	if err = gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Failed encoding new verification map: %v", err))
 	}
-	err = fes.GlobalState.Put(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
-	if err != nil {
+
+	if err = fes.GlobalState.Put(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes()); err != nil {
 		_AddBadRequestError(ww, "AdminRemoveVerificationBadge: Failed placing new verification map into the database.")
 		return
 	}
