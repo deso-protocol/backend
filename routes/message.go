@@ -353,7 +353,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			SenderMessagingGroupKeyName:    string(lib.MessagingKeyNameDecode(messageEntry.SenderMessagingGroupKeyName)),
 			RecipientMessagingPublicKey:    lib.PkToString(messageEntry.RecipientMessagingPublicKey[:], fes.Params),
 			RecipientMessagingGroupKeyName: string(lib.MessagingKeyNameDecode(messageEntry.RecipientMessagingGroupKeyName)),
-			ExtraData:                      extraDataToResponse(messageEntry.ExtraData),
+			ExtraData:                      DecodeExtraDataMap(fes.Params, utxoView, messageEntry.ExtraData),
 		}
 		contactEntry, _ := contactMap[lib.PkToString(otherPartyPublicKeyBytes, fes.Params)]
 		contactEntry.Messages = append(contactEntry.Messages, messageEntryRes)
@@ -423,13 +423,17 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	}
 
 	var userMessagingKeys []*MessagingGroupEntryResponse
-	userMessagingKeys = fes.ParseMessagingGroupEntries(publicKeyBytes, messagingGroups)
+	userMessagingKeys = fes.ParseMessagingGroupEntries(utxoView, publicKeyBytes, messagingGroups)
 
 	return publicKeyToProfileEntry, newContactEntries, unreadMessagesBycontact, numOfUnreadThreads, userMessagingKeys, nil
 }
 
 // ParseMessagingGroupEntries parses a core type []*lib.MessagingGroupEntry to the backend type []*MessagingGroupEntryResponse.
-func (fes *APIServer) ParseMessagingGroupEntries(memberPublicKeyBytes []byte, messagingGroupEntries []*lib.MessagingGroupEntry) []*MessagingGroupEntryResponse {
+func (fes *APIServer) ParseMessagingGroupEntries(
+	utxoView *lib.UtxoView,
+	memberPublicKeyBytes []byte,
+	messagingGroupEntries []*lib.MessagingGroupEntry,
+) []*MessagingGroupEntryResponse {
 
 	var userMessagingGroupEntries []*MessagingGroupEntryResponse
 	// Iterate through all messaging group entries.
@@ -441,7 +445,7 @@ func (fes *APIServer) ParseMessagingGroupEntries(memberPublicKeyBytes []byte, me
 			MessagingPublicKeyBase58Check:  lib.PkToString(key.MessagingPublicKey[:], fes.Params),
 			MessagingGroupKeyName:          string(lib.MessagingKeyNameDecode(key.MessagingGroupKeyName)),
 			EncryptedKey:                   "",
-			ExtraData:                      extraDataToResponse(key.ExtraData),
+			ExtraData:                      DecodeExtraDataMap(fes.Params, utxoView, key.ExtraData),
 		}
 
 		// Add all messaging group recipients from the messagingGroupEntries parameter.
@@ -696,6 +700,12 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem encoding ExtraData: %v", err))
+		return
+	}
+
 	// Try and create the message for the user.
 	tstamp := uint64(time.Now().UnixNano())
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreatePrivateMessageTxn(
@@ -703,7 +713,7 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 		requestData.MessageText, requestData.EncryptedMessageText,
 		senderMessagingPublicKey, senderMessagingGroupKeyNameBytes,
 		recipientMessagingPublicKey, recipientMessagingGroupKeyNameBytes,
-		tstamp, preprocessExtraData(requestData.ExtraData),
+		tstamp, extraData,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem creating transaction: %v", err))
@@ -963,9 +973,15 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 		return
 	}
 
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem encoding ExtraData: %v", err))
+		return
+	}
+
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
 		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, messagingKeySignature,
-		[]*lib.MessagingGroupMember{}, preprocessExtraData(requestData.ExtraData),
+		[]*lib.MessagingGroupMember{}, extraData,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem creating transaction: %v", err))
@@ -1066,7 +1082,7 @@ func (fes *APIServer) GetAllMessagingGroupKeys(ww http.ResponseWriter, req *http
 	// Now parse messaging group entries from []*lib.MessagingGroupEntry to []*MessagingGroupEntryResponse.
 	// Assemble and encode the response.
 	res := GetAllMessagingGroupKeysResponse{
-		MessagingGroupEntries: fes.ParseMessagingGroupEntries(ownerPkBytes, messagingGroupEntries),
+		MessagingGroupEntries: fes.ParseMessagingGroupEntries(utxoView, ownerPkBytes, messagingGroupEntries),
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {

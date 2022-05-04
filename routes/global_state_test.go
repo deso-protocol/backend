@@ -42,7 +42,7 @@ func TestGlobalStateServicePutGetDeleteWithDB(t *testing.T) {
 	require.NoError(err)
 	expectedValues := [][]byte{
 		[]byte("hoo"),
-		[]byte{},
+		{},
 		[]byte("tastic"),
 	}
 	for ii, vv := range valueList {
@@ -135,8 +135,8 @@ func TestGlobalStateServicePutGetDeleteWithRemoteNode(t *testing.T) {
 		}
 		expectedValues := [][]byte{
 			[]byte("hoo"),
-			[]byte{},
-			[]byte{},
+			{},
+			{},
 		}
 		for ii, vv := range res.ValueList {
 			require.Equal(vv, expectedValues[ii])

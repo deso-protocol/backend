@@ -238,6 +238,12 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 
 	nftFee := utxoView.GlobalParamsEntry.CreateNFTFeeNanos * uint64(requestData.NumCopies)
 
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Problem encoding ExtraData: %v", err))
+		return
+	}
+
 	// Try and create the create NFT txn for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateCreateNFTTxn(
 		updaterPublicKeyBytes,
@@ -253,7 +259,7 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		requestData.BuyNowPriceNanos,
 		additionalDESORoyaltiesPubKeyMap,
 		additionalCoinRoyaltiesPubKeyMap,
-		preprocessExtraData(requestData.ExtraData),
+		extraData,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Problem creating transaction: %v", err))
@@ -1400,7 +1406,7 @@ func (fes *APIServer) _nftEntryToResponse(nftEntry *lib.NFTEntry, postEntryRespo
 		EncryptedUnlockableText:       encryptedUnlockableText,
 		LastOwnerPublicKeyBase58Check: lastOwnerPublicKeyBase58Check,
 		LastAcceptedBidAmountNanos:    nftEntry.LastAcceptedBidAmountNanos,
-		ExtraData:                     extraDataToResponse(nftEntry.ExtraData),
+		ExtraData:                     DecodeExtraDataMap(fes.Params, utxoView, nftEntry.ExtraData),
 	}
 }
 

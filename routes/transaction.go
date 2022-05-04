@@ -392,7 +392,11 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	extraData := preprocessExtraData(requestData.ExtraData)
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem encoding ExtraData: %v", err))
+		return
+	}
 
 	additionalFees, compProfileCreationTxnHash, err := fes.CompProfileCreation(profilePublicKey, userMetadata, utxoView)
 	if err != nil {
@@ -1413,7 +1417,11 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	postExtraData := preprocessPostExtraData(requestData.PostExtraData)
+	postExtraData, err := EncodeExtraDataMap(requestData.PostExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Problem decoding ExtraData: %v", err))
+		return
+	}
 
 	// Try and create the SubmitPost for the user.
 	tstamp := uint64(time.Now().UnixNano())
@@ -2619,9 +2627,18 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		)
 		return
 	}
-	scaledExchangeRateCoinsToSellPerCoinToBuy, err := lib.CalculateScaledExchangeRate(
+	scaledExchangeRateCoinsToSellPerCoinToBuy, err := CalculateScaledExchangeRate(
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
 		requestData.ExchangeRateCoinsToSellPerCoinToBuy,
 	)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	// Validate operation type
+	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
 		return
@@ -2632,16 +2649,13 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		_AddBadRequestError(ww, fmt.Sprint("CreateDAOCoinLimitOrder: QuantityToFill must be greater than 0"))
 		return
 	}
-	quantityToFillInBaseUnits, err := calculateQuantityToFillAsBaseUnits(
+
+	quantityToFillInBaseUnits, err := CalculateQuantityToFillAsBaseUnits(
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		requestData.OperationType,
 		requestData.QuantityToFill,
 	)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-		return
-	}
-
-	// Validate operation type
-	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
 		return
@@ -2722,21 +2736,25 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 		return
 	}
 
-	// Validate and convert quantity to base units
-	if requestData.QuantityToFill <= 0 {
-		_AddBadRequestError(ww, fmt.Sprint("CreateDAOCoinMarketOrder: QuantityToFill must be greater than 0"))
-		return
-	}
-	quantityToFillInBaseUnits, err := calculateQuantityToFillAsBaseUnits(
-		requestData.QuantityToFill,
-	)
+	// Validate operation type
+	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
 		return
 	}
 
-	// Validate operation type
-	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
+	// Validate and convert quantity to base units
+	if requestData.QuantityToFill <= 0 {
+		_AddBadRequestError(ww, fmt.Sprint("CreateDAOCoinMarketOrder: QuantityToFill must be greater than 0"))
+		return
+	}
+
+	quantityToFillInBaseUnits, err := CalculateQuantityToFillAsBaseUnits(
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		requestData.OperationType,
+		requestData.QuantityToFill,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
 		return
@@ -3154,6 +3172,12 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		}
 	}
 
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem decoding ExtraData: %v", err))
+		return
+	}
+
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateAuthorizeDerivedKeyTxn(
 		ownerPublicKeyBytes,
 		derivedPublicKeyBytes,
@@ -3161,7 +3185,7 @@ func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Requ
 		accessSignature,
 		requestData.DeleteKey,
 		requestData.DerivedKeySignature,
-		preprocessExtraData(requestData.ExtraData),
+		extraData,
 		memo,
 		requestData.TransactionSpendingLimitHex,
 		// Standard transaction fields
@@ -3457,17 +3481,10 @@ func (fes *APIServer) AppendExtraData(ww http.ResponseWriter, req *http.Request)
 	}
 
 	// Append ExtraData entries
-	if txn.ExtraData == nil {
-		txn.ExtraData = make(map[string][]byte)
-	}
-
-	for k, v := range requestData.ExtraData {
-		vBytes, err := hex.DecodeString(v)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem decoding ExtraData: %v", err))
-			return
-		}
-		txn.ExtraData[k] = vBytes
+	txn.ExtraData, err = EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem decoding ExtraData: %v", err))
+		return
 	}
 
 	// Get the final transaction bytes.

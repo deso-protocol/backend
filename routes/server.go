@@ -375,8 +375,12 @@ type APIServer struct {
 	// responding to requests for this node's graylist. A JSON-encoded response is easier for any language to digest
 	// than a gob-encoded one.
 	GraylistedResponseMap map[string][]byte
-	// GlobalFeedPostHashes is a slice of BlockHashes representing the state of posts on the global feed on this node.
+	// GlobalFeedPostHashes is a slice of BlockHashes representing an ordered state of post hashes on the global feed on
+	// this node.
 	GlobalFeedPostHashes []*lib.BlockHash
+	// GlobalFeedPostEntries is a slice of PostEntries representing an ordered state of PostEntries on the global feed
+	// on this node. It is computed from the GlobalFeedPostHashes above.
+	GlobalFeedPostEntries []*lib.PostEntry
 
 	// Cache of Total Supply and Rich List
 	TotalSupplyNanos  uint64
@@ -2206,7 +2210,7 @@ func (fes *APIServer) SetGlobalStateCache() {
 	fes.SetVerifiedUsernameMap()
 	fes.SetBlacklistedPKIDMap(utxoView)
 	fes.SetGraylistedPKIDMap(utxoView)
-	fes.SetGlobalFeedPostHashes()
+	fes.SetGlobalFeedPostHashes(utxoView)
 	fes.SetAllCountrySignUpBonusMetadata()
 	fes.SetUSDCentsToDeSoReserveExchangeRateFromGlobalState()
 	fes.SetBuyDeSoFeeBasisPointsResponseFromGlobalState()
@@ -2249,12 +2253,14 @@ func (fes *APIServer) SetGraylistedPKIDMap(utxoView *lib.UtxoView) {
 	}
 }
 
-func (fes *APIServer) SetGlobalFeedPostHashes() {
-	postHashes, err := fes.GetGlobalFeedCache()
+func (fes *APIServer) SetGlobalFeedPostHashes(utxoView *lib.UtxoView) {
+	postHashes, postEntries, err := fes.GetGlobalFeedCache(utxoView)
+
 	if err != nil {
 		glog.Errorf("SetGlobalFeedPostHashes: Error getting global feed post hashes: %v", err)
 	} else {
 		fes.GlobalFeedPostHashes = postHashes
+		fes.GlobalFeedPostEntries = postEntries
 	}
 }
 

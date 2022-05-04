@@ -339,7 +339,7 @@ func (fes *APIServer) AdminGetExemptPublicKeys(ww http.ResponseWriter, req *http
 		return
 	}
 	exemptPublicKeyMap := make(map[string]*ProfileEntryResponse)
-	for publicKeyBase58Check, _ := range fes.ExemptPublicKeyMap {
+	for publicKeyBase58Check := range fes.ExemptPublicKeyMap {
 		var publicKeyBytes []byte
 		// Convert the PublicKeyBase58Check string to a public key byte slice.
 		publicKeyBytes, _, err = lib.Base58CheckDecode(publicKeyBase58Check)
