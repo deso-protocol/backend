@@ -569,106 +569,73 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 		startPost = utxoView.GetPostEntryForPostHash(startPostHash)
 	}
 
-	var seekStartKey []byte
 	var seekStartPostHash *lib.BlockHash
 	skipFirstEntry := false
 	if startPost != nil {
-		seekStartKey = GlobalStateKeyForTstampPostHash(startPost.TimestampNanos, startPost.PostHash)
 		seekStartPostHash = startPost.PostHash
 		skipFirstEntry = true
-	} else {
-		// If we can't find a valid start post, we just use the prefix. Seek will
-		// pad the value as necessary.
-		seekStartKey = _GlobalStatePrefixTstampNanosPostHash
 	}
 
 	// Seek the global state for a list of [prefix][tstamp][posthash] keys.
-	validForPrefix := _GlobalStatePrefixTstampNanosPostHash
 	maxBigEndianUint64Bytes := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
 	maxKeyLen := 1 + len(maxBigEndianUint64Bytes) + lib.HashSizeBytes
 	var postEntries []*lib.PostEntry
-	nextStartKey := seekStartKey
 	nextStartPostHash := seekStartPostHash
 
 	index := 0
 	// Iterate over posts in global state until we have at least num to fetch
 	for len(postEntries) < numToFetch {
-		var postHashes []*lib.BlockHash
-		// If we're using an external global state, use the cached post hashes.
-		if fes.Config.GlobalStateAPIUrl != "" {
-			if nextStartPostHash != nil {
-				for ii := index; ii < len(fes.GlobalFeedPostHashes); ii++ {
-					if reflect.DeepEqual(*fes.GlobalFeedPostHashes[ii], *nextStartPostHash) {
-						index = ii
-						break
-					}
+		// Fetch the posts from the cached GlobalFeedPostEntries slice.
+		if nextStartPostHash != nil {
+			for ii := index; ii < len(fes.GlobalFeedPostEntries); ii++ {
+				if reflect.DeepEqual(*fes.GlobalFeedPostEntries[ii].PostHash, *nextStartPostHash) {
+					index = ii
+					break
 				}
 			}
-			endIndex := lib.MinInt(index+numToFetch-len(postEntries), len(fes.GlobalFeedPostHashes))
-			postHashes = fes.GlobalFeedPostHashes[index:endIndex]
-			// At the next iteration, we can start looking endIndex for the post hash we need.
-			index = endIndex - 1
-		} else {
-			// Otherwise, we're using this node's global state.
-			var keys [][]byte
-			// Get numToFetch - len(postEntries) postHashes from global state.
-			keys, _, err = fes.GlobalState.Seek(nextStartKey /*startPrefix*/, validForPrefix, /*validForPrefix*/
-				maxKeyLen /*maxKeyLen -- ignored since reverse is false*/, numToFetch-len(postEntries), true, /*reverse*/
-				false /*fetchValues*/)
-			if err != nil {
-				return nil, nil, nil, fmt.Errorf("GetPostEntriesForGlobalWhitelist: Getting posts for reader: %v", err)
-			}
-			for _, dbKeyBytes := range keys {
-				postHash := &lib.BlockHash{}
-				copy(postHash[:], dbKeyBytes[1+len(maxBigEndianUint64Bytes):][:])
-				postHashes = append(postHashes, postHash)
-			}
 		}
+		endIndex := lib.MinInt(index+numToFetch-len(postEntries), len(fes.GlobalFeedPostHashes))
+		// At the next iteration, we can start looking endIndex for the post hash we need.
+		newPostEntries := fes.GlobalFeedPostEntries[index:endIndex]
+		index = endIndex - 1
 
 		// If there are no keys left, then there are no more postEntries to get so we exit the loop.
-		if len(postHashes) == 0 || (len(postHashes) == 1 && skipFirstEntry) {
+		if len(newPostEntries) == 0 || (len(newPostEntries) == 1 && skipFirstEntry) {
 			break
 		}
 
-		var lastPost *lib.PostEntry
-		for ii, postHash := range postHashes {
+		for ii, postEntry := range newPostEntries {
 			// if we have a postHash at which we are starting, we should skip the first one so we don't have it
 			// duplicated in the response.
 			if skipFirstEntry && ii == 0 {
 				continue
 			}
 
-			// Get the postEntry from the utxoView.
-			postEntry := utxoView.GetPostEntryForPostHash(postHash)
-
-			if postEntry != nil {
-				lastPost = postEntry
-			}
-
-			if readerPK != nil && postEntry != nil && reflect.DeepEqual(postEntry.PosterPublicKey, readerPK) {
-				// We add the readers posts later so we can skip them here to avoid duplicates.
+			// Skip deleted / hidden posts and any comments.
+			if postEntry.IsDeleted() || postEntry.IsHidden || len(postEntry.ParentStakeID) != 0 {
 				continue
 			}
 
 			// mediaRequired set to determine if we only want posts that include media and ignore posts without
-			if mediaRequired && postEntry != nil && !postEntry.HasMedia() {
+			if mediaRequired && !postEntry.HasMedia() {
 				continue
 			}
 
-			if postEntry != nil {
+			if readerPK != nil && postEntry != nil && !reflect.DeepEqual(postEntry.PosterPublicKey, readerPK) {
+				// We add the readers posts later so we can skip them here to avoid duplicates.
 				postEntries = append(postEntries, postEntry)
 			}
 		}
+
+		lastPostEntry := newPostEntries[len(newPostEntries)-1]
 		// If there are no post entries and no last post, we don't continue to fetch.
-		if len(postEntries) == 0 && lastPost == nil {
+		if len(postEntries) == 0 && lastPostEntry == nil {
 			break
 		}
-		// Next time through the loop, start at the last key we retrieved
-		nextStartKey = GlobalStateKeyForTstampPostHash(lastPost.TimestampNanos, lastPost.PostHash)
-		nextStartPostHash = lastPost.PostHash
+		// Next time through the loop, start at the last PostHash we retrieved
+		nextStartPostHash = lastPostEntry.PostHash
 		skipFirstEntry = true
 	}
-
 	// If we don't have any postEntries at this point, bail.
 	profileEntries := make(map[lib.PkMapKey]*lib.ProfileEntry)
 	postEntryReaderStates := make(map[lib.BlockHash]*lib.PostEntryReaderState)
