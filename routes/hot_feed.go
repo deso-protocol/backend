@@ -434,7 +434,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		relevantNodes = fes.blockchain.BestChain()[blockTipIndex-lookbackWindowBlocks-blockOffsetForTesting : blockTipIndex]
 	}
 
-	var hotnessInfoBlocks []*hotnessInfoBlock
+	var hotnessInfoBlocks []*HotnessInfoBlock
 	for blockIdx, node := range relevantNodes {
 		var block *lib.MsgDeSoBlock
 		if cachedBlock, ok := fes.HotFeedBlockCache[*node.Hash]; ok {
@@ -443,7 +443,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 			block, _ = lib.GetBlock(node.Hash, utxoView.Handle, fes.blockchain.Snapshot())
 			fes.HotFeedBlockCache[*node.Hash] = block
 		}
-		hotnessInfoBlocks = append(hotnessInfoBlocks, &hotnessInfoBlock{
+		hotnessInfoBlocks = append(hotnessInfoBlocks, &HotnessInfoBlock{
 			Block: block,
 			// For time decay, we care about how many blocks away from the tip this block is.
 			BlockAge: len(relevantNodes) - blockIdx,
@@ -502,7 +502,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	return hotnessInfoMapGlobalFeed
 }
 
-type hotnessInfoBlock struct {
+type HotnessInfoBlock struct {
 	Block    *lib.MsgDeSoBlock
 	BlockAge int
 }
@@ -512,7 +512,7 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 	postsToMultipliers map[lib.BlockHash]float64,
 	pkidsToMultipliers map[lib.PKID]*HotFeedPKIDMultiplier,
 	isTagFeed bool,
-	hotnessInfoBlocks []*hotnessInfoBlock,
+	hotnessInfoBlocks []*HotnessInfoBlock,
 ) (map[lib.BlockHash]*HotnessPostInfo, error) {
 	hotnessInfoMap := make(map[lib.BlockHash]*HotnessPostInfo)
 	// Map of interaction key to transaction type multiplier applied.
