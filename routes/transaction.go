@@ -767,33 +767,19 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		// TODO: We use a pretty janky API to check for this, and if it goes down then
 		// BitcoinExchange txns break. But without it we're vulnerable to double-spends
 		// so we keep it for now.
-		if fes.Params.NetworkType == lib.NetworkType_MAINNET {
-			// Go through the transaction's inputs. If any of them have RBF set then we
-			// must assume that this transaction has RBF as well.
-			for _, txIn := range bitcoinTxn.TxIn {
-				isRBF, err := lib.BlockonomicsCheckRBF(txIn.PreviousOutPoint.Hash.String())
-				if err != nil {
-					glog.Errorf("ExchangeBitcoinStateless: ERROR: Blockonomics request to check RBF for txn "+
-						"hash %v failed. This is bad because it means users are not able to "+
-						"complete Bitcoin burns: %v", txIn.PreviousOutPoint.Hash.String(), err)
-					_AddBadRequestError(ww, fmt.Sprintf(
-						"The nodes are still processing your deposit. Please wait a few seconds "+
-							"and try again."))
-					return
-				}
-				// If we got a success response from Blockonomics then bail if the transaction has
-				// RBF set.
-				if isRBF {
-					glog.Errorf("ExchangeBitcoinStateless: ERROR: Blockonomics found RBF txn: %v", bitcoinTxnHash.String())
-					_AddBadRequestError(ww, fmt.Sprintf(
-						"Your deposit has \"replace by fee\" set, "+
-							"which means we must wait for one confirmation on the Bitcoin blockchain before "+
-							"allowing you to buy. This usually takes about ten minutes.<br><br>"+
-							"You can see how many confirmations your deposit has by "+
-							"<a target=\"_blank\" href=\"https://www.blockchain.com/btc/tx/%v\">clicking here</a>.", txIn.PreviousOutPoint.Hash.String()))
-					return
-				}
-			}
+		isRBF, err := lib.CheckRBF(bitcoinTxn, bitcoinTxnHash, fes.Params)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("Error checking RBF for txn: %v", err))
+			return
+		}
+		if isRBF {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"Your deposit has \"replace by fee\" set, "+
+					"which means we must wait for one confirmation on the Bitcoin blockchain before "+
+					"allowing you to buy. This usually takes about ten minutes.<br><br>"+
+					"You can see how many confirmations your deposit has by "+
+					"<a target=\"_blank\" href=\"https://www.blockchain.com/btc/tx/%v\">clicking here</a>.", bitcoinTxnHash.String()))
+			return
 		}
 
 		// If a BlockCypher API key is set then use BlockCypher to do the checks. Otherwise
