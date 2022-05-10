@@ -38,6 +38,16 @@ func (fes *APIServer) HealthCheck(ww http.ResponseWriter, rr *http.Request) {
 		return
 	}
 
+	// If we have txindex configured then also do a check for that.
+	if fes.TXIndex != nil &&
+		fes.TXIndex.TXIndexChain.ChainState() != lib.SyncStateFullyCurrent {
+		txindexHeight := fes.TXIndex.TXIndexChain.BlockTip().Height
+
+		_AddBadRequestError(ww, fmt.Sprintf("Waiting for txindex to sync. "+
+			"Height: %v, SyncState: %v", txindexHeight, fes.TXIndex.TXIndexChain.ChainState()))
+		return
+	}
+
 	fmt.Fprint(ww, "200")
 }
 
