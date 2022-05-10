@@ -51,7 +51,7 @@ func (node *Node) Start() {
 	}
 
 	if node.CoreNode.Config.HyperSync == true && node.Config.RunHotFeedRoutine == true {
-		if !node.CoreNode.Config.ArchivalMode == true {
+		if !lib.IsNodeArchival(node.CoreNode.Config.SyncType) {
 			node.Config.RunHotFeedRoutine = false
 			glog.Errorf(lib.CLog(lib.Red, "Hot feed is not compatible with non-archival mode. You need "+
 				"to set --archival-mode=true if you want to run hot feed with hypersync."))
