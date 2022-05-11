@@ -3450,11 +3450,18 @@ func (fes *APIServer) AppendExtraData(ww http.ResponseWriter, req *http.Request)
 		return
 	}
 
+	if txn.ExtraData == nil {
+		txn.ExtraData = make(map[string][]byte)
+	}
+
 	// Append ExtraData entries
-	txn.ExtraData, err = EncodeExtraDataMap(requestData.ExtraData)
+	encodedExtraDataToAppend, err := EncodeExtraDataMap(requestData.ExtraData)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem decoding ExtraData: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem encoding ExtraData: %v", err))
 		return
+	}
+	for k, vBytes := range encodedExtraDataToAppend {
+		txn.ExtraData[k] = vBytes
 	}
 
 	// Get the final transaction bytes.
