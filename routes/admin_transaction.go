@@ -372,7 +372,7 @@ func (fes *APIServer) TestSignTransactionWithDerivedKey(ww http.ResponseWriter, 
 
 	// Sign the transaction with a derived key. Since the txn extraData must be modified,
 	// we also get new transaction bytes, along with the signature.
-	newTxnBytes, txnSignatureBytes, err := lib.SignTransactionWithDerivedKey(txnBytes, privKeyBytes)
+	newTxnBytes, txnSignatureBytes, err := lib.SignTransactionBytes(txnBytes, privKeyBytes, true)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TestSignTransactionWithDerivedKey: Problem signing transaction: %v", err))
 		return
