@@ -232,6 +232,9 @@ type BalanceEntryResponse struct {
 	NetBalanceInMempool int64
 
 	ProfileEntryResponse *ProfileEntryResponse `json:",omitempty"`
+
+	// We add the DESO balance of the hodler for convenience
+	HodlerDESOBalanceNanos uint64
 }
 
 // GetVerifiedUsernameToPKIDMapFromGlobalState

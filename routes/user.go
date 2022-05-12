@@ -341,7 +341,8 @@ func (fes *APIServer) getMapFromEntries(entries []*lib.BalanceEntry, profiles []
 }
 
 func (fes *APIServer) _balanceEntryToResponse(
-	balanceEntry *lib.BalanceEntry, dbBalanceNanos uint64, profileEntry *lib.ProfileEntry, utxoView *lib.UtxoView) *BalanceEntryResponse {
+	balanceEntry *lib.BalanceEntry, dbBalanceNanos uint64,
+	profileEntry *lib.ProfileEntry, utxoView *lib.UtxoView) *BalanceEntryResponse {
 
 	if balanceEntry == nil {
 		return nil
@@ -350,6 +351,7 @@ func (fes *APIServer) _balanceEntryToResponse(
 	// Convert the PKIDs to public keys.
 	hodlerPk := utxoView.GetPublicKeyForPKID(balanceEntry.HODLerPKID)
 	creatorPk := utxoView.GetPublicKeyForPKID(balanceEntry.CreatorPKID)
+	hodlerDesoBalance, _ := fes.ComputeUserBalance(utxoView, hodlerPk)
 
 	return &BalanceEntryResponse{
 		HODLerPublicKeyBase58Check:  lib.PkToString(hodlerPk, fes.Params),
@@ -363,6 +365,8 @@ func (fes *APIServer) _balanceEntryToResponse(
 
 		// If the profile is nil, this will be nil
 		ProfileEntryResponse: fes._profileEntryToResponse(profileEntry, utxoView),
+
+		HodlerDESOBalanceNanos: hodlerDesoBalance,
 	}
 }
 
@@ -611,6 +615,9 @@ type ProfileEntryResponse struct {
 
 	// ExtraData stores an arbitrary map of attributes of a ProfileEntry
 	ExtraData map[string]string
+
+	// The user's DESO balance
+	DESOBalanceNanos uint64
 }
 
 type CoinEntryResponse struct {
@@ -925,6 +932,21 @@ func (fes *APIServer) GetProfilesByUsernamePrefixAndDeSoLocked(
 	return filteredProfileEntries, nil
 }
 
+func (fes *APIServer) ComputeUserBalance(utxoView *lib.UtxoView, pubkey []byte) (uint64, error) {
+	// If we have a UtxoView then use the function on that to do the lookup
+	if utxoView != nil {
+		return utxoView.GetDeSoBalanceNanosForPublicKey(pubkey)
+	}
+	// If we don't have a UtxoView then do a db lookup
+	if fes.blockchain.Postgres() != nil {
+		return fes.blockchain.Postgres().GetBalance(
+			lib.NewPublicKey(pubkey)), nil
+	} else {
+		return lib.DbGetDeSoBalanceNanosForPublicKey(
+			fes.blockchain.DB(), fes.blockchain.Snapshot(), pubkey)
+	}
+}
+
 func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, utxoView *lib.UtxoView) *ProfileEntryResponse {
 	if profileEntry == nil {
 		return nil
@@ -964,6 +986,12 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		}
 	}
 
+	// Populate the balance
+	desoBalance, err := fes.ComputeUserBalance(utxoView, profileEntry.PublicKey)
+	if err != nil {
+		glog.Errorf("Error computing user balance: %v", err)
+	}
+
 	// Generate profile entry response
 	profResponse := &ProfileEntryResponse{
 		PublicKeyBase58Check: lib.PkToString(profileEntry.PublicKey, fes.Params),
@@ -990,6 +1018,7 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		IsReserved:             isReserved,
 		IsVerified:             isVerified,
 		ExtraData:              DecodeExtraDataMap(fes.Params, utxoView, profileEntry.ExtraData),
+		DESOBalanceNanos:       desoBalance,
 	}
 
 	return profResponse
@@ -1193,6 +1222,14 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 	}
 }
 
+type TopHodlerSortType string
+
+const (
+	TopHodlerSortTypeNone        TopHodlerSortType = ""
+	TopHodlerSortTypeCoinBalance TopHodlerSortType = "coin_balance"
+	TopHodlerSortTypeWealth      TopHodlerSortType = "wealth"
+)
+
 type GetHodlersForPublicKeyRequest struct {
 	// Either PublicKeyBase58Check or Username can be set by the client to specify
 	// which user we're obtaining posts for
@@ -1211,6 +1248,10 @@ type GetHodlersForPublicKeyRequest struct {
 	// If true, fetch balance entries for your hodlings instead of balance entries for hodler's of your coin
 	FetchHodlings bool
 
+	// The sorting method to use when returning profiles. Defaults to
+	// "coin_balance" when unset.
+	SortType TopHodlerSortType
+
 	// If true, fetch all hodlers/hodlings -- supercedes NumToFetch
 	FetchAll bool
 }
@@ -1227,6 +1268,22 @@ func getHodlerOrHodlingPublicKey(balanceEntryResponse *BalanceEntryResponse, fet
 	} else {
 		return balanceEntryResponse.HODLerPublicKeyBase58Check
 	}
+}
+
+func (fes *APIServer) ComputeWealth(
+	balanceEntryRes *BalanceEntryResponse, utxoView *lib.UtxoView) uint64 {
+
+	iiPubkey, _, _ := lib.Base58CheckDecode(balanceEntryRes.HODLerPublicKeyBase58Check)
+	iiDesoBalance, err := fes.ComputeUserBalance(utxoView, iiPubkey)
+	if err != nil {
+		glog.Errorf("Error computing user balance: %v", err)
+		return uint64(0)
+	}
+	iiDesoLocked := uint64(0)
+	if balanceEntryRes.ProfileEntryResponse != nil {
+		iiDesoLocked = balanceEntryRes.ProfileEntryResponse.CoinEntry.DeSoLockedNanos
+	}
+	return iiDesoBalance + iiDesoLocked
 }
 
 // GetHodlersForPublicKey... Get BalanceEntryResponses for hodlings.
@@ -1288,6 +1345,16 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 	for _, balanceEntryResponse := range hodlMap {
 		hodlList = append(hodlList, balanceEntryResponse)
 	}
+
+	// Validate the sort type
+	if requestData.SortType != TopHodlerSortTypeNone &&
+		requestData.SortType != TopHodlerSortTypeCoinBalance &&
+		requestData.SortType != TopHodlerSortTypeWealth {
+
+		_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Unrecognized "+
+			"sort type: %v", requestData.SortType))
+		return
+	}
 	sort.Slice(hodlList, func(ii, jj int) bool {
 		if hodlList[ii].CreatorPublicKeyBase58Check == hodlList[ii].HODLerPublicKeyBase58Check {
 			return true
@@ -1295,10 +1362,26 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 		if hodlList[jj].CreatorPublicKeyBase58Check == hodlList[jj].HODLerPublicKeyBase58Check {
 			return false
 		}
-		if requestData.IsDAOCoin {
-			return hodlList[ii].BalanceNanosUint256.Gt(&hodlList[jj].BalanceNanosUint256)
+
+		if requestData.SortType == TopHodlerSortTypeNone ||
+			requestData.SortType == TopHodlerSortTypeCoinBalance {
+
+			if requestData.IsDAOCoin {
+				return hodlList[ii].BalanceNanosUint256.Gt(&hodlList[jj].BalanceNanosUint256)
+			}
+			return hodlList[ii].BalanceNanos > hodlList[jj].BalanceNanos
+		} else if requestData.SortType == TopHodlerSortTypeWealth {
+			// Compute the wealth of each person
+			// TODO: Should we just ignore the error here?
+			iiWealth := fes.ComputeWealth(hodlList[ii], utxoView)
+			jjWealth := fes.ComputeWealth(hodlList[jj], utxoView)
+			return iiWealth > jjWealth
+		} else {
+			_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Unrecognized "+
+				"sort type: %v", requestData.SortType))
+			// TODO: We can't break the execution here but we should
+			return false
 		}
-		return hodlList[ii].BalanceNanos > hodlList[jj].BalanceNanos
 	})
 	if !requestData.FetchAll {
 		numToFetch := int(requestData.NumToFetch)
