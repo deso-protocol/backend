@@ -3204,20 +3204,25 @@ func (fes *APIServer) DeletePII(ww http.ResponseWriter, rr *http.Request) {
 
 	// If user metadata has a phone number, get the phone number metadata and delete relevant fields.
 	if userMetadata.PhoneNumber != "" {
-		var phoneNumberMetadata *PhoneNumberMetadata
-		phoneNumberMetadata, err = fes.getPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
+		var multiPhoneNumberMetadata []*PhoneNumberMetadata
+		multiPhoneNumberMetadata, err = fes.getMultiPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("DeletePII: Error fetching phone number metadata from global state: %v", err))
 			return
 		}
-		// Unset the public key so the history of this phone number can't be tracked back to a public key
-		phoneNumberMetadata.PublicKey = nil
-		// We explicity set should comp profile creation to false since we can't associate this phone number to a public key anymore.
-		phoneNumberMetadata.ShouldCompProfileCreation = false
+		newMultiPhoneNumberMetadata := []*PhoneNumberMetadata{}
+		for _, phoneNumberMetadata := range multiPhoneNumberMetadata {
+			if bytes.Equal(phoneNumberMetadata.PublicKey, publicKeyBytes) {
+				// Unset the public key so the history of this phone number can't be tracked back to a public key
+				phoneNumberMetadata.PublicKey = nil
+				// We explicity set should comp profile creation to false since we can't associate this phone number to a public key anymore.
+				phoneNumberMetadata.ShouldCompProfileCreation = false
+				phoneNumberMetadata.PublicKeyDeleted = true
+			}
+			newMultiPhoneNumberMetadata = append(newMultiPhoneNumberMetadata, phoneNumberMetadata)
+		}
 
-		phoneNumberMetadata.PublicKeyDeleted = true
-
-		if err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata); err != nil {
+		if err = fes.putPhoneNumberMetadataInGlobalState(newMultiPhoneNumberMetadata, userMetadata.PhoneNumber); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("DeletePII: Error putting updated phone number metadata in global state: %v", err))
 			return
 		}

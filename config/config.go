@@ -14,14 +14,15 @@ type Config struct {
 	APIPort uint16
 
 	// Onboarding
-	StarterDESOSeed       string
-	StarterDESONanos      uint64
-	StarterPrefixNanosMap map[string]uint64
-	TwilioAccountSID      string
-	TwilioAuthToken       string
-	TwilioVerifyServiceID string
-	CompProfileCreation   bool
-	MinSatoshisForProfile uint64
+	StarterDESOSeed         string
+	StarterDESONanos        uint64
+	StarterPrefixNanosMap   map[string]uint64
+	TwilioAccountSID        string
+	TwilioAuthToken         string
+	TwilioVerifyServiceID   string
+	CompProfileCreation     bool
+	MinSatoshisForProfile   uint64
+	PhoneNumberUseThreshold uint64
 
 	// Global State
 	GlobalStateRemoteNode   string
@@ -110,6 +111,7 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.TwilioVerifyServiceID = viper.GetString("twilio-verify-service-id")
 	config.CompProfileCreation = viper.GetBool("comp-profile-creation")
 	config.MinSatoshisForProfile = viper.GetUint64("min-satoshis-for-profile")
+	config.PhoneNumberUseThreshold = viper.GetUint64("phone-number-use-threshold")
 
 	// Global State
 	config.GlobalStateRemoteNode = viper.GetString("global-state-remote-node")
