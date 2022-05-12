@@ -22,7 +22,6 @@ import (
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/nyaruka/phonenumbers"
-	"github.com/pkg/errors"
 )
 
 type SendPhoneNumberVerificationTextRequest struct {
@@ -78,8 +77,8 @@ func (fes *APIServer) SendPhoneNumberVerificationText(ww http.ResponseWriter, re
 	/**************************************************************/
 	// Validations
 	/**************************************************************/
-	err = fes.validatePhoneNumberNotAlreadyInUse(requestData.PhoneNumber, requestData.PublicKeyBase58Check)
-	if err != nil {
+	if err = fes.validatePhoneNumberNotAlreadyInUse(
+		requestData.PhoneNumber, requestData.PublicKeyBase58Check); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"SendPhoneNumberVerificationText: Error with validatePhoneNumberNotAlreadyInUse: %v", err))
 		return
@@ -145,66 +144,90 @@ func (fes *APIServer) canUserCreateProfile(userMetadata *UserMetadata, utxoView 
 	return false, nil
 }
 
-func (fes *APIServer) getPhoneNumberMetadataFromGlobalState(phoneNumber string) (_phoneNumberMetadata *PhoneNumberMetadata, _err error) {
-	dbKey, err := GlobalStateKeyForPhoneNumberStringToPhoneNumberMetadata(phoneNumber)
+func (fes *APIServer) getMultiPhoneNumberMetadataFromGlobalState(phoneNumber string) (
+	_phoneNumberMetadata []*PhoneNumberMetadata, _err error) {
+	dbKey, err := GlobalStateKeyForPhoneNumberStringToMultiPhoneNumberMetadata(phoneNumber)
 	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf(
-			"getPhoneNumberMetadataFromGlobalState: Problem with GlobalStateKeyForPhoneNumberStringToPhoneNumberMetadata %v", err), "")
+		return nil, fmt.Errorf(
+			"getPhoneNumberMetadataFromGlobalState: Problem with GlobalStateKeyForPhoneNumberStringToPhoneNumberMetadata %v", err)
 	}
 
-	phoneNumberMetadataBytes, err := fes.GlobalState.Get(dbKey)
+	multiPhoneNumberMetadataBytes, err := fes.GlobalState.Get(dbKey)
 	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf(
-			"getPhoneNumberMetadataFromGlobalState: Problem with Get: %v", err), "")
+		return nil, fmt.Errorf(
+			"getPhoneNumberMetadataFromGlobalState: Problem with Get: %v", err)
 	}
 
-	phoneNumberMetadata := PhoneNumberMetadata{}
-	if phoneNumberMetadataBytes != nil {
-		err = gob.NewDecoder(bytes.NewReader(phoneNumberMetadataBytes)).Decode(&phoneNumberMetadata)
-		if err != nil {
-			return nil, errors.Wrap(fmt.Errorf(
-				"getPhoneNumberMetadataFromGlobalState: Problem with NewDecoder: %v", err), "")
+	multiPhoneNumberMetadata := []*PhoneNumberMetadata{}
+	if multiPhoneNumberMetadataBytes != nil {
+		if err = gob.NewDecoder(
+			bytes.NewReader(multiPhoneNumberMetadataBytes)).Decode(&multiPhoneNumberMetadata); err != nil {
+			return nil, fmt.Errorf(
+				"getPhoneNumberMetadataFromGlobalState: Problem with NewDecoder: %v", err)
+		}
+	}
+	return multiPhoneNumberMetadata, nil
+}
+
+func (fes *APIServer) getPhoneNumberMetadataFromGlobalState(phoneNumber string, publicKey []byte) (
+	_phoneNumberMetadata *PhoneNumberMetadata, _err error) {
+
+	multiPhoneNumberMetadata, err := fes.getMultiPhoneNumberMetadataFromGlobalState(phoneNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, phoneMetadata := range multiPhoneNumberMetadata {
+		if phoneMetadata != nil && bytes.Equal(phoneMetadata.PublicKey, publicKey) {
+			return phoneMetadata, nil
 		}
 	}
 
-	return &phoneNumberMetadata, nil
+	return nil, fmt.Errorf("Specified publicKey not found for provided phone number")
 }
 
-func (fes *APIServer) putPhoneNumberMetadataInGlobalState(phoneNumberMetadata *PhoneNumberMetadata) (_err error) {
-	dbKey, err := GlobalStateKeyForPhoneNumberStringToPhoneNumberMetadata(phoneNumberMetadata.PhoneNumber)
+func (fes *APIServer) putPhoneNumberMetadataInGlobalState(multiPhoneNumberMetadata []*PhoneNumberMetadata, phoneNumber string) (_err error) {
+	dbKey, err := GlobalStateKeyForPhoneNumberStringToMultiPhoneNumberMetadata(phoneNumber)
 	if err != nil {
-		return errors.Wrap(fmt.Errorf(
-			"putPhoneNumberMetadataInGlobalState: Problem with GlobalStateKeyForPhoneNumberStringToPhoneNumberMetadata %v", err), "")
+		return fmt.Errorf(
+			"putPhoneNumberMetadataInGlobalState: Problem with GlobalStateKeyForPhoneNumberStringToPhoneNumberMetadata %v", err)
 	}
 
 	metadataDataBuf := bytes.NewBuffer([]byte{})
-	gob.NewEncoder(metadataDataBuf).Encode(phoneNumberMetadata)
-	err = fes.GlobalState.Put(dbKey, metadataDataBuf.Bytes())
-	if err != nil {
-		return errors.Wrap(fmt.Errorf(
-			"putPhoneNumberMetadataInGlobalState: Problem putting updated phone number metadata: %v", err), "")
+	if err = gob.NewEncoder(metadataDataBuf).Encode(multiPhoneNumberMetadata); err != nil {
+		return fmt.Errorf(
+			"putPhoneNumberMetadataInGlobalState: Problem encoding slice of phone number metadata: %v", err)
 	}
 
+	if err = fes.GlobalState.Put(dbKey, metadataDataBuf.Bytes()); err != nil {
+		return fmt.Errorf(
+			"putPhoneNumberMetadataInGlobalState: Problem putting updated phone number metadata: %v", err)
+	}
 	return nil
 }
 
 func (fes *APIServer) validatePhoneNumberNotAlreadyInUse(phoneNumber string, userPublicKeyBase58Check string) (_err error) {
-	phoneNumberMetadata, err := fes.getPhoneNumberMetadataFromGlobalState(phoneNumber)
+	userPublicKeyBytes, _, err := lib.Base58CheckDecode(userPublicKeyBase58Check)
 	if err != nil {
-		return errors.Wrap(fmt.Errorf(
-			"validatePhoneNumberNotAlreadyInUse: Error with getPhoneNumberMetadataFromGlobalState: %v", err), "")
+		return fmt.Errorf("validatePhoneNumberNotAlreadyInUse: Error decoding user public key", err)
+	}
+	multiPhoneNumberMetadata, err := fes.getMultiPhoneNumberMetadataFromGlobalState(phoneNumber)
+	if err != nil {
+		return fmt.Errorf(
+			"validatePhoneNumberNotAlreadyInUse: Error with getPhoneNumberMetadataFromGlobalState: %v", err)
 	}
 
-	// Validate that the phone number is not already in use by a different account
-	if phoneNumberMetadata.PublicKey != nil {
-		publicKeyBase58Check := lib.PkToString(phoneNumberMetadata.PublicKey, fes.Params)
-		if publicKeyBase58Check != userPublicKeyBase58Check {
-			return errors.Wrap(fmt.Errorf("validatePhoneNumberNotAlreadyInUse: Phone number already in use"), "")
+	// TODO: this threshold should really be controlled by an admin on the node instead of via a flag.
+	if uint64(len(multiPhoneNumberMetadata)) >= fes.Config.PhoneNumberUseThreshold {
+		return fmt.Errorf(
+			"validatePhoneNumberNotAlreadyInUse: Phone number has been used over %v times",
+			fes.Config.PhoneNumberUseThreshold)
+	}
+
+	for _, phoneNumberMetadata := range multiPhoneNumberMetadata {
+		if bytes.Equal(userPublicKeyBytes, phoneNumberMetadata.PublicKey) {
+			return fmt.Errorf("validatePhoneNumberNotAlreadyInUse: Phone number already used by this public key")
 		}
-	}
-
-	if phoneNumberMetadata.PublicKeyDeleted {
-		return errors.Wrap(fmt.Errorf("validatePhoneNumberNotAlreadyInUse: Phone number already in use"), "")
 	}
 
 	return nil
@@ -242,8 +265,8 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 	/**************************************************************/
 	// Validations
 	/**************************************************************/
-	err = fes.validatePhoneNumberNotAlreadyInUse(requestData.PhoneNumber, requestData.PublicKeyBase58Check)
-	if err != nil {
+	if err = fes.validatePhoneNumberNotAlreadyInUse(
+		requestData.PhoneNumber, requestData.PublicKeyBase58Check); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Error with validatePhoneNumberNotAlreadyInUse: %v", err))
 		return
 	}
@@ -290,15 +313,17 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 	}
 
 	// Update / save phoneNumberMetadata in global state
-	phoneNumberMetadata, err := fes.getPhoneNumberMetadataFromGlobalState(requestData.PhoneNumber)
+	multiPhoneNumberMetadata, err := fes.getMultiPhoneNumberMetadataFromGlobalState(requestData.PhoneNumber)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Error with getPhoneNumberMetadataFromGlobalState: %v", err))
 		return
 	}
 
-	phoneNumberMetadata.PublicKey = userMetadata.PublicKey
-	phoneNumberMetadata.PhoneNumber = requestData.PhoneNumber
-	phoneNumberMetadata.ShouldCompProfileCreation = true
+	phoneNumberMetadata := &PhoneNumberMetadata{
+		PublicKey:                 userMetadata.PublicKey,
+		PhoneNumber:               requestData.PhoneNumber,
+		ShouldCompProfileCreation: true,
+	}
 	// Parse the raw phone number
 	parsedNumber, err := phonenumbers.Parse(phoneNumberMetadata.PhoneNumber, "")
 	if err != nil {
@@ -309,8 +334,9 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 		phoneNumberMetadata.PhoneNumberCountryCode =
 			phonenumbers.GetRegionCodeForCountryCode(int(*parsedNumber.CountryCode))
 	}
-	err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata)
-	if err != nil {
+	// Append the new phone number to the metadata
+	multiPhoneNumberMetadata = append(multiPhoneNumberMetadata, phoneNumberMetadata)
+	if err = fes.putPhoneNumberMetadataInGlobalState(multiPhoneNumberMetadata, requestData.PhoneNumber); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Problem with putPhoneNumberMetadataInGlobalState: %v", err))
 		return
 	}
