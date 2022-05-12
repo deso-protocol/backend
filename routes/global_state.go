@@ -220,10 +220,10 @@ var (
 	// Prefix for transaction type multipliers. <prefix> -> <map[lib.TxnType]uint64>
 	_GlobalStatePrefixHotFeedTxnTypeMultiplierBasisPoints = []byte{43}
 
-  // Prefix for allowing phone number to be used multiple times for
-  // starter DESO
-  // <prefix, PhoneNumber> -> <[]PhoneNumberMetadata>
-  _GlobalStatePrefixPhoneNumberToMultiPhoneNumberMetadata = []byte{44}
+	// Prefix for allowing phone number to be used multiple times for
+	// starter DESO
+	// <prefix, PhoneNumber> -> <[]PhoneNumberMetadata>
+	_GlobalStatePrefixPhoneNumberToMultiPhoneNumberMetadata = []byte{44}
 
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the

@@ -6,14 +6,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/deso-protocol/core/lib"
-	"github.com/pkg/errors"
 	"io"
 	"net/http"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/deso-protocol/core/lib"
+	"github.com/pkg/errors"
 )
 
 // AdminUpdateUserGlobalMetadataRequest...
@@ -210,8 +211,6 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem putting updated user metadata: %v", err))
 		return
 	}
-
-	// If we made it this far we were successful, return without error.
 	// Simply return with a 200 status code
 }
 
