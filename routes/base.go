@@ -32,8 +32,11 @@ func (fes *APIServer) HealthCheck(ww http.ResponseWriter, rr *http.Request) {
 		return
 	}
 
-	// Check that we've received our first transaction bundle.
-	if !fes.backendServer.HasProcessedFirstTransactionBundle() {
+	// Check that we've received our first transaction bundle. We skip this check
+	// if we've disabled networking, since in that case we shouldn't expect to get
+	// any mempool messages from our peers.
+	if !fes.backendServer.HasProcessedFirstTransactionBundle() &&
+		!fes.backendServer.DisableNetworking {
 		_AddBadRequestError(ww, "Waiting on mempool to sync")
 		return
 	}
