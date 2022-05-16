@@ -2573,11 +2573,11 @@ type DAOCoinLimitOrderWithExchangeRateAndQuantityRequest struct {
 	// The public key of the user who is sending the order
 	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
 
-	// The public key or profile username of the DAO coin being bought
-	BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+	// The public key of the DAO coin being bought
+	BuyingDAOCoinCreatorPublicKeyBase58Check string `safeForLogging:"true"`
 
-	// The public key or profile username of the DAO coin being sold
-	SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+	// The public key of the DAO coin being sold
+	SellingDAOCoinCreatorPublicKeyBase58Check string `safeForLogging:"true"`
 
 	ExchangeRateCoinsToSellPerCoinToBuy float64 `safeForLogging:"true"`
 	QuantityToFill                      float64 `safeForLogging:"true"`
@@ -2614,8 +2614,8 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 	scaledExchangeRateCoinsToSellPerCoinToBuy, err := CalculateScaledExchangeRate(
-		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
-		requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
 		requestData.ExchangeRateCoinsToSellPerCoinToBuy,
 	)
 	if err != nil {
@@ -2637,8 +2637,8 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 	}
 
 	quantityToFillInBaseUnits, err := CalculateQuantityToFillAsBaseUnits(
-		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
-		requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
 		requestData.OperationType,
 		requestData.QuantityToFill,
 	)
@@ -2656,8 +2656,8 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 	// Decode and validate the buying / selling coin public keys
 	buyingCoinPublicKey, sellingCoinPublicKey, err := fes.getBuyingAndSellingDAOCoinPublicKeys(
 		utxoView,
-		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
-		requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
 	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
@@ -2692,11 +2692,11 @@ type DAOCoinMarketOrderWithQuantityRequest struct {
 	// The public key of the user who is sending the order
 	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
 
-	// The public key or profile username of the DAO coin being bought
-	BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+	// The public key of the DAO coin being bought
+	BuyingDAOCoinCreatorPublicKeyBase58Check string `safeForLogging:"true"`
 
-	// The public key or profile username of the DAO coin being sold
-	SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+	// The public key of the DAO coin being sold
+	SellingDAOCoinCreatorPublicKeyBase58Check string `safeForLogging:"true"`
 
 	QuantityToFill float64 `safeForLogging:"true"`
 
@@ -2736,8 +2736,8 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 	}
 
 	quantityToFillInBaseUnits, err := CalculateQuantityToFillAsBaseUnits(
-		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
-		requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
 		requestData.OperationType,
 		requestData.QuantityToFill,
 	)
@@ -2769,8 +2769,8 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 	// Decode and validate the buying / selling coin public keys
 	buyingCoinPublicKey, sellingCoinPublicKey, err := fes.getBuyingAndSellingDAOCoinPublicKeys(
 		utxoView,
-		requestData.BuyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
-		requestData.SellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
 	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
@@ -2810,11 +2810,11 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 // $DESO <> $DESO trades
 func (fes *APIServer) getBuyingAndSellingDAOCoinPublicKeys(
 	utxoView *lib.UtxoView,
-	buyingDAOCoinCreatorPublicKeyBase58CheckOrUsername string,
-	sellingDAOCoinCreatorPublicKeyBase58CheckOrUsername string,
+	buyingDAOCoinCreatorPublicKeyBase58Check string,
+	sellingDAOCoinCreatorPublicKeyBase58Check string,
 ) ([]byte, []byte, error) {
-	if sellingDAOCoinCreatorPublicKeyBase58CheckOrUsername == "" &&
-		buyingDAOCoinCreatorPublicKeyBase58CheckOrUsername == "" {
+	if sellingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString &&
+		buyingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
 		return nil, nil, errors.Errorf("empty string provided for both the " +
 			"coin to buy and the coin to sell. At least one must specify a valid DAO public key or username whose coin " +
 			"will be bought or sold")
@@ -2825,9 +2825,9 @@ func (fes *APIServer) getBuyingAndSellingDAOCoinPublicKeys(
 
 	var err error
 
-	if buyingDAOCoinCreatorPublicKeyBase58CheckOrUsername != "" {
+	if buyingDAOCoinCreatorPublicKeyBase58Check != DESOCoinIdentifierString {
 		buyingCoinPublicKey, _, err = fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
-			buyingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+			buyingDAOCoinCreatorPublicKeyBase58Check,
 			utxoView,
 		)
 		if err != nil {
@@ -2835,9 +2835,9 @@ func (fes *APIServer) getBuyingAndSellingDAOCoinPublicKeys(
 		}
 	}
 
-	if sellingDAOCoinCreatorPublicKeyBase58CheckOrUsername != "" {
+	if sellingDAOCoinCreatorPublicKeyBase58Check != DESOCoinIdentifierString {
 		sellingCoinPublicKey, _, err = fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
-			sellingDAOCoinCreatorPublicKeyBase58CheckOrUsername,
+			sellingDAOCoinCreatorPublicKeyBase58Check,
 			utxoView,
 		)
 		if err != nil {
