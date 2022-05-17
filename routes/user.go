@@ -625,6 +625,10 @@ type ProfileEntryResponse struct {
 	// on the limit order exchange that we can execute against to purchase this
 	// profile's DAO coin. If there's no order, then this is zero.
 	BestExchangeRateDESOPerDAOCoin float64
+
+	// This is a field used to measure how much DESO is invested in a user.
+	// Currently, this is DESO locked in their creator coin + the user's DESO balance.
+	TotalWealth uint64
 }
 
 type CoinEntryResponse struct {
@@ -1089,6 +1093,7 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		ExtraData:                      DecodeExtraDataMap(fes.Params, utxoView, profileEntry.ExtraData),
 		DESOBalanceNanos:               desoBalance,
 		BestExchangeRateDESOPerDAOCoin: bestExchangeRateDESOPerDAOCoin,
+		TotalWealth:                    desoBalance + profileEntry.CreatorCoinEntry.DeSoLockedNanos,
 	}
 
 	return profResponse
