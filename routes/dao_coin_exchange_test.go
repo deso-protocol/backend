@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	desoPubKeyBase58Check    = ""                  // represents $DESO
-	daoCoinPubKeyBase58Check = "TestDAOCoinPubKey" // represents valid DAO coin public key
+	desoPubKeyBase58Check    = DESOCoinIdentifierString // represents $DESO
+	daoCoinPubKeyBase58Check = "TestDAOCoinPubKey"      // represents valid DAO coin public key
 )
 
 func TestCalculateScaledExchangeRate(t *testing.T) {
