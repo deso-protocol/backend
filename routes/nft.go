@@ -2162,6 +2162,9 @@ func (fes *APIServer) GetAcceptedBidHistory(ww http.ResponseWriter, req *http.Re
 		}
 		var acceptedBidEntryResponses []*NFTBidEntryResponse
 		for _, acceptedBidEntry := range *acceptedBidEntries {
+			if acceptedBidEntry == nil {
+				continue
+			}
 			acceptedBidEntryResponses = append(acceptedBidEntryResponses,
 				fes._bidEntryToResponse(
 					acceptedBidEntry, nil, utxoView, false, false))
