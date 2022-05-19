@@ -46,6 +46,7 @@ var specialExtraDataKeysToEncoding = map[string]ExtraDataEncoding{
 	lib.RecipientMessagingGroupKeyName: {Decode: DecodeString, Encode: EncodeString},
 
 	lib.BuyNowPriceKey: {Decode: Decode64BitUintString, Encode: Encode64BitUintString},
+
 	lib.DESORoyaltiesMapKey: {Decode: DecodePubKeyToUint64MapString, Encode: ReservedFieldCannotEncode},
 	lib.CoinRoyaltiesMapKey: {Decode: DecodePubKeyToUint64MapString, Encode: ReservedFieldCannotEncode},
 
