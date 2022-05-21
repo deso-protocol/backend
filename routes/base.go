@@ -415,3 +415,22 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 }
+
+type GetIngressCookieResponse struct {
+	CookieValue string
+}
+
+// This route allows a client to get the cookie set by nginx for session affinity.
+// This value can then be passed to a backend to ensure that all requests a user
+// is making are being handled by the same machine.
+func (fes *APIServer) GetIngressCookie(ww http.ResponseWriter, req *http.Request) {
+	cookie, err := req.Cookie("INGRESSCOOKIE")
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetIngressCookie: Error getting ingress cookie: %v", err))
+		return
+	}
+	if err = json.NewEncoder(ww).Encode(&GetIngressCookieResponse{CookieValue: cookie.Value}); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetIngressCookie: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
