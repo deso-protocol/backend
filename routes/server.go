@@ -951,7 +951,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		},
 		{
 			"GetIngressCookie",
-			[]string{"POST", "OPTIONS"},
+			[]string{"GET"},
 			RoutePathGetIngressCookie,
 			fes.GetIngressCookie,
 			PublicAccess,
