@@ -16,6 +16,7 @@ import (
 	"io/ioutil"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -396,6 +397,7 @@ type WalletOrderReservationRequest struct {
 	ReferenceId    string
 	Country        string
 	SourceCurrency string
+	RedirectUrl    string
 }
 
 type WyreWalletOrderReservationPayload struct {
@@ -413,7 +415,7 @@ type WyreWalletOrderReservationPayload struct {
 func (fes *APIServer) GetWyreWalletOrderReservation(ww http.ResponseWriter, req *http.Request) {
 	// Exit immediately if this node has not integrated with Wyre
 	if !fes.IsConfiguredForWyre() {
-		_AddBadRequestError(ww, fmt.Sprintf("HandleWyreWalletOrderWebhook: This node is not configured with Wyre"))
+		_AddBadRequestError(ww, fmt.Sprintf("GetWyreWalletOrderReservation: This node is not configured with Wyre"))
 		return
 	}
 	// Decode the request body
@@ -434,6 +436,16 @@ func (fes *APIServer) GetWyreWalletOrderReservation(ww http.ResponseWriter, req 
 		return
 	}
 
+	redirectUrl := fmt.Sprintf("https://%v/buy-deso", req.Host)
+	if wyreWalletOrderReservationRequest.RedirectUrl != "" {
+		if _, err := url.ParseRequestURI(wyreWalletOrderReservationRequest.RedirectUrl); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"GetWyreWalletOrderReservation: Problem parse redirectUrl: %v", err))
+			return
+		}
+		redirectUrl = wyreWalletOrderReservationRequest.RedirectUrl
+	}
+
 	currentTime := uint64(time.Now().UnixNano())
 	// Make and marshal the payload
 	body := WyreWalletOrderReservationPayload{
@@ -444,7 +456,7 @@ func (fes *APIServer) GetWyreWalletOrderReservation(ww http.ResponseWriter, req 
 		Country:           wyreWalletOrderReservationRequest.Country,
 		Amount:            fmt.Sprintf("%f", wyreWalletOrderReservationRequest.SourceAmount),
 		LockFields:        []string{"dest", "destCurrency"},
-		RedirectUrl:       fmt.Sprintf("https://%v/buy-deso", req.Host),
+		RedirectUrl:       redirectUrl,
 		ReferenceId:       fmt.Sprintf("%v:%v", referenceId, currentTime),
 	}
 
