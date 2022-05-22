@@ -40,9 +40,10 @@ const (
 	RoutePathGetQuoteRecloutsForPost = "/api/v0/get-quote-reclouts-for-post" // Deprecated
 
 	// base.go
-	RoutePathHealthCheck     = "/api/v0/health-check"
-	RoutePathGetExchangeRate = "/api/v0/get-exchange-rate"
-	RoutePathGetAppState     = "/api/v0/get-app-state"
+	RoutePathHealthCheck      = "/api/v0/health-check"
+	RoutePathGetExchangeRate  = "/api/v0/get-exchange-rate"
+	RoutePathGetAppState      = "/api/v0/get-app-state"
+	RoutePathGetIngressCookie = "/api/v0/get-ingress-cookie"
 
 	// transaction.go
 	RoutePathGetTxn                   = "/api/v0/get-txn"
@@ -946,6 +947,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetAppState,
 			fes.GetAppState,
+			PublicAccess,
+		},
+		{
+			"GetIngressCookie",
+			[]string{"GET"},
+			RoutePathGetIngressCookie,
+			fes.GetIngressCookie,
 			PublicAccess,
 		},
 		{
