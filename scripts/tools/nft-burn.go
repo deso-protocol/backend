@@ -29,11 +29,18 @@ func main() {
 			"The hash should be passed as a hex string.")
 	flagDelayMilliseconds := flag.Int("delay_milliseconds", 1000,
 		"The delay in milliseconds between each burn.")
+	flagMaxNFTsBurned := flag.Int("max_nfts_burned", -1,
+		"The maximum number of NFTs to be burned.")
 	flag.Parse()
 
 	// Process flags.
 	nftPostHash := *flagParamNFTHash
 	burnDelayMilliseconds := *flagDelayMilliseconds
+	maxNFTsBurned := *flagMaxNFTsBurned
+	controlledBurn := false
+	if maxNFTsBurned > 0 {
+		controlledBurn = true
+	}
 	fmt.Printf("Targeted NFT Post Hash: %s\n", nftPostHash)
 
 	// Construct necessary endpoints.
@@ -178,6 +185,11 @@ func main() {
 
 	// Mark all burnable NFTs as not for sale.
 	for ii := 0; ii < len(burnableNFTEntryResponses); ii++ {
+		// Check if the user specified a controlled burn.
+		if controlledBurn && ii >= maxNFTsBurned {
+			break
+		}
+
 		burnableNFTRespone := burnableNFTEntryResponses[ii]
 		if !burnableNFTRespone.IsForSale {
 			continue
@@ -208,6 +220,11 @@ func main() {
 
 	// Burn all the burnable NFT copies.
 	for ii := 0; ii < len(burnableNFTEntryResponses); ii++ {
+		// Check if the user specified a controlled burn.
+		if controlledBurn && ii >= maxNFTsBurned {
+			break
+		}
+
 		burnableNFTRespone := burnableNFTEntryResponses[ii]
 
 		// Burn the NFT.
