@@ -599,6 +599,10 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 				if len(postEntryScored.ParentStakeID) > 0 || lib.IsVanillaRepost(postEntryScored) {
 					continue
 				}
+				// If the post has been deleted, then exclude it from the hot feed.
+				if postEntryScored.IsHidden {
+					continue
+				}
 
 				var tags []string
 				var err error
