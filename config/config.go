@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/deso-protocol/core/lib"
 	"strconv"
 	"strings"
 
@@ -80,6 +81,9 @@ type Config struct {
 
 	// ID to tag node source
 	NodeSource uint64
+
+	// Public keys that need their balances monitored. Map of Label to Public key
+	PublicKeyBalancesToMonitor map[string][]byte
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -176,6 +180,21 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 
 	// Node source ID
 	config.NodeSource = viper.GetUint64("node-source")
+
+	// Public keys that need their balances monitored. Map of Label to Public key
+	labelsToPublicKeys := viper.GetString("public-key-balances-to-monitor")
+	if len(labelsToPublicKeys) > 0 {
+		config.PublicKeyBalancesToMonitor = make(map[string][]byte)
+		for _, pair := range strings.Split(labelsToPublicKeys, ",") {
+			entry := strings.Split(pair, "=")
+			pubKeyBytes, _, err := lib.Base58CheckDecode(entry[1])
+			if err != nil {
+				fmt.Printf("Invalid public key: %v", entry[1])
+				continue
+			}
+			config.PublicKeyBalancesToMonitor[entry[0]] = pubKeyBytes
+		}
+	}
 
 	return &config
 }
