@@ -14,7 +14,7 @@ import (
 
 func _generateUnsignedTransferDAOCoin(senderPubKey *btcec.PublicKey, profilePubKeyBase58Check string,
 	receiverPubKeyBase58Check string, daoCoinToTransferNanos uint256.Int, params *lib.DeSoParams,
-	node string) (*routes.TransferDAOCoinResponse, error){
+	node string) (*routes.TransferDAOCoinResponse, error) {
 	endpoint := node + routes.RoutePathTransferDAOCoin
 
 	// Setup request
