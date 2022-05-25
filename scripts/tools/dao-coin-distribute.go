@@ -377,7 +377,6 @@ func main() {
 	for ii := 0; ii < 18-previousLength; ii++ {
 		totalDistributionAmountAfterDecimal = "0" + totalDistributionAmountAfterDecimal
 	}
-	//totalDistributionAmountAfterDecimal = totalDistributionAmountAfterDecimal[:3]
 	fmt.Printf("Total Amount DAO Coin to Distribute: %s.%s\n", totalDistributionAmountBeforeDecimal, totalDistributionAmountAfterDecimal)
 
 	// Ask for user confirmation on this amount.
