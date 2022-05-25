@@ -304,7 +304,9 @@ func main() {
 		}
 		uniqueSerialNumberMap[nftEntryResponse.SerialNumber] = struct{}{}
 		serialNumberToDAODistributionAmountBaseUnits[nftEntryResponse.SerialNumber] = *uint256.NewInt().SetUint64(0)
-
+		if nftEntryResponse.SerialNumber == 2 {
+			fmt.Printf("USER FOUND: %s\n", nftEntryResponse.OwnerPublicKeyBase58Check)
+		}
 		// Check if there is a valid owner.
 		if nftEntryResponse.OwnerPublicKeyBase58Check == getSinglePostResponse.PostFound.PosterPublicKeyBase58Check {
 			continue
