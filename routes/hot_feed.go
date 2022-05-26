@@ -82,7 +82,7 @@ func (fes *APIServer) StartHotFeedRoutine() {
 	out:
 		for {
 			select {
-			case <-time.After(30 * time.Second):
+			case <-time.After(10 * time.Second):
 				resetCache := false
 				if cacheResetCounter >= ResetCachesIterationLimit {
 					resetCache = true
@@ -99,6 +99,7 @@ func (fes *APIServer) StartHotFeedRoutine() {
 
 // The business.
 func (fes *APIServer) UpdateHotFeed(resetCache bool) {
+	glog.Info("Refreshing hot feed...")
 	if resetCache {
 		glog.Info("Resetting hot feed cache.")
 		fes.PostTagToPostHashesMap = make(map[string]map[lib.BlockHash]bool)
@@ -110,18 +111,22 @@ func (fes *APIServer) UpdateHotFeed(resetCache bool) {
 	// them safely without locking them.
 	hotFeedApprovedPosts := fes.CopyHotFeedApprovedPostsMap()
 	hotFeedPKIDMultipliers := fes.CopyHotFeedPKIDMultipliersMap()
+	glog.Info("Getting approved posts and multipliers")
 
 	// Update the approved posts map and pkid multipliers map based on global state.
 	fes.UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts)
 	fes.UpdateHotFeedPKIDMultipliersMap(hotFeedPKIDMultipliers)
+	glog.Info("Updated approved posts and multipliers")
 
 	// Update the HotFeedOrderedList based on the specified look-back period's blocks.
 	hotFeedPosts := fes.UpdateHotFeedOrderedList(hotFeedApprovedPosts, hotFeedPKIDMultipliers)
+	glog.Info("Updated hot feed ordered list")
 
 	// The hotFeedPosts map will be nil unless we found new blocks in the call above.
 	if hotFeedPosts != nil {
 		fes.PruneHotFeedApprovedPostsMap(hotFeedPosts, hotFeedApprovedPosts)
 	}
+	glog.Info("Pruned hot feed ordered list")
 
 	// Replace the HotFeedApprovedPostsMap and HotFeedPKIDMultiplier map with the fresh ones.
 	fes.HotFeedApprovedPostsToMultipliers = hotFeedApprovedPosts
@@ -397,7 +402,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	// which is useful for testing purposes.
 	blockOffsetForTesting := 0
 
-	// Grab the last 90 days worth of blocks (25,920 blocks @ 5min/block).
+	// Grab the last 15 days worth of blocks (25,920 blocks @ 5min/block).
 	lookbackWindowBlocks := 15 * 24 * 60 / 5
 	// Check if the most recent blocks that we'll be considering in hot feed computation have been processed.
 	chainFullyStored := true
@@ -411,13 +416,14 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 			break
 		}
 	}
+	glog.Info("UpdateHotFeedOrderedList: Looped through block nodes")
 	if (!foundNewConstants && blockTip.Height <= fes.HotFeedBlockHeight) ||
 		chainState != lib.SyncStateFullyCurrent || !chainFullyStored {
 		return nil
 	}
 
 	// Log how long this routine takes, since it could be heavy.
-	glog.Info("UpdateHotFeedOrderedList: Starting new update cycle.")
+	glog.Infof("UpdateHotFeedOrderedList: Starting new update cycle.")
 	start := time.Now()
 
 	// Get a utxoView for lookups.
@@ -433,6 +439,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	if len(fes.blockchain.BestChain()) > (lookbackWindowBlocks + blockOffsetForTesting) {
 		relevantNodes = fes.blockchain.BestChain()[blockTipIndex-lookbackWindowBlocks-blockOffsetForTesting : blockTipIndex]
 	}
+	glog.Infof("UpdateHotFeedOrderedList: Updated relevant nodes in %s", time.Since(start))
 
 	var hotnessInfoBlocks []*HotnessInfoBlock
 	for blockIdx, node := range relevantNodes {
@@ -449,6 +456,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 			BlockAge: len(relevantNodes) - blockIdx,
 		})
 	}
+	glog.Infof("UpdateHotFeedOrderedList: Got blocks in %s", time.Since(start))
 
 	// Iterate over the blocks and track global feed hotness scores for each post.
 	hotnessInfoMapGlobalFeed, err := fes.PopulateHotnessInfoMap(utxoView, postsToMultipliers, pkidsToMultipliers, false, hotnessInfoBlocks)
@@ -456,12 +464,14 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put PopulateHotnessInfoMap for global feed: %v", err)
 		return nil
 	}
+	glog.Infof("UpdateHotFeedOrderedList: Got hotness info map - global in %s", time.Since(start))
 	// Iterate over the blocks and track tag feed hotness scores for each post.
 	hotnessInfoMapTagFeed, err := fes.PopulateHotnessInfoMap(utxoView, postsToMultipliers, pkidsToMultipliers, true, hotnessInfoBlocks)
 	if err != nil {
 		glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put PopulateHotnessInfoMap for tag feed: %v", err)
 		return nil
 	}
+	glog.Infof("UpdateHotFeedOrderedList: Got hotness info map - tags in %s", time.Since(start))
 	// Sort the map into an ordered list and set it as the server's new HotFeedOrderedList.
 	hotFeedOrderedList := []*HotFeedEntry{}
 	for postHashKey, hotnessInfo := range hotnessInfoMapGlobalFeed {
@@ -473,6 +483,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		}
 		hotFeedOrderedList = append(hotFeedOrderedList, hotFeedEntry)
 	}
+	glog.Infof("UpdateHotFeedOrderedList: Looped through post hashes in %s", time.Since(start))
 	sort.Slice(hotFeedOrderedList, func(ii, jj int) bool {
 		if hotFeedOrderedList[ii].HotnessScore != hotFeedOrderedList[jj].HotnessScore {
 			return hotFeedOrderedList[ii].HotnessScore > hotFeedOrderedList[jj].HotnessScore
@@ -480,17 +491,20 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 			return hotFeedOrderedList[ii].PostHashHex > hotFeedOrderedList[jj].PostHashHex
 		}
 	})
+	glog.Infof("UpdateHotFeedOrderedList: Sorted post hashes in %s", time.Since(start))
 	fes.HotFeedOrderedList = hotFeedOrderedList
 	fes.HotFeedPostHashToTagScoreMap = hotnessInfoMapTagFeed
 
 	// Set the ordered lists for hot feed based on tags.
 	postTagToOrderedHotFeedEntries := make(map[string][]*HotFeedEntry)
 	postTagToOrderedHotFeedEntries = fes.SaveOrderedFeedForTags(true, postTagToOrderedHotFeedEntries)
+	glog.Infof("UpdateHotFeedOrderedList: Saved ordered feed tags - hot in %s", time.Since(start))
 	fes.PostTagToOrderedHotFeedEntries = postTagToOrderedHotFeedEntries
 
 	// Set the ordered lists for newness based on tags.
 	postTagToOrderedNewestEntries := map[string][]*HotFeedEntry{}
 	postTagToOrderedNewestEntries = fes.SaveOrderedFeedForTags(false, postTagToOrderedNewestEntries)
+	glog.Infof("UpdateHotFeedOrderedList: Saved ordered feed tags - new in %s", time.Since(start))
 	fes.PostTagToOrderedNewestEntries = postTagToOrderedNewestEntries
 
 	// Update the HotFeedBlockHeight so we don't re-evaluate this set of blocks.
@@ -517,7 +531,8 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 	hotnessInfoMap := make(map[lib.BlockHash]*HotnessPostInfo)
 	// Map of interaction key to transaction type multiplier applied.
 	postInteractionMap := make(map[HotFeedInteractionKey]uint64)
-	for _, hotnessInfoBlock := range hotnessInfoBlocks {
+	for ii, hotnessInfoBlock := range hotnessInfoBlocks {
+		glog.Infof("UpdateHotFeedOrderedList: looping through hotness info block %v", ii)
 		block := hotnessInfoBlock.Block
 		blockAgee := hotnessInfoBlock.BlockAge
 		for _, txn := range block.Txns {
