@@ -586,7 +586,6 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 	requestData DAOCoinLimitOrderWithExchangeRateAndQuantityRequest,
 	scaledExchangeRateCoinsToSellPerCoinToBuy *uint256.Int,
 	quantityToFillInBaseUnits *uint256.Int) error {
-
 	// Validate transactor has sufficient selling coins to place
 	// this new order incorporating all of their open orders.
 
@@ -629,6 +628,15 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 		}
 	} else {
 		// Get DAO coin balance base units.
+		balanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(
+			[]byte(requestData.TransactorPublicKeyBase58Check),
+			[]byte(requestData.SellingDAOCoinCreatorPublicKeyBase58Check),
+			utxoView,
+			true)
+		if err != nil {
+			return errors.Errorf("Error getting transactor DAO coin balance: %v", err)
+		}
+		transactorSellingBalanceBaseUnits = &balanceEntry.BalanceNanos
 	}
 
 	// Get open orders for this transactor
@@ -651,7 +659,7 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 		return errors.Errorf("Invalid operation type: %s", requestData.OperationType)
 	}
 
-	// Calculate total selling quantity for existing/open orders.
+	// Add total selling quantity for existing/open orders.
 	for _, order := range orders {
 		if sellingCoinPKID.Eq(order.SellingDAOCoinCreatorPKID) {
 			// Calculate selling quantity.
@@ -669,7 +677,7 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 	}
 
 	// Compare transactor selling balance to total selling quantity.
-	if !transactorSellingBalanceBaseUnits.Gt(totalSellingBaseUnits) {
+	if transactorSellingBalanceBaseUnits.Lt(totalSellingBaseUnits) {
 		return errors.Errorf("Insufficient balance to open order")
 	}
 
