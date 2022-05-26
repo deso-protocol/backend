@@ -82,7 +82,7 @@ func (fes *APIServer) StartHotFeedRoutine() {
 	out:
 		for {
 			select {
-			case <-time.After(5 * time.Minute):
+			case <-time.After(30 * time.Second):
 				resetCache := false
 				if cacheResetCounter >= ResetCachesIterationLimit {
 					resetCache = true
@@ -398,7 +398,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	blockOffsetForTesting := 0
 
 	// Grab the last 90 days worth of blocks (25,920 blocks @ 5min/block).
-	lookbackWindowBlocks := 90 * 24 * 60 / 5
+	lookbackWindowBlocks := 15 * 24 * 60 / 5
 	// Check if the most recent blocks that we'll be considering in hot feed computation have been processed.
 	chainFullyStored := true
 	for _, blockNode := range fes.blockchain.BestChain() {
