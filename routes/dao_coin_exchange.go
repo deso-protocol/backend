@@ -607,13 +607,7 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 		return errors.Errorf("Error decoding transactor public key: %v", err)
 	}
 
-	// Get selling coin PKID from public key.
-	sellingCoinPKID, err := fes.getPKIDFromPublicKeyBase58Check(
-		utxoView, requestData.SellingDAOCoinCreatorPublicKeyBase58Check)
-	if err != nil {
-		return errors.Errorf("Invalid SellingDAOCoinCreatorPublicKeyBase58Check: %v", err)
-	}
-
+	sellingCoinPKID := &lib.ZeroPKID
 	// Calculate current balance for transactor.
 	transactorSellingBalanceBaseUnits := uint256.NewInt()
 	if requestData.SellingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
@@ -623,14 +617,14 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 			return errors.Errorf("Error getting transactor DESO balance: %v", err)
 		}
 		transactorSellingBalanceBaseUnits = uint256.NewInt().SetUint64(desoBalanceNanos)
-
-		// Convert $DESO nanos to $DESO base units.
-		transactorSellingBalanceBaseUnits, err = lib.SafeUint256().Mul(
-			transactorSellingBalanceBaseUnits, getDESOToDAOCoinBaseUnitsScalingFactor())
-		if err != nil {
-			return errors.Errorf("Error converting $DESO nanos to base units: %v", err)
-		}
 	} else {
+
+		// Get selling coin PKID from public key.
+		sellingCoinPKID, err = fes.getPKIDFromPublicKeyBase58Check(
+			utxoView, requestData.SellingDAOCoinCreatorPublicKeyBase58Check)
+		if err != nil {
+			return errors.Errorf("Invalid SellingDAOCoinCreatorPublicKeyBase58Check: %v", err)
+		}
 		sellingPublicKey, _, err := lib.Base58CheckDecode(requestData.SellingDAOCoinCreatorPublicKeyBase58Check)
 		if err != nil {
 			return errors.Errorf("Error decoding selling public key: %v", err)
