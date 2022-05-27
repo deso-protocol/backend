@@ -581,3 +581,117 @@ func getNumDigits(val *big.Int) int {
 	}
 	return numDigits
 }
+
+func (fes *APIServer) validateTransactorSellingCoinBalance(
+	requestData DAOCoinLimitOrderWithExchangeRateAndQuantityRequest,
+	scaledExchangeRateCoinsToSellPerCoinToBuy *uint256.Int,
+	quantityToFillInBaseUnits *uint256.Int) error {
+	// Validate transactor has sufficient selling coins to place
+	// this new order incorporating all of their open orders.
+
+	// Get UTXO view.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return errors.Errorf("Problem fetching UTXOView: %v", err)
+	}
+
+	// Get transactor PKID and public key from public key base58 check.
+	transactorPKID, err := fes.getPKIDFromPublicKeyBase58Check(
+		utxoView, requestData.TransactorPublicKeyBase58Check)
+	if err != nil {
+		return errors.Errorf("Invalid TransactorPublicKeyBase58Check: %v", err)
+	}
+	transactorPublicKey, _, err := lib.Base58CheckDecode(requestData.TransactorPublicKeyBase58Check)
+	if err != nil {
+		return errors.Errorf("Error decoding transactor public key: %v", err)
+	}
+
+	// If buying $DESO, the buying PKID is the ZeroPKID. Else it's the DAO coin's PKID.
+	buyingCoinPKID := &lib.ZeroPKID
+	if requestData.BuyingDAOCoinCreatorPublicKeyBase58Check != DESOCoinIdentifierString {
+		buyingCoinPKID, err = fes.getPKIDFromPublicKeyBase58Check(
+			utxoView, requestData.BuyingDAOCoinCreatorPublicKeyBase58Check)
+		if err != nil {
+			return errors.Errorf("Invalid BuyingDAOCoinCreatorPublicKeyBase58Check: %v", err)
+		}
+	}
+
+	// If selling $DESO, the selling PKID is the ZeroPKID. We consider this the default
+	// case and update if the transactor is actually selling a DAO coin below.
+	sellingCoinPKID := &lib.ZeroPKID
+
+	// Calculate current balance for transactor.
+	transactorSellingBalanceBaseUnits := uint256.NewInt()
+	if requestData.SellingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+		// Get $DESO balance nanos.
+		desoBalanceNanos, err := utxoView.GetDeSoBalanceNanosForPublicKey(transactorPublicKey)
+		if err != nil {
+			return errors.Errorf("Error getting transactor DESO balance: %v", err)
+		}
+		transactorSellingBalanceBaseUnits = uint256.NewInt().SetUint64(desoBalanceNanos)
+	} else {
+		// Get selling coin PKID and public key from public key base58 check.
+		sellingCoinPKID, err = fes.getPKIDFromPublicKeyBase58Check(
+			utxoView, requestData.SellingDAOCoinCreatorPublicKeyBase58Check)
+		if err != nil {
+			return errors.Errorf("Invalid SellingDAOCoinCreatorPublicKeyBase58Check: %v", err)
+		}
+		sellingPublicKey, _, err := lib.Base58CheckDecode(requestData.SellingDAOCoinCreatorPublicKeyBase58Check)
+		if err != nil {
+			return errors.Errorf("Error decoding selling public key: %v", err)
+		}
+
+		// Get DAO coin balance base units.
+		balanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(transactorPublicKey, sellingPublicKey, true)
+		if balanceEntry == nil {
+			return errors.New("Error getting transactor DAO coin balance not found")
+		}
+		transactorSellingBalanceBaseUnits = &balanceEntry.BalanceNanos
+	}
+
+	// Get open orders for this transactor
+	orders, err := utxoView.GetAllDAOCoinLimitOrdersForThisTransactor(transactorPKID)
+	if err != nil {
+		return errors.Errorf("Error getting limit orders: %v", err)
+	}
+
+	// Calculate total selling quantity for current order.
+	totalSellingBaseUnits := uint256.NewInt()
+	if requestData.OperationType == DAOCoinLimitOrderOperationTypeStringASK {
+		totalSellingBaseUnits = quantityToFillInBaseUnits
+	} else if requestData.OperationType == DAOCoinLimitOrderOperationTypeStringBID {
+		totalSellingBaseUnits, err = lib.ComputeBaseUnitsToSellUint256(
+			scaledExchangeRateCoinsToSellPerCoinToBuy, quantityToFillInBaseUnits)
+		if err != nil {
+			return errors.Errorf("Error calculating new order selling quantity: %v", err)
+		}
+	} else {
+		return errors.Errorf("Invalid operation type: %s", requestData.OperationType)
+	}
+
+	// Add total selling quantity for existing/open orders.
+	for _, order := range orders {
+		if buyingCoinPKID.Eq(order.BuyingDAOCoinCreatorPKID) &&
+			sellingCoinPKID.Eq(order.SellingDAOCoinCreatorPKID) {
+			// Calculate selling quantity.
+			orderSellingBaseUnits, err := order.BaseUnitsToSellUint256()
+			if err != nil {
+				return errors.Errorf("Error calculating open order selling quantity: %v", err)
+			}
+
+			// Sum selling quantity.
+			totalSellingBaseUnits, err = lib.SafeUint256().Add(totalSellingBaseUnits, orderSellingBaseUnits)
+			if err != nil {
+				return errors.Errorf("Error adding open order selling quantity: %v", err)
+			}
+		}
+	}
+
+	// Compare transactor selling balance to total selling quantity.
+	if transactorSellingBalanceBaseUnits.Lt(totalSellingBaseUnits) {
+		return errors.Errorf("Insufficient balance to open order")
+	}
+
+	// Happy path. No error. Transactor has sufficient balance to cover their selling quantity.
+	return nil
+}

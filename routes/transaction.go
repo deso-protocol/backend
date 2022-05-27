@@ -2663,6 +2663,15 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
+	// Validate transactor has sufficient selling coins.
+	err = fes.validateTransactorSellingCoinBalance(
+		requestData, scaledExchangeRateCoinsToSellPerCoinToBuy, quantityToFillInBaseUnits)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	// Create order.
 	res, err := fes.createDAOCoinLimitOrderResponse(
 		utxoView,
 		requestData.TransactorPublicKeyBase58Check,
