@@ -606,7 +606,7 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 		return errors.Errorf("Error decoding transactor public key: %v", err)
 	}
 
-	// If buying $DESO, the PKID is the ZeroPKID. Else it's the DAO coin's PKID.
+	// If buying $DESO, the buying PKID is the ZeroPKID. Else it's the DAO coin's PKID.
 	buyingCoinPKID := &lib.ZeroPKID
 	if requestData.BuyingDAOCoinCreatorPublicKeyBase58Check != DESOCoinIdentifierString {
 		buyingCoinPKID, err = fes.getPKIDFromPublicKeyBase58Check(
@@ -616,7 +616,7 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 		}
 	}
 
-	// If selling $DESO, the PKID is the ZeroPKID. We consider this the default
+	// If selling $DESO, the selling PKID is the ZeroPKID. We consider this the default
 	// case and update if the transactor is actually selling a DAO coin below.
 	sellingCoinPKID := &lib.ZeroPKID
 
