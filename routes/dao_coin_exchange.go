@@ -602,6 +602,11 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 		return errors.Errorf("Invalid TransactorPublicKeyBase58Check: %v", err)
 	}
 
+	transactorPublicKey, _, err := lib.Base58CheckDecode(requestData.TransactorPublicKeyBase58Check)
+	if err != nil {
+		return errors.Errorf("Error decoding transactor public key: %v", err)
+	}
+
 	// Get selling coin PKID from public key.
 	sellingCoinPKID, err := fes.getPKIDFromPublicKeyBase58Check(
 		utxoView, requestData.SellingDAOCoinCreatorPublicKeyBase58Check)
@@ -613,8 +618,7 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 	transactorSellingBalanceBaseUnits := uint256.NewInt()
 	if requestData.SellingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
 		// Get $DESO balance nanos.
-		desoBalanceNanos, err := utxoView.GetDeSoBalanceNanosForPublicKey(
-			[]byte(requestData.TransactorPublicKeyBase58Check))
+		desoBalanceNanos, err := utxoView.GetDeSoBalanceNanosForPublicKey(transactorPublicKey)
 		if err != nil {
 			return errors.Errorf("Error getting transactor DESO balance: %v", err)
 		}
@@ -627,14 +631,15 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 			return errors.Errorf("Error converting $DESO nanos to base units: %v", err)
 		}
 	} else {
-		// Get DAO coin balance base units.
-		balanceEntry, err := lib.GetSingleBalanceEntryFromPublicKeys(
-			[]byte(requestData.TransactorPublicKeyBase58Check),
-			[]byte(requestData.SellingDAOCoinCreatorPublicKeyBase58Check),
-			utxoView,
-			true)
+		sellingPublicKey, _, err := lib.Base58CheckDecode(requestData.SellingDAOCoinCreatorPublicKeyBase58Check)
 		if err != nil {
-			return errors.Errorf("Error getting transactor DAO coin balance: %v", err)
+			return errors.Errorf("Error decoding selling public key: %v", err)
+		}
+		// Get DAO coin balance base units.
+		balanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(transactorPublicKey, sellingPublicKey, true)
+
+		if balanceEntry == nil {
+			return errors.New("Error getting transactor DAO coin balance not found")
 		}
 		transactorSellingBalanceBaseUnits = &balanceEntry.BalanceNanos
 	}
