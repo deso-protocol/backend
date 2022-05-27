@@ -606,8 +606,18 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 		return errors.Errorf("Error decoding transactor public key: %v", err)
 	}
 
+	// If buying $DESO, the PKID is the ZeroPKID. Else it's the DAO coin's PKID.
+	buyingCoinPKID := &lib.ZeroPKID
+	if requestData.BuyingDAOCoinCreatorPublicKeyBase58Check != DESOCoinIdentifierString {
+		buyingCoinPKID, err = fes.getPKIDFromPublicKeyBase58Check(
+			utxoView, requestData.BuyingDAOCoinCreatorPublicKeyBase58Check)
+		if err != nil {
+			return errors.Errorf("Invalid BuyingDAOCoinCreatorPublicKeyBase58Check: %v", err)
+		}
+	}
+
 	// If selling $DESO, the PKID is the ZeroPKID. We consider this the default
-	// case and update if the transactor is actually selling a DAO coin.
+	// case and update if the transactor is actually selling a DAO coin below.
 	sellingCoinPKID := &lib.ZeroPKID
 
 	// Calculate current balance for transactor.
@@ -661,7 +671,8 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 
 	// Add total selling quantity for existing/open orders.
 	for _, order := range orders {
-		if sellingCoinPKID.Eq(order.SellingDAOCoinCreatorPKID) {
+		if buyingCoinPKID.Eq(order.BuyingDAOCoinCreatorPKID) &&
+			sellingCoinPKID.Eq(order.SellingDAOCoinCreatorPKID) {
 			// Calculate selling quantity.
 			orderSellingBaseUnits, err := order.BaseUnitsToSellUint256()
 			if err != nil {
