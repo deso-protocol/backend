@@ -417,10 +417,10 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		}
 	}
 	glog.Info("UpdateHotFeedOrderedList: Looped through block nodes")
-	if (!foundNewConstants && blockTip.Height <= fes.HotFeedBlockHeight) ||
-		chainState != lib.SyncStateFullyCurrent || !chainFullyStored {
-		return nil
-	}
+	//if (!foundNewConstants && blockTip.Height <= fes.HotFeedBlockHeight) ||
+	//	chainState != lib.SyncStateFullyCurrent || !chainFullyStored {
+	//	return nil
+	//}
 
 	// Log how long this routine takes, since it could be heavy.
 	glog.Infof("UpdateHotFeedOrderedList: Starting new update cycle.")
@@ -542,7 +542,7 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 
 	// Create new "block" for mempool txns, give it a block age of 1 greater than the current tip
 	dbMempoolTxnsOrderedByTime, err := lib.DbGetAllMempoolTxnsSortedByTimeAdded(utxoView.Handle)
-	
+
 	if err != nil {
 		glog.Infof("Error getting mempool transactions: %v", err)
 	} else if len(dbMempoolTxnsOrderedByTime) > 0 {
