@@ -542,6 +542,7 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 
 	// Create new "block" for mempool txns, give it a block age of 1 greater than the current tip
 	dbMempoolTxnsOrderedByTime, err := lib.DbGetAllMempoolTxnsSortedByTimeAdded(utxoView.Handle)
+	glog.Infof("Here is the db mempool txns: %v, height: %v, error? %v", len(dbMempoolTxnsOrderedByTime), mempoolBlockHeight, err)
 
 	if err != nil {
 		glog.Errorf("Error getting mempool transactions: %v", err)
