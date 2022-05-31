@@ -82,7 +82,7 @@ func (fes *APIServer) StartHotFeedRoutine() {
 	out:
 		for {
 			select {
-			case <-time.After(10 * time.Second):
+			case <-time.After(60 * time.Second):
 				resetCache := false
 				if cacheResetCounter >= ResetCachesIterationLimit {
 					resetCache = true
@@ -111,26 +111,23 @@ func (fes *APIServer) UpdateHotFeed(resetCache bool) {
 	// them safely without locking them.
 	hotFeedApprovedPosts := fes.CopyHotFeedApprovedPostsMap()
 	hotFeedPKIDMultipliers := fes.CopyHotFeedPKIDMultipliersMap()
-	glog.Info("Getting approved posts and multipliers")
 
 	// Update the approved posts map and pkid multipliers map based on global state.
 	fes.UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts)
 	fes.UpdateHotFeedPKIDMultipliersMap(hotFeedPKIDMultipliers)
-	glog.Info("Updated approved posts and multipliers")
 
 	// Update the HotFeedOrderedList based on the specified look-back period's blocks.
 	hotFeedPosts := fes.UpdateHotFeedOrderedList(hotFeedApprovedPosts, hotFeedPKIDMultipliers)
-	glog.Info("Updated hot feed ordered list")
 
 	// The hotFeedPosts map will be nil unless we found new blocks in the call above.
 	if hotFeedPosts != nil {
 		fes.PruneHotFeedApprovedPostsMap(hotFeedPosts, hotFeedApprovedPosts)
 	}
-	glog.Info("Pruned hot feed ordered list")
 
 	// Replace the HotFeedApprovedPostsMap and HotFeedPKIDMultiplier map with the fresh ones.
 	fes.HotFeedApprovedPostsToMultipliers = hotFeedApprovedPosts
 	fes.HotFeedPKIDMultipliers = hotFeedPKIDMultipliers
+	glog.Infof("Updated hot feed maps")
 }
 
 func (fes *APIServer) UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts map[lib.BlockHash]float64) {
@@ -301,7 +298,6 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 ) (_hotFeedPostsMap map[lib.BlockHash]*HotnessPostInfo,
 ) {
 	// Check to see if any of the algorithm constants have changed.
-	//foundNewConstants := false
 	globalStateInteractionCap, globalStateTagInteractionCap, globalStateTimeDecayBlocks, globalStateTagTimeDecayBlocks, globalStateTxnTypeMultiplierMap, err := fes.GetHotFeedConstantsFromGlobalState()
 	if err != nil {
 		glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to get constants: %v", err)
@@ -309,7 +305,6 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	}
 	if globalStateInteractionCap == 0 || globalStateTimeDecayBlocks == 0 {
 		// The hot feed go routine has not been run yet since constants have not been set.
-		//foundNewConstants = true
 		// Set the default constants in GlobalState and then on the server object.
 		err := fes.GlobalState.Put(
 			_GlobalStatePrefixForHotFeedInteractionCap,
@@ -353,7 +348,6 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		// Check to see if only the tag-specific feed configuration variables are unset and set just those.
 	} else if globalStateTagInteractionCap == 0 || globalStateTagTimeDecayBlocks == 0 {
 		// The hot feed go routine has not been run yet since constants have not been set.
-		//foundNewConstants = true
 		err = fes.GlobalState.Put(
 			_GlobalStatePrefixForHotFeedTagInteractionCap,
 			lib.EncodeUint64(DefaultHotFeedTagInteractionCap),
@@ -399,7 +393,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	blockOffsetForTesting := 0
 
 	// Grab the last 15 days worth of blocks (25,920 blocks @ 5min/block).
-	lookbackWindowBlocks := 15 * 24 * 60 / 5
+	lookbackWindowBlocks := 60 * 24 * 60 / 5
 	// Check if the most recent blocks that we'll be considering in hot feed computation have been processed.
 	for _, blockNode := range fes.blockchain.BestChain() {
 		if blockNode.Height < blockTip.Height-uint32(lookbackWindowBlocks+blockOffsetForTesting) {
@@ -408,7 +402,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	}
 
 	// Log how long this routine takes, since it could be heavy.
-	glog.Infof("UpdateHotFeedOrderedList: Starting new update cycle.")
+	glog.Info("UpdateHotFeedOrderedList: Starting new update cycle.")
 	start := time.Now()
 
 	// Get a utxoView for lookups.
