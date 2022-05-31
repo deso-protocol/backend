@@ -392,7 +392,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	// which is useful for testing purposes.
 	blockOffsetForTesting := 0
 
-	// Grab the last 15 days worth of blocks (25,920 blocks @ 5min/block).
+	// Grab the last 60 days worth of blocks (25,920 blocks @ 5min/block).
 	lookbackWindowBlocks := 60 * 24 * 60 / 5
 	// Check if the most recent blocks that we'll be considering in hot feed computation have been processed.
 	for _, blockNode := range fes.blockchain.BestChain() {
@@ -827,6 +827,11 @@ func GetPostHashToScoreForTxn(txn *lib.MsgDeSoTxn,
 	// If we haven't gotten the post entry yet, make sure we fetch it.
 	if interactionPostEntry == nil {
 		interactionPostEntry = utxoView.GetPostEntryForPostHash(interactionPostHash)
+	}
+
+	// Double check that we got a valid interaction post entry. If not, bail.
+	if interactionPostEntry == nil {
+		return nil, nil
 	}
 
 	// At this point, we have a post hash to return so look up the posterPKID as well.
