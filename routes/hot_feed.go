@@ -531,6 +531,29 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 	hotnessInfoMap := make(map[lib.BlockHash]*HotnessPostInfo)
 	// Map of interaction key to transaction type multiplier applied.
 	postInteractionMap := make(map[HotFeedInteractionKey]uint64)
+
+	// Fake block height for mempool transactions that haven't been mined yet
+	var mempoolBlockHeight int
+	if len(hotnessInfoBlocks) > 0 {
+		mempoolBlockHeight = hotnessInfoBlocks[len(hotnessInfoBlocks) - 1].BlockAge
+	} else {
+		mempoolBlockHeight = 1
+	}
+
+	// Create new "block" for mempool txns, give it a block age of 1 greater than the current tip
+	dbMempoolTxnsOrderedByTime, err := lib.DbGetAllMempoolTxnsSortedByTimeAdded(utxoView.Handle)
+	
+	if err != nil {
+		glog.Infof("Error getting mempool transactions: %v", err)
+	} else if len(dbMempoolTxnsOrderedByTime) > 0 {
+		hotnessInfoBlocks = append(hotnessInfoBlocks, &HotnessInfoBlock{
+			Block:    &lib.MsgDeSoBlock{
+				Txns: dbMempoolTxnsOrderedByTime,
+			},
+			BlockAge: mempoolBlockHeight,
+		})
+	}
+
 	for ii, hotnessInfoBlock := range hotnessInfoBlocks {
 		glog.Infof("UpdateHotFeedOrderedList: looping through hotness info block %v", ii)
 		block := hotnessInfoBlock.Block
