@@ -1047,7 +1047,6 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		res.LastPublicKeyTransactionIndex = int64(lib.DecodeUint32(lastKeyIndexBytes))
 	}
 
-
 	// Start with the mempool
 	poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
 	if err != nil {

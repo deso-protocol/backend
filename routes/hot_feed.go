@@ -1038,6 +1038,7 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 		hotFeed = append(hotFeed, *postEntryResponse)
 	}
 
+	fes.backendServer.GetMempool().GetTransactionsOrderedByTimeAdded()
 	{
 		// Only add pinned posts if we are starting from the top of the feed.
 		if len(requestData.SeenPosts) == 0 {
