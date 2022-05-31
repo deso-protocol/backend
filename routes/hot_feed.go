@@ -385,10 +385,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		fes.HotFeedTagInteractionCap = globalStateTagInteractionCap
 		fes.HotFeedTagTimeDecayBlocks = globalStateTagTimeDecayBlocks
 		fes.HotFeedTxnTypeMultiplierMap = globalStateTxnTypeMultiplierMap
-		//foundNewConstants = true
 	} else if fes.HotFeedPostMultiplierUpdated || fes.HotFeedPKIDMultiplierUpdated {
-		// If a post's multiplier was updated, we need to recompute scores.
-		//foundNewConstants = true
 		fes.HotFeedPostMultiplierUpdated = false
 		fes.HotFeedPKIDMultiplierUpdated = false
 	}
@@ -396,7 +393,6 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	// If the constants for the algorithm haven't changed and we have already seen the latest
 	// block or the chain is out of sync, bail.
 	blockTip := fes.blockchain.BlockTip()
-	//chainState := fes.blockchain.ChainState()
 
 	// This offset allows us to see what the hot feed would look like in the past,
 	// which is useful for testing purposes.
@@ -405,22 +401,11 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	// Grab the last 15 days worth of blocks (25,920 blocks @ 5min/block).
 	lookbackWindowBlocks := 15 * 24 * 60 / 5
 	// Check if the most recent blocks that we'll be considering in hot feed computation have been processed.
-	//chainFullyStored := true
 	for _, blockNode := range fes.blockchain.BestChain() {
 		if blockNode.Height < blockTip.Height-uint32(lookbackWindowBlocks+blockOffsetForTesting) {
 			continue
 		}
-
-		//if !blockNode.Status.IsFullyProcessed() {
-		//	chainFullyStored = false
-		//	break
-		//}
 	}
-	glog.Info("UpdateHotFeedOrderedList: Looped through block nodes")
-	//if (!foundNewConstants && blockTip.Height <= fes.HotFeedBlockHeight) ||
-	//	chainState != lib.SyncStateFullyCurrent || !chainFullyStored {
-	//	return nil
-	//}
 
 	// Log how long this routine takes, since it could be heavy.
 	glog.Infof("UpdateHotFeedOrderedList: Starting new update cycle.")
@@ -439,7 +424,6 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	if len(fes.blockchain.BestChain()) > (lookbackWindowBlocks + blockOffsetForTesting) {
 		relevantNodes = fes.blockchain.BestChain()[blockTipIndex-lookbackWindowBlocks-blockOffsetForTesting : blockTipIndex]
 	}
-	glog.Infof("UpdateHotFeedOrderedList: Updated relevant nodes in %s", time.Since(start))
 
 	var hotnessInfoBlocks []*HotnessInfoBlock
 	for blockIdx, node := range relevantNodes {
@@ -456,7 +440,6 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 			BlockAge: len(relevantNodes) - blockIdx,
 		})
 	}
-	glog.Infof("UpdateHotFeedOrderedList: Got blocks in %s", time.Since(start))
 
 	// Iterate over the blocks and track global feed hotness scores for each post.
 	hotnessInfoMapGlobalFeed, err := fes.PopulateHotnessInfoMap(utxoView, postsToMultipliers, pkidsToMultipliers, false, hotnessInfoBlocks)
@@ -464,14 +447,12 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put PopulateHotnessInfoMap for global feed: %v", err)
 		return nil
 	}
-	glog.Infof("UpdateHotFeedOrderedList: Got hotness info map - global in %s", time.Since(start))
 	// Iterate over the blocks and track tag feed hotness scores for each post.
 	hotnessInfoMapTagFeed, err := fes.PopulateHotnessInfoMap(utxoView, postsToMultipliers, pkidsToMultipliers, true, hotnessInfoBlocks)
 	if err != nil {
 		glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to put PopulateHotnessInfoMap for tag feed: %v", err)
 		return nil
 	}
-	glog.Infof("UpdateHotFeedOrderedList: Got hotness info map - tags in %s", time.Since(start))
 	// Sort the map into an ordered list and set it as the server's new HotFeedOrderedList.
 	hotFeedOrderedList := []*HotFeedEntry{}
 	for postHashKey, hotnessInfo := range hotnessInfoMapGlobalFeed {
@@ -483,7 +464,6 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		}
 		hotFeedOrderedList = append(hotFeedOrderedList, hotFeedEntry)
 	}
-	glog.Infof("UpdateHotFeedOrderedList: Looped through post hashes in %s", time.Since(start))
 	sort.Slice(hotFeedOrderedList, func(ii, jj int) bool {
 		if hotFeedOrderedList[ii].HotnessScore != hotFeedOrderedList[jj].HotnessScore {
 			return hotFeedOrderedList[ii].HotnessScore > hotFeedOrderedList[jj].HotnessScore
@@ -491,20 +471,17 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 			return hotFeedOrderedList[ii].PostHashHex > hotFeedOrderedList[jj].PostHashHex
 		}
 	})
-	glog.Infof("UpdateHotFeedOrderedList: Sorted post hashes in %s", time.Since(start))
 	fes.HotFeedOrderedList = hotFeedOrderedList
 	fes.HotFeedPostHashToTagScoreMap = hotnessInfoMapTagFeed
 
 	// Set the ordered lists for hot feed based on tags.
 	postTagToOrderedHotFeedEntries := make(map[string][]*HotFeedEntry)
 	postTagToOrderedHotFeedEntries = fes.SaveOrderedFeedForTags(true, postTagToOrderedHotFeedEntries)
-	glog.Infof("UpdateHotFeedOrderedList: Saved ordered feed tags - hot in %s", time.Since(start))
 	fes.PostTagToOrderedHotFeedEntries = postTagToOrderedHotFeedEntries
 
 	// Set the ordered lists for newness based on tags.
 	postTagToOrderedNewestEntries := map[string][]*HotFeedEntry{}
 	postTagToOrderedNewestEntries = fes.SaveOrderedFeedForTags(false, postTagToOrderedNewestEntries)
-	glog.Infof("UpdateHotFeedOrderedList: Saved ordered feed tags - new in %s", time.Since(start))
 	fes.PostTagToOrderedNewestEntries = postTagToOrderedNewestEntries
 
 	// Update the HotFeedBlockHeight so we don't re-evaluate this set of blocks.
@@ -534,10 +511,7 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 
 	// Fake block height for mempool transactions that haven't been mined yet
 	var mempoolBlockHeight int
-	glog.Infof("Here is the hotness info block len: %v", len(hotnessInfoBlocks))
 	if len(hotnessInfoBlocks) > 0 {
-		glog.Infof("Here is the last hotness info block: %+v", hotnessInfoBlocks[len(hotnessInfoBlocks) - 1])
-		glog.Infof("Here is the first hotness info block: %+v", hotnessInfoBlocks[0])
 		mempoolBlockHeight = hotnessInfoBlocks[0].BlockAge + 1
 	} else {
 		mempoolBlockHeight = 1
@@ -553,13 +527,9 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 		txnsFromMempoolOrderedByTime = append(txnsFromMempoolOrderedByTime, mempoolTxn.Tx)
 	}
 
-
-	glog.Infof("Here is the db mempool txns: %v, height: %v, error? %v", len(txnsFromMempoolOrderedByTime), mempoolBlockHeight, err)
-
 	if err != nil {
 		glog.Errorf("Error getting mempool transactions: %v", err)
 	} else if len(txnsFromMempoolOrderedByTime) > 0 {
-		glog.Infof("Retrieved %v transactions from mempool, height %v", len(txnsFromMempoolOrderedByTime), mempoolBlockHeight)
 		hotnessInfoBlocks = append(hotnessInfoBlocks, &HotnessInfoBlock{
 			Block:    &lib.MsgDeSoBlock{
 				Txns: txnsFromMempoolOrderedByTime,
@@ -568,8 +538,7 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 		})
 	}
 
-	for ii, hotnessInfoBlock := range hotnessInfoBlocks {
-		glog.Infof("UpdateHotFeedOrderedList: looping through hotness info block %v", ii)
+	for _, hotnessInfoBlock := range hotnessInfoBlocks {
 		block := hotnessInfoBlock.Block
 		blockAgee := hotnessInfoBlock.BlockAge
 		for _, txn := range block.Txns {
