@@ -534,23 +534,34 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 
 	// Fake block height for mempool transactions that haven't been mined yet
 	var mempoolBlockHeight int
+	glog.Infof("Here is the hotness info block len: %v", len(hotnessInfoBlocks))
 	if len(hotnessInfoBlocks) > 0 {
+		glog.Infof("Here is the last hotness info block: %+v", hotnessInfoBlocks[len(hotnessInfoBlocks) - 1])
 		mempoolBlockHeight = hotnessInfoBlocks[len(hotnessInfoBlocks) - 1].BlockAge
 	} else {
 		mempoolBlockHeight = 1
 	}
 
 	// Create new "block" for mempool txns, give it a block age of 1 greater than the current tip
-	dbMempoolTxnsOrderedByTime, err := lib.DbGetAllMempoolTxnsSortedByTimeAdded(utxoView.Handle)
-	glog.Infof("Here is the db mempool txns: %v, height: %v, error? %v", len(dbMempoolTxnsOrderedByTime), mempoolBlockHeight, err)
+
+	// First get all MempoolTxns from mempool.
+	dbMempoolTxnsOrderedByTime, _, err := fes.backendServer.GetMempool().GetTransactionsOrderedByTimeAdded()
+	// Extract MsgDesoTxn from each MempoolTxn
+	var txnsFromMempoolOrderedByTime []*lib.MsgDeSoTxn
+	for _, mempoolTxn := range dbMempoolTxnsOrderedByTime {
+		txnsFromMempoolOrderedByTime = append(txnsFromMempoolOrderedByTime, mempoolTxn.Tx)
+	}
+
+
+	glog.Infof("Here is the db mempool txns: %v, height: %v, error? %v", len(txnsFromMempoolOrderedByTime), mempoolBlockHeight, err)
 
 	if err != nil {
 		glog.Errorf("Error getting mempool transactions: %v", err)
-	} else if len(dbMempoolTxnsOrderedByTime) > 0 {
-		glog.Infof("Retrieved %v transactions from mempool, height %v", len(dbMempoolTxnsOrderedByTime), mempoolBlockHeight)
+	} else if len(txnsFromMempoolOrderedByTime) > 0 {
+		glog.Infof("Retrieved %v transactions from mempool, height %v", len(txnsFromMempoolOrderedByTime), mempoolBlockHeight)
 		hotnessInfoBlocks = append(hotnessInfoBlocks, &HotnessInfoBlock{
 			Block:    &lib.MsgDeSoBlock{
-				Txns: dbMempoolTxnsOrderedByTime,
+				Txns: txnsFromMempoolOrderedByTime,
 			},
 			BlockAge: mempoolBlockHeight,
 		})
