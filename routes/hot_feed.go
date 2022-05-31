@@ -538,7 +538,7 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 	if len(hotnessInfoBlocks) > 0 {
 		glog.Infof("Here is the last hotness info block: %+v", hotnessInfoBlocks[len(hotnessInfoBlocks) - 1])
 		glog.Infof("Here is the first hotness info block: %+v", hotnessInfoBlocks[0])
-		mempoolBlockHeight = hotnessInfoBlocks[len(hotnessInfoBlocks) - 1].BlockAge + 1
+		mempoolBlockHeight = hotnessInfoBlocks[0].BlockAge + 1
 	} else {
 		mempoolBlockHeight = 1
 	}
