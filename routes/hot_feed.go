@@ -82,7 +82,7 @@ func (fes *APIServer) StartHotFeedRoutine() {
 	out:
 		for {
 			select {
-			case <-time.After(60 * time.Second):
+			case <-time.After(30 * time.Second):
 				resetCache := false
 				if cacheResetCounter >= ResetCachesIterationLimit {
 					resetCache = true
