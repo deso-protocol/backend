@@ -544,8 +544,9 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 	dbMempoolTxnsOrderedByTime, err := lib.DbGetAllMempoolTxnsSortedByTimeAdded(utxoView.Handle)
 
 	if err != nil {
-		glog.Infof("Error getting mempool transactions: %v", err)
+		glog.Errorf("Error getting mempool transactions: %v", err)
 	} else if len(dbMempoolTxnsOrderedByTime) > 0 {
+		glog.Infof("Retrieved %v transactions from mempool, height %v", len(dbMempoolTxnsOrderedByTime), mempoolBlockHeight)
 		hotnessInfoBlocks = append(hotnessInfoBlocks, &HotnessInfoBlock{
 			Block:    &lib.MsgDeSoBlock{
 				Txns: dbMempoolTxnsOrderedByTime,
