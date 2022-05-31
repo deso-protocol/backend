@@ -525,7 +525,7 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 		glog.Errorf("Error getting mempool transactions: %v", err)
 	} else if len(txnsFromMempoolOrderedByTime) > 0 {
 		hotnessInfoBlocks = append(hotnessInfoBlocks, &HotnessInfoBlock{
-			Block:    &lib.MsgDeSoBlock{
+			Block: &lib.MsgDeSoBlock{
 				Txns: txnsFromMempoolOrderedByTime,
 			},
 			BlockAge: mempoolBlockHeight,
