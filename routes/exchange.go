@@ -1040,10 +1040,12 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		}
 	}
 
-	lastKey := keysFound[len(keysFound)-1]
-	// The index comes after the <_Prefix, PublicKey> bytes.
-	lastKeyIndexBytes := lastKey[len(lib.DbTxindexPublicKeyPrefix(publicKeyBytes)):]
-	res.LastPublicKeyTransactionIndex = int64(lib.DecodeUint32(lastKeyIndexBytes))
+	if len(keysFound) > 0 {
+		lastKey := keysFound[len(keysFound)-1]
+		// The index comes after the <_Prefix, PublicKey> bytes.
+		lastKeyIndexBytes := lastKey[len(lib.DbTxindexPublicKeyPrefix(publicKeyBytes)):]
+		res.LastPublicKeyTransactionIndex = int64(lib.DecodeUint32(lastKeyIndexBytes))
+	}
 
 	// Start with the mempool
 	poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
