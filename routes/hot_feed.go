@@ -435,6 +435,35 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		})
 	}
 
+	// Fake block height for mempool transactions that haven't been mined yet
+	var mempoolBlockHeight int
+	if fes.blockchain.BlockTip() != nil {
+		mempoolBlockHeight = int(fes.blockchain.BlockTip().Height + 1)
+	} else {
+		mempoolBlockHeight = 1
+	}
+
+	// Create new "block" for mempool txns, give it a block age of 1 greater than the current tip
+
+	// First get all MempoolTxns from mempool.
+	dbMempoolTxnsOrderedByTime, _, err := fes.backendServer.GetMempool().GetTransactionsOrderedByTimeAdded()
+	// Extract MsgDesoTxn from each MempoolTxn
+	var txnsFromMempoolOrderedByTime []*lib.MsgDeSoTxn
+	for _, mempoolTxn := range dbMempoolTxnsOrderedByTime {
+		txnsFromMempoolOrderedByTime = append(txnsFromMempoolOrderedByTime, mempoolTxn.Tx)
+	}
+
+	if err != nil {
+		glog.Errorf("Error getting mempool transactions: %v", err)
+	} else if len(txnsFromMempoolOrderedByTime) > 0 {
+		hotnessInfoBlocks = append(hotnessInfoBlocks, &HotnessInfoBlock{
+			Block: &lib.MsgDeSoBlock{
+				Txns: txnsFromMempoolOrderedByTime,
+			},
+			BlockAge: mempoolBlockHeight,
+		})
+	}
+
 	// Iterate over the blocks and track global feed hotness scores for each post.
 	hotnessInfoMapGlobalFeed, err := fes.PopulateHotnessInfoMap(utxoView, postsToMultipliers, pkidsToMultipliers, false, hotnessInfoBlocks)
 	if err != nil {
@@ -502,30 +531,6 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 	hotnessInfoMap := make(map[lib.BlockHash]*HotnessPostInfo)
 	// Map of interaction key to transaction type multiplier applied.
 	postInteractionMap := make(map[HotFeedInteractionKey]uint64)
-
-	// Fake block height for mempool transactions that haven't been mined yet
-	mempoolBlockHeight := fes.blockchain.BlockTip().Height + 1
-
-	// Create new "block" for mempool txns, give it a block age of 1 greater than the current tip
-
-	// First get all MempoolTxns from mempool.
-	dbMempoolTxnsOrderedByTime, _, err := fes.backendServer.GetMempool().GetTransactionsOrderedByTimeAdded()
-	// Extract MsgDesoTxn from each MempoolTxn
-	var txnsFromMempoolOrderedByTime []*lib.MsgDeSoTxn
-	for _, mempoolTxn := range dbMempoolTxnsOrderedByTime {
-		txnsFromMempoolOrderedByTime = append(txnsFromMempoolOrderedByTime, mempoolTxn.Tx)
-	}
-
-	if err != nil {
-		glog.Errorf("Error getting mempool transactions: %v", err)
-	} else if len(txnsFromMempoolOrderedByTime) > 0 {
-		hotnessInfoBlocks = append(hotnessInfoBlocks, &HotnessInfoBlock{
-			Block: &lib.MsgDeSoBlock{
-				Txns: txnsFromMempoolOrderedByTime,
-			},
-			BlockAge: mempoolBlockHeight,
-		})
-	}
 
 	for _, hotnessInfoBlock := range hotnessInfoBlocks {
 		block := hotnessInfoBlock.Block
