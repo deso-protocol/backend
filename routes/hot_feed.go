@@ -504,12 +504,7 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 	postInteractionMap := make(map[HotFeedInteractionKey]uint64)
 
 	// Fake block height for mempool transactions that haven't been mined yet
-	var mempoolBlockHeight int
-	if len(hotnessInfoBlocks) > 0 {
-		mempoolBlockHeight = hotnessInfoBlocks[0].BlockAge + 1
-	} else {
-		mempoolBlockHeight = 1
-	}
+	mempoolBlockHeight := fes.blockchain.BlockTip().Height + 1
 
 	// Create new "block" for mempool txns, give it a block age of 1 greater than the current tip
 
