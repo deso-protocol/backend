@@ -301,7 +301,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 ) (_hotFeedPostsMap map[lib.BlockHash]*HotnessPostInfo,
 ) {
 	// Check to see if any of the algorithm constants have changed.
-	foundNewConstants := false
+	//foundNewConstants := false
 	globalStateInteractionCap, globalStateTagInteractionCap, globalStateTimeDecayBlocks, globalStateTagTimeDecayBlocks, globalStateTxnTypeMultiplierMap, err := fes.GetHotFeedConstantsFromGlobalState()
 	if err != nil {
 		glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to get constants: %v", err)
@@ -309,7 +309,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	}
 	if globalStateInteractionCap == 0 || globalStateTimeDecayBlocks == 0 {
 		// The hot feed go routine has not been run yet since constants have not been set.
-		foundNewConstants = true
+		//foundNewConstants = true
 		// Set the default constants in GlobalState and then on the server object.
 		err := fes.GlobalState.Put(
 			_GlobalStatePrefixForHotFeedInteractionCap,
@@ -353,7 +353,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		// Check to see if only the tag-specific feed configuration variables are unset and set just those.
 	} else if globalStateTagInteractionCap == 0 || globalStateTagTimeDecayBlocks == 0 {
 		// The hot feed go routine has not been run yet since constants have not been set.
-		foundNewConstants = true
+		//foundNewConstants = true
 		err = fes.GlobalState.Put(
 			_GlobalStatePrefixForHotFeedTagInteractionCap,
 			lib.EncodeUint64(DefaultHotFeedTagInteractionCap),
@@ -385,10 +385,10 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		fes.HotFeedTagInteractionCap = globalStateTagInteractionCap
 		fes.HotFeedTagTimeDecayBlocks = globalStateTagTimeDecayBlocks
 		fes.HotFeedTxnTypeMultiplierMap = globalStateTxnTypeMultiplierMap
-		foundNewConstants = true
+		//foundNewConstants = true
 	} else if fes.HotFeedPostMultiplierUpdated || fes.HotFeedPKIDMultiplierUpdated {
 		// If a post's multiplier was updated, we need to recompute scores.
-		foundNewConstants = true
+		//foundNewConstants = true
 		fes.HotFeedPostMultiplierUpdated = false
 		fes.HotFeedPKIDMultiplierUpdated = false
 	}
@@ -396,7 +396,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	// If the constants for the algorithm haven't changed and we have already seen the latest
 	// block or the chain is out of sync, bail.
 	blockTip := fes.blockchain.BlockTip()
-	chainState := fes.blockchain.ChainState()
+	//chainState := fes.blockchain.ChainState()
 
 	// This offset allows us to see what the hot feed would look like in the past,
 	// which is useful for testing purposes.
@@ -405,16 +405,16 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	// Grab the last 15 days worth of blocks (25,920 blocks @ 5min/block).
 	lookbackWindowBlocks := 15 * 24 * 60 / 5
 	// Check if the most recent blocks that we'll be considering in hot feed computation have been processed.
-	chainFullyStored := true
+	//chainFullyStored := true
 	for _, blockNode := range fes.blockchain.BestChain() {
 		if blockNode.Height < blockTip.Height-uint32(lookbackWindowBlocks+blockOffsetForTesting) {
 			continue
 		}
 
-		if !blockNode.Status.IsFullyProcessed() {
-			chainFullyStored = false
-			break
-		}
+		//if !blockNode.Status.IsFullyProcessed() {
+		//	chainFullyStored = false
+		//	break
+		//}
 	}
 	glog.Info("UpdateHotFeedOrderedList: Looped through block nodes")
 	//if (!foundNewConstants && blockTip.Height <= fes.HotFeedBlockHeight) ||
@@ -609,7 +609,7 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 			// Evaluate the txn and attempt to update the hotnessInfoMap.
 			postHashScored, interactionPKID, txnHotnessScore :=
 				fes.GetHotnessScoreInfoForTxn(txn, postBlockAge, postInteractionMap, utxoView, isTagFeed)
-			if txnHotnessScore != 0 && postHashScored != nil {
+			if postHashScored != nil {
 				// Check for a post-specific multiplier.
 				multiplier, hasMultiplier := postsToMultipliers[*postHashScored]
 				if hasMultiplier && multiplier >= 0 {
