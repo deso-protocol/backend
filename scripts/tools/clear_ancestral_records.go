@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	dbDir := "/Users/piotr/data_dirs/hypersync/runner"
+	dbDir := "$HOME/data_dirs/hypersync/runner"
 
 	db, err := toolslib.OpenDataDir(dbDir)
 	if err != nil {
