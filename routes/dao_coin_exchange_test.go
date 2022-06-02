@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"fmt"
 	"github.com/deso-protocol/core/lib"
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
@@ -100,6 +101,94 @@ func TestCalculateScaledExchangeRate(t *testing.T) {
 			daoCoinPubKeyBase58Check,
 			daoCoinPubKeyBase58Check,
 			exchangeRate,
+		)
+		require.Error(t, err)
+	}
+}
+
+func TestCalculateScaledExchangeRateFromPriceString(t *testing.T) {
+	type testCaseType struct {
+		OperationType                               lib.DAOCoinLimitOrderOperationType
+		Price                                       string
+		ExpectedExchangeRateCoinsToSellPerCoinToBuy string
+	}
+
+	successTestCases := []testCaseType{
+		{lib.DAOCoinLimitOrderOperationTypeBID, "1", "100000000000000000000000000000000000000"}, // 1 * 1e38
+		{lib.DAOCoinLimitOrderOperationTypeASK, "1", "100000000000000000000000000000000000000"}, // 1e38 / 1
+
+		// Integer price with decimal point
+		{lib.DAOCoinLimitOrderOperationTypeBID, "1.0", "100000000000000000000000000000000000000"}, // 1 * 1e38
+		{lib.DAOCoinLimitOrderOperationTypeASK, "1.0", "100000000000000000000000000000000000000"}, // 1e38 / 1
+
+		{lib.DAOCoinLimitOrderOperationTypeBID, "20", "2000000000000000000000000000000000000000"}, // 20 * 1e38
+		{lib.DAOCoinLimitOrderOperationTypeASK, "20", "5000000000000000000000000000000000000"},    // 1e38 / 20
+
+		// Price with irrational calculated exchange rate
+		{lib.DAOCoinLimitOrderOperationTypeBID, "3", "300000000000000000000000000000000000000"}, // 3 * 1e38
+		{lib.DAOCoinLimitOrderOperationTypeASK, "3", "33333333333333333333333333333333333334"},  // ceil(1e38 / 3)
+
+		// Price < 1
+		{lib.DAOCoinLimitOrderOperationTypeBID, "0.005", "500000000000000000000000000000000000"},      // 0.005 * 1e38
+		{lib.DAOCoinLimitOrderOperationTypeASK, "0.005", "20000000000000000000000000000000000000000"}, // 1e38 / 0.005
+
+		// Smallest possible price
+		{lib.DAOCoinLimitOrderOperationTypeBID, "0.00000000000000000000000000000000000001", "1"}, // 1e-38 * 1e38
+		{
+			lib.DAOCoinLimitOrderOperationTypeASK,
+			"0.00000000000000000000000000000000000001",
+			"10000000000000000000000000000000000000000000000000000000000000000000000000000",
+		}, // 1e38 * 1e38
+
+		// An extremely large price (1e38)
+		{
+			lib.DAOCoinLimitOrderOperationTypeBID,
+			"100000000000000000000000000000000000000",
+			"10000000000000000000000000000000000000000000000000000000000000000000000000000", // 1e38 * 1e38
+		},
+		{
+			lib.DAOCoinLimitOrderOperationTypeASK,
+			"100000000000000000000000000000000000000",
+			"1", // 1e-38 * 1e38
+		},
+
+		// Price digits under 1e-38 are truncated
+		{lib.DAOCoinLimitOrderOperationTypeBID, "0.00000000000000000000000000000000000001234", "1"}, // 1e-38 * 1e38
+	}
+
+	// Test when buying coin is a DAO coin and selling coin is a DAO coin, for various exchange rates
+	for _, testCase := range successTestCases {
+		scaledExchangeRate, err := CalculateScaledExchangeRateFromPriceString(
+			daoCoinPubKeyBase58Check,
+			daoCoinPubKeyBase58Check,
+			testCase.Price,
+			testCase.OperationType,
+		)
+
+		require.NoError(t, err)
+		require.Equal(t, testCase.ExpectedExchangeRateCoinsToSellPerCoinToBuy, fmt.Sprintf("%v", scaledExchangeRate))
+	}
+
+	errorTestPrices := []string{
+		"0.000000000000000000000000000000000000001", // 1e-39 is too small
+		"10000000000000000000000000000000000000000", // 1e40 is too big
+	}
+
+	// Test when buying coin is a DAO coin and selling coin is a DAO coin, for various exchange rates
+	for _, price := range errorTestPrices {
+		_, err := CalculateScaledExchangeRateFromPriceString(
+			daoCoinPubKeyBase58Check,
+			daoCoinPubKeyBase58Check,
+			price,
+			lib.DAOCoinLimitOrderOperationTypeASK,
+		)
+		require.Error(t, err)
+
+		_, err = CalculateScaledExchangeRateFromPriceString(
+			daoCoinPubKeyBase58Check,
+			daoCoinPubKeyBase58Check,
+			price,
+			lib.DAOCoinLimitOrderOperationTypeBID,
 		)
 		require.Error(t, err)
 	}
