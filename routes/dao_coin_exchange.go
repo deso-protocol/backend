@@ -275,7 +275,7 @@ func buildDAOCoinLimitOrderResponse(
 		return nil, err
 	}
 
-	price, err := CalculateStringPriceFromScaledExchangeRate(
+	price, err := CalculatePriceStringFromScaledExchangeRate(
 		buyingCoinPublicKeyBase58Check,
 		sellingCoinPublicKeyBase58Check,
 		order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
@@ -285,7 +285,7 @@ func buildDAOCoinLimitOrderResponse(
 		return nil, err
 	}
 
-	quantity, err := CalculateQuantityAsString(
+	quantity, err := CalculateStringQuantityFromBaseUnits(
 		buyingCoinPublicKeyBase58Check,
 		sellingCoinPublicKeyBase58Check,
 		operationTypeString,
@@ -295,7 +295,7 @@ func buildDAOCoinLimitOrderResponse(
 		return nil, err
 	}
 
-	exchangeRate, err := CalculateExchangeRateAsFloat(
+	exchangeRate, err := CalculateFloatFromScaledExchangeRate(
 		buyingCoinPublicKeyBase58Check,
 		sellingCoinPublicKeyBase58Check,
 		order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
@@ -304,7 +304,7 @@ func buildDAOCoinLimitOrderResponse(
 		return nil, err
 	}
 
-	quantityToFill, err := CalculateQuantityToFillAsFloat(
+	quantityToFill, err := CalculateFloatQuantityFromBaseUnits(
 		buyingCoinPublicKeyBase58Check,
 		sellingCoinPublicKeyBase58Check,
 		operationTypeString,
@@ -332,6 +332,15 @@ func buildDAOCoinLimitOrderResponse(
 	}, nil
 }
 
+///////////////////////////////////////////////////////////////////////////////////
+// Helper functions to calculate price and exchange rates for DAO coin limit orders
+///////////////////////////////////////////////////////////////////////////////////
+
+// CalculateScaledExchangeRateFromPriceString calculates a scaled ExchangeRateCoinsToSellPerCoinsToBuy given a decimal
+// price string (ex: "1.23456") that represents an exchange rate between the two coins where the denominator is
+// determined by the operation type.
+// If operation type = BID, then price is the number of selling coins per buying coin
+// If operation type = ASK, then price is the number of buying coins per selling coin
 func CalculateScaledExchangeRateFromPriceString(
 	buyingCoinPublicKeyBase58Check string,
 	sellingCoinPublicKeyBase58Check string,
@@ -418,26 +427,37 @@ func CalculateScaledExchangeRateFromFloat(
 	return rawScaledExchangeRate, nil
 }
 
-func CalculateStringPriceFromScaledExchangeRate(
+// CalculatePriceStringFromScaledExchangeRate calculates price as a decimal string given a scaled ExchangeRateCoinsToSellPerCoinToBuy
+// The denominator for the output price is determined by the operation type
+// If operation type = BID, then price is the number of selling coins per buying coin
+// If operation type = ASK, then price is the number of buying coins per selling coin
+func CalculatePriceStringFromScaledExchangeRate(
 	buyingCoinPublicKeyBase58Check string,
 	sellingCoinPublicKeyBase58Check string,
-	scaledValue *uint256.Int,
+	scaledValueExchangeRate *uint256.Int,
 	operationTypeString DAOCoinLimitOrderOperationTypeString,
 ) (string, error) {
-	scaledValueAsBigInt := scaledValue.ToBig()
+	scaledExchangeRateAsBigInt := scaledValueExchangeRate.ToBig()
 	if buyingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
-		scaledValueAsBigInt.Div(scaledValueAsBigInt, getDESOToDAOCoinBaseUnitsScalingFactor().ToBig())
+		scaledExchangeRateAsBigInt.Div(scaledExchangeRateAsBigInt, getDESOToDAOCoinBaseUnitsScalingFactor().ToBig())
 	} else if sellingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
-		scaledValueAsBigInt.Mul(scaledValueAsBigInt, getDESOToDAOCoinBaseUnitsScalingFactor().ToBig())
+		scaledExchangeRateAsBigInt.Mul(scaledExchangeRateAsBigInt, getDESOToDAOCoinBaseUnitsScalingFactor().ToBig())
 	}
 
-	return formatScaledUint256AsDecimalString(scaledValueAsBigInt, lib.OneE38.ToBig()), nil
+	if operationTypeString == DAOCoinLimitOrderOperationTypeStringASK {
+		// Here, if this is an ask order, we need to take the inverse of the exchange rate because price needs to be
+		// the number of coins bought per coin sold
+		oneE72 := big.NewInt(0).Mul(lib.OneE38.ToBig(), lib.OneE38.ToBig())
+		scaledExchangeRateAsBigInt = big.NewInt(0).Div(oneE72, scaledExchangeRateAsBigInt)
+	}
+
+	return formatScaledUint256AsDecimalString(scaledExchangeRateAsBigInt, lib.OneE38.ToBig()), nil
 }
 
-// CalculateExchangeRateAsFloat given a buying coin, selling coin, and base unit to base unit exchange rate, this
-// calculates the coin-level float exchange rate for the coin pair, while accounting for the difference in base unit
-// scaling factors for $DESO (1e9) and DAO coins (1e18)
-func CalculateExchangeRateAsFloat(
+// CalculateFloatFromScaledExchangeRate given a buying coin, selling coin, and base unit to base unit exchange
+// rate, this calculates the coin-level float exchange rate for the coin pair, while accounting for the difference in
+// base unit scaling factors for $DESO (1e9) and DAO coins (1e18)
+func CalculateFloatFromScaledExchangeRate(
 	buyingCoinPublicKeyBase58Check string,
 	sellingCoinPublicKeyBase58Check string,
 	scaledValue *uint256.Int,
@@ -449,27 +469,27 @@ func CalculateExchangeRateAsFloat(
 		scaledValueAsBigInt.Mul(scaledValueAsBigInt, getDESOToDAOCoinBaseUnitsScalingFactor().ToBig())
 	}
 
-	oneE38AsBigInt := lib.OneE38.ToBig()
-
-	whole := big.NewInt(0).Div(scaledValueAsBigInt, oneE38AsBigInt)
-	decimal := big.NewInt(0).Mod(scaledValueAsBigInt, oneE38AsBigInt)
-	decimalLeadingZeros := strings.Repeat("0", getNumDigits(oneE38AsBigInt)-getNumDigits(decimal)-1)
-
-	str := fmt.Sprintf("%d.%s%d", whole, decimalLeadingZeros, decimal)
-	parsedFloat, err := strconv.ParseFloat(str, 64)
-	if err != nil {
-		// This should never happen since we're formatting the float ourselves above
-		return 0, err
-	}
-	return parsedFloat, nil
+	return calculateScaledUint256AsFloat(scaledValueAsBigInt, lib.OneE38.ToBig())
 }
 
-func CalculateQuantityAsString(
+/////////////////////////////////////////////////////////////////////
+// Helper functions to calculate quantities for DAO coin limit orders
+/////////////////////////////////////////////////////////////////////
+
+// CalculateStringQuantityFromBaseUnits given a buying coin, selling coin, operationType and quantity in base units,
+// this calculates the decimal string coin quantity for the side the operation type refers to
+func CalculateStringQuantityFromBaseUnits(
 	buyingCoinPublicKeyBase58Check string,
 	sellingCoinPublicKeyBase58Check string,
 	operationTypeString DAOCoinLimitOrderOperationTypeString,
 	quantityToFillInBaseUnits *uint256.Int,
 ) (string, error) {
+	if quantityToFillInBaseUnits.LtUint64(0) {
+		// This should never happen since quantityToFillInBaseUnits from core. It is good to exist early here
+		// just in case
+		return "", errors.Errorf("quantityToFillInBaseUnits cannot be less than 0")
+	}
+
 	if isCoinToFillDESO(
 		buyingCoinPublicKeyBase58Check,
 		sellingCoinPublicKeyBase58Check,
@@ -480,56 +500,31 @@ func CalculateQuantityAsString(
 	return formatScaledUint256AsDecimalString(quantityToFillInBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig()), nil
 }
 
-// CalculateQuantityToFillAsFloat given a buying coin, selling coin, operationType and a float quantity in base units,
-// this calculates the float coin quantity for side the operationType refers to
-func CalculateQuantityToFillAsFloat(
+// CalculateFloatQuantityFromBaseUnits given a buying coin, selling coin, operationType and a quantity in base units,
+// this calculates the float coin quantity for the side the operation type refers to
+func CalculateFloatQuantityFromBaseUnits(
 	buyingCoinPublicKeyBase58Check string,
 	sellingCoinPublicKeyBase58Check string,
 	operationTypeString DAOCoinLimitOrderOperationTypeString,
 	quantityToFillInBaseUnits *uint256.Int,
 ) (float64, error) {
+	if quantityToFillInBaseUnits.LtUint64(0) {
+		// This should never happen since quantityToFillInBaseUnits from core. It is good to exist early here
+		// just in case
+		return 0, errors.Errorf("quantityToFillInBaseUnits cannot be less than 0")
+	}
+
 	if isCoinToFillDESO(
 		buyingCoinPublicKeyBase58Check,
 		sellingCoinPublicKeyBase58Check,
 		operationTypeString,
 	) {
-		return calculateQuantityToFillFromDESONanosToFloat(quantityToFillInBaseUnits)
+		return calculateScaledUint256AsFloat(
+			quantityToFillInBaseUnits.ToBig(),
+			big.NewInt(int64(lib.NanosPerUnit)),
+		)
 	}
-	return calculateQuantityToFillFromDAOCoinBaseUnitsToFloat(quantityToFillInBaseUnits)
-}
-
-// calculate (quantityInBaseUnits / 10^18)
-func calculateQuantityToFillFromDAOCoinBaseUnitsToFloat(quantityInBaseUnits *uint256.Int) (float64, error) {
-	return calculateQuantityToFillAsFloatWithScalingFactor(
-		quantityInBaseUnits,
-		lib.BaseUnitsPerCoin,
-	)
-}
-
-// calculate (quantityInBaseUnits / 10^9)
-func calculateQuantityToFillFromDESONanosToFloat(quantityInNanos *uint256.Int) (float64, error) {
-	return calculateQuantityToFillAsFloatWithScalingFactor(
-		quantityInNanos,
-		uint256.NewInt().SetUint64(lib.NanosPerUnit),
-	)
-}
-
-// calculate (quantityInBaseUnits / 10^9)
-func calculateQuantityToFillAsFloatWithScalingFactor(
-	quantityAsScaledValue *uint256.Int,
-	scalingFactor *uint256.Int,
-) (float64, error) {
-	whole := uint256.NewInt().Div(quantityAsScaledValue, scalingFactor)
-	decimal := uint256.NewInt().Mod(quantityAsScaledValue, scalingFactor)
-	decimalLeadingZeros := strings.Repeat("0", getNumDigits(scalingFactor.ToBig())-getNumDigits(decimal.ToBig())-1)
-
-	str := fmt.Sprintf("%d.%s%d", whole, decimalLeadingZeros, decimal)
-	parsedFloat, err := strconv.ParseFloat(str, 64)
-	if err != nil {
-		// This should never happen since we're formatting the float ourselves above
-		return 0, err
-	}
-	return parsedFloat, nil
+	return calculateScaledUint256AsFloat(quantityToFillInBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
 }
 
 // CalculateQuantityToFillAsBaseUnits given a buying coin, selling coin, operationType and a float coin quantity,
@@ -556,7 +551,7 @@ func CalculateQuantityToFillAsBaseUnits(
 
 // calculate (quantityToFill * 10^18)
 func calculateQuantityToFillAsDAOCoinBaseUnits(quantityToFill string) (*uint256.Int, error) {
-	return calculateQuantityToFillToBaseUnitsWithScalingFactor(
+	return lib.ScaleFloatFormatStringToUint256(
 		quantityToFill,
 		lib.BaseUnitsPerCoin,
 	)
@@ -564,18 +559,10 @@ func calculateQuantityToFillAsDAOCoinBaseUnits(quantityToFill string) (*uint256.
 
 // calculate (quantityToFill * 10^9)
 func calculateQuantityToFillAsDESONanos(quantityToFill string) (*uint256.Int, error) {
-	return calculateQuantityToFillToBaseUnitsWithScalingFactor(
+	return lib.ScaleFloatFormatStringToUint256(
 		quantityToFill,
 		uint256.NewInt().SetUint64(lib.NanosPerUnit),
 	)
-}
-
-// calculate (quantityToFill * scalingFactor)
-func calculateQuantityToFillToBaseUnitsWithScalingFactor(
-	quantityToFill string,
-	scalingFactor *uint256.Int,
-) (*uint256.Int, error) {
-	return lib.ScaleFloatFormatStringToUint256(quantityToFill, scalingFactor)
 }
 
 // given a buying coin, selling coin, and operation type, this determines if the QuantityToFill field
@@ -659,14 +646,39 @@ func formatScaledUint256AsDecimalString(v *big.Int, scalingFactor *big.Int) stri
 	wholeNumber := big.NewInt(0).Div(v, scalingFactor)
 	decimalPart := big.NewInt(0).Mod(v, scalingFactor)
 
+	decimalPartIsZero := decimalPart.Cmp(big.NewInt(0)) == 0
+
 	scalingFactorDigits := getNumDigits(scalingFactor)
 	decimalPartAsString := fmt.Sprintf("%d", decimalPart)
-	// left pad the decimal part with zeros
-	if !(decimalPart.IsUint64() && decimalPart.Uint64() == 0) && len(decimalPartAsString) != scalingFactorDigits {
+
+	// Left pad the decimal part with zeros
+	if !decimalPartIsZero && len(decimalPartAsString) != scalingFactorDigits {
 		decimalLeadingZeros := strings.Repeat("0", scalingFactorDigits-len(decimalPartAsString)-1)
 		decimalPartAsString = fmt.Sprintf("%v%v", decimalLeadingZeros, decimalPartAsString)
 	}
+
+	// Trim trailing zeros
+	if !decimalPartIsZero {
+		decimalPartAsString = strings.TrimRight(decimalPartAsString, "0")
+	}
 	return fmt.Sprintf("%d.%v", wholeNumber, decimalPartAsString)
+}
+
+// Given a value v that is a scaled uint256 with the provided scaling factor, this prints v as a float scaled down
+// by the scaling factor
+// Ex: if v = 12345 and scalingFactor = 100, then this outputs 123.45
+func calculateScaledUint256AsFloat(v *big.Int, scalingFactor *big.Int) (float64, error) {
+	wholeNumber := big.NewInt(0).Div(v, scalingFactor)
+	decimalPart := big.NewInt(0).Mod(v, scalingFactor)
+	decimalLeadingZeros := strings.Repeat("0", getNumDigits(scalingFactor)-getNumDigits(decimalPart)-1)
+
+	str := fmt.Sprintf("%d.%s%d", wholeNumber, decimalLeadingZeros, decimalPart)
+	parsedFloat, err := strconv.ParseFloat(str, 64)
+	if err != nil {
+		// This should never happen since we're formatting the float ourselves above
+		return 0, err
+	}
+	return parsedFloat, nil
 }
 
 // 15 is a magic number that represents the precision supported by the IEEE-754 float64 standard.

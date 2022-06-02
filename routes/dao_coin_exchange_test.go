@@ -53,7 +53,7 @@ func TestCalculateScaledExchangeRate(t *testing.T) {
 				uint256.NewInt().Div(lib.OneE38, uint256.NewInt().SetUint64(uint64(-testCase.decimalDigitExponent))),
 			)
 		}
-		scaledExchangeRate, err := CalculateScaledExchangeRate(
+		scaledExchangeRate, err := CalculateScaledExchangeRateFromFloat(
 			daoCoinPubKeyBase58Check,
 			daoCoinPubKeyBase58Check,
 			exchangeRate,
@@ -64,7 +64,7 @@ func TestCalculateScaledExchangeRate(t *testing.T) {
 
 	// Test when buying coin is a DAO coin and selling coin is $DESO
 	{
-		scaledExchangeRate, err := CalculateScaledExchangeRate(
+		scaledExchangeRate, err := CalculateScaledExchangeRateFromFloat(
 			daoCoinPubKeyBase58Check,
 			desoPubKeyBase58Check,
 			1.0,
@@ -77,7 +77,7 @@ func TestCalculateScaledExchangeRate(t *testing.T) {
 
 	// Test when buying coin is $DESO and selling coin is DAO coin
 	{
-		scaledExchangeRate, err := CalculateScaledExchangeRate(
+		scaledExchangeRate, err := CalculateScaledExchangeRateFromFloat(
 			desoPubKeyBase58Check,
 			daoCoinPubKeyBase58Check,
 			1.0,
@@ -96,7 +96,7 @@ func TestCalculateScaledExchangeRate(t *testing.T) {
 	}
 
 	for _, exchangeRate := range failingTestCases {
-		_, err := CalculateScaledExchangeRate(
+		_, err := CalculateScaledExchangeRateFromFloat(
 			daoCoinPubKeyBase58Check,
 			daoCoinPubKeyBase58Check,
 			exchangeRate,
@@ -117,7 +117,7 @@ func TestCalculateExchangeRateAsFloat(t *testing.T) {
 
 	// Test when buying coin is a DAO coin and selling coin is a DAO coin order
 	{
-		scaledValue, err := CalculateExchangeRateAsFloat(
+		scaledValue, err := CalculateFloatFromScaledExchangeRate(
 			daoCoinPubKeyBase58Check,
 			daoCoinPubKeyBase58Check,
 			scaledExchangeRate,
@@ -128,7 +128,7 @@ func TestCalculateExchangeRateAsFloat(t *testing.T) {
 
 	// Test when buying coin is a DAO coin and selling coin is $DESO
 	{
-		exchangeRate, err := CalculateExchangeRateAsFloat(
+		exchangeRate, err := CalculateFloatFromScaledExchangeRate(
 			daoCoinPubKeyBase58Check,
 			desoPubKeyBase58Check,
 			scaledExchangeRate,
@@ -140,7 +140,7 @@ func TestCalculateExchangeRateAsFloat(t *testing.T) {
 
 	// Test when buying coin is $DESO coin and buying coin is $DESO
 	{
-		exchangeRate, err := CalculateExchangeRateAsFloat(
+		exchangeRate, err := CalculateFloatFromScaledExchangeRate(
 			desoPubKeyBase58Check,
 			daoCoinPubKeyBase58Check,
 			scaledExchangeRate,
@@ -148,6 +148,92 @@ func TestCalculateExchangeRateAsFloat(t *testing.T) {
 		require.NoError(t, err)
 		expectedReScaledExchangeRate := expectedExchangeRate / float64(desoToDaoCoinBaseUnitsScalingFactor.Uint64())
 		require.Equal(t, expectedReScaledExchangeRate, exchangeRate)
+	}
+}
+
+func TestCalculatePriceStringFromScaledExchangeRate(t *testing.T) {
+	desoToDaoCoinBaseUnitsScalingFactor := getDESOToDAOCoinBaseUnitsScalingFactor()
+
+	// equivalent to 100 scaled up by 1e38
+	scaledExchangeRate := uint256.NewInt().Mul(lib.OneE38, uint256.NewInt().SetUint64(100))
+
+	expectedStringExchangeRate := "100.0"
+	expectedInvertedStringExchangeRate := "0.01"
+
+	// Test when buying coin is a DAO coin, selling coin is a DAO coin order, and operation type is BID
+	{
+		priceString, err := CalculatePriceStringFromScaledExchangeRate(
+			daoCoinPubKeyBase58Check,
+			daoCoinPubKeyBase58Check,
+			scaledExchangeRate,
+			DAOCoinLimitOrderOperationTypeStringBID,
+		)
+		require.NoError(t, err)
+		require.Equal(t, expectedStringExchangeRate, priceString)
+	}
+
+	// Test when buying coin is a DAO coin, selling coin is a DAO coin order, and operation type is ASK
+	{
+		priceString, err := CalculatePriceStringFromScaledExchangeRate(
+			daoCoinPubKeyBase58Check,
+			daoCoinPubKeyBase58Check,
+			scaledExchangeRate,
+			DAOCoinLimitOrderOperationTypeStringASK,
+		)
+		require.NoError(t, err)
+		require.Equal(t, expectedInvertedStringExchangeRate, priceString)
+	}
+
+	// Test when buying coin is a DAO coin, selling coin is $DESO, and operation type is BID
+	{
+		exchangeRate, err := CalculatePriceStringFromScaledExchangeRate(
+			daoCoinPubKeyBase58Check,
+			desoPubKeyBase58Check,
+			// need to account for exchange rate being scaled up by 1e9 for orders selling deso for dao coins
+			uint256.NewInt().Div(scaledExchangeRate, desoToDaoCoinBaseUnitsScalingFactor),
+			DAOCoinLimitOrderOperationTypeStringBID,
+		)
+		require.NoError(t, err)
+		require.Equal(t, expectedStringExchangeRate, exchangeRate)
+	}
+
+	// Test when buying coin is a DAO coin, selling coin is $DESO, and operation type is ASK
+	{
+		exchangeRate, err := CalculatePriceStringFromScaledExchangeRate(
+			daoCoinPubKeyBase58Check,
+			desoPubKeyBase58Check,
+			// need to account for exchange rate being scaled up by 1e9 for orders selling deso for dao coins
+			uint256.NewInt().Div(scaledExchangeRate, desoToDaoCoinBaseUnitsScalingFactor),
+			DAOCoinLimitOrderOperationTypeStringASK,
+		)
+		require.NoError(t, err)
+		require.Equal(t, expectedInvertedStringExchangeRate, exchangeRate)
+	}
+
+	// Test when buying coin is $DESO coin, buying coin is $DESO, and operation type is BID
+	{
+		exchangeRate, err := CalculatePriceStringFromScaledExchangeRate(
+			desoPubKeyBase58Check,
+			daoCoinPubKeyBase58Check,
+			// need to account for exchange rate being scaled down by 1e9 for orders selling dao coins for deso
+			uint256.NewInt().Mul(scaledExchangeRate, desoToDaoCoinBaseUnitsScalingFactor),
+			DAOCoinLimitOrderOperationTypeStringBID,
+		)
+		require.NoError(t, err)
+		require.Equal(t, expectedStringExchangeRate, exchangeRate)
+	}
+
+	// Test when buying coin is $DESO coin, buying coin is $DESO, and operation type is ASK
+	{
+		exchangeRate, err := CalculatePriceStringFromScaledExchangeRate(
+			desoPubKeyBase58Check,
+			daoCoinPubKeyBase58Check,
+			// need to account for exchange rate being scaled down by 1e9 for orders selling dao coins for deso
+			uint256.NewInt().Mul(scaledExchangeRate, desoToDaoCoinBaseUnitsScalingFactor),
+			DAOCoinLimitOrderOperationTypeStringASK,
+		)
+		require.NoError(t, err)
+		require.Equal(t, expectedInvertedStringExchangeRate, exchangeRate)
 	}
 }
 
@@ -163,7 +249,7 @@ func TestCalculateQuantityToFillAsBaseUnits(t *testing.T) {
 			desoPubKeyBase58Check,
 			daoCoinPubKeyBase58Check,
 			DAOCoinLimitOrderOperationTypeStringBID,
-			quantity,
+			formatFloatAsString(quantity),
 		)
 		require.NoError(t, err)
 		require.Equal(t, expectedValueIfDESO, scaledQuantity)
@@ -175,7 +261,7 @@ func TestCalculateQuantityToFillAsBaseUnits(t *testing.T) {
 			daoCoinPubKeyBase58Check,
 			desoPubKeyBase58Check,
 			DAOCoinLimitOrderOperationTypeStringBID,
-			quantity,
+			formatFloatAsString(quantity),
 		)
 		require.NoError(t, err)
 		require.Equal(t, expectedValueIfDAOCoin, scaledQuantity)
@@ -187,7 +273,7 @@ func TestCalculateQuantityToFillAsBaseUnits(t *testing.T) {
 			daoCoinPubKeyBase58Check,
 			desoPubKeyBase58Check,
 			DAOCoinLimitOrderOperationTypeStringASK,
-			quantity,
+			formatFloatAsString(quantity),
 		)
 		require.NoError(t, err)
 		require.Equal(t, expectedValueIfDESO, scaledQuantity)
@@ -199,7 +285,7 @@ func TestCalculateQuantityToFillAsBaseUnits(t *testing.T) {
 			desoPubKeyBase58Check,
 			daoCoinPubKeyBase58Check,
 			DAOCoinLimitOrderOperationTypeStringASK,
-			quantity,
+			formatFloatAsString(quantity),
 		)
 		require.NoError(t, err)
 		require.Equal(t, expectedValueIfDAOCoin, scaledQuantity)
@@ -213,7 +299,7 @@ func TestCalculateQuantityToFillAsFloat(t *testing.T) {
 
 	// Bid order to buy $DESO using a DAO coin
 	{
-		quantity, err := CalculateQuantityToFillAsFloat(
+		quantity, err := CalculateFloatQuantityFromBaseUnits(
 			desoPubKeyBase58Check,
 			daoCoinPubKeyBase58Check,
 			DAOCoinLimitOrderOperationTypeStringBID,
@@ -225,7 +311,7 @@ func TestCalculateQuantityToFillAsFloat(t *testing.T) {
 
 	// Bid order to buy a DAO coin using $DESO
 	{
-		quantity, err := CalculateQuantityToFillAsFloat(
+		quantity, err := CalculateFloatQuantityFromBaseUnits(
 			daoCoinPubKeyBase58Check,
 			desoPubKeyBase58Check,
 			DAOCoinLimitOrderOperationTypeStringBID,
@@ -237,7 +323,7 @@ func TestCalculateQuantityToFillAsFloat(t *testing.T) {
 
 	// Ask order to sell $DESO for a DAO coin
 	{
-		quantity, err := CalculateQuantityToFillAsFloat(
+		quantity, err := CalculateFloatQuantityFromBaseUnits(
 			daoCoinPubKeyBase58Check,
 			desoPubKeyBase58Check,
 			DAOCoinLimitOrderOperationTypeStringASK,
@@ -249,7 +335,61 @@ func TestCalculateQuantityToFillAsFloat(t *testing.T) {
 
 	// Ask order to sell a DAO coin for $DESO
 	{
-		quantity, err := CalculateQuantityToFillAsFloat(
+		quantity, err := CalculateFloatQuantityFromBaseUnits(
+			desoPubKeyBase58Check,
+			daoCoinPubKeyBase58Check,
+			DAOCoinLimitOrderOperationTypeStringASK,
+			scaledQuantity,
+		)
+		require.NoError(t, err)
+		require.Equal(t, expectedValueIfDAOCoin, quantity)
+	}
+}
+
+func TestCalculateStringQuantityFromBaseUnits(t *testing.T) {
+	scaledQuantity := lib.BaseUnitsPerCoin
+	expectedValueIfDESO := "1000000000.0" // 1e9
+	expectedValueIfDAOCoin := "1.0"
+
+	// Bid order to buy $DESO using a DAO coin
+	{
+		quantity, err := CalculateStringQuantityFromBaseUnits(
+			desoPubKeyBase58Check,
+			daoCoinPubKeyBase58Check,
+			DAOCoinLimitOrderOperationTypeStringBID,
+			scaledQuantity,
+		)
+		require.NoError(t, err)
+		require.Equal(t, expectedValueIfDESO, quantity)
+	}
+
+	// Bid order to buy a DAO coin using $DESO
+	{
+		quantity, err := CalculateStringQuantityFromBaseUnits(
+			daoCoinPubKeyBase58Check,
+			desoPubKeyBase58Check,
+			DAOCoinLimitOrderOperationTypeStringBID,
+			scaledQuantity,
+		)
+		require.NoError(t, err)
+		require.Equal(t, expectedValueIfDAOCoin, quantity)
+	}
+
+	// Ask order to sell $DESO for a DAO coin
+	{
+		quantity, err := CalculateStringQuantityFromBaseUnits(
+			daoCoinPubKeyBase58Check,
+			desoPubKeyBase58Check,
+			DAOCoinLimitOrderOperationTypeStringASK,
+			scaledQuantity,
+		)
+		require.NoError(t, err)
+		require.Equal(t, expectedValueIfDESO, quantity)
+	}
+
+	// Ask order to sell a DAO coin for $DESO
+	{
+		quantity, err := CalculateStringQuantityFromBaseUnits(
 			desoPubKeyBase58Check,
 			daoCoinPubKeyBase58Check,
 			DAOCoinLimitOrderOperationTypeStringASK,
