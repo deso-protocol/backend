@@ -348,18 +348,12 @@ func buildDAOCoinLimitOrderResponse(
 // CalculateScaledExchangeRateFromPriceString calculates a scaled ExchangeRateCoinsToSellPerCoinsToBuy given a decimal
 // price string (ex: "1.23456") that represents an exchange rate between the two coins where the denominator is
 // determined by the operation type.
-// If operation type = BID, then price is the number of selling coins per buying coin
-// If operation type = ASK, then price is the number of buying coins per selling coin
 func CalculateScaledExchangeRateFromPriceString(
 	buyingCoinPublicKeyBase58Check string,
 	sellingCoinPublicKeyBase58Check string,
 	price string,
 	operationType lib.DAOCoinLimitOrderOperationType,
 ) (*uint256.Int, error) {
-	// Price is expected to be a decimal string in the form "1.23456" that represents the exchange rate between the buying
-	// and selling coin. If the operation type is ASK, then price represents the exchange rate of the buying coin per
-	// selling coin. If the operation type is BID, then price represents the exchange rate of the selling coin per buying
-	// coin.
 	rawScaledPrice, err := lib.CalculateScaledExchangeRateFromString(price)
 	if err != nil {
 		return nil, err
@@ -501,8 +495,8 @@ func CalculateStringQuantityFromBaseUnits(
 	quantityToFillInBaseUnits *uint256.Int,
 ) (string, error) {
 	if quantityToFillInBaseUnits.LtUint64(0) {
-		// This should never happen since quantityToFillInBaseUnits from core. It is good to exist early here
-		// just in case
+		// This should never happen since quantityToFillInBaseUnits is coming from consensus. We make this check here
+		// to exist early, if there's an issue with the order book
 		return "", errors.Errorf("quantityToFillInBaseUnits cannot be less than 0")
 	}
 
@@ -516,8 +510,8 @@ func CalculateStringQuantityFromBaseUnits(
 	return formatScaledUint256AsDecimalString(quantityToFillInBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig()), nil
 }
 
-// CalculateFloatQuantityFromBaseUnits given a buying coin, selling coin, operationType and a quantity in base units,
-// this calculates the float coin quantity for the side the operation type refers to
+// CalculateFloatQuantityFromBaseUnits calculates the float coin quantity in whole units given a buying coin, selling coin,
+// operationType and a quantity in base units
 func CalculateFloatQuantityFromBaseUnits(
 	buyingCoinPublicKeyBase58Check string,
 	sellingCoinPublicKeyBase58Check string,
@@ -525,8 +519,8 @@ func CalculateFloatQuantityFromBaseUnits(
 	quantityToFillInBaseUnits *uint256.Int,
 ) (float64, error) {
 	if quantityToFillInBaseUnits.LtUint64(0) {
-		// This should never happen since quantityToFillInBaseUnits from core. It is good to exist early here
-		// just in case
+		// This should never happen since quantityToFillInBaseUnits is coming from consensus. We make this check here
+		// to exist early, if there's an issue with the order book
 		return 0, errors.Errorf("quantityToFillInBaseUnits cannot be less than 0")
 	}
 
