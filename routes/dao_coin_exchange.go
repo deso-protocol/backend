@@ -351,22 +351,29 @@ func CalculateScaledExchangeRateFromPriceString(
 	// and selling coin. If the operation type is ASK, then price represents the exchange rate of the buying coin per
 	// selling coin. If the operation type is BID, then price represents the exchange rate of the selling coin per buying
 	// coin.
-	rawScaledPRice, err := lib.CalculateScaledExchangeRateFromString(price)
+	rawScaledPrice, err := lib.CalculateScaledExchangeRateFromString(price)
 	if err != nil {
 		return nil, err
 	}
-	if rawScaledPRice.IsZero() {
+	if rawScaledPrice.IsZero() {
 		return nil, errors.Errorf("The value %v is too small to produce a scaled exchange rate", price)
 	}
 
 	// Take the inverse of the exchange rate if the operation type is BID
-	rawScaledExchangeRate := rawScaledPRice
+	rawScaledExchangeRate := rawScaledPrice
 	if operationType == lib.DAOCoinLimitOrderOperationTypeASK {
-		// Here's we want to calculate 1/price into an exchange rate that's scaled by 1e38. We do this by calculating
-		// the quotient (1e38 * 1e38) / (price * 1e38), which creates a scaled exchange rate with up to 38 decimal places
-		// of precision which matches the level of precision in core
+		// Here we intend to calculate 1e38/price which gives us an ExchangeRateCoinsToSellPerCoinToBuy that's scaled up
+		// by 1e38. However, we can't avoid precision loss for irrational numbers, so we need to round up the quotient.
+		// The rounding allows ASK orders with irrational ExchangeRateCoinsToSellPerCoinToBuy values to match as expected
+		// with BID orders created using the same original input price. The integer division maths that gets us the intended
+		// result for ceil(1e38/price) using integer math is as follows:
+		//   ((1e38 + price) * 1e38) - 1) / (divisor * 1e38);
 		oneE72 := big.NewInt(0).Mul(lib.OneE38.ToBig(), lib.OneE38.ToBig())
-		rawScaledExchangeRateAsBigInt := big.NewInt(0).Div(oneE72, rawScaledPRice.ToBig())
+		numerator := big.NewInt(0).Add(oneE72, rawScaledExchangeRate.ToBig())
+		numerator = numerator.Sub(numerator, big.NewInt(1))
+
+		rawScaledExchangeRateAsBigInt := big.NewInt(0).Div(numerator, rawScaledExchangeRate.ToBig())
+
 		rawScaledExchangeRateWithPossibleOverflow, overflows := uint256.FromBig(rawScaledExchangeRateAsBigInt)
 		if overflows {
 			return nil, errors.Errorf("Overflow when converting %v to a scaled exchange rate", price)
