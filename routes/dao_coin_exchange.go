@@ -370,7 +370,7 @@ func CalculateScaledExchangeRateFromPriceString(
 		// The rounding allows ASK orders with irrational ExchangeRateCoinsToSellPerCoinToBuy values to match as expected
 		// with BID orders created using the same original input price. The integer division maths that gets us the intended
 		// result for ceil(1e38/price) using integer math is as follows:
-		//   ((1e38 + price) * 1e38) - 1) / (price * 1e38);
+		//   (1e38*1e38 + price*1e38 - 1) / (price*1e38);
 		oneE76 := big.NewInt(0).Mul(lib.OneE38.ToBig(), lib.OneE38.ToBig())
 		numerator := big.NewInt(0).Add(oneE76, rawScaledExchangeRate.ToBig())
 		numerator = numerator.Sub(numerator, big.NewInt(1))
@@ -401,6 +401,16 @@ func CalculateScaledExchangeRateFromPriceString(
 		return quotient, nil
 	}
 	return rawScaledExchangeRate, nil
+}
+
+// CalculateScaledExchangeRate acts as a pass through function to CalculateScaledExchangeRateFromFloat for backwards
+// compatibility
+func CalculateScaledExchangeRate(
+	buyingCoinPublicKeyBase58Check string,
+	sellingCoinPublicKeyBase58Check string,
+	exchangeRateCoinsToSellPerCoinToBuy float64,
+) (*uint256.Int, error) {
+	return CalculateScaledExchangeRateFromFloat(buyingCoinPublicKeyBase58Check, sellingCoinPublicKeyBase58Check, exchangeRateCoinsToSellPerCoinToBuy)
 }
 
 // CalculateScaledExchangeRateFromFloat given a buying coin, selling coin, and a coin-level float exchange rate, this calculates
