@@ -2672,7 +2672,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		)
 	}
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("ConstructDAOCoinLimitOrder: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
 		return
 	}
 
