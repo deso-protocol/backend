@@ -29,9 +29,18 @@ type DAOCoinLimitOrderEntryResponse struct {
 	BuyingDAOCoinCreatorPublicKeyBase58Check  string `safeForLogging:"true"`
 	SellingDAOCoinCreatorPublicKeyBase58Check string `safeForLogging:"true"`
 
-	Price    string `safeForLogging:"true"`
+	// A decimal string (ex: 1.23) that represents the exchange rate between the two coins. If operation type is BID
+	// then the denominator represents the coin being bought. If the operation type is ASK, then the denominator
+	// represents the coin being sold
+	Price string `safeForLogging:"true"`
+
+	// A decimal string (ex: 1.23) that represents the quantity of coins being bought or sold. If operation type is BID,
+	// then this quantity refers to the coin being bought. If operation type is ASK, then it refers to the coin being sold
 	Quantity string `safeForLogging:"true"`
 
+	// These two fields will be deprecated once the above Price and Quantity fields are deployed, and users have migrated
+	// to start using them. Until then, the API will continue to populate ExchangeRateCoinsToSellPerCoinToBuy and QuantityToFill
+	// in all responses
 	ExchangeRateCoinsToSellPerCoinToBuy float64 `safeForLogging:"true"` // Deprecated
 	QuantityToFill                      float64 `safeForLogging:"true"` // Deprecated
 
