@@ -370,9 +370,9 @@ func CalculateScaledExchangeRateFromPriceString(
 		// The rounding allows ASK orders with irrational ExchangeRateCoinsToSellPerCoinToBuy values to match as expected
 		// with BID orders created using the same original input price. The integer division maths that gets us the intended
 		// result for ceil(1e38/price) using integer math is as follows:
-		//   ((1e38 + price) * 1e38) - 1) / (divisor * 1e38);
-		oneE72 := big.NewInt(0).Mul(lib.OneE38.ToBig(), lib.OneE38.ToBig())
-		numerator := big.NewInt(0).Add(oneE72, rawScaledExchangeRate.ToBig())
+		//   ((1e38 + price) * 1e38) - 1) / (price * 1e38);
+		oneE76 := big.NewInt(0).Mul(lib.OneE38.ToBig(), lib.OneE38.ToBig())
+		numerator := big.NewInt(0).Add(oneE76, rawScaledExchangeRate.ToBig())
 		numerator = numerator.Sub(numerator, big.NewInt(1))
 
 		rawScaledExchangeRateAsBigInt := big.NewInt(0).Div(numerator, rawScaledExchangeRate.ToBig())
@@ -457,11 +457,21 @@ func CalculatePriceStringFromScaledExchangeRate(
 	if operationTypeString == DAOCoinLimitOrderOperationTypeStringASK {
 		// Here, if this is an ask order, we need to take the inverse of the exchange rate because price needs to be
 		// the number of coins bought per coin sold
-		oneE72 := big.NewInt(0).Mul(lib.OneE38.ToBig(), lib.OneE38.ToBig())
-		scaledExchangeRateAsBigInt = big.NewInt(0).Div(oneE72, scaledExchangeRateAsBigInt)
+		oneE76 := big.NewInt(0).Mul(lib.OneE38.ToBig(), lib.OneE38.ToBig())
+		scaledExchangeRateAsBigInt = big.NewInt(0).Div(oneE76, scaledExchangeRateAsBigInt)
 	}
 
 	return formatScaledUint256AsDecimalString(scaledExchangeRateAsBigInt, lib.OneE38.ToBig()), nil
+}
+
+// CalculateExchangeRateAsFloat acts as a pass-through function to CalculateFloatFromScaledExchangeRate for backwards
+// compatibility
+func CalculateExchangeRateAsFloat(
+	buyingCoinPublicKeyBase58Check string,
+	sellingCoinPublicKeyBase58Check string,
+	scaledValue *uint256.Int,
+) (float64, error) {
+	return CalculateFloatFromScaledExchangeRate(buyingCoinPublicKeyBase58Check, sellingCoinPublicKeyBase58Check, scaledValue)
 }
 
 // CalculateFloatFromScaledExchangeRate given a buying coin, selling coin, and base unit to base unit exchange

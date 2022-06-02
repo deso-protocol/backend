@@ -2569,6 +2569,9 @@ type DAOCoinLimitOrderResponse struct {
 	TxnHashHex        string
 }
 
+// DAOCoinLimitOrderWithExchangeRateAndQuantityRequest alias type for backwards compatibility
+type DAOCoinLimitOrderWithExchangeRateAndQuantityRequest DAOCoinLimitOrderCreationRequest
+
 type DAOCoinLimitOrderCreationRequest struct {
 	// The public key of the user who is creating the order
 	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
@@ -2739,6 +2742,9 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 }
+
+// DAOCoinMarketOrderWithQuantityRequest alias type for backwards compatibility
+type DAOCoinMarketOrderWithQuantityRequest DAOCoinMarketOrderCreationRequest
 
 type DAOCoinMarketOrderCreationRequest struct {
 	// The public key of the user who is sending the order
