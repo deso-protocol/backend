@@ -2666,7 +2666,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 
 	// Parse and validated quantity
 	quantityToFillInBaseUnits := uint256.NewInt()
-	if requestData.Quantity == "" && requestData.QuantityToFill <= 0 {
+	if requestData.Quantity == "" && requestData.QuantityToFill == 0 {
 		err = errors.Errorf("Quantity must be provided as a valid decimal string (ex: 1.23)")
 	} else if requestData.Quantity != "" {
 		quantityToFillInBaseUnits, err = CalculateQuantityToFillAsBaseUnits(
@@ -2675,6 +2675,8 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 			requestData.OperationType,
 			requestData.Quantity,
 		)
+	} else if requestData.QuantityToFill <= 0 {
+		err = errors.Errorf("CreateDAOCoinLimitOrder: Quantity must be greater than 0")
 	} else {
 		quantityToFillInBaseUnits, err = CalculateQuantityToFillAsBaseUnits(
 			requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
@@ -2798,7 +2800,7 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 	// Parse and validated quantity
 	quantityToFillInBaseUnits := uint256.NewInt()
 	if requestData.Quantity == "" && requestData.QuantityToFill == 0 {
-		err = errors.Errorf("Quantity must be provided as a valid decimal string (ex: 1.23)")
+		err = errors.Errorf("CreateDAOCoinMarketOrder: Quantity must be provided as a valid decimal string (ex: 1.23)")
 	} else if requestData.Quantity != "" {
 		quantityToFillInBaseUnits, err = CalculateQuantityToFillAsBaseUnits(
 			requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
@@ -2806,6 +2808,8 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 			requestData.OperationType,
 			requestData.Quantity,
 		)
+	} else if requestData.QuantityToFill <= 0 {
+		err = errors.Errorf("CreateDAOCoinMarketOrder: Quantity must be greater than 0")
 	} else {
 		quantityToFillInBaseUnits, err = CalculateQuantityToFillAsBaseUnits(
 			requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,

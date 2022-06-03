@@ -346,14 +346,18 @@ func buildDAOCoinLimitOrderResponse(
 ///////////////////////////////////////////////////////////////////////////////////
 
 // CalculateScaledExchangeRateFromPriceString calculates a scaled ExchangeRateCoinsToSellPerCoinsToBuy given a decimal
-// price string (ex: "1.23456") that represents an exchange rate between the two coins where the denominator is
-// determined by the operation type.
+// price string (ex: "1.23456") that represents an exchange rate between the two coins where the numerator is the coin
+// defined by the operation type.
 func CalculateScaledExchangeRateFromPriceString(
 	buyingCoinPublicKeyBase58Check string,
 	sellingCoinPublicKeyBase58Check string,
 	price string,
 	operationType lib.DAOCoinLimitOrderOperationType,
 ) (*uint256.Int, error) {
+	if err := validateNonNegativeDecimalString(price); err != nil {
+		return nil, err
+	}
+
 	rawScaledPrice, err := lib.CalculateScaledExchangeRateFromString(price)
 	if err != nil {
 		return nil, err
@@ -362,9 +366,10 @@ func CalculateScaledExchangeRateFromPriceString(
 		return nil, errors.Errorf("The value %v is too small to produce a scaled exchange rate", price)
 	}
 
-	// Take the inverse of the exchange rate if the operation type is BID
-	rawScaledExchangeRate := rawScaledPrice
+	// This is an ASK order so we need to take the multiplicative inverse in order to produce an ExchangeRateCoinsToSellPerCoinToBuy
 	if operationType == lib.DAOCoinLimitOrderOperationTypeASK {
+		rawScaledPriceAsBigInt := rawScaledPrice.ToBig()
+
 		// Here we intend to calculate 1e38/price which gives us an ExchangeRateCoinsToSellPerCoinToBuy that's scaled up
 		// by 1e38. However, we can't avoid precision loss for irrational numbers, so we need to round up the quotient.
 		// The rounding allows ASK orders with irrational ExchangeRateCoinsToSellPerCoinToBuy values to match as expected
@@ -372,35 +377,62 @@ func CalculateScaledExchangeRateFromPriceString(
 		// result for ceil(1e38/price) using integer math is as follows:
 		//   (1e38*1e38 + price*1e38 - 1) / (price*1e38);
 		oneE76 := big.NewInt(0).Mul(lib.OneE38.ToBig(), lib.OneE38.ToBig())
-		numerator := big.NewInt(0).Add(oneE76, rawScaledExchangeRate.ToBig())
+		numerator := big.NewInt(0).Add(oneE76, rawScaledPriceAsBigInt)
 		numerator = numerator.Sub(numerator, big.NewInt(1))
 
-		rawScaledExchangeRateAsBigInt := big.NewInt(0).Div(numerator, rawScaledExchangeRate.ToBig())
+		rawScaledExchangeRateAsBigInt := big.NewInt(0).Div(numerator, rawScaledPriceAsBigInt)
+
+		// For DESO <-> DAO coin trades, we scale the calculated exchange rate up or down by 1e9 to account for the
+		// scaling factor difference between DESO nanos and DAO coin base units
+		if buyingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
+			// Scale the exchange rate up by 1e9 if the buying coin is DESO
+			rawScaledExchangeRateAsBigInt.Mul(rawScaledExchangeRateAsBigInt, getDESOToDAOCoinBaseUnitsScalingFactor().ToBig())
+		} else if sellingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
+			// Scale the exchange rate down by 1e9 if the selling coin is DESO if  and round the quotient up.
+			// For the same reason as above, we round up the quotient, so it matches with bid orders created using the
+			// same input price
+			exchangeRateDownscaleNumerator := big.NewInt(0).Add(
+				rawScaledExchangeRateAsBigInt,
+				getDESOToDAOCoinBaseUnitsScalingFactor().ToBig(),
+			)
+			exchangeRateDownscaleNumerator.Sub(exchangeRateDownscaleNumerator, big.NewInt(1))
+			rawScaledExchangeRateAsBigInt.Div(exchangeRateDownscaleNumerator, getDESOToDAOCoinBaseUnitsScalingFactor().ToBig())
+		}
 
 		rawScaledExchangeRateWithPossibleOverflow, overflows := uint256.FromBig(rawScaledExchangeRateAsBigInt)
 		if overflows {
 			return nil, errors.Errorf("Overflow when converting %v to a scaled exchange rate", price)
 		}
-		rawScaledExchangeRate = rawScaledExchangeRateWithPossibleOverflow
+
+		return rawScaledExchangeRateWithPossibleOverflow, nil
 	}
 
+	// Beyond this point, we know that the operation type is lib.DAOCoinLimitOrderOperationTypeBID
+
+	// Scale up the price to account for DAO Coin -> DESO trades
 	if buyingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
-		// Buying coin is $DESO
 		product := uint256.NewInt()
-		overflow := product.MulOverflow(rawScaledExchangeRate, getDESOToDAOCoinBaseUnitsScalingFactor())
+		overflow := product.MulOverflow(rawScaledPrice, getDESOToDAOCoinBaseUnitsScalingFactor())
 		if overflow {
 			return nil, errors.Errorf("Overflow when converting %v to a scaled exchange rate", price)
 		}
 		return product, nil
-	} else if sellingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
-		// Selling coin is $DESO
-		quotient := uint256.NewInt().Div(rawScaledExchangeRate, getDESOToDAOCoinBaseUnitsScalingFactor())
+	}
+
+	// Scale down the price to account for DAO Coin -> DESO trades
+	if sellingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
+		// We intentionally want to round the exchange rate down for BID orders so precision loss does not prevent the
+		// order from not getting matched with an ASK order with the same input price
+		quotient := uint256.NewInt().Div(rawScaledPrice, getDESOToDAOCoinBaseUnitsScalingFactor())
 		if quotient.IsZero() {
 			return nil, errors.Errorf("The %v produces a scaled exchange rate that is too small", price)
 		}
 		return quotient, nil
 	}
-	return rawScaledExchangeRate, nil
+
+	// There's no need to perform any scaling or calculate multiplicative inverse needed
+	// This only applies to BID orders for DAO coin <-> DAO coin traders
+	return rawScaledPrice, nil
 }
 
 // CalculateScaledExchangeRate acts as a pass through function to CalculateScaledExchangeRateFromFloat for backwards
@@ -458,6 +490,7 @@ func CalculatePriceStringFromScaledExchangeRate(
 	operationTypeString DAOCoinLimitOrderOperationTypeString,
 ) (string, error) {
 	scaledExchangeRateAsBigInt := scaledValueExchangeRate.ToBig()
+
 	if buyingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
 		scaledExchangeRateAsBigInt.Div(scaledExchangeRateAsBigInt, getDESOToDAOCoinBaseUnitsScalingFactor().ToBig())
 	} else if sellingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
@@ -514,7 +547,7 @@ func CalculateStringQuantityFromBaseUnits(
 	operationTypeString DAOCoinLimitOrderOperationTypeString,
 	quantityToFillInBaseUnits *uint256.Int,
 ) (string, error) {
-	if quantityToFillInBaseUnits.LtUint64(0) {
+	if quantityToFillInBaseUnits.IsZero() {
 		// This should never happen since quantityToFillInBaseUnits is coming from consensus. We make this check here
 		// to exist early, if there's an issue with the order book
 		return "", errors.Errorf("quantityToFillInBaseUnits cannot be less than 0")
@@ -538,7 +571,7 @@ func CalculateFloatQuantityFromBaseUnits(
 	operationTypeString DAOCoinLimitOrderOperationTypeString,
 	quantityToFillInBaseUnits *uint256.Int,
 ) (float64, error) {
-	if quantityToFillInBaseUnits.LtUint64(0) {
+	if quantityToFillInBaseUnits.IsZero() {
 		// This should never happen since quantityToFillInBaseUnits is coming from consensus. We make this check here
 		// to exist early, if there's an issue with the order book
 		return 0, errors.Errorf("quantityToFillInBaseUnits cannot be less than 0")
@@ -565,6 +598,10 @@ func CalculateQuantityToFillAsBaseUnits(
 	operationTypeString DAOCoinLimitOrderOperationTypeString,
 	quantityToFill string,
 ) (*uint256.Int, error) {
+	if err := validateNonNegativeDecimalString(quantityToFill); err != nil {
+		return nil, err
+	}
+
 	if isCoinToFillDESO(
 		buyingCoinPublicKeyBase58Check,
 		sellingCoinPublicKeyBase58Check,
@@ -581,18 +618,32 @@ func CalculateQuantityToFillAsBaseUnits(
 
 // calculate (quantityToFill * 10^18)
 func calculateQuantityToFillAsDAOCoinBaseUnits(quantityToFill string) (*uint256.Int, error) {
-	return lib.ScaleFloatFormatStringToUint256(
+	scaledQuantity, err := lib.ScaleFloatFormatStringToUint256(
 		quantityToFill,
 		lib.BaseUnitsPerCoin,
 	)
+	if err != nil {
+		return nil, err
+	}
+	if scaledQuantity.IsZero() {
+		return nil, errors.Errorf("The input quantity %v produces a value of 0 when scaled to base units nanos", quantityToFill)
+	}
+	return scaledQuantity, nil
 }
 
 // calculate (quantityToFill * 10^9)
 func calculateQuantityToFillAsDESONanos(quantityToFill string) (*uint256.Int, error) {
-	return lib.ScaleFloatFormatStringToUint256(
+	scaledQuantity, err := lib.ScaleFloatFormatStringToUint256(
 		quantityToFill,
 		uint256.NewInt().SetUint64(lib.NanosPerUnit),
 	)
+	if err != nil {
+		return nil, err
+	}
+	if scaledQuantity.IsZero() {
+		return nil, errors.Errorf("The input quantity %v produces a value of 0 when scaled to DESO nanos", quantityToFill)
+	}
+	return scaledQuantity, nil
 }
 
 // given a buying coin, selling coin, and operation type, this determines if the QuantityToFill field
@@ -747,6 +798,18 @@ func getNumDigits(val *big.Int) int {
 		quotient.Div(quotient, ten)
 	}
 	return numDigits
+}
+
+// This is a quick sanity check. Any valid decimal string should successfully parse into a non-negative float64
+func validateNonNegativeDecimalString(str string) error {
+	floatValue, err := strconv.ParseFloat(str, 64)
+	if err != nil {
+		return errors.Errorf("Error parsing input %v as a decimal string: %v", str, err)
+	}
+	if floatValue < 0 {
+		return errors.Errorf("Input decimal string %v is unexpectedly less than 0", str)
+	}
+	return nil
 }
 
 func (fes *APIServer) validateTransactorSellingCoinBalance(

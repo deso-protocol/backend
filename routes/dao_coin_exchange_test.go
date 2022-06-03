@@ -132,6 +132,10 @@ func TestCalculateScaledExchangeRateFromPriceString(t *testing.T) {
 		{lib.DAOCoinLimitOrderOperationTypeBID, "0.005", "500000000000000000000000000000000000"},      // 0.005 * 1e38
 		{lib.DAOCoinLimitOrderOperationTypeASK, "0.005", "20000000000000000000000000000000000000000"}, // 1e38 / 0.005
 
+		// Decimal value with no whole number portion
+		{lib.DAOCoinLimitOrderOperationTypeBID, ".005", "500000000000000000000000000000000000"},      // 0.005 * 1e38
+		{lib.DAOCoinLimitOrderOperationTypeASK, ".005", "20000000000000000000000000000000000000000"}, // 1e38 / 0.005
+
 		// Smallest possible price
 		{lib.DAOCoinLimitOrderOperationTypeBID, "0.00000000000000000000000000000000000001", "1"}, // 1e-38 * 1e38
 		{
@@ -172,6 +176,15 @@ func TestCalculateScaledExchangeRateFromPriceString(t *testing.T) {
 	errorTestPrices := []string{
 		"0.000000000000000000000000000000000000001", // 1e-39 is too small
 		"10000000000000000000000000000000000000000", // 1e40 is too big
+		"0",
+		"0.0",
+		"-1",
+		"-1.0",
+		"-.1",
+		"a",
+		"2.a",
+		"a.2",
+		"",
 	}
 
 	// Test when buying coin is a DAO coin and selling coin is a DAO coin, for various exchange rates
@@ -379,6 +392,34 @@ func TestCalculateQuantityToFillAsBaseUnits(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, expectedValueIfDAOCoin, scaledQuantity)
 	}
+
+	failingTestCaseQuantities := []string{
+		"0", "0.0", ".0", "-1", "-1.1", "-.1", "a", "a.b", ".a",
+	}
+
+	for _, testCaseQuantity := range failingTestCaseQuantities {
+		// BID order
+		{
+			_, err := CalculateQuantityToFillAsBaseUnits(
+				daoCoinPubKeyBase58Check,
+				daoCoinPubKeyBase58Check,
+				DAOCoinLimitOrderOperationTypeStringBID,
+				testCaseQuantity,
+			)
+			require.Error(t, err)
+		}
+
+		// Ask order
+		{
+			_, err := CalculateQuantityToFillAsBaseUnits(
+				daoCoinPubKeyBase58Check,
+				daoCoinPubKeyBase58Check,
+				DAOCoinLimitOrderOperationTypeStringASK,
+				testCaseQuantity,
+			)
+			require.Error(t, err)
+		}
+	}
 }
 
 func TestCalculateQuantityToFillAsFloat(t *testing.T) {
@@ -486,5 +527,27 @@ func TestCalculateStringQuantityFromBaseUnits(t *testing.T) {
 		)
 		require.NoError(t, err)
 		require.Equal(t, expectedValueIfDAOCoin, quantity)
+	}
+
+	// zero quantity for BID order
+	{
+		_, err := CalculateStringQuantityFromBaseUnits(
+			desoPubKeyBase58Check,
+			daoCoinPubKeyBase58Check,
+			DAOCoinLimitOrderOperationTypeStringBID,
+			uint256.NewInt().SetUint64(0),
+		)
+		require.Error(t, err)
+	}
+
+	// zero quantity fpr ASK order
+	{
+		_, err := CalculateStringQuantityFromBaseUnits(
+			desoPubKeyBase58Check,
+			daoCoinPubKeyBase58Check,
+			DAOCoinLimitOrderOperationTypeStringASK,
+			uint256.NewInt().SetUint64(0),
+		)
+		require.Error(t, err)
 	}
 }
