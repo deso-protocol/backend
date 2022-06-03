@@ -103,21 +103,6 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	_, diamondPostHashKeyExists := txn.ExtraData[lib.DiamondPostHashKey]
-	// If this is a basic transfer (but not a diamond action), we check if user has completed the tutorial (if this node is configured for Jumio)
-	if !diamondPostHashKeyExists && txn.TxnMeta.GetTxnType() == lib.TxnTypeBasicTransfer && fes.IsConfiguredForJumio() {
-		var userMetadata *UserMetadata
-		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(txn.PublicKey)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem getting usermetadata from global state for basic transfer: %v", err))
-			return
-		}
-		if userMetadata.MustCompleteTutorial && userMetadata.TutorialStatus != COMPLETE && userMetadata.TutorialStatus != SKIPPED {
-			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: If you receive money from Jumio, you must complete the tutorial: %v", err))
-			return
-		}
-	}
-
 	if err = fes.backendServer.VerifyAndBroadcastTransaction(txn); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitTransaction: Problem processing transaction: %v", err))
 		return
@@ -962,18 +947,6 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem parsing request body: %v", err))
 		return
-	}
-
-	if fes.IsConfiguredForJumio() {
-		userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.SenderPublicKeyBase58Check)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: problem getting user metadata from global state: %v", err))
-			return
-		}
-		if userMetadata.JumioVerified && userMetadata.MustCompleteTutorial && userMetadata.TutorialStatus != COMPLETE {
-			_AddBadRequestError(ww, fmt.Sprintf("You must complete the tutorial before you can perform a basic transfer"))
-			return
-		}
 	}
 
 	// If the string starts with the public key characters than interpret it as
