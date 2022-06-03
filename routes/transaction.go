@@ -2569,8 +2569,11 @@ type DAOCoinLimitOrderResponse struct {
 	TxnHashHex        string
 }
 
-type DAOCoinLimitOrderWithExchangeRateAndQuantityRequest struct {
-	// The public key of the user who is sending the order
+// DAOCoinLimitOrderWithExchangeRateAndQuantityRequest alias type for backwards compatibility
+type DAOCoinLimitOrderWithExchangeRateAndQuantityRequest DAOCoinLimitOrderCreationRequest
+
+type DAOCoinLimitOrderCreationRequest struct {
+	// The public key of the user who is creating the order
 	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
 
 	// The public key of the DAO coin being bought
@@ -2579,20 +2582,33 @@ type DAOCoinLimitOrderWithExchangeRateAndQuantityRequest struct {
 	// The public key of the DAO coin being sold
 	SellingDAOCoinCreatorPublicKeyBase58Check string `safeForLogging:"true"`
 
-	ExchangeRateCoinsToSellPerCoinToBuy float64 `safeForLogging:"true"`
-	QuantityToFill                      float64 `safeForLogging:"true"`
+	// A decimal string (ex: 1.23) that represents the exchange rate between the two coins. If operation type is BID
+	// then the denominator represents the coin being bought. If the operation type is ASK, then the denominator
+	// represents the coin being sold
+	Price string `safeForLogging:"true"`
+
+	// A decimal string (ex: 1.23) that represents the quantity of coins being bought or sold. If operation type is BID,
+	// then this quantity refers to the coin being bought. If operation type is ASK, then it refers to the coin being sold
+	Quantity string `safeForLogging:"true"`
 
 	OperationType DAOCoinLimitOrderOperationTypeString `safeForLogging:"true"`
+	FillType      DAOCoinLimitOrderFillTypeString      `safeForLogging:"true"`
+
+	// The two fields ExchangeRateCoinsToSellPerCoinToBuy and QuantityToFill will be deprecated once the above Price
+	// and Quantity fields are deployed, and users have migrated to start using them. Until then, the API will continue
+	// to accept ExchangeRateCoinsToSellPerCoinToBuy and QuantityToFill in requests to this endpoint
+	ExchangeRateCoinsToSellPerCoinToBuy float64 `safeForLogging:"true"` // Deprecated
+	QuantityToFill                      float64 `safeForLogging:"true"` // Deprecated
 
 	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
 	TransactionFees      []TransactionFee `safeForLogging:"true"`
 }
 
 // CreateDAOCoinLimitOrder Constructs a transaction that creates a DAO coin limit order for the specified
-// DAO coin pair, exchange rate, quantity, and operation type
+// DAO coin pair, price, quantity, operation type, and fill type
 func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := DAOCoinLimitOrderWithExchangeRateAndQuantityRequest{}
+	requestData := DAOCoinLimitOrderCreationRequest{}
 
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: Problem parsing request body: %v", err))
@@ -2605,24 +2621,6 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	// Validate and scale exchange rate
-	if requestData.ExchangeRateCoinsToSellPerCoinToBuy <= 0 {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprint("CreateDAOCoinLimitOrder: ExchangeRateCoinsToSellPerCoinToBuy must be greater than 0"),
-		)
-		return
-	}
-	scaledExchangeRateCoinsToSellPerCoinToBuy, err := CalculateScaledExchangeRate(
-		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
-		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
-		requestData.ExchangeRateCoinsToSellPerCoinToBuy,
-	)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-		return
-	}
-
 	// Validate operation type
 	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
 	if err != nil {
@@ -2630,18 +2628,63 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	// Validate and convert quantity to base units
-	if requestData.QuantityToFill <= 0 {
-		_AddBadRequestError(ww, fmt.Sprint("CreateDAOCoinLimitOrder: QuantityToFill must be greater than 0"))
+	// Parse and validate fill type; for backwards compatibility, default the empty string to GoodTillCancelled
+	fillType := lib.DAOCoinLimitOrderFillTypeGoodTillCancelled
+	if requestData.FillType != "" {
+		fillType, err = orderFillTypeToUint64(requestData.FillType)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
+			return
+		}
+	}
+
+	// Validated and parse price to a scaled exchange rate
+	scaledExchangeRateCoinsToSellPerCoinToBuy := uint256.NewInt()
+	if requestData.Price == "" && requestData.ExchangeRateCoinsToSellPerCoinToBuy == 0 {
+		err = errors.Errorf("Price must be provided as a valid decimal string (ex: 1.23)")
+	} else if requestData.Price != "" {
+		scaledExchangeRateCoinsToSellPerCoinToBuy, err = CalculateScaledExchangeRateFromPriceString(
+			requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.Price,
+			operationType,
+		)
+	} else if requestData.ExchangeRateCoinsToSellPerCoinToBuy <= 0 {
+		err = errors.Errorf("CreateDAOCoinLimitOrder: ExchangeRateCoinsToSellPerCoinToBuy must be greater than 0")
+	} else {
+		// ExchangeRateCoinsToSellPerCoinToBuy > 0
+		scaledExchangeRateCoinsToSellPerCoinToBuy, err = CalculateScaledExchangeRateFromFloat(
+			requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.ExchangeRateCoinsToSellPerCoinToBuy,
+		)
+	}
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
 		return
 	}
 
-	quantityToFillInBaseUnits, err := CalculateQuantityToFillAsBaseUnits(
-		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
-		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
-		requestData.OperationType,
-		requestData.QuantityToFill,
-	)
+	// Parse and validated quantity
+	quantityToFillInBaseUnits := uint256.NewInt()
+	if requestData.Quantity == "" && requestData.QuantityToFill == 0 {
+		err = errors.Errorf("Quantity must be provided as a valid decimal string (ex: 1.23)")
+	} else if requestData.Quantity != "" {
+		quantityToFillInBaseUnits, err = CalculateQuantityToFillAsBaseUnits(
+			requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.OperationType,
+			requestData.Quantity,
+		)
+	} else if requestData.QuantityToFill <= 0 {
+		err = errors.Errorf("CreateDAOCoinLimitOrder: Quantity must be greater than 0")
+	} else {
+		quantityToFillInBaseUnits, err = CalculateQuantityToFillAsBaseUnits(
+			requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.OperationType,
+			formatFloatAsString(requestData.QuantityToFill),
+		)
+	}
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
 		return
@@ -2665,7 +2708,13 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 
 	// Validate transactor has sufficient selling coins.
 	err = fes.validateTransactorSellingCoinBalance(
-		requestData, scaledExchangeRateCoinsToSellPerCoinToBuy, quantityToFillInBaseUnits)
+		requestData.TransactorPublicKeyBase58Check,
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+		requestData.OperationType,
+		scaledExchangeRateCoinsToSellPerCoinToBuy,
+		quantityToFillInBaseUnits,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
 		return
@@ -2680,7 +2729,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		scaledExchangeRateCoinsToSellPerCoinToBuy,
 		quantityToFillInBaseUnits,
 		operationType,
-		lib.DAOCoinLimitOrderFillTypeGoodTillCancelled,
+		fillType,
 		nil,
 		requestData.MinFeeRateNanosPerKB,
 		requestData.TransactionFees,
@@ -2696,7 +2745,10 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 	}
 }
 
-type DAOCoinMarketOrderWithQuantityRequest struct {
+// DAOCoinMarketOrderWithQuantityRequest alias type for backwards compatibility
+type DAOCoinMarketOrderWithQuantityRequest DAOCoinMarketOrderCreationRequest
+
+type DAOCoinMarketOrderCreationRequest struct {
 	// The public key of the user who is sending the order
 	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
 
@@ -2706,10 +2758,16 @@ type DAOCoinMarketOrderWithQuantityRequest struct {
 	// The public key of the DAO coin being sold
 	SellingDAOCoinCreatorPublicKeyBase58Check string `safeForLogging:"true"`
 
-	QuantityToFill float64 `safeForLogging:"true"`
+	// A decimal string (ex: 1.23) that represents the quantity of coins being bought or sold. If operation type is BID,
+	// then this quantity refers to the coin being bought. If operation type is ASK, then it refers to the coin being sold
+	Quantity string `safeForLogging:"true"`
 
 	OperationType DAOCoinLimitOrderOperationTypeString `safeForLogging:"true"`
 	FillType      DAOCoinLimitOrderFillTypeString      `safeForLogging:"true"`
+
+	// The QuantityToFill field will be deprecated once the above Quantity field is deployed, and users have migrated to
+	// start using it. Until then, the API will continue to accept QuantityToFill as an optional parameter in lieu of Quantity
+	QuantityToFill float64 `safeForLogging:"true"` // Deprecated
 
 	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
 	TransactionFees      []TransactionFee `safeForLogging:"true"`
@@ -2717,7 +2775,7 @@ type DAOCoinMarketOrderWithQuantityRequest struct {
 
 func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := DAOCoinMarketOrderWithQuantityRequest{}
+	requestData := DAOCoinMarketOrderCreationRequest{}
 
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: Problem parsing request body: %v", err))
@@ -2738,17 +2796,29 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 	}
 
 	// Validate and convert quantity to base units
-	if requestData.QuantityToFill <= 0 {
-		_AddBadRequestError(ww, fmt.Sprint("CreateDAOCoinMarketOrder: QuantityToFill must be greater than 0"))
-		return
+
+	// Parse and validated quantity
+	quantityToFillInBaseUnits := uint256.NewInt()
+	if requestData.Quantity == "" && requestData.QuantityToFill == 0 {
+		err = errors.Errorf("CreateDAOCoinMarketOrder: Quantity must be provided as a valid decimal string (ex: 1.23)")
+	} else if requestData.Quantity != "" {
+		quantityToFillInBaseUnits, err = CalculateQuantityToFillAsBaseUnits(
+			requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.OperationType,
+			requestData.Quantity,
+		)
+	} else if requestData.QuantityToFill <= 0 {
+		err = errors.Errorf("CreateDAOCoinMarketOrder: Quantity must be greater than 0")
+	} else {
+		quantityToFillInBaseUnits, err = CalculateQuantityToFillAsBaseUnits(
+			requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.OperationType,
+			formatFloatAsString(requestData.QuantityToFill),
+		)
 	}
 
-	quantityToFillInBaseUnits, err := CalculateQuantityToFillAsBaseUnits(
-		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
-		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
-		requestData.OperationType,
-		requestData.QuantityToFill,
-	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
 		return

@@ -209,7 +209,7 @@ func (fes *APIServer) putPhoneNumberMetadataInGlobalState(multiPhoneNumberMetada
 func (fes *APIServer) validatePhoneNumberNotAlreadyInUse(phoneNumber string, userPublicKeyBase58Check string) (_err error) {
 	userPublicKeyBytes, _, err := lib.Base58CheckDecode(userPublicKeyBase58Check)
 	if err != nil {
-		return fmt.Errorf("validatePhoneNumberNotAlreadyInUse: Error decoding user public key", err)
+		return fmt.Errorf("validatePhoneNumberNotAlreadyInUse: Error decoding user public key: %v", err)
 	}
 	multiPhoneNumberMetadata, err := fes.getMultiPhoneNumberMetadataFromGlobalState(phoneNumber)
 	if err != nil {
@@ -510,7 +510,7 @@ func (fes *APIServer) sendEmail(email *mail.SGMailV3) {
 	request.Body = mail.GetRequestBody(email)
 	response, err := sendgrid.API(request)
 	if err != nil {
-		glog.Error("%v: %v", err, response)
+		glog.Errorf("%v: %v", err, response)
 	}
 }
 
@@ -1091,7 +1091,7 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 				signUpBonusMetadata.AllowCustomKickbackAmount, signUpBonusMetadata.KickbackAmountOverrideUSDCents,
 				referralInfo.ReferrerAmountUSDCents)
 			if referralInfo.TotalReferrals >= referralInfo.MaxReferrals && referralInfo.MaxReferrals > 0 {
-				glog.Infof("JumioVerifiedHandler: Not paying %s for kickback. Max Referrals exceeded")
+				glog.Info("JumioVerifiedHandler: Not paying for kickback. Max Referrals exceeded")
 				return userMetadata, nil
 			}
 			// Check the balance of the starter deso seed compared to the referrer deso nanos.

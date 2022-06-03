@@ -163,7 +163,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 
 	chain, params, _ := NewLowDifficultyBlockchain()
 	txIndexDb, _ := GetTestBadgerDb()
-	txIndex, _, _ := lib.NewTXIndex(chain, params, txIndexDb.Opts().Dir)
+	txIndex, _ := lib.NewTXIndex(chain, params, txIndexDb.Opts().Dir)
 	mempool, miner := NewTestMiner(t, chain, params, true /*isSender*/)
 	// Mine two blocks to give the sender some DeSo.
 	block1, err := miner.MineAndProcessSingleBlock(0 /*threadIndex*/, mempool)
@@ -567,9 +567,9 @@ func TestAPI(t *testing.T) {
 	var secondBlockTxn *lib.MsgDeSoTxn
 	{
 		blockHash := apiServer.blockchain.BestChain()[1].Hash
-		blockLookup, err := lib.GetBlock(blockHash, apiServer.blockchain.DB())
+		blockLookup, err := lib.GetBlock(blockHash, apiServer.blockchain.DB(), apiServer.blockchain.Snapshot())
 		require.NoError(err)
-		block2Lookup, err := lib.GetBlock(apiServer.blockchain.BestChain()[2].Hash, apiServer.blockchain.DB())
+		block2Lookup, err := lib.GetBlock(apiServer.blockchain.BestChain()[2].Hash, apiServer.blockchain.DB(), apiServer.blockchain.Snapshot())
 
 		firstBlockTxn = blockLookup.Txns[0]
 		secondBlockTxn = block2Lookup.Txns[0]

@@ -1242,7 +1242,7 @@ func (fes *APIServer) AdminUpdateHotFeedPostMultiplier(ww http.ResponseWriter, r
 
 	if requestData.Multiplier < 0 {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"AdminUpdateHotFeedPostMultiplier: Please provide non-negative multiplier: %d", requestData.Multiplier))
+			"AdminUpdateHotFeedPostMultiplier: Please provide non-negative multiplier: %f", requestData.Multiplier))
 		return
 	}
 
