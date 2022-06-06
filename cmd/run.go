@@ -172,7 +172,7 @@ func init() {
 	})
 
 	// Follow Feed Length
-    runCmd.PersistentFlags().Bool("follow-feed-infinite", false, "Return the entire follow feed")
+	runCmd.PersistentFlags().Bool("follow-feed-infinite", false, "Return the entire follow feed")
 	runCmd.PersistentFlags().Int("follow-feed-length", 2, "Number of days of content to fetch for follow feed")
 
 	rootCmd.AddCommand(runCmd)

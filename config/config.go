@@ -86,8 +86,8 @@ type Config struct {
 	PublicKeyBalancesToMonitor map[string][]byte
 
 	// Follow Feed Length
-    FollowFeedInfinite bool
-	FollowFeedLength int
+	FollowFeedInfinite bool
+	FollowFeedLength   int
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
