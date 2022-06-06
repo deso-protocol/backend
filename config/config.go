@@ -84,6 +84,10 @@ type Config struct {
 
 	// Public keys that need their balances monitored. Map of Label to Public key
 	PublicKeyBalancesToMonitor map[string][]byte
+
+	// Follow Feed Length
+    FollowFeedInfinite bool
+	FollowFeedLength int
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -195,6 +199,10 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 			config.PublicKeyBalancesToMonitor[entry[0]] = pubKeyBytes
 		}
 	}
+
+	// Follow Feed Length
+	config.FollowFeedInfinite = viper.GetBool("follow-feed-infinite")
+	config.FollowFeedLength = viper.GetInt("follow-feed-length")
 
 	return &config
 }
