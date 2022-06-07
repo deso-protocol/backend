@@ -1498,6 +1498,55 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 	}
 }
 
+type GetHolderCountForPublicKeysRequest struct {
+	PublicKeysBase58Check []string
+	IsDAOCoin             bool
+}
+
+func (fes *APIServer) GetHodlersCountForPublicKeys(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetHolderCountForPublicKeysRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetHolderCountForPublicKeys: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Get a view
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Error getting utxoView: %v", err))
+		return
+	}
+	res := make(map[string]int)
+	for _, publicKey := range requestData.PublicKeysBase58Check {
+		// Convert pub key to bytes
+		pkBytes, _, err := lib.Base58CheckDecode(publicKey)
+		if err != nil {
+			_AddBadRequestError(
+				ww,
+				fmt.Sprintf("GetHolderCountForPublicKeys: unable to decode public key - %v: %v", publicKey, err))
+			return
+		}
+		// Get PKID and then get holders for PKID
+		pkid := utxoView.GetPKIDForPublicKey(pkBytes)
+		balanceEntries, _, err := utxoView.GetHolders(pkid.PKID, false, requestData.IsDAOCoin)
+		if err != nil {
+			_AddInternalServerError(
+				ww,
+				fmt.Sprintf("GetHolderCountForPublicKeys: error get holders for public key %v: %v", publicKey, err))
+			return
+		}
+		// set value in map
+		res[publicKey] = len(balanceEntries)
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetHolderCountForPublicKeys: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
 // A DiamondSenderSummaryResponse is a response struct that rolls up all diamonds
 // received by a user from a single sender into a nice, simple summary struct.
 type DiamondSenderSummaryResponse struct {
