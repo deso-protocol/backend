@@ -1499,11 +1499,11 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 }
 
 type GetHolderCountForPublicKeysRequest struct {
-	PublicKeys []string
-	IsDAOCoin  bool
+	PublicKeysBase58Check []string
+	IsDAOCoin             bool
 }
 
-func (fes *APIServer) GetHolderCountForPublicKeys(ww http.ResponseWriter, req *http.Request) {
+func (fes *APIServer) GetHodlersCountForPublicKeys(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetHolderCountForPublicKeysRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
@@ -1519,7 +1519,7 @@ func (fes *APIServer) GetHolderCountForPublicKeys(ww http.ResponseWriter, req *h
 		return
 	}
 	res := make(map[string]int)
-	for _, publicKey := range requestData.PublicKeys {
+	for _, publicKey := range requestData.PublicKeysBase58Check {
 		// Convert pub key to bytes
 		pkBytes, _, err := lib.Base58CheckDecode(publicKey)
 		if err != nil {
