@@ -1500,7 +1500,7 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 
 type GetHolderCountForPublicKeysRequest struct {
 	PublicKeys []string
-	IsDAOCoin bool
+	IsDAOCoin  bool
 }
 
 func (fes *APIServer) GetHolderCountForPublicKeys(ww http.ResponseWriter, req *http.Request) {
