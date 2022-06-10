@@ -999,7 +999,7 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 			FillType:                  lib.DAOCoinLimitOrderFillTypeImmediateOrCancel,
 			BlockHeight:               math.MaxUint32,
 		}
-		ordersFound, err := utxoView.GetNextLimitOrdersToFill(transactorOrder, nil)
+		ordersFound, err := utxoView.GetNextLimitOrdersToFill(transactorOrder, nil, math.MaxUint32)
 		if err != nil {
 			glog.Errorf("Error getting DAO coin limit order price for %v: %v",
 				lib.PkToStringMainnet(profileEntry.PublicKey), err)
