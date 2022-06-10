@@ -928,3 +928,113 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 	// Happy path. No error. Transactor has sufficient balance to cover their selling quantity.
 	return nil
 }
+
+func (fes *APIServer) getDAOCoinLimitOrderSimulatedExecutionResult(
+	utxoView *lib.UtxoView,
+	transactorPublicKeyBase58Check string,
+	buyingDAOCoinCreatorPublicKeyBase58Check string,
+	sellingDAOCoinCreatorPublicKeyBase58Check string,
+	txn *lib.MsgDeSoTxn,
+) (*DAOCoinLimitOrderSimulatedExecutionResult, error) {
+	buyingCoinStartingBalance, err := fes.getTransactorDesoOrDaoCoinBalance(utxoView, transactorPublicKeyBase58Check, buyingDAOCoinCreatorPublicKeyBase58Check)
+	if err != nil {
+		return nil, err
+	}
+	sellingCoinStartingBalance, err := fes.getTransactorDesoOrDaoCoinBalance(utxoView, transactorPublicKeyBase58Check, sellingDAOCoinCreatorPublicKeyBase58Check)
+	if err != nil {
+		return nil, err
+	}
+
+	txnFees, err := fes.simulateSubmitTransaction(utxoView, txn)
+	if err != nil {
+		return nil, err
+	}
+
+	buyingCoinEndingBalance, err := fes.getTransactorDesoOrDaoCoinBalance(utxoView, transactorPublicKeyBase58Check, buyingDAOCoinCreatorPublicKeyBase58Check)
+	if err != nil {
+		return nil, err
+	}
+	if buyingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+		// If the buying coin is DESO, then the ending balance change will have the transaction fee subtracted. In order to
+		// isolate the amount of the buying coin bought as a part of this order, we need to add back the transaction fee
+		buyingCoinEndingBalance.Add(buyingCoinEndingBalance, uint256.NewInt().SetUint64(txnFees))
+	}
+
+	sellingCoinEndingBalance, err := fes.getTransactorDesoOrDaoCoinBalance(utxoView, transactorPublicKeyBase58Check, sellingDAOCoinCreatorPublicKeyBase58Check)
+	if err != nil {
+		return nil, err
+	}
+	if sellingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+		// If the selling coin is DESO, then the ending balance will have the network fee subtracted. In order to isolate
+		// the amount of the selling coin sold as a part of this order, we need to add back the transaction fee to the
+		// ending balance
+		sellingCoinEndingBalance.Add(sellingCoinEndingBalance, uint256.NewInt().SetUint64(txnFees))
+	}
+
+	buyingCoinBalanceChange := "0.0"
+	sellingCoinBalanceChange := "0.0"
+
+	if buyingCoinEndingBalance.Lt(buyingCoinStartingBalance) {
+		return nil, errors.Errorf("Buying coin balance cannot decrease as a result of a DAO coin limit order execution")
+	}
+
+	if sellingCoinEndingBalance.Gt(sellingCoinStartingBalance) {
+		return nil, errors.Errorf("Selling coin balance cannot increase as a result of a DAO coin limit order execution")
+	}
+
+	// Convert buying coin balance change from uint256 to as a decimal string (ex: 1.23)
+	buyingCoinBalanceChange = formatScaledUint256AsDecimalString(
+		uint256.NewInt().Sub(buyingCoinEndingBalance, buyingCoinStartingBalance).ToBig(),
+		getScalingFactorForCoin(buyingDAOCoinCreatorPublicKeyBase58Check).ToBig(),
+	)
+
+	// Convert selling coin balance change from uint256 to as a decimal string (ex: 1.23)
+	sellingCoinBalanceChange = formatScaledUint256AsDecimalString(
+		uint256.NewInt().Sub(sellingCoinStartingBalance, sellingCoinEndingBalance).ToBig(),
+		getScalingFactorForCoin(sellingDAOCoinCreatorPublicKeyBase58Check).ToBig(),
+	)
+
+	return &DAOCoinLimitOrderSimulatedExecutionResult{
+		BuyingCoinQuantityFilled:  buyingCoinBalanceChange,
+		SellingCoinQuantityFilled: sellingCoinBalanceChange,
+	}, nil
+}
+
+func (fes *APIServer) getTransactorDesoOrDaoCoinBalance(
+	utxoView *lib.UtxoView,
+	transactorPublicKeyBase58Check string,
+	desoOrDAOCoinCreatorPublicKeyBase58Check string,
+) (*uint256.Int, error) {
+	transactorPublicKey, _, err := lib.Base58CheckDecode(transactorPublicKeyBase58Check)
+	if err != nil {
+		return nil, errors.Errorf("Error decoding transactor public key: %v", err)
+	}
+
+	if desoOrDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+		// Get $DESO balance nanos.
+		desoBalanceNanos, err := utxoView.GetDeSoBalanceNanosForPublicKey(transactorPublicKey)
+		if err != nil {
+			return nil, errors.Errorf("Error getting transactor DESO balance: %v", err)
+		}
+		return uint256.NewInt().SetUint64(desoBalanceNanos), nil
+	}
+
+	daoCoinCreatorPublicKey, _, err := lib.Base58CheckDecode(desoOrDAOCoinCreatorPublicKeyBase58Check)
+	if err != nil {
+		return nil, errors.Errorf("Error decoding dao coin public key: %v", err)
+	}
+
+	// Get DAO coin balance base units.
+	balanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(transactorPublicKey, daoCoinCreatorPublicKey, true)
+	if balanceEntry == nil {
+		return nil, errors.New("Error getting transactor DAO coin balance")
+	}
+	return &balanceEntry.BalanceNanos, nil
+}
+
+func getScalingFactorForCoin(coinCreatorPublicKeyBase58Check string) *uint256.Int {
+	if coinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+		return uint256.NewInt().SetUint64(lib.NanosPerUnit)
+	}
+	return uint256.NewInt().Set(lib.BaseUnitsPerCoin)
+}
