@@ -955,6 +955,8 @@ func (fes *APIServer) getDAOCoinLimitOrderSimulatedExecutionResult(
 		return nil, err
 	}
 	if buyingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+		// If the buying coin is DESO, then the ending balance change will have the transaction fee subtracted. In order to
+		// isolate the amount of the buying coin bought as a part of this order, we need to add back the transaction fee
 		buyingCoinEndingBalance.Add(buyingCoinEndingBalance, uint256.NewInt().SetUint64(txnFees))
 	}
 
@@ -963,6 +965,9 @@ func (fes *APIServer) getDAOCoinLimitOrderSimulatedExecutionResult(
 		return nil, err
 	}
 	if sellingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+		// If the selling coin is DESO, then the ending balance will have the network fee subtracted. In order to isolate
+		// the amount of the selling coin sold as a part of this order, we need to add back the transaction fee to the
+		// ending balance
 		sellingCoinEndingBalance.Add(sellingCoinEndingBalance, uint256.NewInt().SetUint64(txnFees))
 	}
 
@@ -977,11 +982,13 @@ func (fes *APIServer) getDAOCoinLimitOrderSimulatedExecutionResult(
 		return nil, errors.Errorf("Selling coin balance cannot increase as a result of a DAO coin limit order execution")
 	}
 
+	// Convert buying coin balance change from uint256 to as a decimal string (ex: 1.23)
 	buyingCoinBalanceChange = formatScaledUint256AsDecimalString(
 		uint256.NewInt().Sub(buyingCoinEndingBalance, buyingCoinStartingBalance).ToBig(),
 		getScalingFactorForCoin(buyingDAOCoinCreatorPublicKeyBase58Check).ToBig(),
 	)
 
+	// Convert selling coin balance change from uint256 to as a decimal string (ex: 1.23)
 	sellingCoinBalanceChange = formatScaledUint256AsDecimalString(
 		uint256.NewInt().Sub(sellingCoinStartingBalance, sellingCoinEndingBalance).ToBig(),
 		getScalingFactorForCoin(sellingDAOCoinCreatorPublicKeyBase58Check).ToBig(),
