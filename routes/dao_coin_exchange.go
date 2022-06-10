@@ -936,45 +936,60 @@ func (fes *APIServer) getDAOCoinLimitOrderSimulatedExecutionResult(
 	sellingDAOCoinCreatorPublicKeyBase58Check string,
 	txn *lib.MsgDeSoTxn,
 ) (*DAOCoinLimitOrderSimulatedExecutionResult, error) {
-	buyingCoinBeforeBalance, err := fes.getTransactorDesoOrDaoCoinBalance(utxoView, transactorPublicKeyBase58Check, buyingDAOCoinCreatorPublicKeyBase58Check)
+	buyingCoinStartingBalance, err := fes.getTransactorDesoOrDaoCoinBalance(utxoView, transactorPublicKeyBase58Check, buyingDAOCoinCreatorPublicKeyBase58Check)
 	if err != nil {
 		return nil, err
 	}
-	sellingCoinBeforeBalance, err := fes.getTransactorDesoOrDaoCoinBalance(utxoView, transactorPublicKeyBase58Check, sellingDAOCoinCreatorPublicKeyBase58Check)
+	sellingCoinStartingBalance, err := fes.getTransactorDesoOrDaoCoinBalance(utxoView, transactorPublicKeyBase58Check, sellingDAOCoinCreatorPublicKeyBase58Check)
 	if err != nil {
 		return nil, err
 	}
-	if err = fes.simulateUnsignedTransaction(utxoView, txn); err != nil {
-		return nil, err
-	}
-	buyingCoinAfterBalance, err := fes.getTransactorDesoOrDaoCoinBalance(utxoView, transactorPublicKeyBase58Check, buyingDAOCoinCreatorPublicKeyBase58Check)
+	
+	txnFees, err := fes.simulateUnsignedTransaction(utxoView, txn)
 	if err != nil {
 		return nil, err
-	}
-	sellingCoinAfterBalance, err := fes.getTransactorDesoOrDaoCoinBalance(utxoView, transactorPublicKeyBase58Check, sellingDAOCoinCreatorPublicKeyBase58Check)
-	if err != nil {
-		return nil, err
-	}
-	if !buyingCoinAfterBalance.Gt(buyingCoinBeforeBalance) {
-		return nil, errors.Errorf("The buying coin balance does not increase as a result of this order execution")
-	}
-	if !sellingCoinAfterBalance.Lt(sellingCoinBeforeBalance) {
-		return nil, errors.Errorf("The selling coin balance does not decrease as a result of this order execution")
 	}
 
-	buyingCoinDifference := formatScaledUint256AsDecimalString(
-		uint256.NewInt().Sub(buyingCoinAfterBalance, buyingCoinBeforeBalance).ToBig(),
+	buyingCoinEndingBalance, err := fes.getTransactorDesoOrDaoCoinBalance(utxoView, transactorPublicKeyBase58Check, buyingDAOCoinCreatorPublicKeyBase58Check)
+	if err != nil {
+		return nil, err
+	}
+	if buyingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+		buyingCoinEndingBalance.Add(buyingCoinEndingBalance, uint256.NewInt().SetUint64(txnFees))
+	}
+
+	sellingCoinEndingBalance, err := fes.getTransactorDesoOrDaoCoinBalance(utxoView, transactorPublicKeyBase58Check, sellingDAOCoinCreatorPublicKeyBase58Check)
+	if err != nil {
+		return nil, err
+	}
+	if sellingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+		sellingCoinEndingBalance.Add(sellingCoinEndingBalance, uint256.NewInt().SetUint64(txnFees))
+	}
+
+	buyingCoinBalanceChange := "0.0"
+	sellingCoinBalanceChange := "0.0"
+
+	if buyingCoinEndingBalance.Lt(buyingCoinStartingBalance) {
+		return nil, errors.Errorf("Buying coin balance cannot decrease as a result of a DAO coin limit order execution")
+	}
+
+	if sellingCoinEndingBalance.Gt(sellingCoinStartingBalance) {
+		return nil, errors.Errorf("Selling coin balance cannot increase as a result of a DAO coin limit order execution")
+	}
+
+	buyingCoinBalanceChange = formatScaledUint256AsDecimalString(
+		uint256.NewInt().Sub(buyingCoinEndingBalance, buyingCoinStartingBalance).ToBig(),
 		getScalingFactorForCoin(buyingDAOCoinCreatorPublicKeyBase58Check).ToBig(),
 	)
 
-	sellingCoinDifference := formatScaledUint256AsDecimalString(
-		uint256.NewInt().Sub(sellingCoinBeforeBalance, sellingCoinAfterBalance).ToBig(),
+	sellingCoinBalanceChange = formatScaledUint256AsDecimalString(
+		uint256.NewInt().Sub(sellingCoinStartingBalance, sellingCoinEndingBalance).ToBig(),
 		getScalingFactorForCoin(sellingDAOCoinCreatorPublicKeyBase58Check).ToBig(),
 	)
 
 	return &DAOCoinLimitOrderSimulatedExecutionResult{
-		BuyingCoinQuantityFilled:  buyingCoinDifference,
-		SellingCoinQuantityFilled: sellingCoinDifference,
+		BuyingCoinQuantityFilled:  buyingCoinBalanceChange,
+		SellingCoinQuantityFilled: sellingCoinBalanceChange,
 	}, nil
 }
 

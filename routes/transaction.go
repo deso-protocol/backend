@@ -3653,9 +3653,9 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 	return
 }
 
-func (fes *APIServer) simulateUnsignedTransaction(utxoView *lib.UtxoView, txn *lib.MsgDeSoTxn) error {
+func (fes *APIServer) simulateUnsignedTransaction(utxoView *lib.UtxoView, txn *lib.MsgDeSoTxn) (uint64, error) {
 	bestHeight := fes.blockchain.BlockTip().Height + 1
-	_, _, _, _, err := utxoView.ConnectTransaction(
+	_, _, _, fees, err := utxoView.ConnectTransaction(
 		txn,
 		txn.Hash(),
 		0,
@@ -3663,5 +3663,5 @@ func (fes *APIServer) simulateUnsignedTransaction(utxoView *lib.UtxoView, txn *l
 		false,
 		false,
 	)
-	return err
+	return fees, err
 }
