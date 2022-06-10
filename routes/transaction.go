@@ -2613,7 +2613,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 	if requestData.FillType != "" {
 		fillType, err = orderFillTypeToUint64(requestData.FillType)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
 			return
 		}
 	}
@@ -2713,6 +2713,18 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		nil,
 		requestData.MinFeeRateNanosPerKB,
 		requestData.TransactionFees,
+	)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	res.SimulatedExecutionResult, err = fes.getDAOCoinLimitOrderSimulatedExecutionResult(
+		utxoView,
+		requestData.TransactorPublicKeyBase58Check,
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+		res.Transaction,
 	)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
@@ -3653,7 +3665,7 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 	return
 }
 
-func (fes *APIServer) simulateUnsignedTransaction(utxoView *lib.UtxoView, txn *lib.MsgDeSoTxn) (uint64, error) {
+func (fes *APIServer) simulateSubmitTransaction(utxoView *lib.UtxoView, txn *lib.MsgDeSoTxn) (uint64, error) {
 	bestHeight := fes.blockchain.BlockTip().Height + 1
 	_, _, _, fees, err := utxoView.ConnectTransaction(
 		txn,
