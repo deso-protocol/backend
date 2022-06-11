@@ -535,122 +535,123 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 	for _, hotnessInfoBlock := range hotnessInfoBlocks {
 		block := hotnessInfoBlock.Block
 		blockAgee := hotnessInfoBlock.BlockAge
-		if block != nil {
-			for _, txn := range block.Txns {
-				// We only care about posts created in the specified look-back period. There should always be a
-				// transaction that creates a given post before someone interacts with it. By only
-				// scoring posts that meet this condition, we can restrict the HotFeedOrderedList
-				// to posts from the specified look-back period without even looking up the post time stamp.
-				isCreatePost, postHashCreated := CheckTxnForCreatePost(txn)
-				if isCreatePost {
-					hotnessInfoMap[*postHashCreated] = &HotnessPostInfo{
-						PostBlockAge: blockAgee,
-						HotnessScore: 0,
+		if block == nil {
+			continue
+		}
+		for _, txn := range block.Txns {
+			// We only care about posts created in the specified look-back period. There should always be a
+			// transaction that creates a given post before someone interacts with it. By only
+			// scoring posts that meet this condition, we can restrict the HotFeedOrderedList
+			// to posts from the specified look-back period without even looking up the post time stamp.
+			isCreatePost, postHashCreated := CheckTxnForCreatePost(txn)
+			if isCreatePost {
+				hotnessInfoMap[*postHashCreated] = &HotnessPostInfo{
+					PostBlockAge: blockAgee,
+					HotnessScore: 0,
+				}
+				continue
+			}
+
+			// If the post has been edited, remove all tags associated with that post.
+			// This ensures that the categorization reflects the most recently edited version.
+			isEditPost, postHashEdited := CheckTxnForEditPost(txn)
+			if isEditPost {
+				tags := fes.PostHashToPostTagsMap[*postHashEdited]
+				delete(fes.PostHashToPostTagsMap, *postHashEdited)
+				for _, tag := range tags {
+					if postHashes, ok := fes.PostTagToPostHashesMap[tag]; ok {
+						delete(postHashes, *postHashEdited)
 					}
+				}
+				continue
+			}
+
+			// The age used in determining the score should be that of the post
+			// that we are evaluating. The interaction's score will be discounted
+			// by this age.
+			postHashToScore, posterPKID := GetPostHashToScoreForTxn(txn, utxoView)
+			if postHashToScore == nil {
+				// If we don't have a post hash to score then this txn is not relevant
+				// and we can continue.
+				continue
+			}
+			prevHotnessInfo, inHotnessInfoMap := hotnessInfoMap[*postHashToScore]
+			if !inHotnessInfoMap {
+				// If the post is not in the hotnessInfoMap yet, it wasn't created
+				// in the specified look-back period so we can continue.
+				continue
+			}
+			postBlockAge := prevHotnessInfo.PostBlockAge
+
+			// If we get here, we know we are dealing with a txn that interacts with a
+			// post that was created within the specified look-back period.
+
+			// Evaluate the txn and attempt to update the hotnessInfoMap.
+			postHashScored, interactionPKID, txnHotnessScore :=
+				fes.GetHotnessScoreInfoForTxn(txn, postBlockAge, postInteractionMap, utxoView, isTagFeed)
+			if postHashScored != nil {
+				// Check for a post-specific multiplier.
+				multiplier, hasMultiplier := postsToMultipliers[*postHashScored]
+				if hasMultiplier && multiplier >= 0 {
+					txnHotnessScore = uint64(multiplier * float64(txnHotnessScore))
+				}
+
+				// Check for PKID-specifc multipliers for the poster and the interactor.
+				posterPKIDMultiplier, hasPosterPKIDMultiplier := pkidsToMultipliers[*posterPKID]
+				if hasPosterPKIDMultiplier {
+					txnHotnessScore = uint64(
+						posterPKIDMultiplier.PostsMultiplier * float64(txnHotnessScore))
+				}
+				interactionPKIDMultiplier, hasInteractionPKIDMultiplier := pkidsToMultipliers[*interactionPKID]
+				if hasInteractionPKIDMultiplier {
+					txnHotnessScore = uint64(
+						interactionPKIDMultiplier.InteractionMultiplier * float64(txnHotnessScore))
+				}
+				// Check for overflow just in case.
+				if prevHotnessInfo.HotnessScore > math.MaxInt64-txnHotnessScore {
 					continue
 				}
 
-				// If the post has been edited, remove all tags associated with that post.
-				// This ensures that the categorization reflects the most recently edited version.
-				isEditPost, postHashEdited := CheckTxnForEditPost(txn)
-				if isEditPost {
-					tags := fes.PostHashToPostTagsMap[*postHashEdited]
-					delete(fes.PostHashToPostTagsMap, *postHashEdited)
+				// Finally, make sure the post scored isn't a comment or repost.
+				postEntryScored := utxoView.GetPostEntryForPostHash(postHashScored)
+				if len(postEntryScored.ParentStakeID) > 0 || lib.IsVanillaRepost(postEntryScored) {
+					continue
+				}
+				// If the post has been deleted, then exclude it from the hot feed.
+				if postEntryScored.IsHidden {
+					continue
+				}
+
+				var tags []string
+				var err error
+				// Before parsing the text body, first check to see if this post has been processed and cached prior.
+				if postTags, ok := fes.PostHashToPostTagsMap[*postHashScored]; ok {
+					tags = postTags
+				} else {
+					// Parse tags from post entry.
+					tags, err = ParseTagsFromPost(postEntryScored)
+					if err != nil {
+						return nil, err
+					}
+					// Cache processed post in map.
+					fes.PostHashToPostTagsMap[*postHashScored] = tags
+					// Add each tagged post to the tag:postEntries map
 					for _, tag := range tags {
-						if postHashes, ok := fes.PostTagToPostHashesMap[tag]; ok {
-							delete(postHashes, *postHashEdited)
+						// If a post hash set already exists, append to it,
+						// otherwise create a new set and add it to the map.
+						var postHashSet map[lib.BlockHash]bool
+						if postHashSet, ok = fes.PostTagToPostHashesMap[tag]; !ok {
+							postHashSet = make(map[lib.BlockHash]bool)
 						}
-					}
-					continue
-				}
-
-				// The age used in determining the score should be that of the post
-				// that we are evaluating. The interaction's score will be discounted
-				// by this age.
-				postHashToScore, posterPKID := GetPostHashToScoreForTxn(txn, utxoView)
-				if postHashToScore == nil {
-					// If we don't have a post hash to score then this txn is not relevant
-					// and we can continue.
-					continue
-				}
-				prevHotnessInfo, inHotnessInfoMap := hotnessInfoMap[*postHashToScore]
-				if !inHotnessInfoMap {
-					// If the post is not in the hotnessInfoMap yet, it wasn't created
-					// in the specified look-back period so we can continue.
-					continue
-				}
-				postBlockAge := prevHotnessInfo.PostBlockAge
-
-				// If we get here, we know we are dealing with a txn that interacts with a
-				// post that was created within the specified look-back period.
-
-				// Evaluate the txn and attempt to update the hotnessInfoMap.
-				postHashScored, interactionPKID, txnHotnessScore :=
-					fes.GetHotnessScoreInfoForTxn(txn, postBlockAge, postInteractionMap, utxoView, isTagFeed)
-				if postHashScored != nil {
-					// Check for a post-specific multiplier.
-					multiplier, hasMultiplier := postsToMultipliers[*postHashScored]
-					if hasMultiplier && multiplier >= 0 {
-						txnHotnessScore = uint64(multiplier * float64(txnHotnessScore))
-					}
-
-					// Check for PKID-specifc multipliers for the poster and the interactor.
-					posterPKIDMultiplier, hasPosterPKIDMultiplier := pkidsToMultipliers[*posterPKID]
-					if hasPosterPKIDMultiplier {
-						txnHotnessScore = uint64(
-							posterPKIDMultiplier.PostsMultiplier * float64(txnHotnessScore))
-					}
-					interactionPKIDMultiplier, hasInteractionPKIDMultiplier := pkidsToMultipliers[*interactionPKID]
-					if hasInteractionPKIDMultiplier {
-						txnHotnessScore = uint64(
-							interactionPKIDMultiplier.InteractionMultiplier * float64(txnHotnessScore))
-					}
-					// Check for overflow just in case.
-					if prevHotnessInfo.HotnessScore > math.MaxInt64-txnHotnessScore {
-						continue
-					}
-
-					// Finally, make sure the post scored isn't a comment or repost.
-					postEntryScored := utxoView.GetPostEntryForPostHash(postHashScored)
-					if len(postEntryScored.ParentStakeID) > 0 || lib.IsVanillaRepost(postEntryScored) {
-						continue
-					}
-					// If the post has been deleted, then exclude it from the hot feed.
-					if postEntryScored.IsHidden {
-						continue
-					}
-
-					var tags []string
-					var err error
-					// Before parsing the text body, first check to see if this post has been processed and cached prior.
-					if postTags, ok := fes.PostHashToPostTagsMap[*postHashScored]; ok {
-						tags = postTags
-					} else {
-						// Parse tags from post entry.
-						tags, err = ParseTagsFromPost(postEntryScored)
-						if err != nil {
-							return nil, err
+						if _, ok = postHashSet[*postHashScored]; !ok {
+							postHashSet[*postHashScored] = true
 						}
-						// Cache processed post in map.
-						fes.PostHashToPostTagsMap[*postHashScored] = tags
-						// Add each tagged post to the tag:postEntries map
-						for _, tag := range tags {
-							// If a post hash set already exists, append to it,
-							// otherwise create a new set and add it to the map.
-							var postHashSet map[lib.BlockHash]bool
-							if postHashSet, ok = fes.PostTagToPostHashesMap[tag]; !ok {
-								postHashSet = make(map[lib.BlockHash]bool)
-							}
-							if _, ok = postHashSet[*postHashScored]; !ok {
-								postHashSet[*postHashScored] = true
-							}
-							fes.PostTagToPostHashesMap[tag] = postHashSet
-						}
+						fes.PostTagToPostHashesMap[tag] = postHashSet
 					}
-
-					// Update the hotness score.
-					prevHotnessInfo.HotnessScore += txnHotnessScore
 				}
+
+				// Update the hotness score.
+				prevHotnessInfo.HotnessScore += txnHotnessScore
 			}
 		}
 	}
