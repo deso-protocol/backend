@@ -73,7 +73,9 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 	}
 
 	paramUpdaters := make(map[string]bool)
-	for kk := range fes.Params.ParamUpdaterPublicKeys {
+	for kk := range lib.GetParamUpdaterPublicKeys(
+		fes.blockchain.BlockTip().Height, fes.Params) {
+
 		paramUpdaters[lib.PkToString(kk[:], fes.Params)] = true
 	}
 
