@@ -2,17 +2,24 @@ package routes
 
 import (
 	"bytes"
+	"context"
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
-	"github.com/holiman/uint256"
+	"math/big"
 	"net/http"
 	"time"
 
+	"github.com/holiman/uint256"
+
 	"github.com/deso-protocol/core/lib"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
 	"github.com/tyler-smith/go-bip39"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 func _AddBadRequestError(ww http.ResponseWriter, errorString string) {
@@ -342,9 +349,92 @@ func (fes *APIServer) putUserMetadataInGlobalState(
 
 	return nil
 }
+func etherToWei(val *big.Int) *big.Int {
+	return new(big.Int).Mul(val, big.NewInt(params.Ether))
+}
+func (fes *APIServer) SendDesoMetamask(recipientPkBytes string) (txnHash *lib.BlockHash, _err error) {
+	// Alright so there's been a lot of trial and error on getting things to work so instead of over
+	// focusing on the small details I figured it would make the
+	// most sense to run a high level code execution plan by you guys instead.
 
+	// 1. validate the request to ensure they aren't trying to drain the account.
+	publicKey, _, err := lib.Base58CheckDecode(recipientPkBytes)
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return nil, err
+	}
+	balance, err := utxoView.GetDeSoBalanceNanosForPublicKey(publicKey)
+	if err != nil {
+		return nil, err
+	}
+	if balance > 0 {
+		err := errors.New("account already has Deso")
+		return nil, err
+	}
+	client, err := ethclient.Dial("https://mainnet.infura.io")
+	account := common.HexToAddress("public eth Address (not sure how to map deso key to eth key in go")
+	ethBalance, err := client.BalanceAt(context.Background(), account, nil)
+	ethBalanceFloat := new(big.Float).SetInt(ethBalance)
+	minFloat, _ := new(big.Float).SetString(".05")
+	remainder := new(big.Float).Sub(ethBalanceFloat, minFloat)
+	fmt.Printf(remainder.String())
+	// need to figure out how to do float compare? Seems oddly confusing
+	// Anyways, if(minFloat > remainder {return nil, not error("not enough funds")"]
+
+	//2. Validations passed, lets construct a deso send transaction from gringotts to the new user and add it to the mem pool.
+	//  I'm not sure where to access the gringotts private key so for now I have dummy data being passed in
+	gringotts, err := bip39.EntropyFromMnemonic("replace this with gringotts value")
+	_, privateKey, _, err := lib.ComputeKeysFromSeed(gringotts, 0, fes.Params)
+
+	fes.mtxSeedDeSo.Lock()
+	// defer will delay the execution of a function until the parent function is done executing
+	defer fes.mtxSeedDeSo.Unlock()
+
+	// construct the object type
+	txnOutputs := []*lib.DeSoOutput{}
+	// assign values to the object type
+	txnOutputs = append(txnOutputs, &lib.DeSoOutput{
+		PublicKey: publicKey,
+		// passing in an arbitrary amount for now, will decide on official value later
+		AmountNanos: 100,
+	})
+	// take the output information and add it to a txn object
+	txn := &lib.MsgDeSoTxn{
+		// The inputs will be set below.
+		TxInputs:  []*lib.DeSoInput{},
+		TxOutputs: txnOutputs,
+		//might need to figure out how to compress this if its not already
+		PublicKey: publicKey,
+		TxnMeta:   &lib.BasicTransferMetadata{},
+	}
+
+	minFee := fes.MinFeeRateNanosPerKB
+	if utxoView.GlobalParamsEntry != nil && utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB > 0 {
+		minFee = utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB
+	}
+
+	_, _, _, _, err = fes.blockchain.AddInputsAndChangeToTransaction(txn, minFee, fes.mempool)
+	if err != nil {
+		return nil, fmt.Errorf("SendSeedDeSo: Error adding inputs for seed DeSo: %v", err)
+	}
+
+	txnSignature, err := txn.Sign(privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("SendSeedDeSo: Error adding inputs for seed DeSo: %v", err)
+	}
+	txn.Signature = txnSignature
+
+	err = fes.backendServer.VerifyAndBroadcastTransaction(txn)
+	if err != nil {
+		return nil, fmt.Errorf("SendSeedDeSo: Problem processing starter seed transaction: %v", err)
+	}
+	// 3. return transaction action hash and we should be good. 
+	return txn.Hash(), nil
+
+}
 func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, useBuyDeSoSeed bool) (txnHash *lib.BlockHash, _err error) {
 	fes.mtxSeedDeSo.Lock()
+
 	defer fes.mtxSeedDeSo.Unlock()
 
 	senderSeed := fes.Config.StarterDESOSeed
@@ -391,6 +481,7 @@ func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, 
 		if err != nil {
 			return nil, err
 		}
+
 		minFee := fes.MinFeeRateNanosPerKB
 		if utxoView.GlobalParamsEntry != nil && utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB > 0 {
 			minFee = utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB
