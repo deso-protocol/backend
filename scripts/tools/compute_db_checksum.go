@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	dirSnap := "/Users/piotr/data_dirs/hypersync/final_nodes/runner_node"
+	dirSnap := "$HOME/data_dirs/hypersync/final_nodes/runner_node"
 	time.Sleep(1 * time.Millisecond)
 	dbSnap, err := toolslib.OpenDataDir(dirSnap)
 	if err != nil {

@@ -8,8 +8,8 @@ import (
 )
 
 func main() {
-	dir0 := "/Users/piotr/data_dirs/n69_5"
-	dir1 := "/Users/piotr/data_dirs/n69_2"
+	dir0 := "$HOME/data_dirs/n69_5"
+	dir1 := "$HOME/data_dirs/n69_2"
 	//dir2 := "/Users/piotr/data_dirs/n7_1"
 
 	db0, err := toolslib.OpenDataDir(dir0)

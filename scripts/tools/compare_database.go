@@ -12,8 +12,8 @@ import (
 )
 
 func main() {
-	dir0 := "/Users/piotr/data_dirs/hypersync/mini_sentry_nft"
-	dir1 := "/Users/piotr/data_dirs/hypersync/control_sentry_nft"
+	dir0 := "$HOME/data_dirs/hypersync/mini_sentry_nft"
+	dir1 := "$HOME/data_dirs/hypersync/control_sentry_nft"
 
 	db0, err := toolslib.OpenDataDir(dir0)
 	if err != nil {
