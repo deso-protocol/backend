@@ -394,18 +394,21 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 	// Give the user starter deso if this is their first time signing in with through metamask and if they don't have Deso
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 
-	requestData := MetamaskSignInRequest{}
 	// Validate the  request object
+	requestData := MetamaskSignInRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Problem parsing request body: #{err}"))
 		return
 	}
 	recipientBytePK := []byte(requestData.recipientPublicKey)
+
 	// Validate that the user doesn't have Deso already
 	desoBalance, desoBalanceErr := fes.getBalanceForPubKey(recipientBytePK)
 	if desoBalanceErr != nil || desoBalance > 0 {
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Problem parsing request body: #{err}"))
+		return
 	}
+
 	// validate the user's eth balance
 	client, err := ethclient.Dial("https://mainnet.infura.io")
 	account := common.HexToAddress(requestData.recipientEthAddress)
@@ -419,23 +422,25 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: User does not have enough eth in their account"))
 		return
 	}
+
 	// verify that they signed a signature from their account
 	verifyEthError := _verifyEthPersonalSignature(requestData.signer, requestData.data, requestData.signature)
 	if verifyEthError != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Invalid signer signature match #{verifyEthError}"))
+		return
 	}
+
 	// send deso to the user
 	txnHash, err := fes.SendSeedDeSo(recipientBytePK, requestData.amountNanos, false)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Problem sending starter Deso"))
+		return
 	}
 	res := MetamaskSignInResponse{TxnHash: txnHash}
-
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Problem encoding response: %v #{err}"))
 		return
 	}
-
 }
 
 // ExecuteETHRPCRequest makes a request to Infura to fetch information about the Ethereum blockchain
