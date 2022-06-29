@@ -971,14 +971,9 @@ func (fes *APIServer) validateDAOCoinOrderTransferRestriction(
 
 	// Validate if transfer restriction status is MEMBERS ONLY.
 	if profileEntry.DAOCoinEntry.TransferRestrictionStatus == lib.TransferRestrictionStatusDAOMembersOnly {
-		// Retrieve transactor's DAO coin balance.
+		// Retrieve transactor's DAO coin balance. Error if balance is zero.
 		balanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(transactorPublicKey, buyingCoinPublicKey, true)
-		if balanceEntry == nil {
-			return errors.New("Transactor DAO coin balance entry not found")
-		}
-
-		// Error if balance is zero.
-		if balanceEntry.BalanceNanos.IsZero() {
+		if balanceEntry == nil || balanceEntry.BalanceNanos.IsZero() {
 			return errors.New("Buying this DAO coin is restricted to users who already own this DAO coin")
 		}
 	}
