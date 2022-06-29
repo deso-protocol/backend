@@ -2700,6 +2700,15 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
+	// Validate any transfer restrictions on buying the DAO coin.
+	err = fes.validateDAOCoinOrderTransferRestriction(
+		requestData.TransactorPublicKeyBase58Check,
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
 	// Create order.
 	res, err := fes.createDAOCoinLimitOrderResponse(
 		utxoView,
@@ -2827,6 +2836,15 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 			ww,
 			fmt.Sprintf("CreateDAOCoinMarketOrder: %v fill type not supported for market orders", requestData.FillType),
 		)
+		return
+	}
+
+	// Validate any transfer restrictions on buying the DAO coin.
+	err = fes.validateDAOCoinOrderTransferRestriction(
+		requestData.TransactorPublicKeyBase58Check,
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
 		return
 	}
 
