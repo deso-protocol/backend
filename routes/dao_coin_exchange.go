@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core/lib"
@@ -926,6 +927,57 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 	}
 
 	// Happy path. No error. Transactor has sufficient balance to cover their selling quantity.
+	return nil
+}
+
+func (fes *APIServer) validateDAOCoinOrderTransferRestriction(
+	transactorPublicKeyBase58Check string, buyingDAOCoinCreatorPublicKeyBase58Check string) error {
+
+	// If buying $DESO, this never has a transfer restriction. We validate
+	// that you own sufficient of your selling coin elsewhere.
+	if buyingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+		return nil
+	}
+
+	// Get UTXO view.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return errors.Errorf("Problem fetching UTXOView: %v", err)
+	}
+
+	// Get transactor PublicKey from PublicKeyBase58Check.
+	transactorPublicKey, _, err := lib.Base58CheckDecode(transactorPublicKeyBase58Check)
+	if err != nil {
+		return errors.Errorf("Error decoding transactor public key: %v", err)
+	}
+
+	// Get buying DAO coin creator PublicKey from PublicKeyBase58Check.
+	buyingCoinPublicKey, _, err := lib.Base58CheckDecode(buyingDAOCoinCreatorPublicKeyBase58Check)
+	if err != nil {
+		return errors.Errorf("Error decoding buying DAO coin creator public key: %v", err)
+	}
+
+	// Get buying DAO coin profile entry.
+	profileEntry := utxoView.GetProfileEntryForPublicKey(buyingCoinPublicKey)
+	if profileEntry == nil || profileEntry.IsDeleted() {
+		return errors.New("Buying DAO coin creator profile entry not found")
+	}
+
+	// Validate if transfer restriction status is PROFILE OWNER ONLY.
+	if profileEntry.DAOCoinEntry.TransferRestrictionStatus == lib.TransferRestrictionStatusProfileOwnerOnly &&
+		!bytes.Equal(transactorPublicKey, buyingCoinPublicKey) {
+		return errors.New("Buying this DAO coin is restricted to the creator of the DAO")
+	}
+
+	// Validate if transfer restriction status is MEMBERS ONLY.
+	if profileEntry.DAOCoinEntry.TransferRestrictionStatus == lib.TransferRestrictionStatusDAOMembersOnly {
+		// Retrieve transactor's DAO coin balance. Error if balance is zero.
+		balanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(transactorPublicKey, buyingCoinPublicKey, true)
+		if balanceEntry == nil || balanceEntry.BalanceNanos.IsZero() {
+			return errors.New("Buying this DAO coin is restricted to users who already own this DAO coin")
+		}
+	}
+
 	return nil
 }
 
