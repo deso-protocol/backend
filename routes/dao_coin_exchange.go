@@ -373,16 +373,12 @@ func GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell(
 		return "0", nil
 	}
 
-	bestOrderSellingOneBaseUnitOfTheSellingCoin := orders[0]
+	bestExchangeRate := orders[0].ScaledExchangeRateCoinsToSellPerCoinToBuy
 	for _, order := range orders[1:] {
 		// ScaledExchangeRateCoinsToSellPerCoinToBuy has the buying coin is the denominator, so we want to find
 		// the highest available ScaledExchangeRateCoinsToSellPerCoinToBuy
-		if order.ScaledExchangeRateCoinsToSellPerCoinToBuy.Gt(
-			bestOrderSellingOneBaseUnitOfTheSellingCoin.ScaledExchangeRateCoinsToSellPerCoinToBuy,
-		) {
-			// Create a copy of the order entry as the pointer to the entry is overwritten on each iteration
-			orderCopy := *order
-			bestOrderSellingOneBaseUnitOfTheSellingCoin = &orderCopy
+		if order.ScaledExchangeRateCoinsToSellPerCoinToBuy.Gt(bestExchangeRate) {
+			bestExchangeRate = order.ScaledExchangeRateCoinsToSellPerCoinToBuy
 		}
 	}
 
@@ -393,7 +389,7 @@ func GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell(
 	return CalculatePriceStringFromScaledExchangeRate(
 		buyingCoinPublicKeyBase58Check,
 		sellingCoinPublicKeyBase58Check,
-		bestOrderSellingOneBaseUnitOfTheSellingCoin.ScaledExchangeRateCoinsToSellPerCoinToBuy,
+		bestExchangeRate,
 		// We hardcode operation type to ASK regardless of the order's operation type. This way it ensures the denominator
 		// for the computed exchange rate is always the selling coin
 		DAOCoinLimitOrderOperationTypeStringASK,

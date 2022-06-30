@@ -988,8 +988,8 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		decimalPriceString, err := GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell(
 			fes,
 			utxoView,
-			lib.NewPKID(lib.ZeroBlockHash[:]), // buying DESO
-			profilePKID.PKID,                  // selling this profile's DAO coin
+			&lib.ZeroPKID,    // buying DESO
+			profilePKID.PKID, // selling this profile's DAO coin
 		)
 
 		// This exchange rate calculation is best-effort. If we encounter an error when computing and converting
