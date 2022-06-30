@@ -346,6 +346,52 @@ func buildDAOCoinLimitOrderResponse(
 // Helper functions to calculate price and exchange rates for DAO coin limit orders
 ///////////////////////////////////////////////////////////////////////////////////
 
+// GetBestAvailableAskPriceForCoinPair Computes the best available decimal string price at which the market is selling
+// the selling coin in exchange for the buying coin. The denominator when computing price is always set to be the
+// buying coin. Ex: given buying coin B, and selling coin S, a price of 1.5 means implies (1.5 coin B) per (1 coin S).
+func GetBestAvailableAskPriceForCoinPair(
+	fes *APIServer,
+	utxoView *lib.UtxoView,
+	buyingCoinPublicKey *lib.PKID,
+	sellingCoinPublicKey *lib.PKID,
+) (string, error) {
+	// This is relatively inefficient as it pulls all open orders from one side of the book. We need to call this
+	// function as an abstraction because it performs useful filtering of soft-deleted orders and merges order from the
+	// mempool and db. It's worth optimizing it further to support pagination, so it can return us the top n orders
+	orders, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(buyingCoinPublicKey, sellingCoinPublicKey)
+	if err != nil {
+		return "", err
+	}
+	if len(orders) == 0 {
+		return "0", nil
+	}
+
+	bestOrderSellingOneBaseUnitOfTheSellingCoin := orders[0]
+	for _, order := range orders[1:] {
+		// ScaledExchangeRateCoinsToSellPerCoinToBuy has the original buying coin as the denominator, so we want to find
+		// the highest available ScaledExchangeRateCoinsToSellPerCoinToBuy
+		if order.ScaledExchangeRateCoinsToSellPerCoinToBuy.Gt(
+			bestOrderSellingOneBaseUnitOfTheSellingCoin.ScaledExchangeRateCoinsToSellPerCoinToBuy,
+		) {
+			// We need to create a copy of the order entry as the pointer to order is overwritten on each iteration
+			orderCopy := *order
+			bestOrderSellingOneBaseUnitOfTheSellingCoin = &orderCopy
+		}
+	}
+
+	buyingCoinPublicKeyBase58Check := fes.getPublicKeyBase58CheckOrCoinIdentifierForPKID(utxoView, buyingCoinPublicKey)
+	sellingCoinPublicKeyBase58Check := fes.getPublicKeyBase58CheckOrCoinIdentifierForPKID(utxoView, sellingCoinPublicKey)
+
+	return CalculatePriceStringFromScaledExchangeRate(
+		buyingCoinPublicKeyBase58Check,
+		sellingCoinPublicKeyBase58Check,
+		bestOrderSellingOneBaseUnitOfTheSellingCoin.ScaledExchangeRateCoinsToSellPerCoinToBuy,
+		// We hardcode operation type to ASK regardless of the order's operation type. This way we ensure the denominator
+		// is always the selling coin
+		DAOCoinLimitOrderOperationTypeStringASK,
+	)
+}
+
 // CalculateScaledExchangeRateFromPriceString calculates a scaled ExchangeRateCoinsToSellPerCoinsToBuy given a decimal
 // price string (ex: "1.23456") that represents an exchange rate between the two coins where the numerator is the coin
 // defined by the operation type.
@@ -787,6 +833,16 @@ func formatFloatAsString(f float64) string {
 	fAsBigInt.Div(fAsBigInt, divisorToDropDigits)
 	fAsBigInt.Mul(fAsBigInt, divisorToDropDigits)
 	return fmt.Sprintf("%d.0", fAsBigInt)
+}
+
+// Returns float64 representation of the input decimal string. If the input is not a valid decimal string, it returns
+// 0 and the encountered error
+func tryParseFloatFromDecimalString(s string) (float64, error) {
+	float, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, err
+	}
+	return float, nil
 }
 
 func getNumDigits(val *big.Int) int {
