@@ -346,23 +346,30 @@ func buildDAOCoinLimitOrderResponse(
 // Helper functions to calculate price and exchange rates for DAO coin limit orders
 ///////////////////////////////////////////////////////////////////////////////////
 
-// GetBestAvailableAskPriceForCoinPair Computes the best available decimal string price at which the market is selling
-// the selling coin in exchange for the buying coin. The denominator when computing price is always set to be the
-// buying coin. Ex: given buying coin B, and selling coin S, a price of 1.5 means implies (1.5 coin B) per (1 coin S).
-func GetBestAvailableAskPriceForCoinPair(
+// GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell computes the best available decimal string exchange rate at which
+// the market is able to exchange one base unit of the selling coin pair for the buying coin. Since we are interested
+// in computing the best exchange rate for the selling coin, the denominator for the output will always be the selling coin.
+//   Example: given buying coin B, and selling coin S, an output exchange rate of "1.5" implies an exchange rate of
+//            (1.5 coin B) per (1 coin S).
+// This function can support any arbitrary coin pair, but is most useful for markets where one coin is always considered
+// the denominating coin (ex: DAO coin <> DESO). In such cases, this computes the best available ask price.
+func GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell(
 	fes *APIServer,
 	utxoView *lib.UtxoView,
-	buyingCoinPublicKey *lib.PKID,
-	sellingCoinPublicKey *lib.PKID,
+	buyingCoinPKID *lib.PKID,
+	sellingCoinPKID *lib.PKID,
 ) (string, error) {
-	// This is relatively inefficient as it pulls all open orders from one side of the book. We need to call this
-	// function as an abstraction because it performs useful filtering of soft-deleted orders and merges order from the
-	// mempool and db. It's worth optimizing it further to support pagination, so it can return us the top n orders
-	orders, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(buyingCoinPublicKey, sellingCoinPublicKey)
+	// This is relatively inefficient as it pulls all open orders from one side of the book. We need to call this function
+	// as an abstraction for core behavior because it performs useful filtering of soft-deleted orders, and merges orders
+	// from the mempool and db. Long term, it will be worth further optimizing it further to support pagination, so it can
+	// return the top 1 order.
+	orders, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(buyingCoinPKID, sellingCoinPKID)
 	if err != nil {
 		return "", err
 	}
 	if len(orders) == 0 {
+		// It's OK if there are no orders on the book that allow us to exchange the coin pair. We default the exchange
+		// rate to 0 in this case
 		return "0", nil
 	}
 
@@ -379,9 +386,10 @@ func GetBestAvailableAskPriceForCoinPair(
 		}
 	}
 
-	buyingCoinPublicKeyBase58Check := fes.getPublicKeyBase58CheckOrCoinIdentifierForPKID(utxoView, buyingCoinPublicKey)
-	sellingCoinPublicKeyBase58Check := fes.getPublicKeyBase58CheckOrCoinIdentifierForPKID(utxoView, sellingCoinPublicKey)
+	buyingCoinPublicKeyBase58Check := fes.getPublicKeyBase58CheckOrCoinIdentifierForPKID(utxoView, buyingCoinPKID)
+	sellingCoinPublicKeyBase58Check := fes.getPublicKeyBase58CheckOrCoinIdentifierForPKID(utxoView, sellingCoinPKID)
 
+	// Computes exchange rate in decimal string format with the selling coin in the denominator
 	return CalculatePriceStringFromScaledExchangeRate(
 		buyingCoinPublicKeyBase58Check,
 		sellingCoinPublicKeyBase58Check,

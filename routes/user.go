@@ -985,7 +985,7 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 	if utxoView != nil && profileEntry.DAOCoinEntry.NumberOfHolders > 0 {
 		// Create entry from txn metadata for the transactor.
 		profilePKID := utxoView.GetPKIDForPublicKey(profileEntry.PublicKey)
-		decimalPriceString, err := GetBestAvailableAskPriceForCoinPair(
+		decimalPriceString, err := GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell(
 			fes,
 			utxoView,
 			lib.NewPKID(lib.ZeroBlockHash[:]), // buying DESO
