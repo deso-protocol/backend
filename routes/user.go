@@ -992,12 +992,14 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 			profilePKID.PKID,                  // selling this profile's DAO coin
 		)
 
-		// This price calculation is best-effort. If we encounter an error when computing and converting the price, we log and move on
+		// This exchange rate calculation is best-effort. If we encounter an error when computing and converting
+		// the exchange rate, then we log and move on
 		if err == nil {
 			bestExchangeRateDESOPerDAOCoin, err = tryParseFloatFromDecimalString(decimalPriceString)
 			if err != nil {
 				glog.Errorf(
-					"Error converting price string %s to float64 when calculating best available DESO ask price for public key %s: %v",
+					"Error converting price string %s to float64 when calculating best available DESO exchange rate"+
+						" for DAO coin with public key %s: %v",
 					decimalPriceString,
 					lib.Base58CheckEncode(profileEntry.PublicKey, false, fes.Params),
 					err,
@@ -1005,7 +1007,7 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 			}
 		} else {
 			glog.Errorf(
-				"Error computing best available DESO ask price for public key %s: %v",
+				"Error computing best available DESO exchange rate for DAO coin with public key %s: %v",
 				lib.Base58CheckEncode(profileEntry.PublicKey, false, fes.Params),
 				err,
 			)

@@ -375,12 +375,12 @@ func GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell(
 
 	bestOrderSellingOneBaseUnitOfTheSellingCoin := orders[0]
 	for _, order := range orders[1:] {
-		// ScaledExchangeRateCoinsToSellPerCoinToBuy has the original buying coin as the denominator, so we want to find
+		// ScaledExchangeRateCoinsToSellPerCoinToBuy has the buying coin is the denominator, so we want to find
 		// the highest available ScaledExchangeRateCoinsToSellPerCoinToBuy
 		if order.ScaledExchangeRateCoinsToSellPerCoinToBuy.Gt(
 			bestOrderSellingOneBaseUnitOfTheSellingCoin.ScaledExchangeRateCoinsToSellPerCoinToBuy,
 		) {
-			// We need to create a copy of the order entry as the pointer to order is overwritten on each iteration
+			// Create a copy of the order entry as the pointer to the entry is overwritten on each iteration
 			orderCopy := *order
 			bestOrderSellingOneBaseUnitOfTheSellingCoin = &orderCopy
 		}
@@ -394,8 +394,8 @@ func GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell(
 		buyingCoinPublicKeyBase58Check,
 		sellingCoinPublicKeyBase58Check,
 		bestOrderSellingOneBaseUnitOfTheSellingCoin.ScaledExchangeRateCoinsToSellPerCoinToBuy,
-		// We hardcode operation type to ASK regardless of the order's operation type. This way we ensure the denominator
-		// is always the selling coin
+		// We hardcode operation type to ASK regardless of the order's operation type. This way it ensures the denominator
+		// for the computed exchange rate is always the selling coin
 		DAOCoinLimitOrderOperationTypeStringASK,
 	)
 }
@@ -843,8 +843,8 @@ func formatFloatAsString(f float64) string {
 	return fmt.Sprintf("%d.0", fAsBigInt)
 }
 
-// Returns float64 representation of the input decimal string. If the input is not a valid decimal string, it returns
-// 0 and the encountered error
+// Returns float64 representation of the input decimal string. If the input is not a valid decimal string, this will
+// always return 0
 func tryParseFloatFromDecimalString(s string) (float64, error) {
 	float, err := strconv.ParseFloat(s, 64)
 	if err != nil {
