@@ -85,6 +85,7 @@ const (
 	RoutePathIsHodlingPublicKey                         = "/api/v0/is-hodling-public-key"
 	RoutePathGetUserDerivedKeys                         = "/api/v0/get-user-derived-keys"
 	RoutePathGetTransactionSpendingLimitHexString       = "/api/v0/get-transaction-spending-limit-hex-string"
+	RoutePathGetAccessBytes                             = "/api/v0/get-access-bytes"
 	RoutePathGetTransactionSpendingLimitResponseFromHex = "/api/v0/get-transaction-spending-limit-response-from-hex"
 	RoutePathDeletePII                                  = "/api/v0/delete-pii"
 	RoutePathGetUserMetadata                            = "/api/v0/get-user-metadata"
@@ -1049,6 +1050,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetTransactionSpendingLimitHexString,
 			fes.GetTransactionSpendingLimitHexString,
+			PublicAccess,
+		},
+		{
+			"GetAccessBytes",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAccessBytes,
+			fes.GetAccessBytes,
 			PublicAccess,
 		},
 		{
