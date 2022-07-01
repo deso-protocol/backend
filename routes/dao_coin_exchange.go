@@ -353,8 +353,7 @@ func buildDAOCoinLimitOrderResponse(
 //            (1.5 coin B) per (1 coin S).
 // This function can support any arbitrary coin pair, but is most useful for markets where one coin is always considered
 // the denominating coin (ex: DAO coin <> DESO). In such cases, this computes the best available ask price.
-func GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell(
-	fes *APIServer,
+func (fes *APIServer) GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell(
 	utxoView *lib.UtxoView,
 	buyingCoinPKID *lib.PKID,
 	sellingCoinPKID *lib.PKID,
@@ -373,8 +372,8 @@ func GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell(
 		return "0", nil
 	}
 
-	bestExchangeRate := orders[0].ScaledExchangeRateCoinsToSellPerCoinToBuy
-	for _, order := range orders[1:] {
+	bestExchangeRate := uint256.NewInt()
+	for _, order := range orders {
 		// ScaledExchangeRateCoinsToSellPerCoinToBuy has the buying coin is the denominator, so we want to find
 		// the highest available ScaledExchangeRateCoinsToSellPerCoinToBuy
 		if order.ScaledExchangeRateCoinsToSellPerCoinToBuy.Gt(bestExchangeRate) {
@@ -837,16 +836,6 @@ func formatFloatAsString(f float64) string {
 	fAsBigInt.Div(fAsBigInt, divisorToDropDigits)
 	fAsBigInt.Mul(fAsBigInt, divisorToDropDigits)
 	return fmt.Sprintf("%d.0", fAsBigInt)
-}
-
-// Returns float64 representation of the input decimal string. If the input is not a valid decimal string, this will
-// always return 0
-func tryParseFloatFromDecimalString(s string) (float64, error) {
-	float, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return 0, err
-	}
-	return float, nil
 }
 
 func getNumDigits(val *big.Int) int {

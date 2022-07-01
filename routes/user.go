@@ -985,8 +985,7 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 	if utxoView != nil && profileEntry.DAOCoinEntry.NumberOfHolders > 0 {
 		// Create entry from txn metadata for the transactor.
 		profilePKID := utxoView.GetPKIDForPublicKey(profileEntry.PublicKey)
-		decimalPriceString, err := GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell(
-			fes,
+		decimalPriceString, err := fes.GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell(
 			utxoView,
 			&lib.ZeroPKID,    // buying DESO
 			profilePKID.PKID, // selling this profile's DAO coin
@@ -995,7 +994,7 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		// This exchange rate calculation is best-effort. If we encounter an error when computing and converting
 		// the exchange rate, then we log and move on
 		if err == nil {
-			bestExchangeRateDESOPerDAOCoin, err = tryParseFloatFromDecimalString(decimalPriceString)
+			bestExchangeRateDESOPerDAOCoin, err = strconv.ParseFloat(decimalPriceString, 64)
 			if err != nil {
 				glog.Errorf(
 					"Error converting price string %s to float64 when calculating best available DESO exchange rate"+
