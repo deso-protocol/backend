@@ -1,43 +1,43 @@
-FROM alpine:latest AS backend
+FROM golang:1.17-alpine3.16 AS builder
 
-RUN apk update
-RUN apk upgrade
-RUN apk add --update go gcc g++ vips-dev
+RUN apk --no-cache add gcc g++ vips-dev upx
 
-WORKDIR /deso/src
+WORKDIR /usr/src/deso/core
 
-COPY backend/go.mod backend/
-COPY backend/go.sum backend/
-COPY core/go.mod core/
-COPY core/go.sum core/
+COPY core/go.mod .
+COPY core/go.sum .
 
-WORKDIR /deso/src/backend
+WORKDIR /usr/src/deso/backend
 
-RUN go mod download
+COPY backend/go.mod .
+COPY backend/go.sum .
 
-# include backend src
-COPY backend/apis      apis
-COPY backend/config    config
-COPY backend/cmd       cmd
-COPY backend/miner     miner
-COPY backend/routes    routes
+RUN go mod download && go mod verify
+
+WORKDIR /usr/src/deso/core
+
+COPY core/cmd cmd
+COPY core/desohash desohash
+COPY core/lib lib
+COPY core/migrate migrate
+
+WORKDIR /usr/src/deso/backend
+
+COPY backend/apis apis
+COPY backend/cmd cmd
+COPY backend/config config
 COPY backend/countries countries
-COPY backend/main.go   .
+COPY backend/miner miner
+COPY backend/routes routes
+COPY backend/main.go .
 
-# include core src
-COPY core/desohash ../core/desohash
-COPY core/cmd       ../core/cmd
-COPY core/lib       ../core/lib
-COPY core/migrate   ../core/migrate
+RUN GOOS=linux go build -ldflags "-s -w" -o /usr/local/bin/deso-backend main.go
+RUN upx /usr/local/bin/deso-backend
 
-# build backend
-RUN GOOS=linux go build -mod=mod -a -installsuffix cgo -o bin/backend main.go
+FROM alpine:3.16
 
-# create tiny image
-FROM alpine:latest
+RUN apk --no-cache add vips
 
-RUN apk add --update vips-dev
+COPY --from=builder /usr/local/bin/deso-backend /usr/local/bin
 
-COPY --from=backend /deso/src/backend/bin/backend /deso/bin/backend
-
-ENTRYPOINT ["/deso/bin/backend"]
+ENTRYPOINT ["deso-backend"]
