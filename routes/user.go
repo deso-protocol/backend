@@ -1305,7 +1305,6 @@ type GetHodlersForPublicKeyRequest struct {
 	FetchAll bool
 }
 
-
 type GetHodlersForPublicKeyResponse struct {
 	Hodlers                  []*BalanceEntryResponse
 	LastPublicKeyBase58Check string
@@ -1327,12 +1326,12 @@ type GetHodlersForPublicKeysRequest struct {
 }
 
 type GetHodlersForPublicKeysSingleResponse struct {
-	Hodlers                  []*BalanceEntryResponse
+	Hodlers              []*BalanceEntryResponse
 	PublicKeyBase58Check string
 }
 
 type GetHodlersForPublicKeysResponse struct {
-	HodlersForPublicKeys                  []*GetHodlersForPublicKeysSingleResponse
+	HodlersForPublicKeys []*GetHodlersForPublicKeysSingleResponse
 }
 
 // Helper function to get the creator public key or the hodler public key depending upon fetchHodlings.
@@ -1417,13 +1416,13 @@ func (fes *APIServer) GetHodlersForPublicKeysEndpoint(ww http.ResponseWriter, re
 
 	var hodlersForPublicKeys []*GetHodlersForPublicKeysSingleResponse
 
-	for _, publicKey := range(requestData.PublicKeysBase58Check) {
+	for _, publicKey := range requestData.PublicKeysBase58Check {
 		publicKeyRequestData := &GetHodlersForPublicKeyRequest{
-			PublicKeyBase58Check:     publicKey,
-			IsDAOCoin:                requestData.IsDAOCoin,
-			FetchHodlings:            requestData.FetchHodlings,
-			SortType:                 requestData.SortType,
-			FetchAll:                 true,
+			PublicKeyBase58Check: publicKey,
+			IsDAOCoin:            requestData.IsDAOCoin,
+			FetchHodlings:        requestData.FetchHodlings,
+			SortType:             requestData.SortType,
+			FetchAll:             true,
 		}
 		res, err := fes.GetHodlersForPublicKey(publicKeyRequestData, utxoView)
 		if err != nil {
