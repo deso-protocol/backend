@@ -47,6 +47,14 @@ type GetMessagesStatelessRequest struct {
 	// SortAlgorithm determines how the messages should be returned. Currently
 	// it support time, deso, and followers based sorting.
 	SortAlgorithm string `safeForLogging:"true"`
+
+	// ---------------------------------------------------------
+	// DB Message Pagination Fields
+	// ---------------------------------------------------------
+
+	// MaxTimestampNanos specifies the max timestamp to start retrieving messages from.
+	// Defaults to math.MaxUint64 unless otherwise specified.
+	MaxTimestampNanos uint64 `safeForLogging:"true"`
 }
 
 // GetMessagesResponse ...
@@ -71,7 +79,7 @@ type GetMessagesResponse struct {
 }
 
 func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
-	fetchAfterPublicKeyBytes []byte, numToFetch uint64, holdersOnly bool,
+	fetchAfterPublicKeyBytes []byte, numToFetch uint64, maxTimestampNanos uint64, holdersOnly bool,
 	holdingsOnly bool, followersOnly bool, followingOnly bool, sortAlgorithm string) (
 	_publicKeyToProfileEntry map[string]*ProfileEntryResponse,
 	_orderedContactsWithMessages []*MessageContactResponse,
@@ -94,7 +102,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	// for more insight on this.
 
 	// Get user's messaging groups and up to lib.MessagesToFetchPerInboxCall messages.
-	messageEntries, messagingGroups, err := utxoView.GetLimitedMessagesForUser(publicKeyBytes, uint64(lib.MessagesToFetchPerInboxCall))
+	messageEntries, messagingGroups, err := utxoView.GetLimitedMessagesForUser(publicKeyBytes, maxTimestampNanos, uint64(lib.MessagesToFetchPerInboxCall))
 	if err != nil {
 		return nil, nil, nil, 0, nil, errors.Wrapf(
 			err, "getMessagesStateless: Problem fetching MessageEntries and MessagingGroupEntries from augmented UtxoView: ")
@@ -506,7 +514,7 @@ func (fes *APIServer) GetMessagesStateless(ww http.ResponseWriter, rr *http.Requ
 	// Get all contacts profile entries, messages, and group messaging keys.
 	publicKeyToProfileEntry, orderedContactsWithMessages,
 		unreadStateByContact, numOfUnreadThreads, messagingGroups, err := fes.getMessagesStateless(publicKeyBytes, fetchAfterPublicKeyBytes,
-		getMessagesRequest.NumToFetch, getMessagesRequest.HoldersOnly, getMessagesRequest.HoldingsOnly,
+		getMessagesRequest.NumToFetch, getMessagesRequest.MaxTimestampNanos, getMessagesRequest.HoldersOnly, getMessagesRequest.HoldingsOnly,
 		getMessagesRequest.FollowersOnly, getMessagesRequest.FollowingOnly, getMessagesRequest.SortAlgorithm)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetMessagesStateless: Problem fetching and decrypting messages: %v", err))
