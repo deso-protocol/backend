@@ -1305,9 +1305,34 @@ type GetHodlersForPublicKeyRequest struct {
 	FetchAll bool
 }
 
+
 type GetHodlersForPublicKeyResponse struct {
 	Hodlers                  []*BalanceEntryResponse
 	LastPublicKeyBase58Check string
+}
+
+type GetHodlersForPublicKeysRequest struct {
+	// Array of Public Keys to retrieve hodlers for.
+	PublicKeysBase58Check []string `safeForLogging:"true"`
+
+	// If true, fetch DAO coin balance entries instead of creator coin balance entries.
+	IsDAOCoin bool `safeForLogging:"true"`
+
+	// If true, fetch balance entries for your hodlings instead of balance entries for hodler's of your coin.
+	FetchHodlings bool
+
+	// The sorting method to use when returning profiles. Defaults to
+	// "coin_balance" when unset.
+	SortType TopHodlerSortType
+}
+
+type GetHodlersForPublicKeysSingleResponse struct {
+	Hodlers                  []*BalanceEntryResponse
+	PublicKeyBase58Check string
+}
+
+type GetHodlersForPublicKeysResponse struct {
+	HodlersForPublicKeys                  []*GetHodlersForPublicKeysSingleResponse
 }
 
 // Helper function to get the creator public key or the hodler public key depending upon fetchHodlings.
@@ -1336,7 +1361,7 @@ func (fes *APIServer) ComputeWealth(
 }
 
 // GetHodlersForPublicKey... Get BalanceEntryResponses for hodlings.
-func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.Request) {
+func (fes *APIServer) GetHodlersForPublicKeyEndpoint(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetHodlersForPublicKeyRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
@@ -1352,13 +1377,88 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 		return
 	}
 
+	res, err := fes.GetHodlersForPublicKey(&requestData, utxoView)
+
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetHodlersForPublicKeyEndpoint: Problem getting hodlers for public key: %v", err))
+		return
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetHodlersForPublicKeyEndpoint: Problem encoding response as JSON: %v", err))
+		return
+	}
+
+}
+
+func (fes *APIServer) GetHodlersForPublicKeysEndpoint(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetHodlersForPublicKeysRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetHodlersForPublicKey: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Get a view
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Error getting utxoView: %v", err))
+		return
+	}
+
+	if len(requestData.PublicKeysBase58Check) == 0 {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetHodlersForPublicKeysEndpoint: Must provide at least one public key."))
+		return
+	}
+
+	var hodlersForPublicKeys []*GetHodlersForPublicKeysSingleResponse
+
+	for _, publicKey := range(requestData.PublicKeysBase58Check) {
+		publicKeyRequestData := &GetHodlersForPublicKeyRequest{
+			PublicKeyBase58Check:     publicKey,
+			IsDAOCoin:                requestData.IsDAOCoin,
+			FetchHodlings:            requestData.FetchHodlings,
+			SortType:                 requestData.SortType,
+			FetchAll:                 true,
+		}
+		res, err := fes.GetHodlersForPublicKey(publicKeyRequestData, utxoView)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"GetHodlersForPublicKeyEndpoint: Problem getting hodlers for public key: %v", err))
+			return
+		}
+		hodlersForPublicKey := &GetHodlersForPublicKeysSingleResponse{
+			Hodlers:              res.Hodlers,
+			PublicKeyBase58Check: publicKey,
+		}
+		hodlersForPublicKeys = append(hodlersForPublicKeys, hodlersForPublicKey)
+	}
+
+	res := &GetHodlersForPublicKeysResponse{
+		HodlersForPublicKeys: hodlersForPublicKeys,
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetHodlersForPublicKeyEndpoint: Problem encoding response as JSON: %v", err))
+		return
+	}
+
+}
+
+// GetHodlersForPublicKey... Get BalanceEntryResponses for hodlings.
+func (fes *APIServer) GetHodlersForPublicKey(requestData *GetHodlersForPublicKeyRequest, utxoView *lib.UtxoView) (*GetHodlersForPublicKeyResponse, error) {
 	// Decode the public key for which we are fetching hodlers / hodlings.  If public key is not provided, use username
 	var publicKeyBytes []byte
+	var err error
 	if requestData.PublicKeyBase58Check != "" {
 		publicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Problem decoding user public key: %v", err))
-			return
+			return nil, fmt.Errorf("GetHodlersForPublicKey: Problem decoding user public key: %v", err)
 		}
 	} else {
 		username := requestData.Username
@@ -1366,8 +1466,7 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 
 		// Return an error if we failed to find a profile entry
 		if profileEntry == nil {
-			_AddNotFoundError(ww, fmt.Sprintf("GetHodlersForPublicKey: could not find profile for username: %v", username))
-			return
+			return nil, fmt.Errorf("GetHodlersForPublicKey: could not find profile for username: %v", username)
 		}
 		publicKeyBytes = profileEntry.PublicKey
 	}
@@ -1379,16 +1478,14 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 		hodlMap, err = fes.GetYouHodlMap(
 			utxoView.GetPKIDForPublicKey(publicKeyBytes), false, requestData.IsDAOCoin, utxoView)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: error getting youHodlMap: %v", err))
-			return
+			return nil, fmt.Errorf("GetHodlersForPublicKey: error getting youHodlMap: %v", err)
 		}
 
 	} else {
 		hodlMap, err = fes.GetHodlYouMap(
 			utxoView.GetPKIDForPublicKey(publicKeyBytes), false, requestData.IsDAOCoin, utxoView)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: error getting youHodlMap: %v", err))
-			return
+			return nil, fmt.Errorf("GetHodlersForPublicKey: error getting youHodlMap: %v", err)
 		}
 	}
 	for _, balanceEntryResponse := range hodlMap {
@@ -1399,10 +1496,7 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 	if requestData.SortType != TopHodlerSortTypeNone &&
 		requestData.SortType != TopHodlerSortTypeCoinBalance &&
 		requestData.SortType != TopHodlerSortTypeWealth {
-
-		_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Unrecognized "+
-			"sort type: %v", requestData.SortType))
-		return
+		return nil, fmt.Errorf("GetHodlersForPublicKey: Unrecognized sort type: %v", requestData.SortType)
 	}
 	sort.Slice(hodlList, func(ii, jj int) bool {
 		if hodlList[ii].CreatorPublicKeyBase58Check == hodlList[ii].HODLerPublicKeyBase58Check {
@@ -1426,9 +1520,6 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 			jjWealth := fes.ComputeWealth(hodlList[jj], utxoView)
 			return iiWealth > jjWealth
 		} else {
-			_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Unrecognized "+
-				"sort type: %v", requestData.SortType))
-			// TODO: We can't break the execution here but we should
 			return false
 		}
 	})
@@ -1470,11 +1561,7 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 		Hodlers:                  hodlList,
 		LastPublicKeyBase58Check: resLastPublicKey,
 	}
-	if err = json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetHodlersForPublicKey: Problem encoding response as JSON: %v", err))
-		return
-	}
+	return res, nil
 }
 
 type GetHolderCountForPublicKeysRequest struct {
