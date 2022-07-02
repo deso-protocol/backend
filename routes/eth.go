@@ -2,7 +2,6 @@ package routes
 
 import (
 	"bytes"
-	"context"
 	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
@@ -10,9 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/deso-protocol/core/lib"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/golang/glog"
 	"github.com/mitchellh/mapstructure"
@@ -22,6 +19,7 @@ import (
 	"io/ioutil"
 	"math/big"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -376,12 +374,12 @@ func (fes *APIServer) QueryETHRPC(ww http.ResponseWriter, req *http.Request) {
 }
 
 type MetamaskSignInRequest struct {
-	recipientPublicKey  string
-	recipientEthAddress string
-	amountNanos         uint64
-	signer              []byte
-	data                []byte
-	signature           []byte
+	RecipientPublicKey  string
+	RecipientEthAddress string
+	AmountNanos         uint64
+	Signer              []byte
+	Message             []byte
+	Signature           []byte
 }
 type MetamaskSignInResponse struct {
 	TxnHash *lib.BlockHash
@@ -397,43 +395,65 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 	// Validate the  request object
 	requestData := MetamaskSignInRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Problem parsing request body: #{err}"))
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Problem parsing request body: %v", err))
 		return
 	}
-	recipientBytePK := []byte(requestData.recipientPublicKey)
+	recipientBytePK := []byte(requestData.RecipientPublicKey)
 
 	// Validate that the user doesn't have Deso already
 	desoBalance, desoBalanceErr := fes.getBalanceForPubKey(recipientBytePK)
-	if desoBalanceErr != nil || desoBalance > 0 {
-		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Problem parsing request body: #{err}"))
+	glog.Info("balance is:", desoBalance)
+	// balance check TESTED
+	if desoBalance != 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Deso balance greater than zero", desoBalanceErr))
+		return
+	}
+
+	hasReceivedAirdrop, err := fes.GlobalState.Get(GlobalStateKeyMetamaskAirdrop(recipientBytePK))
+	glog.Info("airdrop has been received:", hasReceivedAirdrop)
+	// check if they have recieved the airdrop TESTED TODO switch 2 back to 1
+	if bytes.Equal(hasReceivedAirdrop, []byte{2}) {
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Account has already received airdrop"))
+		return
+	}
+	if err = fes.GlobalState.Put(GlobalStateKeyMetamaskAirdrop(recipientBytePK), []byte{1}); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Account failed to update airdrop state"))
 		return
 	}
 
 	// validate the user's eth balance
-	client, err := ethclient.Dial("https://mainnet.infura.io")
-	account := common.HexToAddress(requestData.recipientEthAddress)
-	ethBalance, err := client.BalanceAt(context.Background(), account, nil)
-	// not sure if there's an easier way to compare these values
-	ethBalanceFloat := new(big.Float).SetInt(ethBalance)
-	minFloat, _ := new(big.Float).SetString(".05")
-	remainder := new(big.Float).Sub(ethBalanceFloat, minFloat)
-	remainder32, _ := remainder.Float32()
-	if remainder32 < 0 {
-		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: User does not have enough eth in their account"))
+	params := []interface{}{requestData.RecipientEthAddress, "latest"}
+	infuraResponse, err := fes.ExecuteETHRPCRequest("eth_getBalance", params)
+	if infuraResponse == nil || err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("something wrong with fetching eth balance", err))
+		return
+	}
+	ethBalance := infuraResponse.Result.(string)
+	glog.Info("eth balance:", ethBalance)
+	ethBalanceFloat, err := strconv.ParseFloat(ethBalance, 10)
+	if err != nil {
+		// glog the error, send generic message back for badrequest
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Issues calculating user balance", err))
+		return
+	}
+	if ethBalanceFloat < 0.05 {
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: .05 eth or greater required for airdrop", err))
 		return
 	}
 
-	// verify that they signed a signature from their account
-	verifyEthError := _verifyEthPersonalSignature(requestData.signer, requestData.data, requestData.signature)
-	if verifyEthError != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Invalid signer signature match #{verifyEthError}"))
-		return
-	}
+	// Verify that they signed a signature from their account TODO re-enable this check after Identity changes
+	//verifyEthError := _verifyEthPersonalSignature(requestData.Signer, requestData.Message, requestData.Signature)
+	//if verifyEthError != nil {
+	//	glog.Info("eth error:", verifyEthError)
+	//	_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Invalid signer signature match #{verifyEthError}", verifyEthError))
+	//	return
+	//}
 
 	// send deso to the user
-	txnHash, err := fes.SendSeedDeSo(recipientBytePK, requestData.amountNanos, false)
+	// question do I need to do anything else to hook this up to gringott? add an env var maybe?
+	txnHash, err := fes.SendSeedDeSo(recipientBytePK, requestData.AmountNanos, false)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Problem sending starter Deso"))
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Problem sending starter Deso", err))
 		return
 	}
 	res := MetamaskSignInResponse{TxnHash: txnHash}
