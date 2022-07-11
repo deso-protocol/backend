@@ -103,7 +103,7 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Submit the transaction
+	// Submit the transaction. Note that the SignedHashes is actually the whole transaction serialized with signature.
 	params := []interface{}{fmt.Sprintf("0x%v", requestData.SignedHashes[0])}
 	response, err := fes.ExecuteETHRPCRequest("eth_sendRawTransaction", params)
 

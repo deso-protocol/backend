@@ -180,8 +180,13 @@ func DecodePubKeyToUint64MapString(bytes []byte, params *lib.DeSoParams, _ *lib.
 
 func DecodeTransactionSpendingLimit(spendingBytes []byte, params *lib.DeSoParams, utxoView *lib.UtxoView) string {
 	var transactionSpendingLimit lib.TransactionSpendingLimit
+	blockHeight, err := lib.GetBlockTipHeight(utxoView.Handle, false)
+	if err != nil {
+		glog.Errorf("Error getting block tip height from the db")
+		return ""
+	}
 	rr := bytes.NewReader(spendingBytes)
-	if err := transactionSpendingLimit.FromBytes(rr); err != nil {
+	if err := transactionSpendingLimit.FromBytes(blockHeight, rr); err != nil {
 		glog.Errorf("Error decoding transaction spending limits: %v", err)
 		return ""
 	}
