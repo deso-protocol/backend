@@ -16,6 +16,7 @@ require (
 	github.com/dgraph-io/badger/v3 v3.2103.0
 	github.com/docker/docker v20.10.17+incompatible // indirect
 	github.com/elliotchance/orderedmap v1.4.0 // indirect
+	github.com/ethereum/go-ethereum v1.9.25 // indirect
 	github.com/fatih/color v1.13.0 // indirect
 	github.com/fatih/structs v1.1.0
 	github.com/gofrs/uuid v4.0.0+incompatible // indirect

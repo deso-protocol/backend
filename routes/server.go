@@ -159,6 +159,7 @@ const (
 
 	// eth.go
 	RoutePathSubmitETHTx       = "/api/v0/submit-eth-tx"
+	RoutePathMetamaskSignIn    = "/api/v0/send-starter-deso-for-metamask-account"
 	RoutePathQueryETHRPC       = "/api/v0/query-eth-rpc"
 	RoutePathAdminProcessETHTx = "/api/v0/admin/process-eth-tx"
 
@@ -1187,6 +1188,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathQueryETHRPC,
 			fes.QueryETHRPC,
+			PublicAccess,
+		},
+		{
+			"SendStarterDesoForMetamaskAccount",
+			[]string{"POST", "OPTIONS"},
+			RoutePathMetamaskSignIn,
+			fes.MetamaskSignIn,
 			PublicAccess,
 		},
 

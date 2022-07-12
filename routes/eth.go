@@ -3,17 +3,23 @@ package routes
 import (
 	"bytes"
 	"encoding/gob"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/deso-protocol/core/lib"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/golang/glog"
 	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
+	"golang.org/x/crypto/sha3"
 	"io"
 	"io/ioutil"
 	"math/big"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -367,6 +373,96 @@ func (fes *APIServer) QueryETHRPC(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
+type MetamaskSignInRequest struct {
+	RecipientPublicKey  string
+	RecipientEthAddress string
+	AmountNanos         uint64
+	Signer              []byte
+	Message             []byte
+	Signature           []byte
+}
+type MetamaskSignInResponse struct {
+	TxnHash *lib.BlockHash
+}
+
+func etherToWei(val *big.Int) *big.Int {
+	return new(big.Int).Mul(val, big.NewInt(params.Ether))
+}
+func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) {
+	// Give the user starter deso if this is their first time signing in with through metamask and if they don't have Deso
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+
+	// Validate the  request object
+	requestData := MetamaskSignInRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Problem parsing request body: %v", err))
+		return
+	}
+	recipientBytePK := []byte(requestData.RecipientPublicKey)
+
+	// Validate that the user doesn't have Deso already
+	desoBalance, desoBalanceErr := fes.getBalanceForPubKey(recipientBytePK)
+	glog.Info("balance is:", desoBalance)
+	// balance check TESTED
+	if desoBalance != 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Deso balance greater than zero", desoBalanceErr))
+		return
+	}
+
+	hasReceivedAirdrop, err := fes.GlobalState.Get(GlobalStateKeyMetamaskAirdrop(recipientBytePK))
+	glog.Info("airdrop has been received:", hasReceivedAirdrop)
+	// check if they have recieved the airdrop TESTED TODO switch 2 back to 1
+	if bytes.Equal(hasReceivedAirdrop, []byte{2}) {
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Account has already received airdrop"))
+		return
+	}
+	if err = fes.GlobalState.Put(GlobalStateKeyMetamaskAirdrop(recipientBytePK), []byte{1}); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Account failed to update airdrop state"))
+		return
+	}
+
+	// validate the user's eth balance
+	params := []interface{}{requestData.RecipientEthAddress, "latest"}
+	infuraResponse, err := fes.ExecuteETHRPCRequest("eth_getBalance", params)
+	if infuraResponse == nil || err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("something wrong with fetching eth balance", err))
+		return
+	}
+	ethBalance := infuraResponse.Result.(string)
+	glog.Info("eth balance:", ethBalance)
+	ethBalanceFloat, err := strconv.ParseFloat(ethBalance, 10)
+	if err != nil {
+		// glog the error, send generic message back for badrequest
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Issues calculating user balance", err))
+		return
+	}
+	if ethBalanceFloat < 0.05 {
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: .05 eth or greater required for airdrop", err))
+		return
+	}
+
+	// Verify that they signed a signature from their account TODO re-enable this check after Identity changes
+	//verifyEthError := _verifyEthPersonalSignature(requestData.Signer, requestData.Message, requestData.Signature)
+	//if verifyEthError != nil {
+	//	glog.Info("eth error:", verifyEthError)
+	//	_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Invalid signer signature match #{verifyEthError}", verifyEthError))
+	//	return
+	//}
+
+	// send deso to the user
+	// question do I need to do anything else to hook this up to gringott? add an env var maybe?
+	txnHash, err := fes.SendSeedDeSo(recipientBytePK, requestData.AmountNanos, false)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Problem sending starter Deso", err))
+		return
+	}
+	res := MetamaskSignInResponse{TxnHash: txnHash}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Problem encoding response: %v #{err}"))
+		return
+	}
+}
+
 // ExecuteETHRPCRequest makes a request to Infura to fetch information about the Ethereum blockchain
 func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) (response *InfuraResponse, _err error) {
 	projectId := fes.Config.InfuraProjectID
@@ -421,4 +517,49 @@ func (fes *APIServer) GetETHTransactionByHash(hash string) (_tx *InfuraTx, _err 
 		return nil, err
 	}
 	return response, nil
+}
+func _verifyEthPersonalSignature(signer, data, signature []byte) error {
+	// Ethereum likes uncompressed public keys while we use compressed keys a lot. Make sure we have uncompressed pk bytes.
+	var uncompressedSigner []byte
+	pubKey, err := btcec.ParsePubKey(signer, btcec.S256())
+	if err != nil {
+		return errors.Wrapf(err, "_verifyEthPersonalSignature: Problem parsing signer public key")
+	}
+	if len(signer) == btcec.PubKeyBytesLenCompressed {
+		uncompressedSigner = pubKey.SerializeUncompressed()
+	} else if len(signer) == btcec.PubKeyBytesLenUncompressed {
+		uncompressedSigner = signer
+	} else {
+		return fmt.Errorf("_verifyEthPersonalSignature: Public key has incorrect length. It should be either "+
+			"(%v) for compressed key or (%v) for uncompressed key", btcec.PubKeyBytesLenCompressed, btcec.PubKeyBytesLenUncompressed)
+	}
+
+	// Change the data bytes into Ethereum's personal_sign message standard. This will prepend the message prefix and hash
+	// the prepended message using keccak256. We turn data into a hex string and treat it as a character sequence which is
+	// how MetaMask treats it.
+	dataHex := hex.EncodeToString(data)
+	hash, _ := TextAndHash([]byte(dataHex))
+
+	// Make sure signature has the correct length. If signature has 65 bytes then it contains the recovery ID, we can
+	// slice it off since we already know the signer public key.
+	formattedSignature := make([]byte, 64)
+	if len(signature) == 64 || len(signature) == 65 {
+		copy(formattedSignature, signature[:64])
+	} else {
+		return fmt.Errorf("_verifyEthPersonalSignature: Signature must be 64 or 65 bytes in size. Got (%v) instead", len(signature))
+	}
+
+	// Now, verify the signature.
+	if crypto.VerifySignature(uncompressedSigner, hash, formattedSignature) {
+		return nil
+	} else {
+		return fmt.Errorf("_verifyEthPersonalSignature: Signature verification failed")
+	}
+}
+
+func TextAndHash(data []byte) ([]byte, string) {
+	msg := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(data), string(data))
+	hasher := sha3.NewLegacyKeccak256()
+	hasher.Write([]byte(msg))
+	return hasher.Sum(nil), msg
 }
