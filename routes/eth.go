@@ -3,13 +3,10 @@ package routes
 import (
 	"bytes"
 	"encoding/gob"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/deso-protocol/core/lib"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/golang/glog"
 	"github.com/mitchellh/mapstructure"
@@ -410,7 +407,7 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 
 	hasReceivedAirdrop, err := fes.GlobalState.Get(GlobalStateKeyMetamaskAirdrop(recipientBytePK))
 	// check if they have recieved the airdrop TESTED TODO switch 2 back to 1
-	if bytes.Equal(hasReceivedAirdrop, []byte{2}) {
+	if bytes.Equal(hasReceivedAirdrop, []byte{1}) {
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Account has already received airdrop"))
 		return
 	}
@@ -444,12 +441,12 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 	}
 
 	//Verify that they signed a signature from their account TODO 1 re-enable this check after Identity changes
-	//verifyEthError := _verifyEthPersonalSignature(requestData.Signer, requestData.Message, requestData.Signature)
-	//if verifyEthError != nil {
-	//	glog.Info("eth error:", verifyEthError)
-	//	_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Invalid signer signature match #{verifyEthError}", verifyEthError))
-	//	return
-	//}
+	verifyEthError := lib.VerifyEthPersonalSignature(requestData.Signer, requestData.Message, requestData.Signature)
+	if verifyEthError != nil {
+		glog.Info("eth error:", verifyEthError)
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Invalid signer signature match #{verifyEthError}", verifyEthError))
+		return
+	}
 
 	// send deso to the user
 	// question do I need to do anything else to hook this up to gringott? add an env var maybe?
@@ -520,44 +517,6 @@ func (fes *APIServer) GetETHTransactionByHash(hash string) (_tx *InfuraTx, _err 
 		return nil, err
 	}
 	return response, nil
-}
-func _verifyEthPersonalSignature(signer, data, signature []byte) error {
-	// Ethereum likes uncompressed public keys while we use compressed keys a lot. Make sure we have uncompressed pk bytes.
-	var uncompressedSigner []byte
-	pubKey, err := btcec.ParsePubKey(signer, btcec.S256())
-	if err != nil {
-		return errors.Wrapf(err, "_verifyEthPersonalSignature: Problem parsing signer public key")
-	}
-	if len(signer) == btcec.PubKeyBytesLenCompressed {
-		uncompressedSigner = pubKey.SerializeUncompressed()
-	} else if len(signer) == btcec.PubKeyBytesLenUncompressed {
-		uncompressedSigner = signer
-	} else {
-		return fmt.Errorf("_verifyEthPersonalSignature: Public key has incorrect length. It should be either "+
-			"(%v) for compressed key or (%v) for uncompressed key", btcec.PubKeyBytesLenCompressed, btcec.PubKeyBytesLenUncompressed)
-	}
-
-	// Change the data bytes into Ethereum's personal_sign message standard. This will prepend the message prefix and hash
-	// the prepended message using keccak256. We turn data into a hex string and treat it as a character sequence which is
-	// how MetaMask treats it.
-	dataHex := hex.EncodeToString(data)
-	hash, _ := TextAndHash([]byte(dataHex))
-
-	// Make sure signature has the correct length. If signature has 65 bytes then it contains the recovery ID, we can
-	// slice it off since we already know the signer public key.
-	formattedSignature := make([]byte, 64)
-	if len(signature) == 64 || len(signature) == 65 {
-		copy(formattedSignature, signature[:64])
-	} else {
-		return fmt.Errorf("_verifyEthPersonalSignature: Signature must be 64 or 65 bytes in size. Got (%v) instead", len(signature))
-	}
-
-	// Now, verify the signature.
-	if crypto.VerifySignature(uncompressedSigner, hash, formattedSignature) {
-		return nil
-	} else {
-		return fmt.Errorf("_verifyEthPersonalSignature: Signature verification failed")
-	}
 }
 
 func TextAndHash(data []byte) ([]byte, string) {
