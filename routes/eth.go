@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/deso-protocol/core/lib"
-	"github.com/ethereum/go-ethereum/params"
 	"github.com/golang/glog"
 	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
@@ -382,9 +381,6 @@ type MetamaskSignInResponse struct {
 	TxnHash *lib.BlockHash
 }
 
-func etherToWei(val *big.Int) *big.Int {
-	return new(big.Int).Mul(val, big.NewInt(params.Ether))
-}
 func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) {
 	// Give the user starter deso if this is their first time signing in with through metamask and if they don't have Deso
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
