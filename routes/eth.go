@@ -5,12 +5,6 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
-	"github.com/davecgh/go-spew/spew"
-	"github.com/deso-protocol/core/lib"
-	"github.com/golang/glog"
-	"github.com/mitchellh/mapstructure"
-	"github.com/pkg/errors"
-	"golang.org/x/crypto/sha3"
 	"io"
 	"io/ioutil"
 	"math/big"
@@ -18,6 +12,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/davecgh/go-spew/spew"
+	"github.com/deso-protocol/core/lib"
+	"github.com/golang/glog"
+	"github.com/mitchellh/mapstructure"
+	"github.com/pkg/errors"
 )
 
 func (fes *APIServer) IsConfiguredForETH() bool {
@@ -370,8 +370,8 @@ func (fes *APIServer) QueryETHRPC(ww http.ResponseWriter, req *http.Request) {
 }
 
 type MetamaskSignInRequest struct {
-	RecipientPublicKey  string
 	RecipientEthAddress string
+	RecipientPublicKey  string
 	AmountNanos         uint64
 	Signer              []byte
 	Message             []byte
@@ -383,6 +383,7 @@ type MetamaskSignInResponse struct {
 
 func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) {
 	// Give the user starter deso if this is their first time signing in with through metamask and if they don't have Deso
+	DEFAULT_ERROR := "MetamaskSignin: something went wrong with processing your airdrop "
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 
 	// Validate the  request object
@@ -397,64 +398,68 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 	desoBalance, desoBalanceErr := fes.getBalanceForPubKey(recipientBytePK)
 	// balance check TESTED
 	if desoBalance != 0 {
-		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Deso balance greater than zero", desoBalanceErr))
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin:  Account already has a balance", desoBalanceErr))
 		return
 	}
-
+	// Check to see if they've received this airdrop
 	hasReceivedAirdrop, err := fes.GlobalState.Get(GlobalStateKeyMetamaskAirdrop(recipientBytePK))
-	// check if they have recieved the airdrop TESTED TODO switch 2 back to 1
 	if bytes.Equal(hasReceivedAirdrop, []byte{1}) {
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Account has already received airdrop"))
 		return
 	}
+	// add them to the received airdrop list
 	if err = fes.GlobalState.Put(GlobalStateKeyMetamaskAirdrop(recipientBytePK), []byte{1}); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Account failed to update airdrop state"))
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, "GlobalState update failed"))
 		return
 	}
 
 	// validate the user's eth balance
 	params := []interface{}{requestData.RecipientEthAddress, "latest"}
 	infuraResponse, err := fes.ExecuteETHRPCRequest("eth_getBalance", params)
+	// infura did something funky when getting the user balance
 	if infuraResponse == nil || err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("something wrong with fetching eth balance", err))
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, "Infura balance request"))
 		return
 	}
 	ethBalance := strings.Split(infuraResponse.Result.(string), "x")[1]
-	ethBalanceInt, _ := strconv.ParseInt(ethBalance, 16, 64)
-	ethBalanceInt64 := ethBalanceInt / 10000000000000000
+	ethBalanceInt, err := strconv.ParseInt(ethBalance, 16, 64)
 
 	if err != nil {
-		// glog the error, send generic message back for badrequest
-		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Issues calculating user balance", err))
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
 		return
 	}
-	if ethBalanceInt64 < 100 { // the 100 is equal to .01, long story short converting in GO is hard
-		glog.Info(requestData.RecipientEthAddress, " has ", ethBalanceInt64)
-		glog.Info("requried amount is 100")
-
-		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: To be eligible for airdrop your account needs to have more than .05 eth"))
+	// To prevent bots we only allow accounts with .001 eth or greater to qualify
+	if ethBalanceInt < int64(1000000000000000) { // the 1000000000000000 is equal to .001
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: To be eligible for airdrop your account needs to have more than .001 eth"))
 		return
 	}
 
-	//Verify that they signed a signature from their account TODO 1 re-enable this check after Identity changes
+	//Verify that they signed a signature from their account
 	verifyEthError := lib.VerifyEthPersonalSignature(requestData.Signer, requestData.Message, requestData.Signature)
 	if verifyEthError != nil {
 		glog.Info("eth error:", verifyEthError)
-		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Invalid signer signature match #{verifyEthError}", verifyEthError))
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, verifyEthError))
 		return
 	}
 
-	// send deso to the user
-	// question do I need to do anything else to hook this up to gringott? add an env var maybe?
-	addressToAirdrop, _, _ := lib.Base58CheckDecode(requestData.RecipientPublicKey)
-	txnHash, err := fes.SendSeedDeSo(addressToAirdrop, 10000, false)
+	addressToAirdrop, _, err := lib.Base58CheckDecode(requestData.RecipientPublicKey)
+	// Converting to public key failed
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Problem sending starter Deso ", err))
+		glog.Info("eth error:", err)
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
+		return
+
+	}
+	txnHash, err := fes.SendSeedDeSo(addressToAirdrop, 10000, false)
+	// attempted to send the deso but something went wrong
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
 		return
 	}
 	res := MetamaskSignInResponse{TxnHash: txnHash}
+	// Issue constructing response
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Problem encoding response: %v #{err}"))
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
 		return
 	}
 }
@@ -463,10 +468,9 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) (response *InfuraResponse, _err error) {
 	projectId := fes.Config.InfuraProjectID
 	URL := fmt.Sprintf("https://mainnet.infura.io/v3/%v", projectId)
-	//if fes.Params.NetworkType == lib.NetworkType_TESTNET { TODO renable this
-	//	URL = fmt.Sprintf("https://ropsten.infura.io/v3/%v", projectId)
-	//}
-	glog.Info("infura url :", URL)
+	if fes.Params.NetworkType == lib.NetworkType_TESTNET {
+		URL = fmt.Sprintf("https://ropsten.infura.io/v3/%v", projectId)
+	}
 	jsonData, err := json.Marshal(InfuraRequest{
 		JSONRPC: "2.0",
 		Method:  method,
@@ -513,11 +517,4 @@ func (fes *APIServer) GetETHTransactionByHash(hash string) (_tx *InfuraTx, _err 
 		return nil, err
 	}
 	return response, nil
-}
-
-func TextAndHash(data []byte) ([]byte, string) {
-	msg := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(data), string(data))
-	hasher := sha3.NewLegacyKeccak256()
-	hasher.Write([]byte(msg))
-	return hasher.Sum(nil), msg
 }
