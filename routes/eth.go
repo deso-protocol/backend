@@ -415,7 +415,7 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 	}
 	// Check to see if they've received this airdrop
 	hasReceivedAirdrop, err := fes.GlobalState.Get(GlobalStateKeyMetamaskAirdrop(recipientBytePK))
-	if bytes.Equal(hasReceivedAirdrop, []byte{2}) {
+	if bytes.Equal(hasReceivedAirdrop, []byte{1}) {
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Account has already received airdrop"))
 		return
 	}
