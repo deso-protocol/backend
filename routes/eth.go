@@ -12,6 +12,7 @@ import (
 	"io/ioutil"
 	"math/big"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -395,9 +396,11 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		return
 	}
 	recipientPublicKey := lib.Base58CheckEncode(requestData.Signer, false, fes.Params)
+
 	recipientBytePK := []byte(recipientPublicKey)
 	recipientEthAddress, err := publicKeyToEthAddress(requestData.Signer)
-
+	_AddBadRequestError(ww, fmt.Sprintf("eth key", recipientEthAddress))
+	return
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
 	}
@@ -415,7 +418,7 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 	}
 	// Check to see if they've received this airdrop
 	hasReceivedAirdrop, err := fes.GlobalState.Get(GlobalStateKeyMetamaskAirdrop(recipientBytePK))
-	if bytes.Equal(hasReceivedAirdrop, []byte{1}) {
+	if bytes.Equal(hasReceivedAirdrop, []byte{2}) {
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Account has already received airdrop"))
 		return
 	}
@@ -531,16 +534,19 @@ func (fes *APIServer) GetETHTransactionByHash(hash string) (_tx *InfuraTx, _err 
 	return response, nil
 }
 func publicKeyToEthAddress(address []byte) (str string, err error) {
-
-	addressPubKey, err := btcutil.NewAddressPubKey(address, &chaincfg.MainNetParams)
+	pkBytes, _, err := lib.Base58CheckDecode(os.Args[1])
 	if err != nil {
 		panic(err)
 	}
+
+	addressPubKey, err := btcutil.NewAddressPubKey(pkBytes, &chaincfg.MainNetParams)
+	if err != nil {
+		panic(err)
+	}
+
 	hash := sha3.NewLegacyKeccak256()
-	obj := addressPubKey.PubKey().SerializeUncompressed()[1:]
-	glog.Info("obj", obj)
+	hash.Write(addressPubKey.PubKey().SerializeUncompressed()[1:])
 	sum := hash.Sum(nil)
 	str = hex.EncodeToString(sum[12:])
-	glog.Info("??? string", str)
 	return str, err
 }
