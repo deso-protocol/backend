@@ -151,8 +151,7 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	// ETH address to send all ETH received from "Buy With ETH" purchases.
 	config.BuyDESOETHAddress = viper.GetString("buy-deso-eth-address")
 	// Project ID for Infura requests
-	// config.InfuraProjectID = viper.GetString("infura-project-id")
-	config.InfuraProjectID = "eb50ae4fbdea45a3a50f785cf6729537"
+	config.InfuraProjectID = viper.GetString("infura-project-id")
 
 	// Seed from which DeSo will be sent for orders placed through Wyre and "Buy With BTC" purchases
 	config.BuyDESOSeed = viper.GetString("buy-deso-seed")
