@@ -3146,6 +3146,11 @@ type TransactionSpendingLimitResponse struct {
 	// of SellingCoinPublicKey mapped to the number of DAO Coin Limit Order transactions with
 	// this Buying and Selling coin pair that the derived key is authorized to perform.
 	DAOCoinLimitOrderLimitMap map[string]map[string]uint64
+
+	// ===== ENCODER MIGRATION lib.UnlimitedDerivedKeysMigration =====
+	// IsUnlimited determines whether this derived key is unlimited. An unlimited derived key can perform all transactions
+	// that the owner can.
+	IsUnlimited bool
 }
 
 // AuthorizeDerivedKeyRequest ...
@@ -3323,10 +3328,12 @@ func TransactionSpendingLimitToResponse(
 	if transactionSpendingLimit == nil {
 		return nil
 	}
-	transactionSpendingLimitResponse := &TransactionSpendingLimitResponse{}
 
-	// Copy the GlobalDESOLimit
-	transactionSpendingLimitResponse.GlobalDESOLimit = transactionSpendingLimit.GlobalDESOLimit
+	// Copy the GlobalDESOLimit and IsUnlimited fields.
+	transactionSpendingLimitResponse := &TransactionSpendingLimitResponse{
+		GlobalDESOLimit: transactionSpendingLimit.GlobalDESOLimit,
+		IsUnlimited:     transactionSpendingLimit.IsUnlimited,
+	}
 
 	// Iterate over the TransactionCountLimit map - convert TxnType to TxnString and set as key with count as value
 	if len(transactionSpendingLimit.TransactionCountLimitMap) > 0 {
@@ -3435,6 +3442,7 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 	}
 	transactionSpendingLimit := &lib.TransactionSpendingLimit{
 		GlobalDESOLimit: transactionSpendingLimitResponse.GlobalDESOLimit,
+		IsUnlimited:     transactionSpendingLimitResponse.IsUnlimited,
 	}
 
 	if len(transactionSpendingLimitResponse.TransactionCountLimitMap) > 0 {
