@@ -5,19 +5,20 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcutil"
-	"golang.org/x/crypto/sha3"
 	"io"
 	"io/ioutil"
 	"math/big"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcutil"
+	"golang.org/x/crypto/sha3"
+
 	"encoding/hex"
+
 	"github.com/davecgh/go-spew/spew"
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
@@ -395,12 +396,12 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Problem parsing request body: %v", err))
 		return
 	}
+	// get the deso public address of the user
 	recipientPublicKey := lib.Base58CheckEncode(requestData.Signer, false, fes.Params)
-
 	recipientBytePK := []byte(recipientPublicKey)
+	// get the public eth address of the user
 	recipientEthAddress, err := publicKeyToEthAddress(requestData.Signer)
-	_AddBadRequestError(ww, fmt.Sprintf("eth key", recipientEthAddress))
-	return
+
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
 	}
@@ -416,9 +417,10 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin:  Account already has a balance", desoBalanceErr))
 		return
 	}
+
 	// Check to see if they've received this airdrop
 	hasReceivedAirdrop, err := fes.GlobalState.Get(GlobalStateKeyMetamaskAirdrop(recipientBytePK))
-	if bytes.Equal(hasReceivedAirdrop, []byte{2}) {
+	if bytes.Equal(hasReceivedAirdrop, []byte{1}) {
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Account has already received airdrop"))
 		return
 	}
@@ -437,12 +439,14 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		return
 	}
 	ethBalance := strings.Split(infuraResponse.Result.(string), "x")[1]
-	ethBalanceInt, err := strconv.ParseInt(ethBalance, 16, 64)
-
+	numberStr := strings.Replace(ethBalance, "0x", "", -1)
+	numberStr = strings.Replace(numberStr, "0X", "", -1)
+	ethBalanceInt, err := strconv.ParseInt(numberStr, 16, 64)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
 		return
 	}
+
 	// To prevent bots we only allow accounts with .001 eth or greater to qualify
 	if ethBalanceInt < int64(1000000000000000) { // the 1000000000000000 is equal to .001
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: To be eligible for airdrop your account needs to have more than .001 eth"))
@@ -457,7 +461,6 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	addressToAirdrop, _, err := lib.Base58CheckDecode(recipientPublicKey)
 	// Converting to public key failed
 	if err != nil {
 		glog.Info("eth error:", err)
@@ -465,6 +468,7 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		return
 
 	}
+	addressToAirdrop, _, err := lib.Base58CheckDecode(recipientPublicKey)
 	txnHash, err := fes.SendSeedDeSo(addressToAirdrop, 10000, false)
 	// attempted to send the deso but something went wrong
 	if err != nil {
@@ -483,9 +487,9 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) (response *InfuraResponse, _err error) {
 	projectId := fes.Config.InfuraProjectID
 	URL := fmt.Sprintf("https://mainnet.infura.io/v3/%v", projectId)
-	if fes.Params.NetworkType == lib.NetworkType_TESTNET {
-		URL = fmt.Sprintf("https://ropsten.infura.io/v3/%v", projectId)
-	}
+	//if fes.Params.NetworkType == lib.NetworkType_TESTNET {
+	//	URL = fmt.Sprintf("https://ropsten.infura.io/v3/%v", projectId)
+	//}
 	jsonData, err := json.Marshal(InfuraRequest{
 		JSONRPC: "2.0",
 		Method:  method,
@@ -534,19 +538,13 @@ func (fes *APIServer) GetETHTransactionByHash(hash string) (_tx *InfuraTx, _err 
 	return response, nil
 }
 func publicKeyToEthAddress(address []byte) (str string, err error) {
-	pkBytes, _, err := lib.Base58CheckDecode(os.Args[1])
+	addressPubKey, err := btcutil.NewAddressPubKey(address, &chaincfg.MainNetParams)
 	if err != nil {
 		panic(err)
 	}
-
-	addressPubKey, err := btcutil.NewAddressPubKey(pkBytes, &chaincfg.MainNetParams)
-	if err != nil {
-		panic(err)
-	}
-
 	hash := sha3.NewLegacyKeccak256()
 	hash.Write(addressPubKey.PubKey().SerializeUncompressed()[1:])
 	sum := hash.Sum(nil)
-	str = hex.EncodeToString(sum[12:])
+	str = "0x" + hex.EncodeToString(sum[12:])
 	return str, err
 }
