@@ -346,7 +346,6 @@ func (fes *APIServer) putUserMetadataInGlobalState(
 
 func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, useBuyDeSoSeed bool) (txnHash *lib.BlockHash, _err error) {
 	fes.mtxSeedDeSo.Lock()
-
 	defer fes.mtxSeedDeSo.Unlock()
 
 	senderSeed := fes.Config.StarterDESOSeed

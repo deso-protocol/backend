@@ -389,7 +389,6 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 	// Give the user starter deso if this is their first time signing in with through metamask and if they don't have Deso
 	DEFAULT_ERROR := "MetamaskSignin: something went wrong with processing your airdrop "
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-
 	// Validate the  request object
 	requestData := MetamaskSignInRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
@@ -401,15 +400,12 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 	recipientBytePK := []byte(recipientPublicKey)
 	// get the public eth address of the user
 	recipientEthAddress, err := publicKeyToEthAddress(requestData.Signer)
-
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
 	}
-
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
 	}
-
 	// Validate that the user doesn't have Deso already
 	desoBalance, desoBalanceErr := fes.getBalanceForPubKey(recipientBytePK)
 	// balance check TESTED
@@ -417,7 +413,6 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin:  Account already has a balance", desoBalanceErr))
 		return
 	}
-
 	// Check to see if they've received this airdrop
 	hasReceivedAirdrop, err := fes.GlobalState.Get(GlobalStateKeyMetamaskAirdrop(recipientBytePK))
 	if bytes.Equal(hasReceivedAirdrop, []byte{1}) {
@@ -429,7 +424,6 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, "GlobalState update failed"))
 		return
 	}
-
 	// validate the user's eth balance
 	params := []interface{}{recipientEthAddress, "latest"}
 	infuraResponse, err := fes.ExecuteETHRPCRequest("eth_getBalance", params)
@@ -440,19 +434,16 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 	}
 	ethBalance := strings.Split(infuraResponse.Result.(string), "x")[1]
 	numberStr := strings.Replace(ethBalance, "0x", "", -1)
-	numberStr = strings.Replace(numberStr, "0X", "", -1)
 	ethBalanceInt, err := strconv.ParseInt(numberStr, 16, 64)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
 		return
 	}
-
 	// To prevent bots we only allow accounts with .001 eth or greater to qualify
 	if ethBalanceInt < int64(1000000000000000) { // the 1000000000000000 is equal to .001
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: To be eligible for airdrop your account needs to have more than .001 eth"))
 		return
 	}
-
 	//Verify that they signed a signature from their account
 	verifyEthError := lib.VerifyEthPersonalSignature(requestData.Signer, requestData.Message, requestData.Signature)
 	if verifyEthError != nil {
@@ -460,7 +451,6 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, verifyEthError))
 		return
 	}
-
 	// Converting to public key failed
 	if err != nil {
 		glog.Info("eth error:", err)
@@ -487,9 +477,9 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) (response *InfuraResponse, _err error) {
 	projectId := fes.Config.InfuraProjectID
 	URL := fmt.Sprintf("https://mainnet.infura.io/v3/%v", projectId)
-	//if fes.Params.NetworkType == lib.NetworkType_TESTNET {
-	//	URL = fmt.Sprintf("https://ropsten.infura.io/v3/%v", projectId)
-	//}
+	if fes.Params.NetworkType == lib.NetworkType_TESTNET {
+		URL = fmt.Sprintf("https://ropsten.infura.io/v3/%v", projectId)
+	}
 	jsonData, err := json.Marshal(InfuraRequest{
 		JSONRPC: "2.0",
 		Method:  method,
