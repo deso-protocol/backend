@@ -419,11 +419,7 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Account has already received airdrop"))
 		return
 	}
-	// add them to the received airdrop list
-	if err = fes.GlobalState.Put(GlobalStateKeyMetamaskAirdrop(recipientBytePK), []byte{1}); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, "GlobalState update failed"))
-		return
-	}
+
 	// validate the user's eth balance
 	params := []interface{}{recipientEthAddress, "latest"}
 	infuraResponse, err := fes.ExecuteETHRPCRequest("eth_getBalance", params)
@@ -458,8 +454,14 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		return
 
 	}
+	// add them to the received airdrop list
+	if err = fes.GlobalState.Put(GlobalStateKeyMetamaskAirdrop(recipientBytePK), []byte{1}); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, "GlobalState update failed"))
+		return
+	}
+
 	addressToAirdrop, _, err := lib.Base58CheckDecode(recipientPublicKey)
-	txnHash, err := fes.SendSeedDeSo(addressToAirdrop, 10000, false)
+	txnHash, err := fes.SendSeedDeSo(addressToAirdrop, 1000, false)
 	// attempted to send the deso but something went wrong
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
