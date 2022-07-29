@@ -1617,11 +1617,7 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 		return nil, errors.Wrapf(err, "GetPostsForFollowFeedForPublicKey: Problem filtering out restricted public keys: ")
 	}
 
-	minTimestampNanos := uint64(time.Now().UTC().AddDate(0, 0, -fes.Config.FollowFeedLength).UnixNano()) // default: two days ago
-
-	if fes.Config.FollowFeedInfinite {
-		minTimestampNanos = 0 // Fetch all posts for infinite follow feed
-	}
+	minTimestampNanos := uint64(time.Now().UTC().AddDate(0, 0, -2).UnixNano()) // two days ago
 	// For each of these pub keys, get their posts, and load them into the view too
 	for _, followedPubKey := range filteredPubKeysMap {
 
