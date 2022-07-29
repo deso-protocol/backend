@@ -564,6 +564,9 @@ func GetBalanceForPublicKeyUsingUtxoView(
 type ExchangeBitcoinRequest struct {
 	// The public key of the user who we're creating the burn for.
 	PublicKeyBase58Check string `safeForLogging:"true"`
+	// If passed, we will check if the user intends to burn btc through a derived key.
+	DerivedPublicKeyBase58Check string `safeForLogging:"true"`
+
 	// Note: When BurnAmountSatoshis is negative, we assume that the user wants
 	// to burn the maximum amount of satoshi she has available.
 	BurnAmountSatoshis   int64 `safeForLogging:"true"`
@@ -683,6 +686,37 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		_AddBadRequestError(ww, "ExchangeBitcoinStateless: Invalid public key")
 		return
 	}
+	// If a derived key was passed, we will look for deposits in the derived btc address.
+	if requestData.DerivedPublicKeyBase58Check != "" {
+		// First decode the derived key.
+		derivedPkBytes, _, err := lib.Base58CheckDecode(requestData.DerivedPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, errors.Wrapf(err, "ExchangeBitcoinStateless: Invalid derived public key").Error())
+			return
+		}
+		// Verify that the derived key has been authorized by the provided owner public key.
+		utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+		if err != nil {
+			_AddBadRequestError(ww, errors.Wrapf(err, "ExchangeBitcoinStateless: Problem getting universal view from mempool").Error())
+			return
+		}
+		// Get the current block height for the derived key validation.
+		blockHeight := fes.blockchain.BlockTip().Height
+		// Now verify that the derived key has been authorized and hasn't expired.
+		if err := utxoView.ValidateDerivedKey(pkBytes, derivedPkBytes, uint64(blockHeight)); err != nil {
+			_AddBadRequestError(ww, errors.Wrapf(err, "ExchangeBitcoinStateless: Problem verifying the derived key").Error())
+			return
+		}
+		// If we get here it means a valid derived key was passed in the request. We will now get it's btc address for the deposit.
+		// FIXME (delete): At this point derived key deposits are pretty much done. The rest of this function stays the same,
+		// 	 note that SendSeedDeSo will use the owner public key for the transaction recipient.
+		addressPubKey, err = btcutil.NewAddressPubKey(derivedPkBytes, fes.Params.BitcoinBtcdParams)
+		if err != nil {
+			_AddBadRequestError(ww, errors.Wrapf(err, "ExchangeBitcoinStateless: Problem while getting btc address "+
+				"for the derived key").Error())
+			return
+		}
+	}
 	pubKey := addressPubKey.PubKey()
 
 	bitcoinTxn, totalInputSatoshis, fee, unsignedHashes, bitcoinSpendErr := lib.CreateBitcoinSpendTransaction(
@@ -699,7 +733,8 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		return
 	}
 
-	// Add all the signatures to the inputs
+	// Add all the signatures to the inputs. If the burned btc is coming from a derived key, the signatures must also be
+	// made by that derived key.
 	pkData := pubKey.SerializeCompressed()
 	for ii, signedHash := range requestData.SignedHashes {
 		sig, err := hex.DecodeString(signedHash)
@@ -3129,6 +3164,11 @@ type TransactionSpendingLimitResponse struct {
 	// of SellingCoinPublicKey mapped to the number of DAO Coin Limit Order transactions with
 	// this Buying and Selling coin pair that the derived key is authorized to perform.
 	DAOCoinLimitOrderLimitMap map[string]map[string]uint64
+
+	// ===== ENCODER MIGRATION lib.UnlimitedDerivedKeysMigration =====
+	// IsUnlimited determines whether this derived key is unlimited. An unlimited derived key can perform all transactions
+	// that the owner can.
+	IsUnlimited bool
 }
 
 // AuthorizeDerivedKeyRequest ...
@@ -3306,10 +3346,12 @@ func TransactionSpendingLimitToResponse(
 	if transactionSpendingLimit == nil {
 		return nil
 	}
-	transactionSpendingLimitResponse := &TransactionSpendingLimitResponse{}
 
-	// Copy the GlobalDESOLimit
-	transactionSpendingLimitResponse.GlobalDESOLimit = transactionSpendingLimit.GlobalDESOLimit
+	// Copy the GlobalDESOLimit and IsUnlimited fields.
+	transactionSpendingLimitResponse := &TransactionSpendingLimitResponse{
+		GlobalDESOLimit: transactionSpendingLimit.GlobalDESOLimit,
+		IsUnlimited:     transactionSpendingLimit.IsUnlimited,
+	}
 
 	// Iterate over the TransactionCountLimit map - convert TxnType to TxnString and set as key with count as value
 	if len(transactionSpendingLimit.TransactionCountLimitMap) > 0 {
@@ -3418,6 +3460,7 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 	}
 	transactionSpendingLimit := &lib.TransactionSpendingLimit{
 		GlobalDESOLimit: transactionSpendingLimitResponse.GlobalDESOLimit,
+		IsUnlimited:     transactionSpendingLimitResponse.IsUnlimited,
 	}
 
 	if len(transactionSpendingLimitResponse.TransactionCountLimitMap) > 0 {

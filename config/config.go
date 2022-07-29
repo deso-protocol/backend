@@ -2,9 +2,10 @@ package config
 
 import (
 	"fmt"
-	"github.com/deso-protocol/core/lib"
 	"strconv"
 	"strings"
+
+	"github.com/deso-protocol/core/lib"
 
 	coreCmd "github.com/deso-protocol/core/cmd"
 	"github.com/spf13/viper"
