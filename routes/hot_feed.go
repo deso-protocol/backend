@@ -621,6 +621,10 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 				if postEntryScored.IsHidden {
 					continue
 				}
+				// Exclude posts without media if HotFeedMediaRequired is set
+				if fes.Config.HotFeedMediaRequired && !postEntryScored.HasMedia() {
+					continue
+				}
 
 				var tags []string
 				var err error
