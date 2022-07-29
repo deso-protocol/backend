@@ -30,7 +30,7 @@ type Config struct {
 	GlobalStateRemoteSecret string
 
 	// Hot Feed
-	RunHotFeedRoutine bool
+	RunHotFeedRoutine    bool
 	HotFeedMediaRequired bool
 
 	// Web Security
