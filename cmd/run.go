@@ -36,7 +36,9 @@ func Run(cmd *cobra.Command, args []string) {
 		glog.Info("Shutdown complete")
 	}()
 
-	<-shutdownListener
+	if shutdownListener != nil {
+		<-shutdownListener
+	}
 }
 
 func init() {

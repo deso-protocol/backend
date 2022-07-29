@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"math/big"
 	"net/http"
 	"reflect"
@@ -73,7 +72,9 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 	}
 
 	paramUpdaters := make(map[string]bool)
-	for kk := range fes.Params.ParamUpdaterPublicKeys {
+	for kk := range lib.GetParamUpdaterPublicKeys(
+		fes.blockchain.BlockTip().Height, fes.Params) {
+
 		paramUpdaters[lib.PkToString(kk[:], fes.Params)] = true
 	}
 
@@ -983,54 +984,32 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 	bestExchangeRateDESOPerDAOCoin := float64(0)
 	if utxoView != nil && profileEntry.DAOCoinEntry.NumberOfHolders > 0 {
 		// Create entry from txn metadata for the transactor.
-		pkidEntry := utxoView.GetPKIDForPublicKey(profileEntry.PublicKey)
-		transactorOrder := &lib.DAOCoinLimitOrderEntry{
-			OrderID:        &lib.ZeroBlockHash,                // This field doesn't matter
-			TransactorPKID: lib.NewPKID(lib.ZeroBlockHash[:]), // This field doesn't matter
+		profilePKID := utxoView.GetPKIDForPublicKey(profileEntry.PublicKey)
+		decimalPriceString, err := fes.GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell(
+			utxoView,
+			&lib.ZeroPKID,    // buying DESO
+			profilePKID.PKID, // selling this profile's DAO coin
+		)
 
-			BuyingDAOCoinCreatorPKID:  pkidEntry.PKID,                    // buying this profile's DAO coin
-			SellingDAOCoinCreatorPKID: lib.NewPKID(lib.ZeroBlockHash[:]), // selling DESO
-			// We'll pay a maximum amount, basically making this a market order
-			ScaledExchangeRateCoinsToSellPerCoinToBuy: lib.MaxUint256,
-			// Buy one nano worth of deso. This always work, even if the imputed order's
-			// "sell" amount is zero.
-			QuantityToFillInBaseUnits: uint256.NewInt().SetUint64(1),
-			OperationType:             lib.DAOCoinLimitOrderOperationTypeASK,
-			FillType:                  lib.DAOCoinLimitOrderFillTypeImmediateOrCancel,
-			BlockHeight:               math.MaxUint32,
-		}
-		ordersFound, err := utxoView.GetNextLimitOrdersToFill(transactorOrder, nil)
-		if err != nil {
-			glog.Errorf("Error getting DAO coin limit order price for %v: %v",
-				lib.PkToStringMainnet(profileEntry.PublicKey), err)
-		}
-		// We should generally only ever find one order. But if we find more than
-		// one, the first one should be the one with the cheapest exchange rate.
-		if len(ordersFound) > 0 {
-			firstOrder := ordersFound[0]
-			// We want the following. Note we multiply by 1e9 because of the following math:
-			// deso nano            1 deso          1e18 dao coin base unit
-			// ------------------ * ------------- * -----------------------  = 1e9
-			// dao coin base unit   1e9 deso nano   1 dao coin
-			//
-			// - exchangeRate = ScaledExchangeRateCoinsToSellPerCoinToBuy / 1e38 * 1e9
-			exchangeRate := NewHighPrecFloat().SetInt(firstOrder.ScaledExchangeRateCoinsToSellPerCoinToBuy.ToBig())
-			exchangeRate = NewHighPrecFloat().Quo(exchangeRate, NewHighPrecFloat().SetInt(lib.OneE38.ToBig()))
-
-			if firstOrder.BuyingDAOCoinCreatorPKID.IsZeroPKID() {
-				// If the matching order was selling DAO coin for DESO, then the exchange
-				// rate is DAO coins per DESO, which is the inverse of what we want.
-				exchangeRate = NewHighPrecFloat().Quo(NewHighPrecFloat().SetInt64(1), exchangeRate)
-			} else {
-				// In this case, the matching order is selling DESO to purchase DAO coins
-				// so the exchange rate is what we want without the need for inversion.
+		// This exchange rate calculation is best-effort. If we encounter an error when computing and converting
+		// the exchange rate, then we log and move on
+		if err == nil {
+			bestExchangeRateDESOPerDAOCoin, err = strconv.ParseFloat(decimalPriceString, 64)
+			if err != nil {
+				glog.Errorf(
+					"Error converting price string %s to float64 when calculating best available DESO exchange rate"+
+						" for DAO coin with public key %s: %v",
+					decimalPriceString,
+					lib.Base58CheckEncode(profileEntry.PublicKey, false, fes.Params),
+					err,
+				)
 			}
-			// Now we multiply by 1e9 as mentioned above
-			exchangeRate = NewHighPrecFloat().Mul(exchangeRate, NewHighPrecFloat().SetInt64(int64(lib.NanosPerUnit)))
-
-			// In this case, we've succeeded in computing an exchange rate so set it
-			// on the profile. We don't care about overflow or underflow here.
-			bestExchangeRateDESOPerDAOCoin, _ = exchangeRate.Float64()
+		} else {
+			glog.Errorf(
+				"Error computing best available DESO exchange rate for DAO coin with public key %s: %v",
+				lib.Base58CheckEncode(profileEntry.PublicKey, false, fes.Params),
+				err,
+			)
 		}
 	}
 
@@ -1494,6 +1473,55 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetHodlersForPublicKey: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type GetHolderCountForPublicKeysRequest struct {
+	PublicKeysBase58Check []string
+	IsDAOCoin             bool
+}
+
+func (fes *APIServer) GetHodlersCountForPublicKeys(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetHolderCountForPublicKeysRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetHolderCountForPublicKeys: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Get a view
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Error getting utxoView: %v", err))
+		return
+	}
+	res := make(map[string]int)
+	for _, publicKey := range requestData.PublicKeysBase58Check {
+		// Convert pub key to bytes
+		pkBytes, _, err := lib.Base58CheckDecode(publicKey)
+		if err != nil {
+			_AddBadRequestError(
+				ww,
+				fmt.Sprintf("GetHolderCountForPublicKeys: unable to decode public key - %v: %v", publicKey, err))
+			return
+		}
+		// Get PKID and then get holders for PKID
+		pkid := utxoView.GetPKIDForPublicKey(pkBytes)
+		balanceEntries, _, err := utxoView.GetHolders(pkid.PKID, false, requestData.IsDAOCoin)
+		if err != nil {
+			_AddInternalServerError(
+				ww,
+				fmt.Sprintf("GetHolderCountForPublicKeys: error get holders for public key %v: %v", publicKey, err))
+			return
+		}
+		// set value in map
+		res[publicKey] = len(balanceEntries)
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetHolderCountForPublicKeys: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
