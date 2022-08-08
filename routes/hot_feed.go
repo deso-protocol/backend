@@ -1083,7 +1083,7 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 				postHash := &lib.BlockHash{}
 				copy(postHash[:], dbKeyBytes[1+len(maxBigEndianUint64Bytes):][:])
 				postEntry := utxoView.GetPostEntryForPostHash(postHash)
-				if postEntry != nil {
+				if postEntry != nil && !postEntry.IsHidden {
 					postEntry.IsPinned = true
 					profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
 					postEntryResponse, err := fes._postEntryToResponse(
