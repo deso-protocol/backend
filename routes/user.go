@@ -2761,7 +2761,9 @@ func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredO
 		txnMeta.TxnType == lib.TxnTypeNFTTransfer.String() || txnMeta.TxnType == lib.TxnTypeCreateNFT.String() ||
 		txnMeta.TxnType == lib.TxnTypeUpdateNFT.String() {
 		return !filteredOutCategories["nft"]
-	} else if txnMeta.TxnType == lib.TxnTypeDAOCoin.String() || txnMeta.TxnType == lib.TxnTypeDAOCoinTransfer.String() {
+	} else if txnMeta.TxnType == lib.TxnTypeDAOCoin.String() ||
+		txnMeta.TxnType == lib.TxnTypeDAOCoinTransfer.String() ||
+		txnMeta.TxnType == lib.TxnTypeDAOCoinLimitOrder.String() {
 		return !filteredOutCategories["dao coin"]
 	}
 	// If the transaction type doesn't fall into any of the previous steps, we don't want it
