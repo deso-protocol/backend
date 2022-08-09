@@ -2114,7 +2114,8 @@ type GetNotificationsRequest struct {
 	NumToFetch           int64
 	// This defines notifications that should be filtered OUT of the response
 	// If a field is missing from this struct, it should be included in the response
-	// Accepted values are like, diamond, follow, transfer, nft, post
+	// Accepted values are "like", "diamond", "follow", "transfer", "nft", "post",
+	// and "dao coin"
 	FilteredOutNotificationCategories map[string]bool
 }
 
