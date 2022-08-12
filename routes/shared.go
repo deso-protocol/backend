@@ -404,7 +404,7 @@ func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, 
 		if err != nil {
 			return nil, fmt.Errorf("SendSeedDeSo: Error adding inputs for seed DeSo: %v", err)
 		}
-		txn.Signature.Sign = txnSignature
+		txn.Signature.SetSignature(txnSignature)
 
 		err = fes.backendServer.VerifyAndBroadcastTransaction(txn)
 		if err != nil {

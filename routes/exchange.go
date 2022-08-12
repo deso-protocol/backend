@@ -1283,7 +1283,7 @@ func (fes *APIServer) _processTransactionWithKey(
 		return fmt.Errorf("_processTransactionWithKey: Error computing "+
 			"transaction signature: %v", err)
 	}
-	txn.Signature.Sign = txnSignature
+	txn.Signature.SetSignature(txnSignature)
 
 	// Grab the block tip and use it as the height for validation.
 	blockHeight := fes.blockchain.BlockTip().Height
