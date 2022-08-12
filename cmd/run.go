@@ -173,5 +173,10 @@ func init() {
 		viper.BindPFlag(flag.Name, flag)
 	})
 
+	// Metamask minimal Eth in Wei required to receive an airdrop.
+	// The default 1000000000000000 is equal to .001 Eth.
+	runCmd.PersistentFlags().Int64("metamask-airdrop-eth-minimum", 1000000000000000,
+		"In Wei, amount of Eth required to receive an airdrop during Metamask signup.")
+
 	rootCmd.AddCommand(runCmd)
 }

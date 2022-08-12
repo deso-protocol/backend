@@ -402,9 +402,11 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 	recipientEthAddress, err := publicKeyToEthAddress(requestData.Signer)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
+		return
 	}
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
+		return
 	}
 	// Validate that the user doesn't have Deso already
 	desoBalance, desoBalanceErr := fes.getBalanceForPubKey(recipientBytePK)
@@ -436,23 +438,26 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		return
 	}
 	// To prevent bots we only allow accounts with .001 eth or greater to qualify
-	if ethBalanceInt < int64(1000000000000000) { // the 1000000000000000 is equal to .001
+	if ethBalanceInt < fes.Config.MetamaskAirdropEthMinimum {
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: To be eligible for airdrop your account needs to have more than .001 eth"))
 		return
 	}
 	//Verify that they signed a signature from their account
 	verifyEthError := lib.VerifyEthPersonalSignature(requestData.Signer, requestData.Message, requestData.Signature)
 	if verifyEthError != nil {
-		glog.Info("eth error:", verifyEthError)
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, verifyEthError))
 		return
 	}
 	// Converting to public key failed
 	if err != nil {
-		glog.Info("eth error:", err)
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
 		return
 
+	}
+	addressToAirdrop, _, err := lib.Base58CheckDecode(recipientPublicKey)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
+		return
 	}
 	// add them to the received airdrop list
 	if err = fes.GlobalState.Put(GlobalStateKeyMetamaskAirdrop(recipientBytePK), []byte{1}); err != nil {
@@ -460,7 +465,6 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	addressToAirdrop, _, err := lib.Base58CheckDecode(recipientPublicKey)
 	txnHash, err := fes.SendSeedDeSo(addressToAirdrop, 1000, false)
 	// attempted to send the deso but something went wrong
 	if err != nil {
@@ -532,11 +536,12 @@ func (fes *APIServer) GetETHTransactionByHash(hash string) (_tx *InfuraTx, _err 
 func publicKeyToEthAddress(address []byte) (str string, err error) {
 	addressPubKey, err := btcutil.NewAddressPubKey(address, &chaincfg.MainNetParams)
 	if err != nil {
-		panic(err)
+		return "", errors.Wrapf(err,
+			"publicKeyToEthAddress: problem getting eth public key, address: (%v)", err)
 	}
 	hash := sha3.NewLegacyKeccak256()
 	hash.Write(addressPubKey.PubKey().SerializeUncompressed()[1:])
 	sum := hash.Sum(nil)
 	str = "0x" + hex.EncodeToString(sum[12:])
-	return str, err
+	return str, nil
 }

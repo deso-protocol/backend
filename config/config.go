@@ -85,6 +85,9 @@ type Config struct {
 
 	// Public keys that need their balances monitored. Map of Label to Public key
 	PublicKeyBalancesToMonitor map[string][]byte
+
+	// Metamask minimal Eth in Wei required to receive an airdrop.
+	MetamaskAirdropEthMinimum int64
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -196,6 +199,9 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 			config.PublicKeyBalancesToMonitor[entry[0]] = pubKeyBytes
 		}
 	}
+
+	// Metamask minimal Eth in Wei required to receive an airdrop.
+	config.MetamaskAirdropEthMinimum = viper.GetInt64("metamask-airdrop-eth-minimum")
 
 	return &config
 }

@@ -3326,8 +3326,8 @@ type GetAccessBytesRequest struct {
 }
 
 type GetAccessBytesResponse struct {
-	SpendingLimitHex string
-	AccessBytesHex   string
+	TransactionSpendingLimitHex string
+	AccessBytesHex              string
 }
 
 func (fes *APIServer) GetAccessBytes(ww http.ResponseWriter, req *http.Request) {
