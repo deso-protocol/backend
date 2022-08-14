@@ -174,8 +174,8 @@ func init() {
 	})
 
 	// Metamask minimal Eth in Wei required to receive an airdrop.
-	// The default 1000000000000000 is equal to .001 Eth.
-	runCmd.PersistentFlags().Int64("metamask-airdrop-eth-minimum", 1000000000000000,
+	// The default 100000000000000 is equal to .0001 Eth.
+	runCmd.PersistentFlags().String("metamask-airdrop-eth-minimum", "100000000000000",
 		"In Wei, amount of Eth required to receive an airdrop during Metamask signup.")
 
 	rootCmd.AddCommand(runCmd)

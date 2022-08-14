@@ -9,7 +9,6 @@ import (
 	"io/ioutil"
 	"math/big"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -387,7 +386,7 @@ type MetamaskSignInResponse struct {
 
 func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) {
 	// Give the user starter deso if this is their first time signing in with through metamask and if they don't have Deso
-	DEFAULT_ERROR := "MetamaskSignin: something went wrong with processing your airdrop "
+	DEFAULT_ERROR := "MetamaskSignin: something went wrong with processing your airdrop: %v"
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	// Validate the  request object
 	requestData := MetamaskSignInRequest{}
@@ -427,19 +426,22 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 	infuraResponse, err := fes.ExecuteETHRPCRequest("eth_getBalance", params)
 	// infura did something funky when getting the user balance
 	if infuraResponse == nil || err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, "Infura balance request"))
+		balanceRequestErr := fmt.Sprintf("Infura balance request: %v", err)
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, balanceRequestErr))
 		return
 	}
 	ethBalance := strings.Split(infuraResponse.Result.(string), "x")[1]
 	numberStr := strings.Replace(ethBalance, "0x", "", -1)
-	ethBalanceInt, err := strconv.ParseInt(numberStr, 16, 64)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
+	ethBalanceBigint, ok := big.NewInt(0).SetString(numberStr, 16)
+	if !ok {
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, fmt.Sprintf(
+			"could not parse ETH balance %v into bigint", numberStr)))
 		return
 	}
-	// To prevent bots we only allow accounts with .001 eth or greater to qualify
-	if ethBalanceInt < fes.Config.MetamaskAirdropEthMinimum {
-		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: To be eligible for airdrop your account needs to have more than .001 eth"))
+	// To prevent bots we only allow accounts with .0001 eth or greater to qualify
+	if ethBalanceBigint.Cmp(fes.Config.MetamaskAirdropEthMinimum.ToBig()) < 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: To be eligible for "+
+			"airdrop your account needs to have more than .001 eth"))
 		return
 	}
 	//Verify that they signed a signature from their account
@@ -482,6 +484,10 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 // ExecuteETHRPCRequest makes a request to Infura to fetch information about the Ethereum blockchain
 func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) (response *InfuraResponse, _err error) {
 	projectId := fes.Config.InfuraProjectID
+	if projectId == "" {
+		return nil, fmt.Errorf("ExecuteETHRPCRequest: Project ID not set. Airdrop can only be " +
+			"given if project ID is set via commandline flags when node is started")
+	}
 	URL := fmt.Sprintf("https://mainnet.infura.io/v3/%v", projectId)
 	if fes.Params.NetworkType == lib.NetworkType_TESTNET {
 		URL = fmt.Sprintf("https://ropsten.infura.io/v3/%v", projectId)
@@ -509,6 +515,11 @@ func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) 
 
 	// Decode the response into the appropriate struct.
 	body, _ := ioutil.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ExecuteETHRPCRequest: Infura returned an error: %v", string(body))
+	}
+
 	var responseData *InfuraResponse
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	if err = decoder.Decode(&responseData); err != nil {
