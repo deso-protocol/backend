@@ -3360,8 +3360,8 @@ func (fes *APIServer) GetAccessBytes(ww http.ResponseWriter, req *http.Request) 
 	accessBytes := lib.AssembleAccessBytesWithMetamaskStrings(derivedPublicKey, requestData.ExpirationBlock,
 		transactionSpendingLimit, fes.Params)
 	res := &GetAccessBytesResponse{
-		SpendingLimitHex: hex.EncodeToString(transactionSpendingBytes),
-		AccessBytesHex:   hex.EncodeToString(accessBytes),
+		TransactionSpendingLimitHex: hex.EncodeToString(transactionSpendingBytes),
+		AccessBytesHex:              hex.EncodeToString(accessBytes),
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetAccessBytes: Problem serializing object to JSON: %v", err))
