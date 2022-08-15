@@ -430,9 +430,8 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, "Infura balance request"))
 		return
 	}
-	ethBalance := strings.Split(infuraResponse.Result.(string), "x")[1]
-	numberStr := strings.Replace(ethBalance, "0x", "", -1)
-	ethBalanceInt, err := strconv.ParseInt(numberStr, 16, 64)
+	trimPrefix := strings.Replace(infuraResponse.Result.(string), "0x", "", -1)
+	ethBalanceInt, err := strconv.ParseInt(trimPrefix, 16, 64)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
 		return
