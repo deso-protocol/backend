@@ -9,7 +9,6 @@ import (
 	"io/ioutil"
 	"math/big"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -431,10 +430,12 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, balanceRequestErr))
 		return
 	}
-	trimPrefix := strings.Replace(infuraResponse.Result.(string), "0x", "", -1)
-	ethBalanceInt, err := strconv.ParseInt(trimPrefix, 16, 64)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
+	ethBalance := strings.Split(infuraResponse.Result.(string), "x")[1]
+	numberStr := strings.Replace(ethBalance, "0x", "", -1)
+	ethBalanceBigint, ok := big.NewInt(0).SetString(numberStr, 16)
+	if !ok {
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, fmt.Sprintf(
+			"could not parse ETH balance %v into bigint", numberStr)))
 		return
 	}
 	// To prevent bots we only allow accounts with .0001 eth or greater to qualify
