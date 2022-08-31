@@ -2,4 +2,4 @@ local_scripts/*
 backend
 
 .idea
-*DS_Store*
+*.DS_Store*
