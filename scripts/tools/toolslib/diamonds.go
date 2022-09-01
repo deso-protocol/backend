@@ -87,7 +87,7 @@ func SendDiamonds(senderPubKey *btcec.PublicKey, senderPrivKey *btcec.PrivateKey
 	if err != nil {
 		return errors.Wrap(err, "SendDiamonds() failed to sign transaction")
 	}
-	txn.Signature = signature
+	txn.Signature.SetSignature(signature)
 
 	// Submit the transaction to the node
 	err = SubmitTransactionToNode(txn, node)

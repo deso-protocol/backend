@@ -115,7 +115,7 @@ func UpdateNFT(updaterPubKey *btcec.PublicKey, updaterPrivKey *btcec.PrivateKey,
 	if err != nil {
 		return errors.Wrap(err, "UpdateNFT() failed to sign transaction")
 	}
-	txn.Signature = signature
+	txn.Signature.SetSignature(signature)
 
 	// Submit the transaction to the node
 	err = SubmitTransactionToNode(txn, node)
@@ -140,7 +140,7 @@ func BurnNFT(burnerPubKey *btcec.PublicKey, burnerPrivKey *btcec.PrivateKey,
 	if err != nil {
 		return errors.Wrap(err, "BurnNFT() failed to sign transaction")
 	}
-	txn.Signature = signature
+	txn.Signature.SetSignature(signature)
 
 	// Submit the transaction to the node
 	err = SubmitTransactionToNode(txn, node)

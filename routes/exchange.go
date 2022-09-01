@@ -526,8 +526,8 @@ func APITransactionToResponse(
 	params *lib.DeSoParams) *TransactionResponse {
 
 	signatureHex := ""
-	if txnn.Signature != nil {
-		signatureHex = hex.EncodeToString(txnn.Signature.Serialize())
+	if txnn.Signature.Sign != nil {
+		signatureHex = hex.EncodeToString(txnn.Signature.Sign.Serialize())
 	}
 
 	// Remove UtxoOps from the response because it's massive and usually useless
@@ -1283,7 +1283,7 @@ func (fes *APIServer) _processTransactionWithKey(
 		return fmt.Errorf("_processTransactionWithKey: Error computing "+
 			"transaction signature: %v", err)
 	}
-	txn.Signature = txnSignature
+	txn.Signature.SetSignature(txnSignature)
 
 	// Grab the block tip and use it as the height for validation.
 	blockHeight := fes.blockchain.BlockTip().Height

@@ -75,7 +75,7 @@ func UpdateProfile(updaterPubKey *btcec.PublicKey, updaterPrivKey *btcec.Private
 	if err != nil {
 		return errors.Wrap(err, "UpdateProfile() failed to sign the transaction")
 	}
-	txn.Signature = signature
+	txn.Signature.SetSignature(signature)
 
 	// Submit the transaction to the node
 	err = SubmitTransactionToNode(txn, node)

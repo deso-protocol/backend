@@ -71,7 +71,7 @@ func SendDeSo(senderPubKey *btcec.PublicKey,
 	if err != nil {
 		return errors.Wrap(err, "SendDeSo() failed to sign transaction")
 	}
-	txn.Signature = signature
+	txn.Signature.SetSignature(signature)
 
 	// Submit the transaction to the node
 	err = SubmitTransactionToNode(txn, node)
