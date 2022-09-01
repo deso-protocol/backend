@@ -110,8 +110,8 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 	}
 
 	res := &SubmitTransactionResponse{
-		Transaction: txn,
-		TxnHashHex:  txn.Hash().String(),
+		Transaction:              txn,
+		TxnHashHex:               txn.Hash().String(),
 		TransactionIDBase58Check: lib.PkToString(txn.Hash()[:], fes.Params),
 	}
 
