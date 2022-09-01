@@ -3289,7 +3289,7 @@ func (fes *APIServer) GetSingleDerivedKey(ww http.ResponseWriter, req *http.Requ
 		_AddInternalServerError(ww, fmt.Sprintf("GetSingleDerivedKey: Problem getting augmented utxoView: %v", err))
 		return
 	}
-	derivedKeyEntry := utxoView.GetDerivedKeyEntryForDerivedPublicKey(ownerPublicKeyBytes, derivedPublicKeyBytes)
+	derivedKeyEntry := utxoView.GetDerivedKeyMappingForOwner(ownerPublicKeyBytes, derivedPublicKeyBytes)
 	if derivedKeyEntry == nil || derivedKeyEntry.IsDeleted() {
 		_AddBadRequestError(ww, fmt.Sprintf("GetSingleDerivedKey: DerivedKey was not found"))
 		return
