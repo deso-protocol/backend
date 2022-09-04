@@ -93,6 +93,8 @@ func init() {
 	runCmd.PersistentFlags().Bool("run-hot-feed-routine", false,
 		"If set, runs a go routine that accumulates 'hotness' scores for posts  in the "+
 			"last 24hrs.  This can be used to serve a 'hot' feed.")
+	runCmd.PersistentFlags().Bool("hot-feed-media-required", false,
+		"If set, hot feed excludes posts without media.")
 
 	// Web Security
 	runCmd.PersistentFlags().StringSlice("access-control-allow-origins", []string{"*"},

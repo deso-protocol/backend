@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core/lib"
@@ -344,6 +345,55 @@ func buildDAOCoinLimitOrderResponse(
 ///////////////////////////////////////////////////////////////////////////////////
 // Helper functions to calculate price and exchange rates for DAO coin limit orders
 ///////////////////////////////////////////////////////////////////////////////////
+
+// GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell computes the best available decimal string exchange rate at which
+// the market is able to exchange one base unit of the selling coin pair for the buying coin. Since we are interested
+// in computing the best exchange rate for the selling coin, the denominator for the output will always be the selling coin.
+//   Example: given buying coin B, and selling coin S, an output exchange rate of "1.5" implies an exchange rate of
+//            (1.5 coin B) per (1 coin S).
+// This function can support any arbitrary coin pair, but is most useful for markets where one coin is always considered
+// the denominating coin (ex: DAO coin <> DESO). In such cases, this computes the best available ask price.
+func (fes *APIServer) GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell(
+	utxoView *lib.UtxoView,
+	buyingCoinPKID *lib.PKID,
+	sellingCoinPKID *lib.PKID,
+) (string, error) {
+	// This is relatively inefficient as it pulls all open orders from one side of the book. We need to call this function
+	// as an abstraction for core behavior because it performs useful filtering of soft-deleted orders, and merges orders
+	// from the mempool and db. Long term, it will be worth further optimizing it further to support pagination, so it can
+	// return the top 1 order.
+	orders, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(buyingCoinPKID, sellingCoinPKID)
+	if err != nil {
+		return "", err
+	}
+	if len(orders) == 0 {
+		// It's OK if there are no orders on the book that allow us to exchange the coin pair. We default the exchange
+		// rate to 0 in this case
+		return "0", nil
+	}
+
+	bestExchangeRate := uint256.NewInt()
+	for _, order := range orders {
+		// ScaledExchangeRateCoinsToSellPerCoinToBuy has the buying coin is the denominator, so we want to find
+		// the highest available ScaledExchangeRateCoinsToSellPerCoinToBuy
+		if order.ScaledExchangeRateCoinsToSellPerCoinToBuy.Gt(bestExchangeRate) {
+			bestExchangeRate = order.ScaledExchangeRateCoinsToSellPerCoinToBuy
+		}
+	}
+
+	buyingCoinPublicKeyBase58Check := fes.getPublicKeyBase58CheckOrCoinIdentifierForPKID(utxoView, buyingCoinPKID)
+	sellingCoinPublicKeyBase58Check := fes.getPublicKeyBase58CheckOrCoinIdentifierForPKID(utxoView, sellingCoinPKID)
+
+	// Computes exchange rate in decimal string format with the selling coin in the denominator
+	return CalculatePriceStringFromScaledExchangeRate(
+		buyingCoinPublicKeyBase58Check,
+		sellingCoinPublicKeyBase58Check,
+		bestExchangeRate,
+		// We hardcode operation type to ASK regardless of the order's operation type. This way it ensures the denominator
+		// for the computed exchange rate is always the selling coin
+		DAOCoinLimitOrderOperationTypeStringASK,
+	)
+}
 
 // CalculateScaledExchangeRateFromPriceString calculates a scaled ExchangeRateCoinsToSellPerCoinsToBuy given a decimal
 // price string (ex: "1.23456") that represents an exchange rate between the two coins where the numerator is the coin
@@ -926,6 +976,57 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 	}
 
 	// Happy path. No error. Transactor has sufficient balance to cover their selling quantity.
+	return nil
+}
+
+func (fes *APIServer) validateDAOCoinOrderTransferRestriction(
+	transactorPublicKeyBase58Check string, buyingDAOCoinCreatorPublicKeyBase58Check string) error {
+
+	// If buying $DESO, this never has a transfer restriction. We validate
+	// that you own sufficient of your selling coin elsewhere.
+	if buyingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+		return nil
+	}
+
+	// Get UTXO view.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return errors.Errorf("Problem fetching UTXOView: %v", err)
+	}
+
+	// Get transactor PublicKey from PublicKeyBase58Check.
+	transactorPublicKey, _, err := lib.Base58CheckDecode(transactorPublicKeyBase58Check)
+	if err != nil {
+		return errors.Errorf("Error decoding transactor public key: %v", err)
+	}
+
+	// Get buying DAO coin creator PublicKey from PublicKeyBase58Check.
+	buyingCoinPublicKey, _, err := lib.Base58CheckDecode(buyingDAOCoinCreatorPublicKeyBase58Check)
+	if err != nil {
+		return errors.Errorf("Error decoding buying DAO coin creator public key: %v", err)
+	}
+
+	// Get buying DAO coin profile entry.
+	profileEntry := utxoView.GetProfileEntryForPublicKey(buyingCoinPublicKey)
+	if profileEntry == nil || profileEntry.IsDeleted() {
+		return errors.New("Buying DAO coin creator profile entry not found")
+	}
+
+	// Validate if transfer restriction status is PROFILE OWNER ONLY.
+	if profileEntry.DAOCoinEntry.TransferRestrictionStatus == lib.TransferRestrictionStatusProfileOwnerOnly &&
+		!bytes.Equal(transactorPublicKey, buyingCoinPublicKey) {
+		return errors.New("Buying this DAO coin is restricted to the creator of the DAO")
+	}
+
+	// Validate if transfer restriction status is MEMBERS ONLY.
+	if profileEntry.DAOCoinEntry.TransferRestrictionStatus == lib.TransferRestrictionStatusDAOMembersOnly {
+		// Retrieve transactor's DAO coin balance. Error if balance is zero.
+		balanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(transactorPublicKey, buyingCoinPublicKey, true)
+		if balanceEntry == nil || balanceEntry.BalanceNanos.IsZero() {
+			return errors.New("Buying this DAO coin is restricted to users who already own this DAO coin")
+		}
+	}
+
 	return nil
 }
 

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"math/big"
 	"net/http"
 	"reflect"
@@ -985,54 +984,32 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 	bestExchangeRateDESOPerDAOCoin := float64(0)
 	if utxoView != nil && profileEntry.DAOCoinEntry.NumberOfHolders > 0 {
 		// Create entry from txn metadata for the transactor.
-		pkidEntry := utxoView.GetPKIDForPublicKey(profileEntry.PublicKey)
-		transactorOrder := &lib.DAOCoinLimitOrderEntry{
-			OrderID:        &lib.ZeroBlockHash,                // This field doesn't matter
-			TransactorPKID: lib.NewPKID(lib.ZeroBlockHash[:]), // This field doesn't matter
+		profilePKID := utxoView.GetPKIDForPublicKey(profileEntry.PublicKey)
+		decimalPriceString, err := fes.GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell(
+			utxoView,
+			&lib.ZeroPKID,    // buying DESO
+			profilePKID.PKID, // selling this profile's DAO coin
+		)
 
-			BuyingDAOCoinCreatorPKID:  pkidEntry.PKID,                    // buying this profile's DAO coin
-			SellingDAOCoinCreatorPKID: lib.NewPKID(lib.ZeroBlockHash[:]), // selling DESO
-			// We'll pay a maximum amount, basically making this a market order
-			ScaledExchangeRateCoinsToSellPerCoinToBuy: lib.MaxUint256,
-			// Buy one nano worth of deso. This always work, even if the imputed order's
-			// "sell" amount is zero.
-			QuantityToFillInBaseUnits: uint256.NewInt().SetUint64(1),
-			OperationType:             lib.DAOCoinLimitOrderOperationTypeASK,
-			FillType:                  lib.DAOCoinLimitOrderFillTypeImmediateOrCancel,
-			BlockHeight:               math.MaxUint32,
-		}
-		ordersFound, err := utxoView.GetNextLimitOrdersToFill(transactorOrder, nil, math.MaxUint32)
-		if err != nil {
-			glog.Errorf("Error getting DAO coin limit order price for %v: %v",
-				lib.PkToStringMainnet(profileEntry.PublicKey), err)
-		}
-		// We should generally only ever find one order. But if we find more than
-		// one, the first one should be the one with the cheapest exchange rate.
-		if len(ordersFound) > 0 {
-			firstOrder := ordersFound[0]
-			// We want the following. Note we multiply by 1e9 because of the following math:
-			// deso nano            1 deso          1e18 dao coin base unit
-			// ------------------ * ------------- * -----------------------  = 1e9
-			// dao coin base unit   1e9 deso nano   1 dao coin
-			//
-			// - exchangeRate = ScaledExchangeRateCoinsToSellPerCoinToBuy / 1e38 * 1e9
-			exchangeRate := NewHighPrecFloat().SetInt(firstOrder.ScaledExchangeRateCoinsToSellPerCoinToBuy.ToBig())
-			exchangeRate = NewHighPrecFloat().Quo(exchangeRate, NewHighPrecFloat().SetInt(lib.OneE38.ToBig()))
-
-			if firstOrder.BuyingDAOCoinCreatorPKID.IsZeroPKID() {
-				// If the matching order was selling DAO coin for DESO, then the exchange
-				// rate is DAO coins per DESO, which is the inverse of what we want.
-				exchangeRate = NewHighPrecFloat().Quo(NewHighPrecFloat().SetInt64(1), exchangeRate)
-			} else {
-				// In this case, the matching order is selling DESO to purchase DAO coins
-				// so the exchange rate is what we want without the need for inversion.
+		// This exchange rate calculation is best-effort. If we encounter an error when computing and converting
+		// the exchange rate, then we log and move on
+		if err == nil {
+			bestExchangeRateDESOPerDAOCoin, err = strconv.ParseFloat(decimalPriceString, 64)
+			if err != nil {
+				glog.Errorf(
+					"Error converting price string %s to float64 when calculating best available DESO exchange rate"+
+						" for DAO coin with public key %s: %v",
+					decimalPriceString,
+					lib.Base58CheckEncode(profileEntry.PublicKey, false, fes.Params),
+					err,
+				)
 			}
-			// Now we multiply by 1e9 as mentioned above
-			exchangeRate = NewHighPrecFloat().Mul(exchangeRate, NewHighPrecFloat().SetInt64(int64(lib.NanosPerUnit)))
-
-			// In this case, we've succeeded in computing an exchange rate so set it
-			// on the profile. We don't care about overflow or underflow here.
-			bestExchangeRateDESOPerDAOCoin, _ = exchangeRate.Float64()
+		} else {
+			glog.Errorf(
+				"Error computing best available DESO exchange rate for DAO coin with public key %s: %v",
+				lib.Base58CheckEncode(profileEntry.PublicKey, false, fes.Params),
+				err,
+			)
 		}
 	}
 
@@ -2137,7 +2114,8 @@ type GetNotificationsRequest struct {
 	NumToFetch           int64
 	// This defines notifications that should be filtered OUT of the response
 	// If a field is missing from this struct, it should be included in the response
-	// Accepted values are like, diamond, follow, transfer, nft, post
+	// Accepted values are "like", "diamond", "follow", "transfer", "nft", "post",
+	// and "dao coin"
 	FilteredOutNotificationCategories map[string]bool
 }
 
@@ -2784,7 +2762,9 @@ func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredO
 		txnMeta.TxnType == lib.TxnTypeNFTTransfer.String() || txnMeta.TxnType == lib.TxnTypeCreateNFT.String() ||
 		txnMeta.TxnType == lib.TxnTypeUpdateNFT.String() {
 		return !filteredOutCategories["nft"]
-	} else if txnMeta.TxnType == lib.TxnTypeDAOCoin.String() || txnMeta.TxnType == lib.TxnTypeDAOCoinTransfer.String() {
+	} else if txnMeta.TxnType == lib.TxnTypeDAOCoin.String() ||
+		txnMeta.TxnType == lib.TxnTypeDAOCoinTransfer.String() ||
+		txnMeta.TxnType == lib.TxnTypeDAOCoinLimitOrder.String() {
 		return !filteredOutCategories["dao coin"]
 	}
 	// If the transaction type doesn't fall into any of the previous steps, we don't want it
@@ -3096,8 +3076,9 @@ func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Reque
 	hodlBalanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(
 		userPublicKeyBytes, isHodlingPublicKeyBytes, requestData.IsDAOCoin)
 	if hodlBalanceEntry != nil {
+		hodlingProfileEntry := utxoView.GetProfileEntryForPublicKey(isHodlingPublicKeyBytes)
 		BalanceEntry = fes._balanceEntryToResponse(
-			hodlBalanceEntry, hodlBalanceEntry.BalanceNanos.Uint64(), nil, utxoView)
+			hodlBalanceEntry, hodlBalanceEntry.BalanceNanos.Uint64(), hodlingProfileEntry, utxoView)
 		IsHodling = true
 	}
 
