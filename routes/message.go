@@ -919,11 +919,18 @@ type RegisterMessagingGroupKeyResponse struct {
 
 // RegisterMessagingGroupKey ...
 func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *http.Request) {
-
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := RegisterMessagingGroupKeyRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Call RegisterMessagingDefaultKey if the user is registering the default key.
+	// Parse the messaging group key name from string to bytes
+	messagingKeyNameBytes := []byte(requestData.MessagingGroupKeyName)
+	if lib.EqualGroupKeyName(lib.DefaultGroupKeyName(), lib.NewGroupKeyName(messagingKeyNameBytes)) {
+		fes.RegisterMessagingDefaultKey(ww, req)
 		return
 	}
 
@@ -942,8 +949,6 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 			"base58 public key %s: %v", requestData.MessagingPublicKeyBase58Check, err))
 		return
 	}
-	// Parse the messaging group key name from string to bytes
-	messagingKeyNameBytes := []byte(requestData.MessagingGroupKeyName)
 
 	// Validate that the group messaging public key and key name have the correct format.
 	err = lib.ValidateGroupPublicKeyAndName(messagingPkBytes, messagingKeyNameBytes)
@@ -957,15 +962,6 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem decoding messaging public key signature %v", err))
 		return
-	}
-
-	// If the messaging key name is the default key name, then we will sanity-check that the signature is valid.
-	if lib.EqualGroupKeyName(lib.DefaultGroupKeyName(), lib.NewGroupKeyName(messagingKeyNameBytes)) {
-		msgBytes := append(messagingPkBytes, messagingKeyNameBytes...)
-		if err := VerifyBytesSignature(ownerPkBytes, msgBytes, messagingKeySignature); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem verifying transaction signature: %v", err))
-			return
-		}
 	}
 
 	// Compute the additional transaction fees as specified by the request body and the node-level fees.
@@ -1010,6 +1006,137 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+// RegisterMessagingDefaultKeyRequest ...
+type RegisterMessagingDefaultKeyRequest struct {
+	// OwnerPublicKeyBase58Check is the public key of the user who is registering the default messaging key.
+	OwnerPublicKeyBase58Check string
+
+	// MessagingPublicKeyBase58Check is the public key of the messaging group.
+	MessagingPublicKeyBase58Check string
+
+	// MessagingGroupKeyName is already assumed to be DefaultKey.
+
+	// MessagingKeySignatureHex is the signature of sha256x2(MessagingPublicKey + MessagingGroupKeyName). Currently,
+	// the signature is only needed to register the default key.
+	MessagingKeySignatureHex string
+
+	// ExtraData is an arbitrary key value map
+	ExtraData map[string]string
+
+	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+}
+
+// RegisterMessagingDefaultKeyResponse ...
+type RegisterMessagingDefaultKeyResponse struct {
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgDeSoTxn
+	TransactionHex    string
+	TxnHashHex        string
+}
+
+// RegisterMessagingDefaultKey ...
+func (fes *APIServer) RegisterMessagingDefaultKey(ww http.ResponseWriter, req *http.Request) {
+	// Set the messagingKeyNameBytes to the default key name.
+	messagingKeyNameBytes := lib.DefaultGroupKeyName().ToBytes()
+
+	// Decode the request data.
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := RegisterMessagingDefaultKeyRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingDefaultKey: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Decode the owner public key.
+	ownerPkBytes, _, err := lib.Base58CheckDecode(requestData.OwnerPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingDefaultKey: Problem decoding sender "+
+			"base58 public key %s: %v", requestData.OwnerPublicKeyBase58Check, err))
+		return
+	}
+
+	// Decode the group messaging public key
+	messagingPkBytes, _, err := lib.Base58CheckDecode(requestData.MessagingPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingDefaultKey: Problem decoding messaging "+
+			"base58 public key %s: %v", requestData.MessagingPublicKeyBase58Check, err))
+		return
+	}
+
+	// Validate that the group messaging public key and key name have the correct format.
+	err = lib.ValidateGroupPublicKeyAndName(messagingPkBytes, messagingKeyNameBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingDefaultKey: Problem validating messaging public key and name %v", err))
+		return
+	}
+
+	// Decode the messaging key signature.
+	messagingKeySignature, _ := hex.DecodeString(requestData.MessagingKeySignatureHex)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingDefaultKey: Problem decoding messaging public key signature %v", err))
+		return
+	}
+
+	// Since the messaging key name is the default key name, signature must be valid.
+	msgBytes := append(messagingPkBytes, messagingKeyNameBytes...)
+	if err := VerifyBytesSignature(ownerPkBytes, msgBytes, messagingKeySignature); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingDefaultKey: Problem verifying transaction signature: %v", err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeMessagingGroup, ownerPkBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingDefaultKey: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
+	// Encode the extra data map.
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingDefaultKey: Problem encoding ExtraData: %v", err))
+		return
+	}
+
+	// Create the transaction.
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
+		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, messagingKeySignature,
+		[]*lib.MessagingGroupMember{}, extraData,
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingDefaultKey: Problem creating transaction: %v", err))
+		return
+	}
+
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingDefaultKey: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Assemble and encode the response.
+	res := RegisterMessagingGroupKeyResponse{
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+		TxnHashHex:        txn.Hash().String(),
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingDefaultKey: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
