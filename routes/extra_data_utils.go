@@ -181,7 +181,9 @@ func DecodePubKeyToUint64MapString(bytes []byte, params *lib.DeSoParams, _ *lib.
 func DecodeTransactionSpendingLimit(spendingBytes []byte, params *lib.DeSoParams, utxoView *lib.UtxoView) string {
 	var transactionSpendingLimit lib.TransactionSpendingLimit
 	rr := bytes.NewReader(spendingBytes)
-	if err := transactionSpendingLimit.FromBytes(rr); err != nil {
+	// FIX ME: blockHeight is needed here but we don't have it.
+	blockHeight := uint64(1000000) // FIX THIS
+	if err := transactionSpendingLimit.FromBytes(blockHeight, rr); err != nil {
 		glog.Errorf("Error decoding transaction spending limits: %v", err)
 		return ""
 	}

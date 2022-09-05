@@ -3284,7 +3284,8 @@ func (fes *APIServer) GetTransactionSpendingLimitHexString(ww http.ResponseWrite
 			"spending limit from response: %v", err))
 		return
 	}
-	tslBytes, err := transactionSpendingLimit.ToBytes()
+	blockHeight := fes.backendServer.GetBlockchain().BlockTip().Height + 1
+	tslBytes, err := transactionSpendingLimit.ToBytes(uint64(blockHeight))
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpendingLimitHexString: Error in ToBytes: %v", err))
 		return
@@ -3318,7 +3319,8 @@ func (fes *APIServer) GetTransactionSpendingLimitResponseFromHex(ww http.Respons
 
 	var transactionSpendingLimit lib.TransactionSpendingLimit
 	rr := bytes.NewReader(tslBytes)
-	if err = transactionSpendingLimit.FromBytes(rr); err != nil {
+	blockHeight := fes.backendServer.GetBlockchain().BlockTip().Height + 1
+	if err = transactionSpendingLimit.FromBytes(uint64(blockHeight), rr); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetTransactionSpendingLimitResponseFromHex: Error constructing TransactionSpendingLimit from bytes"))
 		return

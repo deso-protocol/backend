@@ -94,7 +94,8 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	// for more insight on this.
 
 	// Get user's messaging groups and up to lib.MessagesToFetchPerInboxCall messages.
-	messageEntries, messagingGroups, err := utxoView.GetLimitedMessagesForUser(publicKeyBytes, uint64(lib.MessagesToFetchPerInboxCall))
+	blockHeight := fes.backendServer.GetBlockchain().BlockTip().Height + 1
+	messageEntries, messagingGroups, err := utxoView.GetLimitedMessagesForUser(publicKeyBytes, uint64(lib.MessagesToFetchPerInboxCall), blockHeight)
 	if err != nil {
 		return nil, nil, nil, 0, nil, errors.Wrapf(
 			err, "getMessagesStateless: Problem fetching MessageEntries and MessagingGroupEntries from augmented UtxoView: ")
@@ -823,7 +824,8 @@ func (fes *APIServer) markAllMessagesRead(publicKeyBytes []byte) error {
 		return errors.Wrapf(err, "markAllMessagesRead: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
 	}
 
-	messageEntries, _, err := utxoView.GetMessagesForUser(publicKeyBytes)
+	blockHeight := fes.backendServer.GetBlockchain().BlockTip().Height + 1
+	messageEntries, _, err := utxoView.GetMessagesForUser(publicKeyBytes, blockHeight)
 	if err != nil {
 		return errors.Wrapf(err, "markAllMessagesRead: Problem fetching MessageEntries from augmented UtxoView: ")
 	}
@@ -1073,7 +1075,8 @@ func (fes *APIServer) GetAllMessagingGroupKeys(ww http.ResponseWriter, req *http
 	}
 
 	// First get all messaging keys for a user.
-	messagingGroupEntries, err := utxoView.GetMessagingGroupEntriesForUser(ownerPkBytes)
+	blockHeight := fes.backendServer.GetBlockchain().BlockTip().Height + 1
+	messagingGroupEntries, err := utxoView.GetMessagingGroupEntriesForUser(ownerPkBytes, blockHeight)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetAllMessagingGroupKeys: Error calling "+
 			"GetAugmentedUtxoViewForPublicKey: %s: %v", requestData.OwnerPublicKeyBase58Check, err))

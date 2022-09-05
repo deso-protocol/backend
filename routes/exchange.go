@@ -526,8 +526,8 @@ func APITransactionToResponse(
 	params *lib.DeSoParams) *TransactionResponse {
 
 	signatureHex := ""
-	if txnn.Signature != nil {
-		signatureHex = hex.EncodeToString(txnn.Signature.Serialize())
+	if txnn.Signature.Sign != nil {
+		signatureHex = hex.EncodeToString(txnn.Signature.ToBytes())
 	}
 
 	// Remove UtxoOps from the response because it's massive and usually useless
@@ -582,11 +582,11 @@ func APITransactionToResponse(
 // For example, if a transaction sends 10 DeSo from PubA to PubB with 5 DeSo
 // in “change” and 1 DeSo as a “miner fee,” then the transaction would look as
 // follows:
-// - Input: 16 DeSo (10 DeSo to send, 5 DeSo in change, and 1 DeSo as a fee)
-// - PubB: 10 DeSo (the amount being sent from A to B)
-// - PubA: 5 DeSo (change returned to A)
-// - Implicit 1 DeSo is paid as a fee to the miner. The miner fee is implicitly
-//   computed as (total input – total output) just like in Bitcoin.
+//   - Input: 16 DeSo (10 DeSo to send, 5 DeSo in change, and 1 DeSo as a fee)
+//   - PubB: 10 DeSo (the amount being sent from A to B)
+//   - PubA: 5 DeSo (change returned to A)
+//   - Implicit 1 DeSo is paid as a fee to the miner. The miner fee is implicitly
+//     computed as (total input – total output) just like in Bitcoin.
 //
 // TODO: This function is redundant with the APITransferDeSo function in frontend_utils
 func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) {
@@ -1283,7 +1283,7 @@ func (fes *APIServer) _processTransactionWithKey(
 		return fmt.Errorf("_processTransactionWithKey: Error computing "+
 			"transaction signature: %v", err)
 	}
-	txn.Signature = txnSignature
+	txn.Signature.Sign = txnSignature
 
 	// Grab the block tip and use it as the height for validation.
 	blockHeight := fes.blockchain.BlockTip().Height
@@ -1420,7 +1420,7 @@ func IsRestrictedPubKey(userGraylistState []byte, userBlacklistState []byte, mod
 	}
 }
 
-//Get the map of public keys this user has blocked.  The _blockedPubKeyMap operates as a hashset to speed up look up time
+// Get the map of public keys this user has blocked.  The _blockedPubKeyMap operates as a hashset to speed up look up time
 // while value are empty structs to keep memory usage down.
 func (fes *APIServer) GetBlockedPubKeysForUser(userPubKey []byte) (_blockedPubKeyMap map[string]struct{}, _err error) {
 	/* Get public keys of users the reader has blocked */
