@@ -75,8 +75,9 @@ type SubmitTransactionRequest struct {
 }
 
 type SubmitTransactionResponse struct {
-	Transaction *lib.MsgDeSoTxn
-	TxnHashHex  string
+	Transaction              *lib.MsgDeSoTxn
+	TxnHashHex               string
+	TransactionIDBase58Check string
 
 	// include the PostEntryResponse if a post was submitted
 	PostEntryResponse *PostEntryResponse
@@ -109,8 +110,9 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 	}
 
 	res := &SubmitTransactionResponse{
-		Transaction: txn,
-		TxnHashHex:  txn.Hash().String(),
+		Transaction:              txn,
+		TxnHashHex:               txn.Hash().String(),
+		TransactionIDBase58Check: lib.PkToString(txn.Hash()[:], fes.Params),
 	}
 
 	if txn.TxnMeta.GetTxnType() == lib.TxnTypeSubmitPost {
