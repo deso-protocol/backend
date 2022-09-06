@@ -33,7 +33,8 @@ type Config struct {
 	GlobalStateRemoteSecret string
 
 	// Hot Feed
-	RunHotFeedRoutine bool
+	RunHotFeedRoutine    bool
+	HotFeedMediaRequired bool
 
 	// Web Security
 	AccessControlAllowOrigins []string
@@ -129,6 +130,7 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 
 	// Hot Feed
 	config.RunHotFeedRoutine = viper.GetBool("run-hot-feed-routine")
+	config.HotFeedMediaRequired = viper.GetBool("hot-feed-media-required")
 
 	// Web Security
 	config.AccessControlAllowOrigins = viper.GetStringSlice("access-control-allow-origins")

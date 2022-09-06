@@ -621,6 +621,10 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 				if postEntryScored.IsHidden {
 					continue
 				}
+				// Exclude posts without media if HotFeedMediaRequired is set
+				if fes.Config.HotFeedMediaRequired && !postEntryScored.HasMedia() {
+					continue
+				}
 
 				var tags []string
 				var err error
@@ -1079,7 +1083,7 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 				postHash := &lib.BlockHash{}
 				copy(postHash[:], dbKeyBytes[1+len(maxBigEndianUint64Bytes):][:])
 				postEntry := utxoView.GetPostEntryForPostHash(postHash)
-				if postEntry != nil {
+				if postEntry != nil && !postEntry.IsHidden {
 					postEntry.IsPinned = true
 					profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
 					postEntryResponse, err := fes._postEntryToResponse(
