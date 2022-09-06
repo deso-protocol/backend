@@ -5,17 +5,24 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
-	"github.com/davecgh/go-spew/spew"
-	"github.com/deso-protocol/core/lib"
-	"github.com/golang/glog"
-	"github.com/mitchellh/mapstructure"
-	"github.com/pkg/errors"
 	"io"
 	"io/ioutil"
 	"math/big"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcutil"
+	"golang.org/x/crypto/sha3"
+
+	"encoding/hex"
+
+	"github.com/davecgh/go-spew/spew"
+	"github.com/deso-protocol/core/lib"
+	"github.com/golang/glog"
+	"github.com/mitchellh/mapstructure"
+	"github.com/pkg/errors"
 )
 
 func (fes *APIServer) IsConfiguredForETH() bool {
@@ -103,7 +110,7 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Submit the transaction
+	// Submit the transaction. Note that the SignedHashes is actually the whole transaction serialized with signature.
 	params := []interface{}{fmt.Sprintf("0x%v", requestData.SignedHashes[0])}
 	response, err := fes.ExecuteETHRPCRequest("eth_sendRawTransaction", params)
 
@@ -367,14 +374,124 @@ func (fes *APIServer) QueryETHRPC(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
+type MetamaskSignInRequest struct {
+	AmountNanos uint64
+	Signer      []byte
+	Message     []byte
+	Signature   []byte
+}
+type MetamaskSignInResponse struct {
+	TxnHash *lib.BlockHash
+}
+
+func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) {
+	// Give the user starter deso if this is their first time signing in with through metamask and if they don't have Deso
+	DEFAULT_ERROR := "MetamaskSignin: something went wrong with processing your airdrop: %v"
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	// Validate the  request object
+	requestData := MetamaskSignInRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Problem parsing request body: %v", err))
+		return
+	}
+	// get the deso public address of the user
+	recipientPublicKey := lib.Base58CheckEncode(requestData.Signer, false, fes.Params)
+	recipientBytePK := []byte(recipientPublicKey)
+	// get the public eth address of the user
+	recipientEthAddress, err := publicKeyToEthAddress(requestData.Signer)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
+		return
+	}
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
+		return
+	}
+	// Validate that the user doesn't have Deso already
+	desoBalance, desoBalanceErr := fes.getBalanceForPubKey(recipientBytePK)
+	// balance check TESTED
+	if desoBalance != 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin:  Account already has a balance", desoBalanceErr))
+		return
+	}
+	// Check to see if they've received this airdrop
+	hasReceivedAirdrop, err := fes.GlobalState.Get(GlobalStateKeyMetamaskAirdrop(recipientBytePK))
+	if bytes.Equal(hasReceivedAirdrop, []byte{1}) {
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Account has already received airdrop"))
+		return
+	}
+
+	// validate the user's eth balance
+	params := []interface{}{recipientEthAddress, "latest"}
+	infuraResponse, err := fes.ExecuteETHRPCRequest("eth_getBalance", params)
+	// infura did something funky when getting the user balance
+	if infuraResponse == nil || err != nil {
+		balanceRequestErr := fmt.Sprintf("Infura balance request: %v", err)
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, balanceRequestErr))
+		return
+	}
+	ethBalance := strings.Split(infuraResponse.Result.(string), "x")[1]
+	numberStr := strings.Replace(ethBalance, "0x", "", -1)
+	ethBalanceBigint, ok := big.NewInt(0).SetString(numberStr, 16)
+	if !ok {
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, fmt.Sprintf(
+			"could not parse ETH balance %v into bigint", numberStr)))
+		return
+	}
+	// To prevent bots we only allow accounts with .0001 eth or greater to qualify
+	if ethBalanceBigint.Cmp(fes.Config.MetamaskAirdropEthMinimum.ToBig()) < 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: To be eligible for "+
+			"airdrop your account needs to have more than .001 eth"))
+		return
+	}
+	//Verify that they signed a signature from their account
+	verifyEthError := lib.VerifyEthPersonalSignature(requestData.Signer, requestData.Message, requestData.Signature)
+	if verifyEthError != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, verifyEthError))
+		return
+	}
+	// Converting to public key failed
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
+		return
+
+	}
+	addressToAirdrop, _, err := lib.Base58CheckDecode(recipientPublicKey)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
+		return
+	}
+	// add them to the received airdrop list
+	if err = fes.GlobalState.Put(GlobalStateKeyMetamaskAirdrop(recipientBytePK), []byte{1}); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, "GlobalState update failed"))
+		return
+	}
+
+	txnHash, err := fes.SendSeedDeSo(addressToAirdrop, 1000, false)
+	// attempted to send the deso but something went wrong
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
+		return
+	}
+	res := MetamaskSignInResponse{TxnHash: txnHash}
+	// Issue constructing response
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
+		return
+	}
+}
+
 // ExecuteETHRPCRequest makes a request to Infura to fetch information about the Ethereum blockchain
 func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) (response *InfuraResponse, _err error) {
 	projectId := fes.Config.InfuraProjectID
+	if projectId == "" {
+		return nil, fmt.Errorf("ExecuteETHRPCRequest: Project ID not set. Airdrop can only be " +
+			"given if project ID is set via commandline flags when node is started")
+	}
 	URL := fmt.Sprintf("https://mainnet.infura.io/v3/%v", projectId)
 	if fes.Params.NetworkType == lib.NetworkType_TESTNET {
 		URL = fmt.Sprintf("https://ropsten.infura.io/v3/%v", projectId)
 	}
-
 	jsonData, err := json.Marshal(InfuraRequest{
 		JSONRPC: "2.0",
 		Method:  method,
@@ -398,6 +515,11 @@ func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) 
 
 	// Decode the response into the appropriate struct.
 	body, _ := ioutil.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ExecuteETHRPCRequest: Infura returned an error: %v", string(body))
+	}
+
 	var responseData *InfuraResponse
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	if err = decoder.Decode(&responseData); err != nil {
@@ -421,4 +543,16 @@ func (fes *APIServer) GetETHTransactionByHash(hash string) (_tx *InfuraTx, _err 
 		return nil, err
 	}
 	return response, nil
+}
+func publicKeyToEthAddress(address []byte) (str string, err error) {
+	addressPubKey, err := btcutil.NewAddressPubKey(address, &chaincfg.MainNetParams)
+	if err != nil {
+		return "", errors.Wrapf(err,
+			"publicKeyToEthAddress: problem getting eth public key, address: (%v)", err)
+	}
+	hash := sha3.NewLegacyKeccak256()
+	hash.Write(addressPubKey.PubKey().SerializeUncompressed()[1:])
+	sum := hash.Sum(nil)
+	str = "0x" + hex.EncodeToString(sum[12:])
+	return str, nil
 }

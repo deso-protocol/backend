@@ -10,10 +10,13 @@ require (
 	github.com/btcsuite/btcutil v1.0.2
 	github.com/cloudflare/circl v1.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.1
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
 	github.com/deso-protocol/core v0.0.0-00010101000000-000000000000
 	github.com/deso-protocol/go-deadlock v1.0.0
 	github.com/dgraph-io/badger/v3 v3.2103.0
+	github.com/docker/docker v20.10.17+incompatible // indirect
 	github.com/elliotchance/orderedmap v1.4.0 // indirect
+	github.com/ethereum/go-ethereum v1.9.25 // indirect
 	github.com/fatih/color v1.13.0 // indirect
 	github.com/fatih/structs v1.1.0
 	github.com/gofrs/uuid v4.0.0+incompatible // indirect

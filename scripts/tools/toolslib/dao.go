@@ -73,7 +73,7 @@ func TransferDAOCoin(senderPubKey *btcec.PublicKey, senderPrivKey *btcec.Private
 	if err != nil {
 		return errors.Wrap(err, "TrasnferDAOCoin() failed to sign transaction")
 	}
-	txn.Signature = signature
+	txn.Signature.SetSignature(signature)
 
 	// Submit the transaction to the node
 	err = SubmitTransactionToNode(txn, node)
