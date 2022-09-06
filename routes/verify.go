@@ -33,22 +33,25 @@ type SendPhoneNumberVerificationTextRequest struct {
 type SendPhoneNumberVerificationTextResponse struct {
 }
 
-/*************************************************************
+/*
+************************************************************
 How verification works:
 
 1. User inputs phone number and hits submit
 
-2. Frontend hits SendPhoneNumberVerificationText. It uses Twilio to send a text to
-   the user with a verification code. Before sending the text, it validates that the
-   phone number isn't already in use by checking phoneNumberMetadata (explained below).
+ 2. Frontend hits SendPhoneNumberVerificationText. It uses Twilio to send a text to
+    the user with a verification code. Before sending the text, it validates that the
+    phone number isn't already in use by checking phoneNumberMetadata (explained below).
 
 3. User inputs the code and hits submit
 
-4. Frontend hits SubmitPhoneNumberVerificationCode. This verifies the code and updates
-   two mappings in global state.
-     A. userMetadata is updated to include the user's phone number
-     B. phoneNumberMetadata is created, which maps phone number => user's public key
-*************************************************************/
+ 4. Frontend hits SubmitPhoneNumberVerificationCode. This verifies the code and updates
+    two mappings in global state.
+    A. userMetadata is updated to include the user's phone number
+    B. phoneNumberMetadata is created, which maps phone number => user's public key
+
+************************************************************
+*/
 func (fes *APIServer) SendPhoneNumberVerificationText(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := SendPhoneNumberVerificationTextRequest{}
@@ -1091,7 +1094,7 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 				signUpBonusMetadata.AllowCustomKickbackAmount, signUpBonusMetadata.KickbackAmountOverrideUSDCents,
 				referralInfo.ReferrerAmountUSDCents)
 			if referralInfo.TotalReferrals >= referralInfo.MaxReferrals && referralInfo.MaxReferrals > 0 {
-				glog.Info("JumioVerifiedHandler: Not paying for kickback. Max Referrals exceeded")
+				glog.Infof("JumioVerifiedHandler: Not paying for kickback. Max Referrals exceeded")
 				return userMetadata, nil
 			}
 			// Check the balance of the starter deso seed compared to the referrer deso nanos.
