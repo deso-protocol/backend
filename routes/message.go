@@ -974,7 +974,7 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 		return
 	}
 
-	messagingGroupMembers := []*lib.MessagingGroupMember{}
+	var messagingGroupMembers []*lib.MessagingGroupMember
 	for _, member := range requestData.MessagingGroupMembers {
 		memberPublicKeyBytes, _, err := lib.Base58CheckDecode(member.GroupMemberPublicKeyBase58Check)
 		if err != nil {
@@ -1039,6 +1039,9 @@ type RegisterMessagingDefaultKeyRequest struct {
 	// MessagingKeySignatureHex is the signature of sha256x2(MessagingPublicKey + MessagingGroupKeyName). Currently,
 	// the signature is only needed to register the default key.
 	MessagingKeySignatureHex string
+
+	// MessagingGroupMembers is the list of members we intend to add to this group.
+	MessagingGroupMembers []*MessagingGroupMemberResponse
 
 	// ExtraData is an arbitrary key value map
 	ExtraData map[string]string
@@ -1116,17 +1119,36 @@ func (fes *APIServer) RegisterMessagingDefaultKey(ww http.ResponseWriter, req *h
 		return
 	}
 
-	// Encode the extra data map.
-	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingDefaultKey: Problem encoding ExtraData: %v", err))
-		return
+	var messagingGroupMembers []*lib.MessagingGroupMember
+	for _, member := range requestData.MessagingGroupMembers {
+		memberPublicKeyBytes, _, err := lib.Base58CheckDecode(member.GroupMemberPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Member public key %v is invalid: %v",
+				member.GroupMemberPublicKeyBase58Check, err))
+			return
+		}
+		memberPublicKey := lib.NewPublicKey(memberPublicKeyBytes)
+		groupKey := lib.NewMessagingGroupKey(memberPublicKey, []byte(member.GroupMemberKeyName))
+		encryptedKey, err := hex.DecodeString(member.EncryptedKey)
+
+		messagingGroupMembers = append(messagingGroupMembers, &lib.MessagingGroupMember{
+			GroupMemberPublicKey: memberPublicKey,
+			GroupMemberKeyName:   &groupKey.GroupKeyName,
+			EncryptedKey:         encryptedKey,
+		})
 	}
+
+	//// Encode the extra data map.
+	//extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	//if err != nil {
+	//	_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingDefaultKey: Problem encoding ExtraData: %v", err))
+	//	return
+	//}
 
 	// Create the transaction.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
 		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, messagingKeySignature,
-		[]*lib.MessagingGroupMember{}, extraData,
+		messagingGroupMembers, preprocessExtraData(requestData.ExtraData),
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingDefaultKey: Problem creating transaction: %v", err))
@@ -1143,7 +1165,7 @@ func (fes *APIServer) RegisterMessagingDefaultKey(ww http.ResponseWriter, req *h
 	}
 
 	// Assemble and encode the response.
-	res := RegisterMessagingGroupKeyResponse{
+	res := RegisterMessagingDefaultKeyResponse{
 		TotalInputNanos:   totalInput,
 		ChangeAmountNanos: changeAmount,
 		FeeNanos:          fees,
@@ -1153,6 +1175,312 @@ func (fes *APIServer) RegisterMessagingDefaultKey(ww http.ResponseWriter, req *h
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingDefaultKey: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+// AddMessagingGroupMembersRequest ...
+type AddMessagingGroupMembersRequest RegisterMessagingGroupKeyRequest
+
+// AddMessagingGroupMembersResponse ...
+type AddMessagingGroupMembersResponse RegisterMessagingGroupKeyResponse
+
+// AddMessagingGroupMembers ...
+func (fes *APIServer) AddMessagingGroupMembers(ww http.ResponseWriter, req *http.Request) {
+	fes.RegisterMessagingGroupKey(ww, req)
+	return
+}
+
+// MuteMessagingGroupMembersRequest ...
+type MuteMessagingGroupMembersRequest struct {
+	// OwnerPublicKeyBase58Check is the public key in base58check of the account that is muting the group members.
+	OwnerPublicKeyBase58Check string
+
+	// MessagingPublicKeyBase58Check is the public key in base58check of the messaging group we want to mute members in.
+	MessagingPublicKeyBase58Check string
+
+	// MessagingKeySignatureHex is the signature of sha256x2(MessagingPublicKey + MessagingGroupKeyName). Currently,
+	// the signature is only needed to register the default key.
+	MessagingKeySignatureHex string
+
+	// MessagingGroupKeyName is the name of the group key.
+	MessagingGroupKeyName string
+
+	// MutingGroupMembers is the list of members we intend to mute in this group.
+	MutingGroupMembers []*MessagingGroupMemberResponse
+
+	// ExtraData is an arbitrary key value map
+	ExtraData map[string]string
+
+	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+}
+
+// MuteMessagingGroupMembersResponse ...
+type MuteMessagingGroupMembersResponse RegisterMessagingGroupKeyResponse
+
+// MuteMessagingGroupMembers ...
+func (fes *APIServer) MuteMessagingGroupMembers(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := MuteMessagingGroupMembersRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("MuteMessagingGroupMembers: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Decode the owner public key.
+	ownerPkBytes, _, err := lib.Base58CheckDecode(requestData.OwnerPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("MuteMessagingGroupMembers: Problem decoding sender "+
+			"base58 public key %s: %v", requestData.OwnerPublicKeyBase58Check, err))
+		return
+	}
+
+	// Decode the group messaging public key
+	messagingPkBytes, _, err := lib.Base58CheckDecode(requestData.MessagingPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("MuteMessagingGroupMembers: Problem decoding messaging "+
+			"base58 public key %s: %v", requestData.MessagingPublicKeyBase58Check, err))
+		return
+	}
+
+	// Parse the messaging group key name from string to bytes
+	messagingKeyNameBytes := []byte(requestData.MessagingGroupKeyName)
+
+	// Validate that the group messaging public key and key name have the correct format.
+	err = lib.ValidateGroupPublicKeyAndName(messagingPkBytes, messagingKeyNameBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("MuteMessagingGroupMembers: Problem validating messaging public key and name %v", err))
+		return
+	}
+
+	// Decode the messaging key signature.
+	messagingKeySignature, _ := hex.DecodeString(requestData.MessagingKeySignatureHex)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("MuteMessagingGroupMembers: Problem decoding messaging public key signature %v", err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeMessagingGroup, ownerPkBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("MuteMessagingGroupMembers: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
+	var mutingGroupMembers []*lib.MessagingGroupMember
+	for _, member := range requestData.MutingGroupMembers {
+		memberPublicKeyBytes, _, err := lib.Base58CheckDecode(member.GroupMemberPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("MuteMessagingGroupMembers: Member public key %v is invalid: %v",
+				member.GroupMemberPublicKeyBase58Check, err))
+			return
+		}
+		memberPublicKey := lib.NewPublicKey(memberPublicKeyBytes)
+		groupKey := lib.NewMessagingGroupKey(memberPublicKey, []byte(member.GroupMemberKeyName))
+		encryptedKey, err := hex.DecodeString(member.EncryptedKey)
+
+		mutingGroupMembers = append(mutingGroupMembers, &lib.MessagingGroupMember{
+			GroupMemberPublicKey: memberPublicKey,
+			GroupMemberKeyName:   &groupKey.GroupKeyName,
+			EncryptedKey:         encryptedKey,
+		})
+	}
+
+	// Validate operation type in extra data
+	// Request ExtraData does not need to have an operation type as it is assumed to be a mute operation
+	// But if it is specified, we validate it here
+	extraData := preprocessExtraData(requestData.ExtraData)
+	// make sure extra data contains operation type
+	if extraDataContainsKey(extraData, lib.MessagingGroupOperationType) {
+		// make sure operation type is correct for muting group members
+		if !reflect.DeepEqual(extraData[lib.MessagingGroupOperationType], lib.MessagingGroupOperationMuteMembers) {
+			_AddBadRequestError(ww, fmt.Sprintf("MuteMessagingGroupMembers: Operation type %v is incorrect", extraData[lib.MessagingGroupOperationType]))
+			return
+		}
+	} else {
+		// since doesn't exist, add it
+		extraData[lib.MessagingGroupOperationType] = []byte{byte(lib.MessagingGroupOperationMuteMembers)}
+	}
+
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
+		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, messagingKeySignature,
+		mutingGroupMembers, extraData,
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("MuteMessagingGroupMembers: Problem creating transaction: %v", err))
+		return
+	}
+
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("MuteMessagingGroupMembers: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Assemble and encode the response.
+	res := MuteMessagingGroupMembersResponse{
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+		TxnHashHex:        txn.Hash().String(),
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("MuteMessagingGroupMembers: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+// UnmuteMessagingGroupMembersRequest ...
+type UnmuteMessagingGroupMembersRequest struct {
+	// OwnerPublicKeyBase58Check is the public key in base58check of the account that is unmuting the group members.
+	OwnerPublicKeyBase58Check string
+
+	// MessagingPublicKeyBase58Check is the public key of the messaging group we want to unmute member in.
+	MessagingPublicKeyBase58Check string
+
+	// MessagingKeySignatureHex is the signature of sha256x2(MessagingPublicKey + MessagingGroupKeyName). Currently,
+	// the signature is only needed to register the default key.
+	MessagingKeySignatureHex string
+
+	// MessagingGroupKeyName is the name of the group key.
+	MessagingGroupKeyName string
+
+	// UnmutingGroupMembers is the list of members we intend to unmute in this group.
+	UnmutingGroupMembers []*MessagingGroupMemberResponse
+
+	// ExtraData is an arbitrary key value map
+	ExtraData map[string]string
+
+	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+}
+
+// UnmuteMessagingGroupMembersResponse ...
+type UnmuteMessagingGroupMembersResponse RegisterMessagingGroupKeyResponse
+
+// UnmuteMessagingGroupMembers ...
+func (fes *APIServer) UnmuteMessagingGroupMembers(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := UnmuteMessagingGroupMembersRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UnmuteMessagingGroupMembers: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Decode the owner public key.
+	ownerPkBytes, _, err := lib.Base58CheckDecode(requestData.OwnerPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UnmuteMessagingGroupMembers: Problem decoding sender "+
+			"base58 public key %s: %v", requestData.OwnerPublicKeyBase58Check, err))
+		return
+	}
+
+	// Decode the group messaging public key
+	messagingPkBytes, _, err := lib.Base58CheckDecode(requestData.MessagingPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UnmuteMessagingGroupMembers: Problem decoding messaging "+
+			"base58 public key %s: %v", requestData.MessagingPublicKeyBase58Check, err))
+		return
+	}
+
+	// Parse the messaging group key name from string to bytes
+	messagingKeyNameBytes := []byte(requestData.MessagingGroupKeyName)
+
+	// Validate that the group messaging public key and key name have the correct format.
+	err = lib.ValidateGroupPublicKeyAndName(messagingPkBytes, messagingKeyNameBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UnmuteMessagingGroupMembers: Problem validating messaging public key and name %v", err))
+		return
+	}
+
+	// Decode the messaging key signature.
+	messagingKeySignature, _ := hex.DecodeString(requestData.MessagingKeySignatureHex)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UnmuteMessagingGroupMembers: Problem decoding messaging public key signature %v", err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeMessagingGroup, ownerPkBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UnmuteMessagingGroupMembers: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
+	var unmutingGroupMembers []*lib.MessagingGroupMember
+	for _, member := range requestData.UnmutingGroupMembers {
+		memberPublicKeyBytes, _, err := lib.Base58CheckDecode(member.GroupMemberPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("UnmuteMessagingGroupMembers: Member public key %v is invalid: %v",
+				member.GroupMemberPublicKeyBase58Check, err))
+			return
+		}
+		memberPublicKey := lib.NewPublicKey(memberPublicKeyBytes)
+		groupKey := lib.NewMessagingGroupKey(memberPublicKey, []byte(member.GroupMemberKeyName))
+		encryptedKey, err := hex.DecodeString(member.EncryptedKey)
+
+		unmutingGroupMembers = append(unmutingGroupMembers, &lib.MessagingGroupMember{
+			GroupMemberPublicKey: memberPublicKey,
+			GroupMemberKeyName:   &groupKey.GroupKeyName,
+			EncryptedKey:         encryptedKey,
+		})
+	}
+
+	// Validate operation type in extra data
+	// Request ExtraData does not need to have an operation type as it is assumed to be an unmute operation
+	// But if it is specified, we validate it here
+	extraData := preprocessExtraData(requestData.ExtraData)
+	// make sure extra data contains operation type
+	if extraDataContainsKey(extraData, lib.MessagingGroupOperationType) {
+		// make sure operation type is correct for muting group members
+		if !reflect.DeepEqual(extraData[lib.MessagingGroupOperationType], lib.MessagingGroupOperationUnmuteMembers) {
+			_AddBadRequestError(ww, fmt.Sprintf("UnmuteMessagingGroupMembers: Operation type %v is incorrect", extraData[lib.MessagingGroupOperationType]))
+			return
+		}
+	} else {
+		// since doesn't exist, add it
+		extraData[lib.MessagingGroupOperationType] = []byte{byte(lib.MessagingGroupOperationUnmuteMembers)}
+	}
+
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
+		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, messagingKeySignature,
+		unmutingGroupMembers, extraData,
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UnmuteMessagingGroupMembers: Problem creating transaction: %v", err))
+		return
+	}
+
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UnmuteMessagingGroupMembers: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Assemble and encode the response.
+	res := UnmuteMessagingGroupMembersResponse{
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+		TxnHashHex:        txn.Hash().String(),
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UnmuteMessagingGroupMembers: Problem encoding response as JSON: %v", err))
 		return
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/mux"
 	"io"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -228,6 +229,36 @@ func extraDataToResponse(extraData map[string][]byte) map[string]string {
 		extraDataResponse[k] = hex.EncodeToString(v)
 	}
 	return extraDataResponse
+}
+
+// extraDataContainsKey returns true if the extra data map contains the key.
+func extraDataContainsKey(extraData map[string][]byte, key string) bool {
+	if extraData == nil {
+		return false
+	}
+	_, ok := extraData[key]
+	return ok
+}
+
+// addExtraDataKeyVal adds the key and value to the extra data map.
+func addExtraDataKeyVal(extraData map[string][]byte, key string, value []byte) map[string][]byte {
+	if extraData == nil {
+		extraData = make(map[string][]byte)
+	}
+	extraData[key] = value
+	return extraData
+}
+
+// extraDataContainsKeyVal returns true if the extra data map contains the key and the value matches.
+func extraDataContainsKeyVal(extraData map[string][]byte, key string, val []byte) bool {
+	if extraData == nil {
+		return false
+	}
+	valBytes, ok := extraData[key]
+	if !ok {
+		return false
+	}
+	return reflect.DeepEqual(valBytes, val)
 }
 
 func _resizeImage(imageObj *bimg.Image, maxDim uint) (_imgObj *bimg.Image, _err error) {
