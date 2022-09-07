@@ -135,14 +135,18 @@ const (
 	RoutePathGetVideoStatus   = "/api/v0/get-video-status"
 
 	// message.go
-	RoutePathSendMessageStateless       = "/api/v0/send-message-stateless"
-	RoutePathGetMessagesStateless       = "/api/v0/get-messages-stateless"
-	RoutePathMarkContactMessagesRead    = "/api/v0/mark-contact-messages-read"
-	RoutePathMarkAllMessagesRead        = "/api/v0/mark-all-messages-read"
-	RoutePathRegisterMessagingGroupKey  = "/api/v0/register-messaging-group-key"
-	RoutePathGetAllMessagingGroupKeys   = "/api/v0/get-all-messaging-group-keys"
-	RoutePathCheckPartyMessagingKeys    = "/api/v0/check-party-messaging-keys"
-	RoutePathGetBulkMessagingPublicKeys = "/api/v0/get-bulk-messaging-public-keys"
+	RoutePathSendMessageStateless        = "/api/v0/send-message-stateless"
+	RoutePathGetMessagesStateless        = "/api/v0/get-messages-stateless"
+	RoutePathMarkContactMessagesRead     = "/api/v0/mark-contact-messages-read"
+	RoutePathMarkAllMessagesRead         = "/api/v0/mark-all-messages-read"
+	RoutePathRegisterMessagingGroupKey   = "/api/v0/register-messaging-group-key"
+	RoutePathRegisterMessagingDefaultKey = "/api/v0/register-messaging-default-key"
+	RoutePathAddMessagingGroupMembers    = "/api/v0/add-messaging-group-members"
+	RoutePathMuteMessagingGroupMembers   = "/api/v0/mute-messaging-group-members"
+	RoutePathUnmuteMessagingGroupMembers = "/api/v0/unmute-messaging-group-members"
+	RoutePathGetAllMessagingGroupKeys    = "/api/v0/get-all-messaging-group-keys"
+	RoutePathCheckPartyMessagingKeys     = "/api/v0/check-party-messaging-keys"
+	RoutePathGetBulkMessagingPublicKeys  = "/api/v0/get-bulk-messaging-public-keys"
 
 	// verify.go
 	RoutePathSendPhoneNumberVerificationText   = "/api/v0/send-phone-number-verification-text"
@@ -1641,6 +1645,34 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathRegisterMessagingGroupKey,
 			fes.RegisterMessagingGroupKey,
+			PublicAccess,
+		},
+		{
+			"RegisterMessagingDefaultKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathRegisterMessagingDefaultKey,
+			fes.RegisterMessagingDefaultKey,
+			PublicAccess,
+		},
+		{
+			"AddMessagingGroupMembers",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAddMessagingGroupMembers,
+			fes.AddMessagingGroupMembers,
+			PublicAccess,
+		},
+		{
+			"MuteMessagingGroupMembers",
+			[]string{"POST", "OPTIONS"},
+			RoutePathMuteMessagingGroupMembers,
+			fes.MuteMessagingGroupMembers,
+			PublicAccess,
+		},
+		{
+			"UnmuteMessagingGroupMembers",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUnmuteMessagingGroupMembers,
+			fes.UnmuteMessagingGroupMembers,
 			PublicAccess,
 		},
 		{
