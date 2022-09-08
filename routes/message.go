@@ -825,7 +825,6 @@ func (fes *APIServer) markAllMessagesRead(publicKeyBytes []byte) error {
 		return errors.Wrapf(err, "markAllMessagesRead: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
 	}
 
-
 	blockHeight := fes.blockchain.BlockTip().Height
 	messageEntries, _, err := utxoView.GetMessagesForUser(publicKeyBytes, blockHeight)
 	if err != nil {
@@ -931,14 +930,6 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 		return
 	}
 
-	// Call RegisterMessagingDefaultKey if the user is registering the default key.
-	// Parse the messaging group key name from string to bytes
-	messagingKeyNameBytes := []byte(requestData.MessagingGroupKeyName)
-	if lib.EqualGroupKeyName(lib.DefaultGroupKeyName(), lib.NewGroupKeyName(messagingKeyNameBytes)) {
-		fes.RegisterMessagingDefaultKey(ww, req)
-		return
-	}
-
 	// Decode the owner public key.
 	ownerPkBytes, _, err := lib.Base58CheckDecode(requestData.OwnerPublicKeyBase58Check)
 	if err != nil {
@@ -952,6 +943,14 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem decoding messaging "+
 			"base58 public key %s: %v", requestData.MessagingPublicKeyBase58Check, err))
+		return
+	}
+
+	messagingKeyNameBytes := []byte(requestData.MessagingGroupKeyName)
+	// Messaging key name should not be default-key on this endpoint
+	if lib.EqualGroupKeyName(lib.DefaultGroupKeyName(), lib.NewGroupKeyName(messagingKeyNameBytes)) {
+		// return error because this endpoint is only for registering non-default keys
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Cannot register default key with this endpoint"))
 		return
 	}
 
