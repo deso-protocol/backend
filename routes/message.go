@@ -884,6 +884,16 @@ func (fes *APIServer) getUserContactMostRecentReadTime(userPublicKeyBytes []byte
 	return tStampNanos, nil
 }
 
+// MessagingGroupResponse ...
+type MessagingGroupResponse struct {
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgDeSoTxn
+	TransactionHex    string
+	TxnHashHex        string
+}
+
 // RegisterMessagingGroupKeyRequest ...
 type RegisterMessagingGroupKeyRequest struct {
 	// OwnerPublicKeyBase58Check is the public key in base58check of the account we want to register the messaging key for.
@@ -894,10 +904,6 @@ type RegisterMessagingGroupKeyRequest struct {
 
 	// MessagingGroupKeyName is the name of the group key.
 	MessagingGroupKeyName string
-
-	// MessagingKeySignatureHex is the signature of sha256x2(MessagingPublicKey + MessagingGroupKeyName). Currently,
-	// the signature is only needed to register the default key.
-	MessagingKeySignatureHex string
 
 	// MessagingGroupMembers is the list of members we intend to add to this group.
 	MessagingGroupMembers []*MessagingGroupMemberResponse
@@ -912,14 +918,7 @@ type RegisterMessagingGroupKeyRequest struct {
 }
 
 // RegisterMessagingGroupKeyResponse ...
-type RegisterMessagingGroupKeyResponse struct {
-	TotalInputNanos   uint64
-	ChangeAmountNanos uint64
-	FeeNanos          uint64
-	Transaction       *lib.MsgDeSoTxn
-	TransactionHex    string
-	TxnHashHex        string
-}
+type RegisterMessagingGroupKeyResponse MessagingGroupResponse
 
 // RegisterMessagingGroupKey ...
 func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *http.Request) {
@@ -961,13 +960,6 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 		return
 	}
 
-	// Decode the messaging key signature.
-	messagingKeySignature, _ := hex.DecodeString(requestData.MessagingKeySignatureHex)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem decoding messaging public key signature %v", err))
-		return
-	}
-
 	// Compute the additional transaction fees as specified by the request body and the node-level fees.
 	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeMessagingGroup, ownerPkBytes, requestData.TransactionFees)
 	if err != nil {
@@ -995,7 +987,7 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 	}
 
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
-		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, messagingKeySignature,
+		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, []byte(""),
 		messagingGroupMembers, preprocessExtraData(requestData.ExtraData),
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
@@ -1054,14 +1046,7 @@ type RegisterMessagingDefaultKeyRequest struct {
 }
 
 // RegisterMessagingDefaultKeyResponse ...
-type RegisterMessagingDefaultKeyResponse struct {
-	TotalInputNanos   uint64
-	ChangeAmountNanos uint64
-	FeeNanos          uint64
-	Transaction       *lib.MsgDeSoTxn
-	TransactionHex    string
-	TxnHashHex        string
-}
+type RegisterMessagingDefaultKeyResponse MessagingGroupResponse
 
 // RegisterMessagingDefaultKey ...
 func (fes *APIServer) RegisterMessagingDefaultKey(ww http.ResponseWriter, req *http.Request) {
@@ -1177,7 +1162,7 @@ func (fes *APIServer) RegisterMessagingDefaultKey(ww http.ResponseWriter, req *h
 type AddMessagingGroupMembersRequest RegisterMessagingGroupKeyRequest
 
 // AddMessagingGroupMembersResponse ...
-type AddMessagingGroupMembersResponse RegisterMessagingGroupKeyResponse
+type AddMessagingGroupMembersResponse MessagingGroupResponse
 
 // AddMessagingGroupMembers ...
 func (fes *APIServer) AddMessagingGroupMembers(ww http.ResponseWriter, req *http.Request) {
@@ -1192,10 +1177,6 @@ type MuteMessagingGroupMembersRequest struct {
 
 	// MessagingPublicKeyBase58Check is the public key in base58check of the messaging group we want to mute members in.
 	MessagingPublicKeyBase58Check string
-
-	// MessagingKeySignatureHex is the signature of sha256x2(MessagingPublicKey + MessagingGroupKeyName). Currently,
-	// the signature is only needed to register the default key.
-	MessagingKeySignatureHex string
 
 	// MessagingGroupKeyName is the name of the group key.
 	MessagingGroupKeyName string
@@ -1213,7 +1194,7 @@ type MuteMessagingGroupMembersRequest struct {
 }
 
 // MuteMessagingGroupMembersResponse ...
-type MuteMessagingGroupMembersResponse RegisterMessagingGroupKeyResponse
+type MuteMessagingGroupMembersResponse MessagingGroupResponse
 
 // MuteMessagingGroupMembers ...
 func (fes *APIServer) MuteMessagingGroupMembers(ww http.ResponseWriter, req *http.Request) {
@@ -1247,13 +1228,6 @@ func (fes *APIServer) MuteMessagingGroupMembers(ww http.ResponseWriter, req *htt
 	err = lib.ValidateGroupPublicKeyAndName(messagingPkBytes, messagingKeyNameBytes)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("MuteMessagingGroupMembers: Problem validating messaging public key and name %v", err))
-		return
-	}
-
-	// Decode the messaging key signature.
-	messagingKeySignature, _ := hex.DecodeString(requestData.MessagingKeySignatureHex)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("MuteMessagingGroupMembers: Problem decoding messaging public key signature %v", err))
 		return
 	}
 
@@ -1300,7 +1274,7 @@ func (fes *APIServer) MuteMessagingGroupMembers(ww http.ResponseWriter, req *htt
 	}
 
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
-		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, messagingKeySignature,
+		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, []byte(""),
 		mutingGroupMembers, extraData,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
@@ -1340,10 +1314,6 @@ type UnmuteMessagingGroupMembersRequest struct {
 	// MessagingPublicKeyBase58Check is the public key of the messaging group we want to unmute member in.
 	MessagingPublicKeyBase58Check string
 
-	// MessagingKeySignatureHex is the signature of sha256x2(MessagingPublicKey + MessagingGroupKeyName). Currently,
-	// the signature is only needed to register the default key.
-	MessagingKeySignatureHex string
-
 	// MessagingGroupKeyName is the name of the group key.
 	MessagingGroupKeyName string
 
@@ -1360,7 +1330,7 @@ type UnmuteMessagingGroupMembersRequest struct {
 }
 
 // UnmuteMessagingGroupMembersResponse ...
-type UnmuteMessagingGroupMembersResponse RegisterMessagingGroupKeyResponse
+type UnmuteMessagingGroupMembersResponse MessagingGroupResponse
 
 // UnmuteMessagingGroupMembers ...
 func (fes *APIServer) UnmuteMessagingGroupMembers(ww http.ResponseWriter, req *http.Request) {
@@ -1394,13 +1364,6 @@ func (fes *APIServer) UnmuteMessagingGroupMembers(ww http.ResponseWriter, req *h
 	err = lib.ValidateGroupPublicKeyAndName(messagingPkBytes, messagingKeyNameBytes)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UnmuteMessagingGroupMembers: Problem validating messaging public key and name %v", err))
-		return
-	}
-
-	// Decode the messaging key signature.
-	messagingKeySignature, _ := hex.DecodeString(requestData.MessagingKeySignatureHex)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("UnmuteMessagingGroupMembers: Problem decoding messaging public key signature %v", err))
 		return
 	}
 
@@ -1447,7 +1410,7 @@ func (fes *APIServer) UnmuteMessagingGroupMembers(ww http.ResponseWriter, req *h
 	}
 
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
-		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, messagingKeySignature,
+		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, []byte(""),
 		unmutingGroupMembers, extraData,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
