@@ -1139,13 +1139,6 @@ func (fes *APIServer) RegisterMessagingDefaultKey(ww http.ResponseWriter, req *h
 		})
 	}
 
-	//// Encode the extra data map.
-	//extraData, err := EncodeExtraDataMap(requestData.ExtraData)
-	//if err != nil {
-	//	_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingDefaultKey: Problem encoding ExtraData: %v", err))
-	//	return
-	//}
-
 	// Create the transaction.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
 		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, messagingKeySignature,
