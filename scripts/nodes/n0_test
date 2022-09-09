@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
+
 DATE=`date +%Y%m%d-%H:%M:%S-%N`
+
 # Seeds. This is the account corresponding to the public key below.
 # * Mnemonic:
 #   * verb find card ship another until version devote guilt strong lemon six
@@ -9,7 +11,9 @@ DATE=`date +%Y%m%d-%H:%M:%S-%N`
 # * Bitcoin burn addresses:
 #   * mhziDsPWSMwUqvZkVdKY92CjesziGP3wHL
 #   * 13UkvpJXdLWE4p68n4MAK6zQntQ1RHixyM
+
 rm /tmp/main.*.log
+
 # "-gcflags=”all=-N -l" was added to get GoLand debugger (Delve) to work, see
 # https://blog.jetbrains.com/go/2019/02/06/debugging-with-goland-getting-started/
 #
