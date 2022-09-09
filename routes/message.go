@@ -1562,14 +1562,14 @@ func (fes *APIServer) GetMessagingGroupMembers(ww http.ResponseWriter, req *http
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetMessagingGroupMembersRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBulkMessagingPublicKeys: Problem parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetMessagingGroupMembers: Problem parsing request body: %v", err))
 		return
 	}
-	blockHeight := fes.blockchain.BlockTip().Height
+	//blockHeight := fes.blockchain.BlockTip().Height
 
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBulkMessagingPublicKeys: Problem fetching utxoView: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetMessagingGroupMembers: Problem fetching utxoView: %v", err))
 		return
 	}
 	ownerPublicKey, _, err := lib.Base58CheckDecode(requestData.GroupOwnerPublicKeyBase58Check)
@@ -1612,4 +1612,10 @@ func (fes *APIServer) GetMessagingGroupMembers(ww http.ResponseWriter, req *http
 		}
 		return iiProfile.CoinEntry.DeSoLockedNanos > jjProfile.CoinEntry.DeSoLockedNanos
 	})
+
+	res := GetMessagingGroupMembersResponse{GroupMembers: memberProfileEntryResponses}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetMessagingGroupMembers: Problem encoding response as JSON: %v", err))
+		return
+	}
 }

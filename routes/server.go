@@ -145,6 +145,7 @@ const (
 	RoutePathGetAllMessagingGroupKeys   = "/api/v0/get-all-messaging-group-keys"
 	RoutePathCheckPartyMessagingKeys    = "/api/v0/check-party-messaging-keys"
 	RoutePathGetBulkMessagingPublicKeys = "/api/v0/get-bulk-messaging-public-keys"
+	RoutePathGetMessagingGroupMembers   = "/api/v0/get-messaging-group-members"
 
 	// verify.go
 	RoutePathSendPhoneNumberVerificationText   = "/api/v0/send-phone-number-verification-text"
@@ -1678,6 +1679,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetBulkMessagingPublicKeys,
 			fes.GetBulkMessagingPublicKeys,
+			PublicAccess,
+		},
+		{
+			"GetMessagingGroupMembers",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetMessagingGroupMembers,
+			fes.GetMessagingGroupMembers,
 			PublicAccess,
 		},
 
