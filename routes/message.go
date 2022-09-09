@@ -986,9 +986,15 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 		})
 	}
 
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem encoding extra data: %v", err))
+		return
+	}
+
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
 		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, []byte(""),
-		messagingGroupMembers, preprocessExtraData(requestData.ExtraData),
+		messagingGroupMembers, extraData,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem creating transaction: %v", err))
@@ -1124,10 +1130,16 @@ func (fes *APIServer) RegisterMessagingDefaultKey(ww http.ResponseWriter, req *h
 		})
 	}
 
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingDefaultKey: Problem encoding extra data: %v", err))
+		return
+	}
+
 	// Create the transaction.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
 		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, messagingKeySignature,
-		messagingGroupMembers, preprocessExtraData(requestData.ExtraData),
+		messagingGroupMembers, extraData,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingDefaultKey: Problem creating transaction: %v", err))
@@ -1259,7 +1271,11 @@ func (fes *APIServer) MuteMessagingGroupMembers(ww http.ResponseWriter, req *htt
 	}
 
 	// Request ExtraData does not need to have an operation type as it is assumed to be a mute operation
-	extraData := preprocessExtraData(requestData.ExtraData)
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("MuteMessagingGroupMembers: Problem encoding extra data: %v", err))
+		return
+	}
 	// overwrite operation type to mute
 	extraData[lib.MessagingGroupOperationType] = []byte{byte(lib.MessagingGroupOperationMuteMembers)}
 
@@ -1384,7 +1400,11 @@ func (fes *APIServer) UnmuteMessagingGroupMembers(ww http.ResponseWriter, req *h
 	}
 
 	// Request ExtraData does not need to have an operation type as it is assumed to be an unmute operation
-	extraData := preprocessExtraData(requestData.ExtraData)
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UnmuteMessagingGroupMembers: Problem encoding extra data: %v", err))
+		return
+	}
 	// overwrite operation type to unmute
 	extraData[lib.MessagingGroupOperationType] = []byte{byte(lib.MessagingGroupOperationUnmuteMembers)}
 

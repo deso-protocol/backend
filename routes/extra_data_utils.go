@@ -44,6 +44,7 @@ var specialExtraDataKeysToEncoding = map[string]ExtraDataEncoding{
 	lib.SenderMessagingGroupKeyName:    {Decode: DecodeString, Encode: EncodeString},
 	lib.RecipientMessagingPublicKey:    {Decode: DecodePkToString, Encode: EncodePkStringToBytes},
 	lib.RecipientMessagingGroupKeyName: {Decode: DecodeString, Encode: EncodeString},
+	lib.MessagingGroupOperationType:    {Decode: DecodeString, Encode: EncodeString},
 
 	lib.BuyNowPriceKey: {Decode: Decode64BitUintString, Encode: Encode64BitUintString},
 
