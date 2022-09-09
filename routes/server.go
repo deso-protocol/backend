@@ -85,6 +85,7 @@ const (
 	RoutePathIsFollowingPublicKey                       = "/api/v0/is-following-public-key"
 	RoutePathIsHodlingPublicKey                         = "/api/v0/is-hodling-public-key"
 	RoutePathGetUserDerivedKeys                         = "/api/v0/get-user-derived-keys"
+	RoutePathGetSingleDerivedKey                        = "/api/v0/get-single-derived-key"
 	RoutePathGetTransactionSpendingLimitHexString       = "/api/v0/get-transaction-spending-limit-hex-string"
 	RoutePathGetAccessBytes                             = "/api/v0/get-access-bytes"
 	RoutePathGetTransactionSpendingLimitResponseFromHex = "/api/v0/get-transaction-spending-limit-response-from-hex"
@@ -1047,6 +1048,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetUserDerivedKeys,
 			fes.GetUserDerivedKeys,
+			PublicAccess,
+		},
+		{
+			"GetSingleDerivedKey",
+			[]string{"GET"},
+			RoutePathGetSingleDerivedKey + "/{ownerPublicKeyBase58Check:[0-9a-zA-Z]{54,55}}/{derivedPublicKeyBase58Check:[0-9a-zA-Z]{54,55}}",
+			fes.GetSingleDerivedKey,
 			PublicAccess,
 		},
 		{
