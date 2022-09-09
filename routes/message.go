@@ -1197,7 +1197,6 @@ type MuteMessagingGroupMembersRequest struct {
 	MutingGroupMembers []*MessagingGroupMemberResponse
 
 	// ExtraData is an arbitrary key value map
-	// Values must be hex strings
 	ExtraData map[string]string
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
