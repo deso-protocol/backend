@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-
 DATE=`date +%Y%m%d-%H:%M:%S-%N`
-
 # Seeds. This is the account corresponding to the public key below.
 # * Mnemonic:
 #   * verb find card ship another until version devote guilt strong lemon six
@@ -11,9 +9,7 @@ DATE=`date +%Y%m%d-%H:%M:%S-%N`
 # * Bitcoin burn addresses:
 #   * mhziDsPWSMwUqvZkVdKY92CjesziGP3wHL
 #   * 13UkvpJXdLWE4p68n4MAK6zQntQ1RHixyM
-
 rm /tmp/main.*.log
-
 # "-gcflags=”all=-N -l" was added to get GoLand debugger (Delve) to work, see
 # https://blog.jetbrains.com/go/2019/02/06/debugging-with-goland-getting-started/
 #
@@ -21,8 +17,8 @@ rm /tmp/main.*.log
 # to the ` go build ` command."
 
 (cd ../../ && go build -o backend -gcflags="all=-N -l" main.go && ./backend run \
-  --glog-v=2 \
-  --glog-vmodule="*api*=0,*bitcoin_manager*=0,*balance*=0,*frontend*=0,*peer*=0,*config*=0,*addr*=0,*network*=0,*utils*=0,*connection*=2,*main*=2,server*=2,*mempool*=2,*miner*=0,*blockchain*=2,*block_producer*=0" \
+  --glog-v=0 \
+  --glog-vmodule="*api*=0,*bitcoin_manager*=2,*balance*=0,*frontend*=0,*peer*=0,*addr*=0,*network*=0,*utils*=0,*connection*=0,*main*=0,server*=0,*mempool*=0,*miner*=0,*blockchain*=0,*block_producer*=1" \
   --add-ips=localhost:19000 \
   --testnet=true  \
   --regtest \
@@ -32,21 +28,14 @@ rm /tmp/main.*.log
   --admin-public-keys=* \
   --super-admin-public-keys=* \
   --num-mining-threads=1 \
-  --max-inbound-peers=10 \
-  --target-outbound-peers=10 \
-  --miner-public-keys=tBCKXyutsCWVbECXqE5zqP7NyGjmXg1SHkYJgKUsNujHfVF7GsVxzU \
+  --miner-public-keys=BC1YLg7Bk5sq9iNY17bAwoAYiChLYpmWEi6nY6q5gnA1UQV6xixHjfV \
   --block-producer-seed='essence camp ghost remove document vault ladder swim pupil index apart ring' \
   --starter-deso-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
-  --buy-deso-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
-  --buy-deso-btc-address='bc1qtqxzgufz70rg5fwdnvyvclq2yn4f60sdehf2c9' \
-  --buy-deso-eth-address='0x1A779DD3677C04A0225Ea4C72058dAF5A83CFD8E' \
-  --data-dir=/tmp/n0_test_11752 \
-  --access-control-allow-origins=http://localhost:4200,http://localhost:4300,http://localhost:80,http://localhost:18002, http://localhost:18001 \
-  --secure-header-allow-hosts=localhost:4200,localhost:4300 \
+  --data-dir=/tmp/n0_test_00000 \
+  --access-control-allow-origins=http://localhost:4200,http://localhost:80,http://localhost:18002,http://localhost:4201,http://localhost:18001 \
+  --secure-header-allow-hosts=localhost:4200 \
   --secure-header-development=true \
-  --sync-type=blocksync \
   --block-cypher-api-key=092dae962ea44b02809a4c74408b42a1 \
-  --expose-global-state=true \
   --min-satoshis-for-profile=0 \
-  --infura-project-id=30aa4e03c01d47bc81a24a7ef3ae0e94 \
+  --expose-global-state=true \
   --show-processing-spinners=true )
