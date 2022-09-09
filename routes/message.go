@@ -1185,6 +1185,7 @@ type MuteMessagingGroupMembersRequest struct {
 	MutingGroupMembers []*MessagingGroupMemberResponse
 
 	// ExtraData is an arbitrary key value map
+	// Values must be hex strings
 	ExtraData map[string]string
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
@@ -1257,21 +1258,10 @@ func (fes *APIServer) MuteMessagingGroupMembers(ww http.ResponseWriter, req *htt
 		})
 	}
 
-	// Validate operation type in extra data
 	// Request ExtraData does not need to have an operation type as it is assumed to be a mute operation
-	// But if it is specified, we validate it here
 	extraData := preprocessExtraData(requestData.ExtraData)
-	// make sure extra data contains operation type
-	if extraDataContainsKey(extraData, lib.MessagingGroupOperationType) {
-		// make sure operation type is correct for muting group members
-		if !reflect.DeepEqual(extraData[lib.MessagingGroupOperationType], lib.MessagingGroupOperationMuteMembers) {
-			_AddBadRequestError(ww, fmt.Sprintf("MuteMessagingGroupMembers: Operation type %v is incorrect", extraData[lib.MessagingGroupOperationType]))
-			return
-		}
-	} else {
-		// since doesn't exist, add it
-		extraData[lib.MessagingGroupOperationType] = []byte{byte(lib.MessagingGroupOperationMuteMembers)}
-	}
+	// overwrite operation type to mute
+	extraData[lib.MessagingGroupOperationType] = []byte{byte(lib.MessagingGroupOperationMuteMembers)}
 
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
 		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, []byte(""),
@@ -1393,21 +1383,10 @@ func (fes *APIServer) UnmuteMessagingGroupMembers(ww http.ResponseWriter, req *h
 		})
 	}
 
-	// Validate operation type in extra data
 	// Request ExtraData does not need to have an operation type as it is assumed to be an unmute operation
-	// But if it is specified, we validate it here
 	extraData := preprocessExtraData(requestData.ExtraData)
-	// make sure extra data contains operation type
-	if extraDataContainsKey(extraData, lib.MessagingGroupOperationType) {
-		// make sure operation type is correct for muting group members
-		if !reflect.DeepEqual(extraData[lib.MessagingGroupOperationType], lib.MessagingGroupOperationUnmuteMembers) {
-			_AddBadRequestError(ww, fmt.Sprintf("UnmuteMessagingGroupMembers: Operation type %v is incorrect", extraData[lib.MessagingGroupOperationType]))
-			return
-		}
-	} else {
-		// since doesn't exist, add it
-		extraData[lib.MessagingGroupOperationType] = []byte{byte(lib.MessagingGroupOperationUnmuteMembers)}
-	}
+	// overwrite operation type to unmute
+	extraData[lib.MessagingGroupOperationType] = []byte{byte(lib.MessagingGroupOperationUnmuteMembers)}
 
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
 		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, []byte(""),
