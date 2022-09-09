@@ -3228,29 +3228,15 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 
 	// Derived keys are not automatically expired in the DB when we reach the expiration block height.
 	// They should be manually checked against the current block height to verify their validity.
-	blockTip := fes.backendServer.GetBlockchain().BlockTip()
+	blockHeight := fes.backendServer.GetBlockchain().BlockTip().Height
 
 	// Create the derivedKeys map, indexed by derivedPublicKeys in base58Check.
 	// We use the UserDerivedKey struct instead of the lib.DerivedKeyEntry type
 	// so that we can return public keys in base58Check.
 	derivedKeys := make(map[string]*UserDerivedKey)
 	for _, entry := range derivedKeyMappings {
-		// isValid is initialized to true if the derived key entry is marked as valid in the DB.
-		isValid := entry.OperationType == lib.AuthorizeDerivedKeyOperationValid
-		// Check if the key has expired, if so then we will invalidate the key in the response.
-		if entry.ExpirationBlock <= uint64(blockTip.Height) {
-			isValid = false
-		}
-		derivedPublicKey := lib.PkToString(entry.DerivedPublicKey[:], fes.Params)
-		derivedKeys[derivedPublicKey] = &UserDerivedKey{
-			OwnerPublicKeyBase58Check:   lib.PkToString(entry.OwnerPublicKey[:], fes.Params),
-			DerivedPublicKeyBase58Check: lib.PkToString(entry.DerivedPublicKey[:], fes.Params),
-			ExpirationBlock:             entry.ExpirationBlock,
-			IsValid:                     isValid,
-			ExtraData:                   DecodeExtraDataMap(fes.Params, utxoView, entry.ExtraData),
-			TransactionSpendingLimit:    TransactionSpendingLimitToResponse(entry.TransactionSpendingLimitTracker, utxoView, fes.Params),
-			Memo:                        hex.EncodeToString(entry.Memo),
-		}
+		derivedKey := fes.DerivedKeyEntryToUserDerivedKey(entry, blockHeight, utxoView)
+		derivedKeys[derivedKey.DerivedPublicKeyBase58Check] = derivedKey
 	}
 
 	res := GetUserDerivedKeysResponse{
@@ -3260,6 +3246,81 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetUserDerivedKeys: Problem serializing object to JSON: %v", err))
 		return
+	}
+}
+
+type GetSingleDerivedKeyResponse struct {
+	DerivedKey *UserDerivedKey
+}
+
+func (fes *APIServer) GetSingleDerivedKey(ww http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+
+	ownerPublicKeyBase58Check, ownerPublicKeyExists := vars["ownerPublicKeyBase58Check"]
+	if !ownerPublicKeyExists {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleDerivedKey: ownerPublicKeyBase58Check required"))
+		return
+	}
+
+	derivedPublicKeyBase58Check, derivedPublicKeyExists := vars["derivedPublicKeyBase58Check"]
+	if !derivedPublicKeyExists {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleDerivedKey: derivedPublicKeyBase58Check required"))
+		return
+	}
+
+	ownerPublicKeyBytes, _, err := lib.Base58CheckDecode(ownerPublicKeyBase58Check)
+	if err != nil || len(ownerPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetSingleDerivedKey: Problem decoding owner public key %s: %v",
+			ownerPublicKeyBase58Check, err))
+		return
+	}
+
+	derivedPublicKeyBytes, _, err := lib.Base58CheckDecode(derivedPublicKeyBase58Check)
+	if err != nil || len(derivedPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetSingleDerivedKey: Problem decoding derived public key %s: %v",
+			derivedPublicKeyBase58Check, err))
+		return
+	}
+
+	// Get augmented utxoView.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetSingleDerivedKey: Problem getting augmented utxoView: %v", err))
+		return
+	}
+	derivedKeyEntry := utxoView.GetDerivedKeyMappingForOwner(ownerPublicKeyBytes, derivedPublicKeyBytes)
+	if derivedKeyEntry == nil || derivedKeyEntry.IsDeleted() {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleDerivedKey: DerivedKey was not found"))
+		return
+	}
+
+	res := GetSingleDerivedKeyResponse{
+		DerivedKey: fes.DerivedKeyEntryToUserDerivedKey(derivedKeyEntry, fes.backendServer.GetBlockchain().BlockTip().Height, utxoView),
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetSingleDerivedKey: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) DerivedKeyEntryToUserDerivedKey(entry *lib.DerivedKeyEntry, blockHeight uint32, utxoView *lib.UtxoView) *UserDerivedKey {
+	// isValid is initialized to true if the derived key entry is marked as valid in the DB.
+	isValid := entry.OperationType == lib.AuthorizeDerivedKeyOperationValid
+	// Check if the key has expired, if so then we will invalidate the key in the response.
+	if entry.ExpirationBlock <= uint64(blockHeight) {
+		isValid = false
+	}
+	return &UserDerivedKey{
+		OwnerPublicKeyBase58Check:   lib.PkToString(entry.OwnerPublicKey[:], fes.Params),
+		DerivedPublicKeyBase58Check: lib.PkToString(entry.DerivedPublicKey[:], fes.Params),
+		ExpirationBlock:             entry.ExpirationBlock,
+		IsValid:                     isValid,
+		ExtraData:                   DecodeExtraDataMap(fes.Params, utxoView, entry.ExtraData),
+		TransactionSpendingLimit:    TransactionSpendingLimitToResponse(entry.TransactionSpendingLimitTracker, utxoView, fes.Params),
+		Memo:                        hex.EncodeToString(entry.Memo),
 	}
 }
 

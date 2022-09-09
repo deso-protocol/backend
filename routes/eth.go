@@ -372,7 +372,7 @@ func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) 
 	projectId := fes.Config.InfuraProjectID
 	URL := fmt.Sprintf("https://mainnet.infura.io/v3/%v", projectId)
 	if fes.Params.NetworkType == lib.NetworkType_TESTNET {
-		URL = fmt.Sprintf("https://ropsten.infura.io/v3/%v", projectId)
+		URL = fmt.Sprintf("https://goerli.infura.io/v3/%v", projectId)
 	}
 
 	jsonData, err := json.Marshal(InfuraRequest{
