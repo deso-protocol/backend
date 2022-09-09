@@ -3,6 +3,7 @@ package routes
 import (
 	"bytes"
 	"encoding/gob"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -151,6 +152,23 @@ type MessagingGroupMemberResponse struct {
 	// EncryptedKey is the encrypted private key corresponding to the group messaging public key that's encrypted
 	// to the member's registered messaging key labeled with GroupMemberKeyName.
 	EncryptedKey string
+}
+
+func (messagingGroupMemberResponse *MessagingGroupMemberResponse) ToMessagingGroupMember() (*lib.MessagingGroupMember, error) {
+	groupMemberPublicKey, _, err := lib.Base58CheckDecode(messagingGroupMemberResponse.GroupMemberPublicKeyBase58Check)
+	if err != nil {
+		return nil, err
+	}
+	encryptedKey, err := hex.DecodeString(messagingGroupMemberResponse.EncryptedKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &lib.MessagingGroupMember{
+		GroupMemberPublicKey: lib.NewPublicKey(groupMemberPublicKey),
+		GroupMemberKeyName:   lib.NewGroupKeyName([]byte(messagingGroupMemberResponse.GroupMemberKeyName)),
+		EncryptedKey:         encryptedKey,
+	}, nil
 }
 
 // User ...

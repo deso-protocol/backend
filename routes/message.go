@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -49,6 +50,10 @@ type GetMessagesStatelessRequest struct {
 	SortAlgorithm string `safeForLogging:"true"`
 }
 
+type GetMessagesStatelessRequestV1 struct {
+	PublicKeyBase58Check string `safeForLoggign:"true"`
+}
+
 // GetMessagesResponse ...
 type GetMessagesResponse struct {
 	// PublicKeyToProfileEntry is a map of profile entries of the message parties. Keys are base58check public keys.
@@ -68,6 +73,166 @@ type GetMessagesResponse struct {
 
 	// MessagingGroups are all user's registered messaging keys and group chats that the user is a member of.
 	MessagingGroups []*MessagingGroupEntryResponse
+}
+
+type GetMessagesStatelessResponseV1 struct {
+	PublicKeyToProfileEntry map[string]*ProfileEntryResponse
+
+	OrderedContactsWithMessages []*GroupMessageResponse
+
+	MessagingGroups []*MessagingGroupEntryResponse
+}
+
+
+type GetMessageStatelessV2Key struct {
+	OtherPartyMessagingGroupKeyName string
+	OtherPartyMessagingPublicKey    string
+	MyMessagingPublicKey            string
+}
+
+type GroupMessageResponse struct {
+	MessagingGroupKey MessagingGroupKey
+	Messages          []*MessageEntryResponse
+}
+
+type MessagingGroupKey struct {
+	GroupOwnerPublicKeyBase58Check string
+	GroupKeyName                   string
+}
+
+func (fes *APIServer) getMessagesStatelessV1(publicKeyBytes []byte) (
+	[]*GroupMessageResponse,
+	map[MessagingGroupKey]*MessagingGroupEntryResponse,
+	map[string]*ProfileEntryResponse,
+	error) {
+	// Get mempool augmented UtxoView so we can fetch message threads.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUtxoViewForPublicKey(publicKeyBytes, nil)
+	if err != nil {
+		return nil, nil, nil, errors.Wrapf(
+			err, "getMessagesStateless: Error calling GetAugmentedUtxoViewForPublicKeyv2: %v", err)
+	}
+
+	// Get user's messaging groups and up to lib.MessagesToFetchPerInboxCall messages.
+	blockHeight := fes.blockchain.BlockTip().Height
+	messageEntries, messagingGroups, err := utxoView.GetLimitedMessagesForUser(
+		publicKeyBytes, uint64(lib.MessagesToFetchPerInboxCall), blockHeight)
+	if err != nil {
+		return nil, nil, nil, errors.Wrapf(
+			err, "getMessagesStateless: Problem fetching MessageEntries and MessagingGroupEntries from augmented UtxoView: ")
+	}
+	//messagingGroupMap := make(map[lib.MessagingGroupKey]*lib.MessagingGroupEntry)
+	pubKeysToFind := make(map[lib.PublicKey]struct{})
+	//for _, messagingGroup := range messagingGroups {
+	//	//messagingGroupMap[lib.MessagingGroupKey{
+	//	//	OwnerPublicKey: *messagingGroup.GroupOwnerPublicKey,
+	//	//	GroupKeyName: *messagingGroup.MessagingGroupKeyName,
+	//	//}] = messagingGroup
+	//	for _, member := range messagingGroup.MessagingGroupMembers {
+	//		pubKeysToFind[*member.GroupMemberPublicKey] = struct{}{}
+	//	}
+	//}
+	groupMap := make(map[lib.MessagingGroupKey][]*lib.MessageEntry)
+	publicKeyToProfileEntryResponseMap := make(map[string]*ProfileEntryResponse)
+	for _, messageEntry := range messageEntries {
+		pubKeysToFind[*messageEntry.SenderPublicKey] = struct{}{}
+		pubKeysToFind[*messageEntry.RecipientPublicKey] = struct{}{}
+		var mapKey lib.MessagingGroupKey
+		isSender := bytes.Equal(messageEntry.SenderPublicKey[:], publicKeyBytes)
+		isReceiver := bytes.Equal(messageEntry.RecipientPublicKey[:], publicKeyBytes)
+		switch messageEntry.Version {
+		case uint8(lib.MessagesVersion3):
+			// if I'm not the sender or receiver, I know it's a group message, so we use the recipient to uniquely identify
+			if !isSender && !isReceiver {
+				mapKey = lib.MessagingGroupKey{
+					GroupKeyName: *messageEntry.RecipientMessagingGroupKeyName,
+					OwnerPublicKey: *messageEntry.RecipientPublicKey,
+				}
+			} else if isSender {
+				mapKey = lib.MessagingGroupKey{
+					GroupKeyName: *messageEntry.RecipientMessagingGroupKeyName,
+					OwnerPublicKey: *messageEntry.RecipientPublicKey,
+				}
+			} else if isReceiver {
+				mapKey = lib.MessagingGroupKey{
+					GroupKeyName: *messageEntry.SenderMessagingGroupKeyName,
+					OwnerPublicKey: *messageEntry.SenderPublicKey,
+				}
+			}
+
+			// TODO: how do we merge DMs from v3 with v2 and v1? Also, prob need to special case default key and base key
+		case uint8(lib.MessagesVersion2):
+			// TODO: implement
+			break
+		case uint8(lib.MessagesVersion1):
+			// TODO: implement
+			break
+		}
+		groupMap[mapKey] = append(groupMap[mapKey], messageEntry)
+	}
+	for pubKeyToFind, _ := range pubKeysToFind {
+		publicKeyToProfileEntryResponseMap[lib.PkToString(pubKeyToFind[:], fes.Params)] =
+			fes._profileEntryToResponse(utxoView.GetProfileEntryForPublicKey(pubKeyToFind[:]), utxoView)
+	}
+	messagingGroupResponses := fes.ParseMessagingGroupEntries(utxoView, publicKeyBytes, messagingGroups)
+	messagingGroupResponseMap := make(map[MessagingGroupKey]*MessagingGroupEntryResponse)
+	for _, messagingGroupResponse := range messagingGroupResponses {
+		messagingGroupResponseMap[MessagingGroupKey{
+			GroupOwnerPublicKeyBase58Check: messagingGroupResponse.GroupOwnerPublicKeyBase58Check,
+			GroupKeyName:                   messagingGroupResponse.MessagingGroupKeyName,
+		}] = messagingGroupResponse
+	}
+	messagingThreads := []*GroupMessageResponse{}
+	for groupKey, groupEntries := range groupMap {
+		messages := []*MessageEntryResponse{}
+		for _, messageEntry := range groupEntries {
+			messages = append(messages, &MessageEntryResponse{
+				SenderPublicKeyBase58Check:     lib.PkToString(messageEntry.SenderPublicKey[:], fes.Params),
+				RecipientPublicKeyBase58Check:  lib.PkToString(messageEntry.RecipientPublicKey[:], fes.Params),
+				EncryptedText:                  hex.EncodeToString(messageEntry.EncryptedText),
+				TstampNanos:                    messageEntry.TstampNanos,
+				IsSender:                       reflect.DeepEqual(messageEntry.SenderPublicKey[:], publicKeyBytes),
+				V2:                             messageEntry.Version == uint8(lib.MessagesVersion2), /* DEPRECATED */
+				Version:                        uint32(messageEntry.Version),
+				SenderMessagingPublicKey:       lib.PkToString(messageEntry.SenderMessagingPublicKey[:], fes.Params),
+				SenderMessagingGroupKeyName:    string(lib.MessagingKeyNameDecode(messageEntry.SenderMessagingGroupKeyName)),
+				RecipientMessagingPublicKey:    lib.PkToString(messageEntry.RecipientMessagingPublicKey[:], fes.Params),
+				RecipientMessagingGroupKeyName: string(lib.MessagingKeyNameDecode(messageEntry.RecipientMessagingGroupKeyName)),
+				ExtraData:                      DecodeExtraDataMap(fes.Params, utxoView, messageEntry.ExtraData),
+			})
+		}
+		sort.SliceStable(messages, func(ii, jj int) bool {
+			return messages[ii].TstampNanos < messages[jj].TstampNanos
+		})
+		messagingThreads = append(messagingThreads, &GroupMessageResponse{
+			MessagingGroupKey: MessagingGroupKey{
+				GroupOwnerPublicKeyBase58Check: lib.PkToString(groupKey.OwnerPublicKey[:], fes.Params),
+				GroupKeyName:                   string(lib.MessagingKeyNameDecode(&groupKey.GroupKeyName)),
+			},
+			Messages: messages,
+		})
+	}
+
+	sort.SliceStable(messagingThreads, func(ii, jj int) bool {
+		messagingThreadii := messagingThreads[ii]
+		messagingThreadjj := messagingThreads[jj]
+		if len(messagingThreadii.Messages) == 0 && len(messagingThreadjj.Messages) == 0 {
+			if messagingThreadii.MessagingGroupKey.GroupOwnerPublicKeyBase58Check == messagingThreadjj.MessagingGroupKey.GroupOwnerPublicKeyBase58Check {
+				return messagingThreadii.MessagingGroupKey.GroupKeyName < messagingThreadjj.MessagingGroupKey.GroupKeyName
+			}
+			return messagingThreadii.MessagingGroupKey.GroupOwnerPublicKeyBase58Check < messagingThreadjj.MessagingGroupKey.GroupOwnerPublicKeyBase58Check
+		}
+		if len(messagingThreadii.Messages) == 0 {
+			return false
+		}
+		if len(messagingThreadjj.Messages) == 0 {
+			return true
+		}
+		lastMessageThreadii := messagingThreadii.Messages[len(messagingThreadii.Messages) - 1]
+		lastMessageThreadjj := messagingThreadjj.Messages[len(messagingThreadjj.Messages) - 1]
+		return lastMessageThreadii.TstampNanos > lastMessageThreadjj.TstampNanos
+	})
+
+	return messagingThreads, messagingGroupResponseMap, publicKeyToProfileEntryResponseMap, nil
 }
 
 func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
@@ -348,7 +513,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 			RecipientPublicKeyBase58Check:  lib.PkToString(messageEntry.RecipientPublicKey[:], fes.Params),
 			EncryptedText:                  hex.EncodeToString(messageEntry.EncryptedText),
 			TstampNanos:                    messageEntry.TstampNanos,
-			IsSender:                       !reflect.DeepEqual(messageEntry.RecipientPublicKey[:], publicKeyBytes),
+			IsSender:                       reflect.DeepEqual(messageEntry.SenderPublicKey[:], publicKeyBytes),
 			V2:                             V2, /* DEPRECATED */
 			Version:                        uint32(messageEntry.Version),
 			SenderMessagingPublicKey:       lib.PkToString(messageEntry.SenderMessagingPublicKey[:], fes.Params),
@@ -478,6 +643,44 @@ func (fes *APIServer) getOtherPartyInThread(messageEntry *lib.MessageEntry,
 	}
 	otherPartyPublicKeyBase58Check = lib.PkToString(otherPartyPublicKeyBytes, fes.Params)
 	return
+}
+
+func (fes *APIServer) GetMessagesStatelessV1(ww http.ResponseWriter, rr *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(rr.Body, MaxRequestBodySizeBytes))
+	getMessagesRequest := GetMessagesStatelessRequestV1{}
+	if err := decoder.Decode(&getMessagesRequest); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetMessagesStateless: Error parsing request body: %v", err))
+		return
+	}
+
+	// Decode the public key into bytes.
+	publicKeyBytes, _, err := lib.Base58CheckDecode(getMessagesRequest.PublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetMessagesStateless: Problem decoding user public key: %v", err))
+		return
+	}
+
+	messageThreads, messagingGroupsMap, pubKeyToProfileEntryResponseMap, err := fes.getMessagesStatelessV1(publicKeyBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetMessagesStateless: Error getting messages"))
+		return
+	}
+
+	messagingGroups := []*MessagingGroupEntryResponse{}
+	for _, messagingGroup := range messagingGroupsMap {
+		messagingGroups = append(messagingGroups, messagingGroup)
+	}
+
+	res := GetMessagesStatelessResponseV1{
+		PublicKeyToProfileEntry:     pubKeyToProfileEntryResponseMap,
+		OrderedContactsWithMessages: messageThreads,
+		MessagingGroups:             messagingGroups,
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetMessages: Problem serializing object to JSON: %v", err))
+		return
+	}
 }
 
 // GetMessagesStateless ...
@@ -899,6 +1102,9 @@ type RegisterMessagingGroupKeyRequest struct {
 	// the signature is only needed to register the default key.
 	MessagingKeySignatureHex string
 
+	// Members you wish to add to the group
+	MessagingGroupMembers []*MessagingGroupMemberResponse
+
 	// ExtraData is an arbitrary key value map
 	ExtraData map[string]string
 
@@ -954,7 +1160,7 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 	}
 
 	// Decode the messaging key signature.
-	messagingKeySignature, _ := hex.DecodeString(requestData.MessagingKeySignatureHex)
+	messagingKeySignature, err := hex.DecodeString(requestData.MessagingKeySignatureHex)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem decoding messaging public key signature %v", err))
 		return
@@ -976,6 +1182,16 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 		return
 	}
 
+	var messagingGroupMembers []*lib.MessagingGroupMember
+	for _, messagingGroupMemberResponse := range requestData.MessagingGroupMembers {
+		messagingGroupMember, err := messagingGroupMemberResponse.ToMessagingGroupMember()
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: error parsing Messaging Group Member: %v", err))
+			return
+		}
+		messagingGroupMembers = append(messagingGroupMembers, messagingGroupMember)
+	}
+
 	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem encoding ExtraData: %v", err))
@@ -984,7 +1200,7 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
 		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, messagingKeySignature,
-		[]*lib.MessagingGroupMember{}, extraData,
+		messagingGroupMembers, extraData,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem creating transaction: %v", err))
@@ -1331,4 +1547,69 @@ func (fes *APIServer) GetBulkMessagingPublicKeys(ww http.ResponseWriter, req *ht
 		_AddBadRequestError(ww, fmt.Sprintf("GetBulkMessagingPublicKeys: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+type GetMessagingGroupMembersRequest struct {
+	GroupOwnerPublicKeyBase58Check string
+	MessagingGroupKeyName          string
+}
+
+type GetMessagingGroupMembersResponse struct {
+	GroupMembers []*ProfileEntryResponse
+}
+
+func (fes *APIServer) GetMessagingGroupMembers(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetMessagingGroupMembersRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBulkMessagingPublicKeys: Problem parsing request body: %v", err))
+		return
+	}
+	blockHeight := fes.blockchain.BlockTip().Height
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBulkMessagingPublicKeys: Problem fetching utxoView: %v", err))
+		return
+	}
+	ownerPublicKey, _, err := lib.Base58CheckDecode(requestData.GroupOwnerPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetMessagingGroupMembers: Error decoding group owner: %v", err))
+		return
+	}
+
+	messagingGroupKeyBytes := []byte(requestData.MessagingGroupKeyName)
+
+	messagingGroupEntry := utxoView.GetMessagingGroupKeyToMessagingGroupEntryMapping(lib.NewMessagingGroupKey(lib.NewPublicKey(ownerPublicKey), messagingGroupKeyBytes))
+	var memberProfileEntryResponses []*ProfileEntryResponse
+	for _, member := range messagingGroupEntry.MessagingGroupMembers {
+		memberProfileEntryResponse := fes._profileEntryToResponse(utxoView.GetProfileEntryForPublicKey(member.GroupMemberPublicKey[:]), utxoView)
+		if memberProfileEntryResponse != nil {
+			memberProfileEntryResponses = append(memberProfileEntryResponses, memberProfileEntryResponse)
+		} else {
+			// If they don't have a profile, we just add dummy profile entry response with only a public key to the list.
+			memberProfileEntryResponses = append(memberProfileEntryResponses, &ProfileEntryResponse{PublicKeyBase58Check: lib.PkToString(member.GroupMemberPublicKey[:], fes.Params)})
+		}
+	}
+
+	sort.SliceStable(memberProfileEntryResponses, func(ii, jj int) bool {
+		iiProfile := memberProfileEntryResponses[ii]
+		jjProfile := memberProfileEntryResponses[jj]
+		if iiProfile.PublicKeyBase58Check == requestData.GroupOwnerPublicKeyBase58Check {
+			return true
+		}
+		if jjProfile.PublicKeyBase58Check == requestData.GroupOwnerPublicKeyBase58Check {
+			return false
+		}
+		if iiProfile.Username == "" && jjProfile.Username == "" {
+			return iiProfile.PublicKeyBase58Check < jjProfile.PublicKeyBase58Check
+		}
+		if iiProfile.Username == "" {
+			return false
+		}
+		if jjProfile.Username == "" {
+			return true
+		}
+		return iiProfile.CoinEntry.DeSoLockedNanos > jjProfile.CoinEntry.DeSoLockedNanos
+	})
 }

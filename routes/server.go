@@ -137,6 +137,7 @@ const (
 	// message.go
 	RoutePathSendMessageStateless       = "/api/v0/send-message-stateless"
 	RoutePathGetMessagesStateless       = "/api/v0/get-messages-stateless"
+	RoutePathGetMessagesStatelessV1     = "/api/v1/get-messages-stateless"
 	RoutePathMarkContactMessagesRead    = "/api/v0/mark-contact-messages-read"
 	RoutePathMarkAllMessagesRead        = "/api/v0/mark-all-messages-read"
 	RoutePathRegisterMessagingGroupKey  = "/api/v0/register-messaging-group-key"
@@ -1620,6 +1621,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetMessagesStateless,
 			fes.GetMessagesStateless,
+			PublicAccess,
+		},
+		{
+			"GetMessagesStatelessV1",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetMessagesStatelessV1,
+			fes.GetMessagesStatelessV1,
 			PublicAccess,
 		},
 		{
