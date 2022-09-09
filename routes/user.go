@@ -3259,6 +3259,7 @@ func (fes *APIServer) GetSingleDerivedKey(ww http.ResponseWriter, req *http.Requ
 	ownerPublicKeyBase58Check, ownerPublicKeyExists := vars["ownerPublicKeyBase58Check"]
 	if !ownerPublicKeyExists {
 		_AddBadRequestError(ww, fmt.Sprintf("GetSingleDerivedKey: ownerPublicKeyBase58Check required"))
+		return
 	}
 
 	derivedPublicKeyBase58Check, derivedPublicKeyExists := vars["derivedPublicKeyBase58Check"]
