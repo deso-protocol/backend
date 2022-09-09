@@ -168,7 +168,7 @@ func (fes *APIServer) getMessagesStatelessV1(publicKeyBytes []byte) (
 		}
 		groupMap[mapKey] = append(groupMap[mapKey], messageEntry)
 	}
-	for pubKeyToFind, _ := range pubKeysToFind {
+	for pubKeyToFind := range pubKeysToFind {
 		publicKeyToProfileEntryResponseMap[lib.PkToString(pubKeyToFind[:], fes.Params)] =
 			fes._profileEntryToResponse(utxoView.GetProfileEntryForPublicKey(pubKeyToFind[:]), utxoView)
 	}
