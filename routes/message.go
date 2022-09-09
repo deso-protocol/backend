@@ -1178,6 +1178,19 @@ type AddMessagingGroupMembersResponse MessagingGroupResponse
 
 // AddMessagingGroupMembers ...
 func (fes *APIServer) AddMessagingGroupMembers(ww http.ResponseWriter, req *http.Request) {
+	// Decode the request data.
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AddMessagingGroupMembersRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AddMessagingGroupMembers: Problem parsing request body: %v", err))
+		return
+	}
+	// Redirect to deafult-key endpoint if the request is for the default key.
+	if requestData.MessagingGroupKeyName == "default-key" {
+		fes.RegisterMessagingDefaultKey(ww, req)
+		return
+	}
+	// Redirect to group-key endpoint if the request is for non-default key.
 	fes.RegisterMessagingGroupKey(ww, req)
 	return
 }
