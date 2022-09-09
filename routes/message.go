@@ -83,7 +83,6 @@ type GetMessagesStatelessResponseV1 struct {
 	MessagingGroups []*MessagingGroupEntryResponse
 }
 
-
 type GetMessageStatelessV2Key struct {
 	OtherPartyMessagingGroupKeyName string
 	OtherPartyMessagingPublicKey    string
@@ -144,17 +143,17 @@ func (fes *APIServer) getMessagesStatelessV1(publicKeyBytes []byte) (
 			// if I'm not the sender or receiver, I know it's a group message, so we use the recipient to uniquely identify
 			if !isSender && !isReceiver {
 				mapKey = lib.MessagingGroupKey{
-					GroupKeyName: *messageEntry.RecipientMessagingGroupKeyName,
+					GroupKeyName:   *messageEntry.RecipientMessagingGroupKeyName,
 					OwnerPublicKey: *messageEntry.RecipientPublicKey,
 				}
 			} else if isSender {
 				mapKey = lib.MessagingGroupKey{
-					GroupKeyName: *messageEntry.RecipientMessagingGroupKeyName,
+					GroupKeyName:   *messageEntry.RecipientMessagingGroupKeyName,
 					OwnerPublicKey: *messageEntry.RecipientPublicKey,
 				}
 			} else if isReceiver {
 				mapKey = lib.MessagingGroupKey{
-					GroupKeyName: *messageEntry.SenderMessagingGroupKeyName,
+					GroupKeyName:   *messageEntry.SenderMessagingGroupKeyName,
 					OwnerPublicKey: *messageEntry.SenderPublicKey,
 				}
 			}
@@ -227,8 +226,8 @@ func (fes *APIServer) getMessagesStatelessV1(publicKeyBytes []byte) (
 		if len(messagingThreadjj.Messages) == 0 {
 			return true
 		}
-		lastMessageThreadii := messagingThreadii.Messages[len(messagingThreadii.Messages) - 1]
-		lastMessageThreadjj := messagingThreadjj.Messages[len(messagingThreadjj.Messages) - 1]
+		lastMessageThreadii := messagingThreadii.Messages[len(messagingThreadii.Messages)-1]
+		lastMessageThreadjj := messagingThreadjj.Messages[len(messagingThreadjj.Messages)-1]
 		return lastMessageThreadii.TstampNanos > lastMessageThreadjj.TstampNanos
 	})
 

@@ -582,11 +582,11 @@ func APITransactionToResponse(
 // For example, if a transaction sends 10 DeSo from PubA to PubB with 5 DeSo
 // in “change” and 1 DeSo as a “miner fee,” then the transaction would look as
 // follows:
-// - Input: 16 DeSo (10 DeSo to send, 5 DeSo in change, and 1 DeSo as a fee)
-// - PubB: 10 DeSo (the amount being sent from A to B)
-// - PubA: 5 DeSo (change returned to A)
-// - Implicit 1 DeSo is paid as a fee to the miner. The miner fee is implicitly
-//   computed as (total input – total output) just like in Bitcoin.
+//   - Input: 16 DeSo (10 DeSo to send, 5 DeSo in change, and 1 DeSo as a fee)
+//   - PubB: 10 DeSo (the amount being sent from A to B)
+//   - PubA: 5 DeSo (change returned to A)
+//   - Implicit 1 DeSo is paid as a fee to the miner. The miner fee is implicitly
+//     computed as (total input – total output) just like in Bitcoin.
 //
 // TODO: This function is redundant with the APITransferDeSo function in frontend_utils
 func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) {
@@ -1420,7 +1420,7 @@ func IsRestrictedPubKey(userGraylistState []byte, userBlacklistState []byte, mod
 	}
 }
 
-//Get the map of public keys this user has blocked.  The _blockedPubKeyMap operates as a hashset to speed up look up time
+// Get the map of public keys this user has blocked.  The _blockedPubKeyMap operates as a hashset to speed up look up time
 // while value are empty structs to keep memory usage down.
 func (fes *APIServer) GetBlockedPubKeysForUser(userPubKey []byte) (_blockedPubKeyMap map[string]struct{}, _err error) {
 	/* Get public keys of users the reader has blocked */
