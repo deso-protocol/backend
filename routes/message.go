@@ -459,7 +459,7 @@ func (fes *APIServer) ParseMessagingGroupEntries(
 			// Create a MessagingGroupMemberResponse to add to our userMessagingGroup.
 			messagingRecipient := &MessagingGroupMemberResponse{
 				GroupMemberPublicKeyBase58Check: lib.PkToString(groupMember.GroupMemberPublicKey[:], fes.Params),
-				GroupMemberKeyName:              string(lib.MessagingKeyNameDecode(groupMember.GroupMemberKeyName)),
+				GroupMemberKeyNameHex:           string(lib.MessagingKeyNameDecode(groupMember.GroupMemberKeyName)),
 				EncryptedKey:                    hex.EncodeToString(groupMember.EncryptedKey),
 			}
 			userMessagingGroup.MessagingGroupMembers = append(userMessagingGroup.MessagingGroupMembers, messagingRecipient)
@@ -976,7 +976,7 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 			return
 		}
 		memberPublicKey := lib.NewPublicKey(memberPublicKeyBytes)
-		groupKey := lib.NewMessagingGroupKey(memberPublicKey, []byte(member.GroupMemberKeyName))
+		groupKey := lib.NewMessagingGroupKey(memberPublicKey, []byte(member.GroupMemberKeyNameHex))
 		encryptedKey, err := hex.DecodeString(member.EncryptedKey)
 
 		messagingGroupMembers = append(messagingGroupMembers, &lib.MessagingGroupMember{
@@ -1114,7 +1114,7 @@ func (fes *APIServer) RegisterMessagingDefaultKey(ww http.ResponseWriter, req *h
 			return
 		}
 		memberPublicKey := lib.NewPublicKey(memberPublicKeyBytes)
-		groupKey := lib.NewMessagingGroupKey(memberPublicKey, []byte(member.GroupMemberKeyName))
+		groupKey := lib.NewMessagingGroupKey(memberPublicKey, []byte(member.GroupMemberKeyNameHex))
 		encryptedKey, err := hex.DecodeString(member.EncryptedKey)
 
 		messagingGroupMembers = append(messagingGroupMembers, &lib.MessagingGroupMember{
@@ -1248,7 +1248,7 @@ func (fes *APIServer) MuteMessagingGroupMembers(ww http.ResponseWriter, req *htt
 			return
 		}
 		memberPublicKey := lib.NewPublicKey(memberPublicKeyBytes)
-		groupKey := lib.NewMessagingGroupKey(memberPublicKey, []byte(member.GroupMemberKeyName))
+		groupKey := lib.NewMessagingGroupKey(memberPublicKey, []byte(member.GroupMemberKeyNameHex))
 		encryptedKey, err := hex.DecodeString(member.EncryptedKey)
 
 		mutingGroupMembers = append(mutingGroupMembers, &lib.MessagingGroupMember{
@@ -1373,7 +1373,7 @@ func (fes *APIServer) UnmuteMessagingGroupMembers(ww http.ResponseWriter, req *h
 			return
 		}
 		memberPublicKey := lib.NewPublicKey(memberPublicKeyBytes)
-		groupKey := lib.NewMessagingGroupKey(memberPublicKey, []byte(member.GroupMemberKeyName))
+		groupKey := lib.NewMessagingGroupKey(memberPublicKey, []byte(member.GroupMemberKeyNameHex))
 		encryptedKey, err := hex.DecodeString(member.EncryptedKey)
 
 		unmutingGroupMembers = append(unmutingGroupMembers, &lib.MessagingGroupMember{
