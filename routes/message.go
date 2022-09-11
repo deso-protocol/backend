@@ -1161,15 +1161,6 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 		return
 	}
 
-	// If the messaging key name is the default key name, then we will sanity-check that the signature is valid.
-	if lib.EqualGroupKeyName(lib.DefaultGroupKeyName(), lib.NewGroupKeyName(messagingKeyNameBytes)) {
-		msgBytes := append(messagingPkBytes, messagingKeyNameBytes...)
-		if err := VerifyBytesSignature(ownerPkBytes, msgBytes, messagingKeySignature); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem verifying transaction signature: %v", err))
-			return
-		}
-	}
-
 	// Compute the additional transaction fees as specified by the request body and the node-level fees.
 	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeMessagingGroup, ownerPkBytes, requestData.TransactionFees)
 	if err != nil {
