@@ -112,9 +112,8 @@ func (fes *APIServer) getMessagesStatelessV1(publicKeyBytes []byte) (
 	}
 
 	// Get user's messaging groups and up to lib.MessagesToFetchPerInboxCall messages.
-	blockHeight := fes.blockchain.BlockTip().Height
 	messageEntries, messagingGroups, err := utxoView.GetLimitedMessagesForUser(
-		publicKeyBytes, uint64(lib.MessagesToFetchPerInboxCall), blockHeight)
+		publicKeyBytes, uint64(lib.MessagesToFetchPerInboxCall))
 	if err != nil {
 		return nil, nil, nil, errors.Wrapf(
 			err, "getMessagesStateless: Problem fetching MessageEntries and MessagingGroupEntries from augmented UtxoView: ")
