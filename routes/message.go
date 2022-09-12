@@ -94,9 +94,7 @@ func (fes *APIServer) getMessagesStateless(publicKeyBytes []byte,
 	// for more insight on this.
 
 	// Get user's messaging groups and up to lib.MessagesToFetchPerInboxCall messages.
-	blockHeight := fes.blockchain.BlockTip().Height
-	messageEntries, messagingGroups, err := utxoView.GetLimitedMessagesForUser(
-		publicKeyBytes, uint64(lib.MessagesToFetchPerInboxCall), blockHeight)
+	messageEntries, messagingGroups, err := utxoView.GetLimitedMessagesForUser(publicKeyBytes, uint64(lib.MessagesToFetchPerInboxCall))
 	if err != nil {
 		return nil, nil, nil, 0, nil, errors.Wrapf(
 			err, "getMessagesStateless: Problem fetching MessageEntries and MessagingGroupEntries from augmented UtxoView: ")
@@ -825,8 +823,7 @@ func (fes *APIServer) markAllMessagesRead(publicKeyBytes []byte) error {
 		return errors.Wrapf(err, "markAllMessagesRead: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
 	}
 
-	blockHeight := fes.blockchain.BlockTip().Height
-	messageEntries, _, err := utxoView.GetMessagesForUser(publicKeyBytes, blockHeight)
+	messageEntries, _, err := utxoView.GetMessagesForUser(publicKeyBytes)
 	if err != nil {
 		return errors.Wrapf(err, "markAllMessagesRead: Problem fetching MessageEntries from augmented UtxoView: ")
 	}
@@ -1076,8 +1073,7 @@ func (fes *APIServer) GetAllMessagingGroupKeys(ww http.ResponseWriter, req *http
 	}
 
 	// First get all messaging keys for a user.
-	blockHeight := fes.blockchain.BlockTip().Height
-	messagingGroupEntries, err := utxoView.GetMessagingGroupEntriesForUser(ownerPkBytes, blockHeight)
+	messagingGroupEntries, err := utxoView.GetMessagingGroupEntriesForUser(ownerPkBytes)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetAllMessagingGroupKeys: Error calling "+
 			"GetAugmentedUtxoViewForPublicKey: %s: %v", requestData.OwnerPublicKeyBase58Check, err))
@@ -1163,7 +1159,7 @@ func (fes *APIServer) CreateCheckPartyMessagingKeysResponse(senderPublicKey *lib
 	// fetch the group entry from it. Add it to the response if the key exists.
 	messagingKey := lib.NewMessagingGroupKey(senderPublicKey, senderMessagingKeyName[:])
 	messagingEntry := utxoView.GetMessagingGroupKeyToMessagingGroupEntryMapping(messagingKey)
-	if messagingEntry != nil {
+	if messagingEntry != nil || messagingEntry.IsDeleted() {
 		response.SenderMessagingPublicKeyBase58Check = lib.Base58CheckEncode(messagingEntry.MessagingPublicKey[:], false, fes.Params)
 		response.IsSenderMessagingKey = true
 		response.SenderMessagingKeyName = string(lib.MessagingKeyNameDecode(senderMessagingKeyName))
@@ -1173,7 +1169,7 @@ func (fes *APIServer) CreateCheckPartyMessagingKeysResponse(senderPublicKey *lib
 	// fetch the group entry from it. Add it to the response if the key exists.
 	messagingKey = lib.NewMessagingGroupKey(recipientPublicKey, recipientMessagingKeyName[:])
 	messagingEntry = utxoView.GetMessagingGroupKeyToMessagingGroupEntryMapping(messagingKey)
-	if messagingEntry != nil {
+	if messagingEntry != nil || messagingEntry.IsDeleted() {
 		response.RecipientMessagingPublicKeyBase58Check = lib.Base58CheckEncode(messagingEntry.MessagingPublicKey[:], false, fes.Params)
 		response.IsRecipientMessagingKey = true
 		response.RecipientMessagingKeyName = string(lib.MessagingKeyNameDecode(recipientMessagingKeyName))
@@ -1262,13 +1258,6 @@ func (fes *APIServer) GetBulkMessagingPublicKeys(ww http.ResponseWriter, req *ht
 		return
 	}
 
-	blockHeight := fes.blockchain.BlockTip().Height
-	if blockHeight < fes.Params.ForkHeights.DeSoUnlimitedDerivedKeysAndMessagesMutingAndMembershipIndexBlockHeight {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBulkMessagingPublicKeys: This endpoint is not supported until the "+
-			"membership index fork."))
-		return
-	}
-
 	if len(requestData.GroupOwnerPublicKeysBase58Check) != len(requestData.MessagingGroupKeyNames) {
 		_AddBadRequestError(ww, fmt.Sprintf("GetBulkMessagingPublicKeys: GroupOwnerPublicKeysBase58Check and MessagingGroupKeyNames must be the same length"))
 		return
@@ -1303,8 +1292,8 @@ func (fes *APIServer) GetBulkMessagingPublicKeys(ww http.ResponseWriter, req *ht
 	messagingPublicKeys := []*lib.PublicKey{}
 	for ii, groupOwnerPublicKey := range groupOwnerPublicKeys {
 		messagingGroupKey := lib.NewMessagingGroupKey(groupOwnerPublicKey, messagingGroupKeyNames[ii].ToBytes())
-		messagingGroupEntry := utxoView.GetMessagingGroupForMessagingGroupKeyExistence(messagingGroupKey, blockHeight)
-		if messagingGroupEntry == nil {
+		messagingGroupEntry := utxoView.GetMessagingGroupKeyToMessagingGroupEntryMapping(messagingGroupKey)
+		if messagingGroupEntry == nil || messagingGroupEntry.IsDeleted() {
 			_AddBadRequestError(ww, fmt.Sprintf("GetBulkMessagingPublicKeys: Messaging group key not found for "+
 				"public key %v and key name %v: %v", requestData.GroupOwnerPublicKeysBase58Check[ii],
 				requestData.MessagingGroupKeyNames[ii], err))
