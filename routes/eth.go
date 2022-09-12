@@ -408,19 +408,16 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
 		return
 	}
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
-		return
-	}
+
 	// Validate that the user doesn't have Deso already
 	desoBalance, desoBalanceErr := fes.getBalanceForPubKey(recipientBytePK)
 	if desoBalanceErr != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Error checking balance for public key: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Error checking balance for public key: %v", desoBalanceErr))
 		return
 	}
 	// balance check TESTED
 	if desoBalance != 0 {
-		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin:  Account already has a balance", desoBalanceErr))
+		_AddBadRequestError(ww, fmt.Sprint("MetamaskSignin: Account already has a balance"))
 		return
 	}
 	metamaskAirdropMetadata, err := fes.GetMetamaskAirdropMetadata(recipientBytePK)
