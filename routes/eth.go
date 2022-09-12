@@ -459,7 +459,7 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 	// To prevent bots we only allow accounts with .0001 eth or greater to qualify
 	if ethBalanceBigint.Cmp(fes.Config.MetamaskAirdropEthMinimum.ToBig()) < 0 {
 		// Ceil to 4 decimal places
-		minEthAmountRequired := math.Ceil(float64(fes.Config.MetamaskAirdropEthMinimum.Uint64()) * 10000) / 1e18 * 10000
+		minEthAmountRequired := math.Ceil(float64(fes.Config.MetamaskAirdropEthMinimum.Uint64())*10000) / 1e18 * 10000
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: To be eligible for "+
 			"airdrop your account needs to have more than %v eth", minEthAmountRequired))
 		return
@@ -483,8 +483,8 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 	}
 	// add them to the received airdrop list with ShouldCompProfileCreation set to true
 	newMetamaskAirdropMetadata := MetamaskAirdropMetadata{
-		PublicKey: recipientBytePK,
-		HasReceivedAirdrop: true,
+		PublicKey:                 recipientBytePK,
+		HasReceivedAirdrop:        true,
 		ShouldCompProfileCreation: true,
 	}
 	if err = fes.PutMetamaskAirdropMetadata(&newMetamaskAirdropMetadata); err != nil {
@@ -515,7 +515,7 @@ func (fes *APIServer) PutMetamaskAirdropMetadata(metamaskAirdropMetadata *Metama
 		return fmt.Errorf("Failed to encode metamaskAirdropMetadata: %v", err)
 	}
 	if err := fes.GlobalState.Put(GlobalStateKeyMetamaskAirdrop(metamaskAirdropMetadata.PublicKey), globalStateVal.Bytes()); err != nil {
-		return fmt.Errorf( "GlobalState update failed: %v", err)
+		return fmt.Errorf("GlobalState update failed: %v", err)
 	}
 	return nil
 }
