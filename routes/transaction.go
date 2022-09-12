@@ -458,13 +458,17 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	// Additional fee is set to the create profile fee when we are creating a profile
 	additionalFees := utxoView.GlobalParamsEntry.CreateProfileFeeNanos
 
+	existingMetamaskAirdropMetadata, err := fes.GetMetamaskAirdropMetadata(profilePublicKey)
+	if err != nil {
+		return 0, nil, fmt.Errorf("Error geting metamask airdrop metadata from global state: %v", err)
+	}
 	// Only comp create profile fee if frontend server has both twilio and starter deso seed configured and the user
 	// has verified their profile.
-	if !fes.Config.CompProfileCreation || fes.Config.StarterDESOSeed == "" || fes.Twilio == nil || (userMetadata.PhoneNumber == "" && !userMetadata.JumioVerified) {
+	if !fes.Config.CompProfileCreation || fes.Config.StarterDESOSeed == "" || fes.Twilio == nil || (userMetadata.PhoneNumber == "" && !userMetadata.JumioVerified && existingMetamaskAirdropMetadata == nil) {
 		return additionalFees, nil, nil
 	}
 	var currentBalanceNanos uint64
-	currentBalanceNanos, err := GetBalanceForPublicKeyUsingUtxoView(profilePublicKey, utxoView)
+	currentBalanceNanos, err = GetBalanceForPublicKeyUsingUtxoView(profilePublicKey, utxoView)
 	if err != nil {
 		return 0, nil, errors.Wrap(fmt.Errorf("UpdateProfile: error getting current balance: %v", err), "")
 	}
@@ -474,6 +478,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	// If a user has a phone number verified but is not jumio verified, we need to check that they haven't spent all their
 	// starter deso already and that ShouldCompProfileCreation is true
 	var multiPhoneNumberMetadata []*PhoneNumberMetadata
+	var updateMetamaskAirdropMetadata bool
 	if userMetadata.PhoneNumber != "" && !userMetadata.JumioVerified {
 		multiPhoneNumberMetadata, err = fes.getMultiPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
 		if err != nil {
@@ -495,6 +500,11 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 		if !phoneNumberMetadata.ShouldCompProfileCreation || currentBalanceNanos > createProfileFeeNanos {
 			return additionalFees, nil, nil
 		}
+	} else if existingMetamaskAirdropMetadata != nil {
+		if !existingMetamaskAirdropMetadata.ShouldCompProfileCreation {
+			return additionalFees, nil, nil
+		}
+		updateMetamaskAirdropMetadata = true
 	} else {
 		// User has been Jumio verified but should comp profile creation is false, just return
 		if !userMetadata.JumioShouldCompProfileCreation {
@@ -511,12 +521,16 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 			}
 		}
 	}
+	// If metamask airdrop is less than min phone number amount, we set the min amount to the airdrop value
+	if fes.Config.MetamaskAirdropDESONanosAmount != 0 && minStarterDESONanos > fes.Config.MetamaskAirdropDESONanosAmount {
+		minStarterDESONanos = fes.Config.MetamaskAirdropDESONanosAmount
+	}
 	// We comp the create profile fee minus the minimum starter deso amount divided by 2.
 	// This discourages botting while covering users who verify a phone number.
 	compAmount := createProfileFeeNanos - (minStarterDESONanos / 2)
 	// If the user won't have enough deso to cover the fee, this is an error.
 	if currentBalanceNanos+compAmount < createProfileFeeNanos {
-		return 0, nil, errors.Wrap(fmt.Errorf("Creating a profile requires DeSo.  Please purchase some to create a profile."), "")
+		return 0, nil, fmt.Errorf("Creating a profile requires DeSo.  Please purchase some to create a profile.")
 	}
 	// Set should comp to false so we don't continually comp a public key.  PhoneNumberMetadata is only non-nil if
 	// a user verified their phone number but is not jumio verified.
@@ -529,13 +543,19 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 			newPhoneNumberMetadata = append(newPhoneNumberMetadata, phoneNumMetadata)
 		}
 		if err = fes.putPhoneNumberMetadataInGlobalState(newPhoneNumberMetadata, userMetadata.PhoneNumber); err != nil {
-			return 0, nil, errors.Wrap(fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for phone number metadata: %v", err), "")
+			return 0, nil, fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for phone number metadata: %v", err)
 		}
 	} else {
 		// Set JumioShouldCompProfileCreation to false so we don't continue to comp profile creation.
 		userMetadata.JumioShouldCompProfileCreation = false
 		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
-			return 0, nil, errors.Wrap(fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for jumio user metadata: %v", err), "")
+			return 0, nil, fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for jumio user metadata: %v", err)
+		}
+		if existingMetamaskAirdropMetadata != nil && updateMetamaskAirdropMetadata {
+			existingMetamaskAirdropMetadata.ShouldCompProfileCreation = false
+			if err = fes.PutMetamaskAirdropMetadata(existingMetamaskAirdropMetadata); err != nil {
+				return 0, nil, fmt.Errorf("UpdateProfile: Error updating metamask airdrop metadata in global state: %v", err)
+			}
 		}
 	}
 

@@ -175,7 +175,7 @@ func init() {
 	// The default 100000000000000 is equal to .0001 Eth.
 	runCmd.PersistentFlags().String("metamask-airdrop-eth-minimum", "100000000000000",
 		"In Wei, amount of Eth required to receive an airdrop during Metamask signup.")
-
+	runCmd.PersistentFlags().Uint64("metamask-airdrop-deso-nanos-amount", 0, "Amount of DESO in nanos to send to metamask users as an airdrop")
 	runCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
 		viper.BindPFlag(flag.Name, flag)
 	})
