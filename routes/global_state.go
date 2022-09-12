@@ -417,8 +417,8 @@ type PhoneNumberMetadata struct {
 }
 
 type MetamaskAirdropMetadata struct {
-	PublicKey []byte
-	HasReceivedAirdrop bool
+	PublicKey                 []byte
+	HasReceivedAirdrop        bool
 	ShouldCompProfileCreation bool
 }
 

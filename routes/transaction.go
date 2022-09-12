@@ -507,7 +507,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 		updateMetamaskAirdropMetadata = true
 	} else {
 		// User has been Jumio verified but should comp profile creation is false, just return
-		if !userMetadata.JumioShouldCompProfileCreation{
+		if !userMetadata.JumioShouldCompProfileCreation {
 			return additionalFees, nil, nil
 		}
 	}
