@@ -428,7 +428,6 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-
 	if fes.Config.MetamaskAirdropDESONanosAmount == 0 {
 		res := MetamaskSignInResponse{TxnHash: nil}
 		// Issue constructing response
