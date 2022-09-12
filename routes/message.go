@@ -1159,7 +1159,7 @@ func (fes *APIServer) CreateCheckPartyMessagingKeysResponse(senderPublicKey *lib
 	// fetch the group entry from it. Add it to the response if the key exists.
 	messagingKey := lib.NewMessagingGroupKey(senderPublicKey, senderMessagingKeyName[:])
 	messagingEntry := utxoView.GetMessagingGroupKeyToMessagingGroupEntryMapping(messagingKey)
-	if messagingEntry != nil {
+	if messagingEntry != nil || messagingEntry.IsDeleted() {
 		response.SenderMessagingPublicKeyBase58Check = lib.Base58CheckEncode(messagingEntry.MessagingPublicKey[:], false, fes.Params)
 		response.IsSenderMessagingKey = true
 		response.SenderMessagingKeyName = string(lib.MessagingKeyNameDecode(senderMessagingKeyName))
@@ -1169,7 +1169,7 @@ func (fes *APIServer) CreateCheckPartyMessagingKeysResponse(senderPublicKey *lib
 	// fetch the group entry from it. Add it to the response if the key exists.
 	messagingKey = lib.NewMessagingGroupKey(recipientPublicKey, recipientMessagingKeyName[:])
 	messagingEntry = utxoView.GetMessagingGroupKeyToMessagingGroupEntryMapping(messagingKey)
-	if messagingEntry != nil {
+	if messagingEntry != nil || messagingEntry.IsDeleted() {
 		response.RecipientMessagingPublicKeyBase58Check = lib.Base58CheckEncode(messagingEntry.MessagingPublicKey[:], false, fes.Params)
 		response.IsRecipientMessagingKey = true
 		response.RecipientMessagingKeyName = string(lib.MessagingKeyNameDecode(recipientMessagingKeyName))
@@ -1228,6 +1228,96 @@ func (fes *APIServer) CheckPartyMessagingKeys(ww http.ResponseWriter, req *http.
 	// Encode the response.
 	if err := json.NewEncoder(ww).Encode(response); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyMessagingKeys: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+// GetBulkMessagingPublicKeysRequest ...
+type GetBulkMessagingPublicKeysRequest struct {
+	// GroupOwnerPublicKeysBase58Check is a list of public keys of the group owners.
+	GroupOwnerPublicKeysBase58Check []string `safeForLogging:"true"`
+	// MessagingGroupKeyNames is a list of messaging key names in hex.
+	MessagingGroupKeyNames []string `safeForLogging:"true"`
+}
+
+// GetBulkMessagingPublicKeysResponse ...
+type GetBulkMessagingPublicKeysResponse struct {
+	// MessagingPublicKeysBase58Check is a list of messaging public keys in base58check of the corresponding groups
+	// identified by the <GroupOwnerPublicKeysBase58Check, MessagingGroupKeyNames> pairs.
+	MessagingPublicKeysBase58Check []string `safeForLogging:"true"`
+}
+
+// GetBulkMessagingPublicKeys endpoint will check if the messaging group keys exist for the given messaging groups
+// identified by <GroupOwnerPublicKeysBase58Check, MessagingGroupKeyNames>. If all the groups exist, it will return
+// the messaging public keys of the groups.
+func (fes *APIServer) GetBulkMessagingPublicKeys(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetBulkMessagingPublicKeysRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBulkMessagingPublicKeys: Problem parsing request body: %v", err))
+		return
+	}
+
+	if len(requestData.GroupOwnerPublicKeysBase58Check) != len(requestData.MessagingGroupKeyNames) {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBulkMessagingPublicKeys: GroupOwnerPublicKeysBase58Check and MessagingGroupKeyNames must be the same length"))
+		return
+	}
+
+	// Decode the group owner public keys.
+	groupOwnerPublicKeys := []*lib.PublicKey{}
+	for _, groupOwnerPublicKeyBase58Check := range requestData.GroupOwnerPublicKeysBase58Check {
+		groupOwnerPublicKeyBytes, _, err := lib.Base58CheckDecode(groupOwnerPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetBulkMessagingPublicKeys: Problem decoding group owner public key: %v", err))
+			return
+		}
+		groupOwnerPublicKey := lib.NewPublicKey(groupOwnerPublicKeyBytes)
+		groupOwnerPublicKeys = append(groupOwnerPublicKeys, groupOwnerPublicKey)
+	}
+
+	// Decode the messaging group key names.
+	messagingGroupKeyNames := []*lib.GroupKeyName{}
+	for _, messagingGroupKeyNameString := range requestData.MessagingGroupKeyNames {
+		messagingGroupKeyName := lib.NewGroupKeyName([]byte(messagingGroupKeyNameString))
+		messagingGroupKeyNames = append(messagingGroupKeyNames, messagingGroupKeyName)
+	}
+
+	// Check if the group owner public keys and messaging group key names are registered, if so fetch their messaging public keys.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBulkMessagingPublicKeys: Problem fetching utxoView: %v", err))
+		return
+	}
+
+	messagingPublicKeys := []*lib.PublicKey{}
+	for ii, groupOwnerPublicKey := range groupOwnerPublicKeys {
+		messagingGroupKey := lib.NewMessagingGroupKey(groupOwnerPublicKey, messagingGroupKeyNames[ii].ToBytes())
+		messagingGroupEntry := utxoView.GetMessagingGroupKeyToMessagingGroupEntryMapping(messagingGroupKey)
+		if messagingGroupEntry == nil || messagingGroupEntry.IsDeleted() {
+			_AddBadRequestError(ww, fmt.Sprintf("GetBulkMessagingPublicKeys: Messaging group key not found for "+
+				"public key %v and key name %v: %v", requestData.GroupOwnerPublicKeysBase58Check[ii],
+				requestData.MessagingGroupKeyNames[ii], err))
+			return
+		}
+		if messagingGroupEntry.MessagingPublicKey == nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetBulkMessagingPublicKeys: Messaging public key is nil for "+
+				"public key %v and key name %v. This member can't be added: %v", requestData.GroupOwnerPublicKeysBase58Check[ii],
+				requestData.MessagingGroupKeyNames[ii], err))
+			return
+		}
+		messagingPublicKeys = append(messagingPublicKeys, messagingGroupEntry.MessagingPublicKey)
+	}
+
+	// Encode the response.
+	messagingPublicKeysString := []string{}
+	for _, messagingPublicKey := range messagingPublicKeys {
+		messagingPublicKeysString = append(messagingPublicKeysString, lib.PkToString(messagingPublicKey.ToBytes(), fes.Params))
+	}
+	response := GetBulkMessagingPublicKeysResponse{
+		MessagingPublicKeysBase58Check: messagingPublicKeysString,
+	}
+	if err := json.NewEncoder(ww).Encode(response); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBulkMessagingPublicKeys: Problem encoding response as JSON: %v", err))
 		return
 	}
 }

@@ -140,6 +140,13 @@ func (fes *APIServer) canUserCreateProfile(userMetadata *UserMetadata, utxoView 
 		return true, nil
 	}
 
+	metamaskAirdropMetadata, err := fes.GetMetamaskAirdropMetadata(userMetadata.PublicKey)
+	if err != nil {
+		return false, err
+	}
+	if metamaskAirdropMetadata != nil && metamaskAirdropMetadata.ShouldCompProfileCreation {
+		return true, nil
+	}
 	// If we reached here, the user can't create a profile
 	return false, nil
 }

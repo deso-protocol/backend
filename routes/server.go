@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	fmt "fmt"
+	"github.com/pkg/errors"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -86,6 +87,7 @@ const (
 	RoutePathGetUserDerivedKeys                         = "/api/v0/get-user-derived-keys"
 	RoutePathGetSingleDerivedKey                        = "/api/v0/get-single-derived-key"
 	RoutePathGetTransactionSpendingLimitHexString       = "/api/v0/get-transaction-spending-limit-hex-string"
+	RoutePathGetAccessBytes                             = "/api/v0/get-access-bytes"
 	RoutePathGetTransactionSpendingLimitResponseFromHex = "/api/v0/get-transaction-spending-limit-response-from-hex"
 	RoutePathDeletePII                                  = "/api/v0/delete-pii"
 	RoutePathGetUserMetadata                            = "/api/v0/get-user-metadata"
@@ -134,13 +136,14 @@ const (
 	RoutePathGetVideoStatus   = "/api/v0/get-video-status"
 
 	// message.go
-	RoutePathSendMessageStateless      = "/api/v0/send-message-stateless"
-	RoutePathGetMessagesStateless      = "/api/v0/get-messages-stateless"
-	RoutePathMarkContactMessagesRead   = "/api/v0/mark-contact-messages-read"
-	RoutePathMarkAllMessagesRead       = "/api/v0/mark-all-messages-read"
-	RoutePathRegisterMessagingGroupKey = "/api/v0/register-messaging-group-key"
-	RoutePathGetAllMessagingGroupKeys  = "/api/v0/get-all-messaging-group-keys"
-	RoutePathCheckPartyMessagingKeys   = "/api/v0/check-party-messaging-keys"
+	RoutePathSendMessageStateless       = "/api/v0/send-message-stateless"
+	RoutePathGetMessagesStateless       = "/api/v0/get-messages-stateless"
+	RoutePathMarkContactMessagesRead    = "/api/v0/mark-contact-messages-read"
+	RoutePathMarkAllMessagesRead        = "/api/v0/mark-all-messages-read"
+	RoutePathRegisterMessagingGroupKey  = "/api/v0/register-messaging-group-key"
+	RoutePathGetAllMessagingGroupKeys   = "/api/v0/get-all-messaging-group-keys"
+	RoutePathCheckPartyMessagingKeys    = "/api/v0/check-party-messaging-keys"
+	RoutePathGetBulkMessagingPublicKeys = "/api/v0/get-bulk-messaging-public-keys"
 
 	// verify.go
 	RoutePathSendPhoneNumberVerificationText   = "/api/v0/send-phone-number-verification-text"
@@ -159,6 +162,7 @@ const (
 
 	// eth.go
 	RoutePathSubmitETHTx       = "/api/v0/submit-eth-tx"
+	RoutePathMetamaskSignIn    = "/api/v0/send-starter-deso-for-metamask-account"
 	RoutePathQueryETHRPC       = "/api/v0/query-eth-rpc"
 	RoutePathAdminProcessETHTx = "/api/v0/admin/process-eth-tx"
 
@@ -1060,6 +1064,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"GetAccessBytes",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAccessBytes,
+			fes.GetAccessBytes,
+			PublicAccess,
+		},
+		{
 			"GetTransactionSpendingLimitResponseFromHex",
 			[]string{"GET"},
 			RoutePathGetTransactionSpendingLimitResponseFromHex + "/{transactionSpendingLimitHex:[a-fA-F0-9]+$}",
@@ -1187,6 +1198,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathQueryETHRPC,
 			fes.QueryETHRPC,
+			PublicAccess,
+		},
+		{
+			"SendStarterDesoForMetamaskAccount",
+			[]string{"POST", "OPTIONS"},
+			RoutePathMetamaskSignIn,
+			fes.MetamaskSignIn,
 			PublicAccess,
 		},
 
@@ -1647,6 +1665,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.CheckPartyMessagingKeys,
 			PublicAccess,
 		},
+		{
+			"GetBulkMessagingPublicKeys",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetBulkMessagingPublicKeys,
+			fes.GetBulkMessagingPublicKeys,
+			PublicAccess,
+		},
 
 		// Paths for the mining pool
 		{
@@ -2028,15 +2053,17 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel Access
 	})
 }
 
+const JwtDerivedPublicKeyClaim = "derivedPublicKeyBase58Check"
+
 func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, error) {
 	pubKeyBytes, _, err := lib.Base58CheckDecode(publicKey)
 	if err != nil {
-		return false, err
+		return false, errors.Wrapf(err, "Problem decoding public key")
 	}
 
 	pubKey, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
 	if err != nil {
-		return false, err
+		return false, errors.Wrapf(err, "Problem parsing public key")
 	}
 
 	token, err := jwt.Parse(jwtToken, func(token *jwt.Token) (interface{}, error) {
@@ -2044,11 +2071,36 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 		mapClaims := token.Claims.(jwt.MapClaims)
 		delete(mapClaims, "iat")
 
+		// We accept JWT signed by derived keys. To accommodate this, the JWT claims payload should contain the key
+		// "derivedPublicKeyBase58Check" with the derived public key in base58 as value.
+		if derivedPublicKeyBase58Check, isDerived := mapClaims[JwtDerivedPublicKeyClaim]; isDerived {
+			// Parse the derived public key.
+			derivedPublicKeyBytes, _, err := lib.Base58CheckDecode(derivedPublicKeyBase58Check.(string))
+			if err != nil {
+				return nil, errors.Wrapf(err, "Problem decoding derived public key")
+			}
+			derivedPublicKey, err := btcec.ParsePubKey(derivedPublicKeyBytes, btcec.S256())
+			if err != nil {
+				return nil, errors.Wrapf(err, "Problem parsing derived public key bytes")
+			}
+			// Validate the derived public key.
+			utxoView, err := fes.mempool.GetAugmentedUniversalView()
+			if err != nil {
+				return nil, errors.Wrapf(err, "Problem getting utxoView")
+			}
+			blockHeight := uint64(fes.blockchain.BlockTip().Height)
+			if err := utxoView.ValidateDerivedKey(pubKeyBytes, derivedPublicKeyBytes, blockHeight); err != nil {
+				return nil, errors.Wrapf(err, "Derived key is not authorize")
+			}
+
+			return derivedPublicKey.ToECDSA(), nil
+		}
+
 		return pubKey.ToECDSA(), nil
 	})
 
 	if err != nil {
-		return false, err
+		return false, errors.Wrapf(err, "Problem verifying JWT token")
 	}
 
 	return token.Valid, nil

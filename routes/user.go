@@ -3345,7 +3345,8 @@ func (fes *APIServer) GetTransactionSpendingLimitHexString(ww http.ResponseWrite
 			"spending limit from response: %v", err))
 		return
 	}
-	tslBytes, err := transactionSpendingLimit.ToBytes()
+	blockHeight := uint64(fes.blockchain.BlockTip().Height)
+	tslBytes, err := transactionSpendingLimit.ToBytes(blockHeight)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpendingLimitHexString: Error in ToBytes: %v", err))
 		return
@@ -3356,6 +3357,56 @@ func (fes *APIServer) GetTransactionSpendingLimitHexString(ww http.ResponseWrite
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetTransactionSpendingLimitHexString: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
+
+type GetAccessBytesRequest struct {
+	DerivedPublicKeyBase58Check string
+	ExpirationBlock             uint64
+	TransactionSpendingLimit    TransactionSpendingLimitResponse
+}
+
+type GetAccessBytesResponse struct {
+	TransactionSpendingLimitHex string
+	AccessBytesHex              string
+}
+
+func (fes *APIServer) GetAccessBytes(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetAccessBytesRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAccessBytes: Error parsing request body: %v", err))
+		return
+	}
+	derivedPublicKey, _, err := lib.Base58CheckDecode(requestData.DerivedPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAccessBytes: Problem decoding derived public key: %v", err))
+		return
+	}
+
+	transactionSpendingLimit, err := fes.TransactionSpendingLimitFromResponse(requestData.TransactionSpendingLimit)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAccessBytes: Error parsing transaction "+
+			"spending limit from response: %v", err))
+		return
+	}
+	// Sanity check: Try encoding transactionSpendingLimit just in case.
+	blockHeight := uint64(fes.blockchain.BlockTip().Height)
+	transactionSpendingBytes, err := transactionSpendingLimit.ToBytes(blockHeight)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAccessBytes: Error in ToBytes: %v", err))
+		return
+	}
+
+	accessBytes := lib.AssembleAccessBytesWithMetamaskStrings(derivedPublicKey, requestData.ExpirationBlock,
+		transactionSpendingLimit, fes.Params)
+	res := &GetAccessBytesResponse{
+		TransactionSpendingLimitHex: hex.EncodeToString(transactionSpendingBytes),
+		AccessBytesHex:              hex.EncodeToString(accessBytes),
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetAccessBytes: Problem serializing object to JSON: %v", err))
 		return
 	}
 }
@@ -3378,8 +3429,9 @@ func (fes *APIServer) GetTransactionSpendingLimitResponseFromHex(ww http.Respons
 	}
 
 	var transactionSpendingLimit lib.TransactionSpendingLimit
+	blockHeight := uint64(fes.blockchain.BlockTip().Height)
 	rr := bytes.NewReader(tslBytes)
-	if err = transactionSpendingLimit.FromBytes(rr); err != nil {
+	if err = transactionSpendingLimit.FromBytes(blockHeight, rr); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetTransactionSpendingLimitResponseFromHex: Error constructing TransactionSpendingLimit from bytes"))
 		return

@@ -554,7 +554,7 @@ func CalculatePriceStringFromScaledExchangeRate(
 		scaledExchangeRateAsBigInt = big.NewInt(0).Div(oneE76, scaledExchangeRateAsBigInt)
 	}
 
-	return formatScaledUint256AsDecimalString(scaledExchangeRateAsBigInt, lib.OneE38.ToBig()), nil
+	return lib.FormatScaledUint256AsDecimalString(scaledExchangeRateAsBigInt, lib.OneE38.ToBig()), nil
 }
 
 // CalculateExchangeRateAsFloat acts as a pass-through function to CalculateFloatFromScaledExchangeRate for backwards
@@ -608,9 +608,9 @@ func CalculateStringQuantityFromBaseUnits(
 		sellingCoinPublicKeyBase58Check,
 		operationTypeString,
 	) {
-		return formatScaledUint256AsDecimalString(quantityToFillInBaseUnits.ToBig(), big.NewInt(int64(lib.NanosPerUnit))), nil
+		return lib.FormatScaledUint256AsDecimalString(quantityToFillInBaseUnits.ToBig(), big.NewInt(int64(lib.NanosPerUnit))), nil
 	}
-	return formatScaledUint256AsDecimalString(quantityToFillInBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig()), nil
+	return lib.FormatScaledUint256AsDecimalString(quantityToFillInBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig()), nil
 }
 
 // CalculateFloatQuantityFromBaseUnits calculates the float coin quantity in whole units given a buying coin, selling coin,
@@ -770,38 +770,13 @@ func getDESOToDAOCoinBaseUnitsScalingFactor() *uint256.Int {
 	)
 }
 
-// Given a value v that is a scaled uint256 with the provided scaling factor, this prints the decimal representation
-// of v as a string
-// Ex: if v = 12345 and scalingFactor = 100, then this outputs 123.45
-func formatScaledUint256AsDecimalString(v *big.Int, scalingFactor *big.Int) string {
-	wholeNumber := big.NewInt(0).Div(v, scalingFactor)
-	decimalPart := big.NewInt(0).Mod(v, scalingFactor)
-
-	decimalPartIsZero := decimalPart.Cmp(big.NewInt(0)) == 0
-
-	scalingFactorDigits := getNumDigits(scalingFactor)
-	decimalPartAsString := fmt.Sprintf("%d", decimalPart)
-
-	// Left pad the decimal part with zeros
-	if !decimalPartIsZero && len(decimalPartAsString) != scalingFactorDigits {
-		decimalLeadingZeros := strings.Repeat("0", scalingFactorDigits-len(decimalPartAsString)-1)
-		decimalPartAsString = fmt.Sprintf("%v%v", decimalLeadingZeros, decimalPartAsString)
-	}
-
-	// Trim trailing zeros
-	if !decimalPartIsZero {
-		decimalPartAsString = strings.TrimRight(decimalPartAsString, "0")
-	}
-	return fmt.Sprintf("%d.%v", wholeNumber, decimalPartAsString)
-}
-
 // Given a value v that is a scaled uint256 with the provided scaling factor, this prints v as a float scaled down
 // by the scaling factor
 // Ex: if v = 12345 and scalingFactor = 100, then this outputs 123.45
 func calculateScaledUint256AsFloat(v *big.Int, scalingFactor *big.Int) (float64, error) {
 	wholeNumber := big.NewInt(0).Div(v, scalingFactor)
 	decimalPart := big.NewInt(0).Mod(v, scalingFactor)
-	decimalLeadingZeros := strings.Repeat("0", getNumDigits(scalingFactor)-getNumDigits(decimalPart)-1)
+	decimalLeadingZeros := strings.Repeat("0", lib.GetNumDigits(scalingFactor)-lib.GetNumDigits(decimalPart)-1)
 
 	str := fmt.Sprintf("%d.%s%d", wholeNumber, decimalLeadingZeros, decimalPart)
 	parsedFloat, err := strconv.ParseFloat(str, 64)
@@ -825,7 +800,7 @@ func calculateScaledUint256AsFloat(v *big.Int, scalingFactor *big.Int) (float64,
 func formatFloatAsString(f float64) string {
 	fAsBigInt, _ := big.NewFloat(0).SetFloat64(f).Int(nil)
 	supportedPrecisionDigits := 15
-	numWholeNumberDigits := getNumDigits(fAsBigInt)
+	numWholeNumberDigits := lib.GetNumDigits(fAsBigInt)
 	// f is small, we'll print up to 15 total digits to the right of the decimal point
 	if numWholeNumberDigits <= supportedPrecisionDigits {
 		return fmt.Sprintf("%."+fmt.Sprintf("%d", supportedPrecisionDigits-numWholeNumberDigits)+"f", f)
@@ -836,18 +811,6 @@ func formatFloatAsString(f float64) string {
 	fAsBigInt.Div(fAsBigInt, divisorToDropDigits)
 	fAsBigInt.Mul(fAsBigInt, divisorToDropDigits)
 	return fmt.Sprintf("%d.0", fAsBigInt)
-}
-
-func getNumDigits(val *big.Int) int {
-	quotient := big.NewInt(0).Set(val)
-	zero := big.NewInt(0)
-	ten := big.NewInt(10)
-	numDigits := 0
-	for quotient.Cmp(zero) != 0 {
-		numDigits += 1
-		quotient.Div(quotient, ten)
-	}
-	return numDigits
 }
 
 // This is a quick sanity check. Any valid decimal string should successfully parse into a non-negative float64
@@ -1084,13 +1047,13 @@ func (fes *APIServer) getDAOCoinLimitOrderSimulatedExecutionResult(
 	}
 
 	// Convert buying coin balance change from uint256 to as a decimal string (ex: 1.23)
-	buyingCoinBalanceChange = formatScaledUint256AsDecimalString(
+	buyingCoinBalanceChange = lib.FormatScaledUint256AsDecimalString(
 		uint256.NewInt().Sub(buyingCoinEndingBalance, buyingCoinStartingBalance).ToBig(),
 		getScalingFactorForCoin(buyingDAOCoinCreatorPublicKeyBase58Check).ToBig(),
 	)
 
 	// Convert selling coin balance change from uint256 to as a decimal string (ex: 1.23)
-	sellingCoinBalanceChange = formatScaledUint256AsDecimalString(
+	sellingCoinBalanceChange = lib.FormatScaledUint256AsDecimalString(
 		uint256.NewInt().Sub(sellingCoinStartingBalance, sellingCoinEndingBalance).ToBig(),
 		getScalingFactorForCoin(sellingDAOCoinCreatorPublicKeyBase58Check).ToBig(),
 	)

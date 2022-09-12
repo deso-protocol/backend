@@ -2,9 +2,12 @@ package config
 
 import (
 	"fmt"
-	"github.com/deso-protocol/core/lib"
+	"github.com/holiman/uint256"
+	"math/big"
 	"strconv"
 	"strings"
+
+	"github.com/deso-protocol/core/lib"
 
 	coreCmd "github.com/deso-protocol/core/cmd"
 	"github.com/spf13/viper"
@@ -85,6 +88,11 @@ type Config struct {
 
 	// Public keys that need their balances monitored. Map of Label to Public key
 	PublicKeyBalancesToMonitor map[string][]byte
+
+	// Metamask minimal Eth in Wei required to receive an airdrop.
+	MetamaskAirdropEthMinimum *uint256.Int
+	// Amount of DESO in nanos metamask users receive as an airdrop
+	MetamaskAirdropDESONanosAmount uint64
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -197,6 +205,19 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 			config.PublicKeyBalancesToMonitor[entry[0]] = pubKeyBytes
 		}
 	}
+
+	// Metamask minimal Eth in Wei required to receive an airdrop.
+	metamaskAirdropMinStr := viper.GetString("metamask-airdrop-eth-minimum")
+	metamaskAirdropMinBigint, ok := big.NewInt(0).SetString(metamaskAirdropMinStr, 10)
+	if !ok {
+		panic(fmt.Sprintf("Error parsing metamask-airdrop-eth-minimum into bigint: %v", metamaskAirdropMinStr))
+	}
+	var overflow bool
+	config.MetamaskAirdropEthMinimum, overflow = uint256.FromBig(metamaskAirdropMinBigint)
+	if overflow {
+		panic(fmt.Sprintf("metamask-airdrop-eth-minimum value %v overflows uint256", metamaskAirdropMinStr))
+	}
+	config.MetamaskAirdropDESONanosAmount = viper.GetUint64("metamask-airdrop-deso-nanos-amount")
 
 	return &config
 }

@@ -42,4 +42,5 @@ rm /tmp/main.*.log
   --block-cypher-api-key=092dae962ea44b02809a4c74408b42a1 \
   --min-satoshis-for-profile=0 \
   --expose-global-state=true \
-  --show-processing-spinners=true )
+  --show-processing-spinners=true \
+  --metamask-airdrop-deso-nanos-amount=1000 )

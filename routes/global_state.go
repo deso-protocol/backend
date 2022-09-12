@@ -225,12 +225,15 @@ var (
 	// <prefix, PhoneNumber> -> <[]PhoneNumberMetadata>
 	_GlobalStatePrefixPhoneNumberToMultiPhoneNumberMetadata = []byte{44}
 
+	_GlobalStatePrefixMetamaskAirdrop = []byte{45}
+
 	// TODO: This process is a bit error-prone. We should come up with a test or
 	// something to at least catch cases where people have two prefixes with the
 	// same ID.
 	//
 
-	// NEXT_TAG: 45
+	// NEXT_TAG: 46
+
 )
 
 type HotFeedApprovedPostOp struct {
@@ -411,6 +414,12 @@ type PhoneNumberMetadata struct {
 
 	// True if user deleted PII. Since users can
 	PublicKeyDeleted bool
+}
+
+type MetamaskAirdropMetadata struct {
+	PublicKey                 []byte
+	HasReceivedAirdrop        bool
+	ShouldCompProfileCreation bool
 }
 
 type WyreWalletOrderMetadata struct {
@@ -757,6 +766,12 @@ func GlobalStateKeyExemptPublicKey(publicKey []byte) []byte {
 func GlobalStateKeyForCountryCodeToCountrySignUpBonus(countryCode string) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixForCountryCodeToCountrySignUpBonus...)
 	key := append(prefixCopy, []byte(strings.ToLower(countryCode))...)
+	return key
+}
+
+func GlobalStateKeyMetamaskAirdrop(pk []byte) []byte {
+	prefixCopy := append([]byte{}, _GlobalStatePrefixMetamaskAirdrop...)
+	key := append(prefixCopy, pk[:]...)
 	return key
 }
 
