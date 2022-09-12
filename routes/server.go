@@ -135,13 +135,14 @@ const (
 	RoutePathGetVideoStatus   = "/api/v0/get-video-status"
 
 	// message.go
-	RoutePathSendMessageStateless      = "/api/v0/send-message-stateless"
-	RoutePathGetMessagesStateless      = "/api/v0/get-messages-stateless"
-	RoutePathMarkContactMessagesRead   = "/api/v0/mark-contact-messages-read"
-	RoutePathMarkAllMessagesRead       = "/api/v0/mark-all-messages-read"
-	RoutePathRegisterMessagingGroupKey = "/api/v0/register-messaging-group-key"
-	RoutePathGetAllMessagingGroupKeys  = "/api/v0/get-all-messaging-group-keys"
-	RoutePathCheckPartyMessagingKeys   = "/api/v0/check-party-messaging-keys"
+	RoutePathSendMessageStateless       = "/api/v0/send-message-stateless"
+	RoutePathGetMessagesStateless       = "/api/v0/get-messages-stateless"
+	RoutePathMarkContactMessagesRead    = "/api/v0/mark-contact-messages-read"
+	RoutePathMarkAllMessagesRead        = "/api/v0/mark-all-messages-read"
+	RoutePathRegisterMessagingGroupKey  = "/api/v0/register-messaging-group-key"
+	RoutePathGetAllMessagingGroupKeys   = "/api/v0/get-all-messaging-group-keys"
+	RoutePathCheckPartyMessagingKeys    = "/api/v0/check-party-messaging-keys"
+	RoutePathGetBulkMessagingPublicKeys = "/api/v0/get-bulk-messaging-public-keys"
 
 	// verify.go
 	RoutePathSendPhoneNumberVerificationText   = "/api/v0/send-phone-number-verification-text"
@@ -1654,6 +1655,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathCheckPartyMessagingKeys,
 			fes.CheckPartyMessagingKeys,
+			PublicAccess,
+		},
+		{
+			"GetBulkMessagingPublicKeys",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetBulkMessagingPublicKeys,
+			fes.GetBulkMessagingPublicKeys,
 			PublicAccess,
 		},
 
