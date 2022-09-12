@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"math/big"
 	"net/http"
 	"strings"
@@ -396,31 +397,47 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 	}
 	// get the deso public address of the user
 	recipientPublicKey := lib.Base58CheckEncode(requestData.Signer, false, fes.Params)
-	recipientBytePK := []byte(recipientPublicKey)
+	recipientBytePK, _, err := lib.Base58CheckDecode(recipientPublicKey)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
+		return
+	}
+
 	// get the public eth address of the user
 	recipientEthAddress, err := publicKeyToEthAddress(requestData.Signer)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
 		return
 	}
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
-		return
-	}
+
 	// Validate that the user doesn't have Deso already
 	desoBalance, desoBalanceErr := fes.getBalanceForPubKey(recipientBytePK)
-	// balance check TESTED
-	if desoBalance != 0 {
-		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin:  Account already has a balance", desoBalanceErr))
+	if desoBalanceErr != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Error checking balance for public key: %v", desoBalanceErr))
 		return
 	}
-	// Check to see if they've received this airdrop
-	hasReceivedAirdrop, err := fes.GlobalState.Get(GlobalStateKeyMetamaskAirdrop(recipientBytePK))
-	if bytes.Equal(hasReceivedAirdrop, []byte{1}) {
+	// balance check TESTED
+	if desoBalance != 0 {
+		_AddBadRequestError(ww, fmt.Sprint("MetamaskSignin: Account already has a balance"))
+		return
+	}
+	metamaskAirdropMetadata, err := fes.GetMetamaskAirdropMetadata(recipientBytePK)
+	// If there are no bytes from global state, we know that they haven't received an airdrop.
+	if metamaskAirdropMetadata != nil && metamaskAirdropMetadata.HasReceivedAirdrop {
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: Account has already received airdrop"))
 		return
 	}
 
+
+	if fes.Config.MetamaskAirdropDESONanosAmount == 0 {
+		res := MetamaskSignInResponse{TxnHash: nil}
+		// Issue constructing response
+		if err = json.NewEncoder(ww).Encode(res); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
+			return
+		}
+		return
+	}
 	// validate the user's eth balance
 	params := []interface{}{recipientEthAddress, "latest"}
 	infuraResponse, err := fes.ExecuteETHRPCRequest("eth_getBalance", params)
@@ -440,8 +457,10 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 	}
 	// To prevent bots we only allow accounts with .0001 eth or greater to qualify
 	if ethBalanceBigint.Cmp(fes.Config.MetamaskAirdropEthMinimum.ToBig()) < 0 {
+		// Ceil to 4 decimal places
+		minEthAmountRequired := math.Ceil(float64(fes.Config.MetamaskAirdropEthMinimum.Uint64())*10000) / 1e18 * 10000
 		_AddBadRequestError(ww, fmt.Sprintf("MetamaskSignin: To be eligible for "+
-			"airdrop your account needs to have more than .001 eth"))
+			"airdrop your account needs to have more than %v eth", minEthAmountRequired))
 		return
 	}
 	//Verify that they signed a signature from their account
@@ -461,13 +480,18 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
 		return
 	}
-	// add them to the received airdrop list
-	if err = fes.GlobalState.Put(GlobalStateKeyMetamaskAirdrop(recipientBytePK), []byte{1}); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, "GlobalState update failed"))
+	// add them to the received airdrop list with ShouldCompProfileCreation set to true
+	newMetamaskAirdropMetadata := MetamaskAirdropMetadata{
+		PublicKey:                 recipientBytePK,
+		HasReceivedAirdrop:        true,
+		ShouldCompProfileCreation: true,
+	}
+	if err = fes.PutMetamaskAirdropMetadata(&newMetamaskAirdropMetadata); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
 		return
 	}
 
-	txnHash, err := fes.SendSeedDeSo(addressToAirdrop, 1000, false)
+	txnHash, err := fes.SendSeedDeSo(addressToAirdrop, fes.Config.MetamaskAirdropDESONanosAmount, false)
 	// attempted to send the deso but something went wrong
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
@@ -475,10 +499,40 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 	}
 	res := MetamaskSignInResponse{TxnHash: txnHash}
 	// Issue constructing response
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(DEFAULT_ERROR, err))
 		return
 	}
+}
+
+func (fes *APIServer) PutMetamaskAirdropMetadata(metamaskAirdropMetadata *MetamaskAirdropMetadata) error {
+	if metamaskAirdropMetadata == nil {
+		return fmt.Errorf("PutMetamaskAirdropMetadata called with nil metadata struct")
+	}
+	globalStateVal := bytes.NewBuffer([]byte{})
+	if err := gob.NewEncoder(globalStateVal).Encode(metamaskAirdropMetadata); err != nil {
+		return fmt.Errorf("Failed to encode metamaskAirdropMetadata: %v", err)
+	}
+	if err := fes.GlobalState.Put(GlobalStateKeyMetamaskAirdrop(metamaskAirdropMetadata.PublicKey), globalStateVal.Bytes()); err != nil {
+		return fmt.Errorf("GlobalState update failed: %v", err)
+	}
+	return nil
+}
+
+func (fes *APIServer) GetMetamaskAirdropMetadata(publicKey []byte) (*MetamaskAirdropMetadata, error) {
+	// Check to see if they've received this airdrop
+	existingMetamaskAirdropMetadataBytes, err := fes.GlobalState.Get(GlobalStateKeyMetamaskAirdrop(publicKey))
+	if err != nil {
+		return nil, fmt.Errorf("Error getting metamask airdrop from global state: %v", err)
+	}
+	if len(existingMetamaskAirdropMetadataBytes) == 0 {
+		return nil, nil
+	}
+	existingMetamaskAirdropMetadata := MetamaskAirdropMetadata{}
+	if err = gob.NewDecoder(bytes.NewReader(existingMetamaskAirdropMetadataBytes)).Decode(&existingMetamaskAirdropMetadata); err != nil {
+		return nil, fmt.Errorf("Problem decoding bytes for metamask airdrop: %v", err)
+	}
+	return &existingMetamaskAirdropMetadata, nil
 }
 
 // ExecuteETHRPCRequest makes a request to Infura to fetch information about the Ethereum blockchain
