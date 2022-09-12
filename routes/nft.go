@@ -1328,6 +1328,10 @@ func (fes *APIServer) GetNFTEntriesForPostHash(ww http.ResponseWriter, req *http
 		return
 	}
 	postEntry := utxoView.GetPostEntryForPostHash(postHash)
+	if postEntry == nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetNFTEntriesForPostHash: post entry not found"))
+		return
+	}
 	if !postEntry.IsNFT {
 		_AddBadRequestError(ww, fmt.Sprintf("GetNFTEntriesForPostHash: cannot get nft collection summary for post that is not an NFT"))
 		return
