@@ -416,6 +416,12 @@ type PhoneNumberMetadata struct {
 	PublicKeyDeleted bool
 }
 
+type MetamaskAirdropMetadata struct {
+	PublicKey []byte
+	HasReceivedAirdrop bool
+	ShouldCompProfileCreation bool
+}
+
 type WyreWalletOrderMetadata struct {
 	// Last payload received from Wyre webhook
 	LatestWyreWalletOrderWebhookPayload WyreWalletOrderWebhookPayload

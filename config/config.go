@@ -91,6 +91,8 @@ type Config struct {
 
 	// Metamask minimal Eth in Wei required to receive an airdrop.
 	MetamaskAirdropEthMinimum *uint256.Int
+	// Amount of DESO in nanos metamask users receive as an airdrop
+	MetamaskAirdropDESONanosAmount uint64
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -215,6 +217,7 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	if overflow {
 		panic(fmt.Sprintf("metamask-airdrop-eth-minimum value %v overflows uint256", metamaskAirdropMinStr))
 	}
+	config.MetamaskAirdropDESONanosAmount = viper.GetUint64("metamask-airdrop-deso-nanos-amount")
 
 	return &config
 }
