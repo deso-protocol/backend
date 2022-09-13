@@ -1159,7 +1159,7 @@ func (fes *APIServer) CreateCheckPartyMessagingKeysResponse(senderPublicKey *lib
 	// fetch the group entry from it. Add it to the response if the key exists.
 	messagingKey := lib.NewMessagingGroupKey(senderPublicKey, senderMessagingKeyName[:])
 	messagingEntry := utxoView.GetMessagingGroupKeyToMessagingGroupEntryMapping(messagingKey)
-	if messagingEntry != nil || messagingEntry.IsDeleted() {
+	if messagingEntry != nil && !messagingEntry.IsDeleted() {
 		response.SenderMessagingPublicKeyBase58Check = lib.Base58CheckEncode(messagingEntry.MessagingPublicKey[:], false, fes.Params)
 		response.IsSenderMessagingKey = true
 		response.SenderMessagingKeyName = string(lib.MessagingKeyNameDecode(senderMessagingKeyName))
@@ -1169,7 +1169,7 @@ func (fes *APIServer) CreateCheckPartyMessagingKeysResponse(senderPublicKey *lib
 	// fetch the group entry from it. Add it to the response if the key exists.
 	messagingKey = lib.NewMessagingGroupKey(recipientPublicKey, recipientMessagingKeyName[:])
 	messagingEntry = utxoView.GetMessagingGroupKeyToMessagingGroupEntryMapping(messagingKey)
-	if messagingEntry != nil || messagingEntry.IsDeleted() {
+	if messagingEntry != nil && !messagingEntry.IsDeleted() {
 		response.RecipientMessagingPublicKeyBase58Check = lib.Base58CheckEncode(messagingEntry.MessagingPublicKey[:], false, fes.Params)
 		response.IsRecipientMessagingKey = true
 		response.RecipientMessagingKeyName = string(lib.MessagingKeyNameDecode(recipientMessagingKeyName))
