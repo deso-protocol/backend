@@ -258,6 +258,7 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem parsing request body: %v", err))
 		return
 	}
+	glog.Infof("UpdateProfile: Request data received - %v", requestData)
 
 	// Decode the public key
 	updaterPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.UpdaterPublicKeyBase58Check)
@@ -387,7 +388,7 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 
 	additionalFees, compProfileCreationTxnHash, err := fes.CompProfileCreation(profilePublicKey, userMetadata, utxoView)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Error in comp profile creation for public key %v: %v", requestData.ProfilePublicKeyBase58Check, err))
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Error in comp profile creation for public key %v: %v", requestData.UpdaterPublicKeyBase58Check, err))
 		return
 	}
 
