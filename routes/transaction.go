@@ -387,7 +387,7 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 
 	additionalFees, compProfileCreationTxnHash, err := fes.CompProfileCreation(profilePublicKey, userMetadata, utxoView)
 	if err != nil {
-		_AddBadRequestError(ww, err.Error())
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Error in comp profile creation for public key %v: %v", requestData.ProfilePublicKeyBase58Check, err))
 		return
 	}
 
@@ -449,10 +449,13 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 }
 
 func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata *UserMetadata, utxoView *lib.UtxoView) (_additionalFee uint64, _txnHash *lib.BlockHash, _err error) {
+	publicKeyBase58Check := lib.PkToString(profilePublicKey, fes.Params)
+	glog.Infof("CompProfileCreation: beginning CompProfileCreation for public key %v", publicKeyBase58Check)
 	// Determine if this is a profile creation request and if we need to comp the user for creating the profile.
 	existingProfileEntry := utxoView.GetProfileEntryForPublicKey(profilePublicKey)
 	// If we are updating an existing profile, there is no fee and we do not comp anything.
 	if existingProfileEntry != nil {
+		glog.Infof("CompProfileCreation: no comp when updating a profile, only when creating, public key %v", publicKeyBase58Check)
 		return 0, nil, nil
 	}
 	// Additional fee is set to the create profile fee when we are creating a profile
@@ -465,12 +468,13 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	// Only comp create profile fee if frontend server has both twilio and starter deso seed configured and the user
 	// has verified their profile.
 	if !fes.Config.CompProfileCreation || fes.Config.StarterDESOSeed == "" || fes.Twilio == nil || (userMetadata.PhoneNumber == "" && !userMetadata.JumioVerified && existingMetamaskAirdropMetadata == nil) {
+		glog.Infof("CompProfileCreation: user not eligible for profile comp - public key %v", publicKeyBase58Check)
 		return additionalFees, nil, nil
 	}
 	var currentBalanceNanos uint64
 	currentBalanceNanos, err = GetBalanceForPublicKeyUsingUtxoView(profilePublicKey, utxoView)
 	if err != nil {
-		return 0, nil, errors.Wrap(fmt.Errorf("UpdateProfile: error getting current balance: %v", err), "")
+		return 0, nil, fmt.Errorf("Error getting current balance: %v", err)
 	}
 	createProfileFeeNanos := utxoView.GlobalParamsEntry.CreateProfileFeeNanos
 
@@ -480,6 +484,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	var multiPhoneNumberMetadata []*PhoneNumberMetadata
 	var updateMetamaskAirdropMetadata bool
 	if userMetadata.PhoneNumber != "" && !userMetadata.JumioVerified {
+		glog.Infof("CompProfileCreation: phone number comp - public key %v", publicKeyBase58Check)
 		multiPhoneNumberMetadata, err = fes.getMultiPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
 		if err != nil {
 			return 0, nil, fmt.Errorf("UpdateProfile: error getting phone number metadata for public key %v: %v", profilePublicKey, err)
@@ -498,16 +503,21 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 			return 0, nil, fmt.Errorf("UpdateProfile: phone number metadata not found in slice for public key")
 		}
 		if !phoneNumberMetadata.ShouldCompProfileCreation || currentBalanceNanos > createProfileFeeNanos {
+			glog.Infof("CompProfileCreation: user's balance exceeds create profile fee - public key %v", publicKeyBase58Check)
 			return additionalFees, nil, nil
 		}
 	} else if existingMetamaskAirdropMetadata != nil {
+		glog.Infof("CompProfileCreation: metamask comp - public key %v", publicKeyBase58Check)
 		if !existingMetamaskAirdropMetadata.ShouldCompProfileCreation {
+			glog.Infof("CompProfileCreation: metamask comp, should not comp profile creation - public key %v", publicKeyBase58Check)
 			return additionalFees, nil, nil
 		}
 		updateMetamaskAirdropMetadata = true
 	} else {
+		glog.Infof("CompProfileCreation: jumio comp - public key %v", publicKeyBase58Check)
 		// User has been Jumio verified but should comp profile creation is false, just return
 		if !userMetadata.JumioShouldCompProfileCreation {
+			glog.Infof("CompProfileCreation: jumio comp, should not comp profile creation - public key %v", publicKeyBase58Check)
 			return additionalFees, nil, nil
 		}
 	}
@@ -560,6 +570,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	}
 
 	// Send the comp amount to the public key
+	glog.Infof("CompProfileCreation: sending DESO comp - public key %v", publicKeyBase58Check)
 	txnHash, err := fes.SendSeedDeSo(profilePublicKey, compAmount, false)
 	if err != nil {
 		return 0, nil, errors.Wrap(fmt.Errorf("UpdateProfile: error comping create profile fee: %v", err), "")

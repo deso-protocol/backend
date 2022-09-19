@@ -259,15 +259,19 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 		return
 	}
 
+	glog.Infof("SubmitPhoneNumberVerificationCode: parsed request for public key %v", requestData.PublicKeyBase58Check)
+
 	// Validate their permissions
 	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificaitonCodE: Error validating JWT: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificaitonCode: Error validating JWT for public key %v: %v", requestData.PublicKeyBase58Check, err))
 	}
 	if !isValid {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Invalid token: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Invalid token for public key %v: %v", requestData.PublicKeyBase58Check, err))
 		return
 	}
+	glog.Infof("SubmitPhoneNumberVerificationCode: validated JWT for public key %v", requestData.PublicKeyBase58Check)
+
 
 	/**************************************************************/
 	// Validations
@@ -277,6 +281,8 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Error with validatePhoneNumberNotAlreadyInUse: %v", err))
 		return
 	}
+
+	glog.Infof("SubmitPhoneNumberVerificationCode: validated phone number not already in use for public key %v", requestData.PublicKeyBase58Check)
 
 	/**************************************************************/
 	// Actual logic
@@ -298,6 +304,8 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 		_AddBadRequestError(ww, fmt.Sprintf("SendPhoneNumberVerificationText: Code is not valid"))
 		return
 	}
+	glog.Infof("SubmitPhoneNumberVerificationCode: validated phone number verification code for public key %v", requestData.PublicKeyBase58Check)
+
 
 	/**************************************************************/
 	// Save the phone number in global state
@@ -308,6 +316,7 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Problem with getUserMetadataFromGlobalState: %v", err))
 		return
 	}
+	glog.Infof("SubmitPhoneNumberVerificationCode: retrieved user metadata from global state for public key %v", requestData.PublicKeyBase58Check)
 
 	settingPhoneNumberForFirstTime := userMetadata.PhoneNumber == ""
 	userMetadata.PhoneNumber = requestData.PhoneNumber
@@ -318,6 +327,7 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Error putting usermetadata in Global state: %v", err))
 		return
 	}
+	glog.Infof("SubmitPhoneNumberVerificationCode: updated user metadata in global state for public key %v", requestData.PublicKeyBase58Check)
 
 	// Update / save phoneNumberMetadata in global state
 	multiPhoneNumberMetadata, err := fes.getMultiPhoneNumberMetadataFromGlobalState(requestData.PhoneNumber)
@@ -325,6 +335,7 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Error with getPhoneNumberMetadataFromGlobalState: %v", err))
 		return
 	}
+	glog.Infof("SubmitPhoneNumberVerificationCode: retrieved phone number metadata from global state for public key %v", requestData.PublicKeyBase58Check)
 
 	phoneNumberMetadata := &PhoneNumberMetadata{
 		PublicKey:                 userMetadata.PublicKey,
@@ -347,11 +358,13 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Problem with putPhoneNumberMetadataInGlobalState: %v", err))
 		return
 	}
+	glog.Infof("SubmitPhoneNumberVerificationCode: updated phone number metadata in global state for public key %v", requestData.PublicKeyBase58Check)
 
 	/**************************************************************/
 	// Send the user starter DeSo, if we haven't already sent it
 	/**************************************************************/
 	if settingPhoneNumberForFirstTime && fes.Config.StarterDESOSeed != "" {
+		glog.Infof("SubmitPhoneNumberVerificationCode: first time validating phone number for public key %v", requestData.PublicKeyBase58Check)
 		amountToSendNanos := fes.Config.StarterDESONanos
 
 		if len(requestData.PhoneNumber) == 0 || requestData.PhoneNumber[0] != '+' {
@@ -384,6 +397,7 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 			_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Error sending seed DeSo: %v", err))
 			return
 		}
+		glog.Infof("SubmitPhoneNumberVerificationCode: sent starter DESO for phone number verification to public key %v", requestData.PublicKeyBase58Check)
 		res := SubmitPhoneNumberVerificationCodeResponse{
 			TxnHashHex: txnHash.String(),
 		}
@@ -391,6 +405,8 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 			_AddBadRequestError(ww, fmt.Sprintf("SubmitPhoneNumberVerificationCode: Problem encoding response: %v", err))
 			return
 		}
+	} else {
+		glog.Infof("SubmitPhoneNumberVerificationCode: not first time validating phone number for public key %v", requestData.PublicKeyBase58Check)
 	}
 }
 
