@@ -879,8 +879,8 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			if !lastTxSeen {
 				if reflect.DeepEqual(poolTx.Hash, lastTxHash) {
 					lastTxSeen = true
-					continue
 				}
+				continue
 			}
 
 			if transactionInfoRequest.IDsOnly {
