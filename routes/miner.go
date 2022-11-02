@@ -76,6 +76,11 @@ func (fes *APIServer) GetBlockTemplate(ww http.ResponseWriter, req *http.Request
 		return
 	}
 
+	if requestData.NumHeaders > 1000000 {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBlockTemplate: Error: NumHeaders must be less than 1000000"))
+		return
+	}
+
 	// Decode the public key
 	pkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 	if err != nil {
