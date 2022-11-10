@@ -130,10 +130,11 @@ const (
 	RoutePathGetAcceptedBidHistory     = "/api/v0/accepted-bid-history"
 
 	// media.go
-	RoutePathUploadImage      = "/api/v0/upload-image"
-	RoutePathGetFullTikTokURL = "/api/v0/get-full-tiktok-url"
-	RoutePathUploadVideo      = "/api/v0/upload-video"
-	RoutePathGetVideoStatus   = "/api/v0/get-video-status"
+	RoutePathUploadImage         = "/api/v0/upload-image"
+	RoutePathGetFullTikTokURL    = "/api/v0/get-full-tiktok-url"
+	RoutePathUploadVideo         = "/api/v0/upload-video"
+	RoutePathGetVideoStatus      = "/api/v0/get-video-status"
+	RoutePathEnableVideoDownload = "/api/v0/enable-video-download"
 
 	// message.go
 	RoutePathSendMessageStateless       = "/api/v0/send-message-stateless"
@@ -1710,6 +1711,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetVideoStatus,
 			PublicAccess,
 		},
+		{
+			"EnableVideoDownload",
+			[]string{"POST", "OPTIONS"},
+			RoutePathEnableVideoDownload,
+			fes.EnableVideoDownload,
+			PublicAccess,
+		},
 		// Paths for wyre
 		{
 			"GetWyreWalletOrderQuotation",
@@ -1859,6 +1867,7 @@ func Logger(inner http.Handler, name string) http.Handler {
 var publicRoutes = map[string]interface{}{
 	RoutePathGetJumioStatusForPublicKey:     nil,
 	RoutePathUploadVideo:                    nil,
+	RoutePathEnableVideoDownload:            nil,
 	RoutePathGetReferralInfoForReferralHash: nil,
 	RoutePathGetReferralInfoForUser:         nil,
 	RoutePathGetVerifiedUsernames:           nil,
