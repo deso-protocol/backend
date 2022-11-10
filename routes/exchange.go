@@ -1662,12 +1662,17 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 	var startIndex = 0
 	if startAfterPostHash != nil {
 		var indexOfStartAfterPostHash int
+		startPostHashFound := false
 		// Find the index of the starting post so that we can paginate the result
 		for index, postEntry := range postEntriesForFollowFeed {
 			if *postEntry.PostHash == *startAfterPostHash {
 				indexOfStartAfterPostHash = index
+				startPostHashFound = true
 				break
 			}
+		}
+		if !startPostHashFound {
+			return nil, fmt.Errorf("GetPostsForFollowFeedForPublicKey: start post hash not found in results")
 		}
 		// the first element of our new slice should be the element AFTER startAfterPostHash
 		startIndex = indexOfStartAfterPostHash + 1
@@ -1688,6 +1693,9 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 	var startPost *lib.PostEntry
 	if startPostHash != nil {
 		startPost = bav.GetPostEntryForPostHash(startPostHash)
+		if startPost == nil || startPost.IsDeleted() {
+			return nil, nil, fmt.Errorf("GetPostsByTime: start post entry not found")
+		}
 	}
 
 	var startTstampNanos uint64
