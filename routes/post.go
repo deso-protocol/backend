@@ -567,6 +567,9 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 	var startPost *lib.PostEntry
 	if startPostHash != nil {
 		startPost = utxoView.GetPostEntryForPostHash(startPostHash)
+		if startPost == nil || startPost.IsDeleted() {
+			return nil, nil, nil, fmt.Errorf("GetPostEntriesForGlobalWhitelist: Start post entry not found")
+		}
 	}
 
 	var seekStartPostHash *lib.BlockHash
@@ -587,11 +590,16 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 	for len(postEntries) < numToFetch {
 		// Fetch the posts from the cached GlobalFeedPostEntries slice.
 		if nextStartPostHash != nil {
+			startPostHashFound := false
 			for ii := index; ii < len(fes.GlobalFeedPostEntries); ii++ {
 				if reflect.DeepEqual(*fes.GlobalFeedPostEntries[ii].PostHash, *nextStartPostHash) {
 					index = ii
+					startPostHashFound = true
 					break
 				}
+			}
+			if !startPostHashFound {
+				return nil, nil, nil, fmt.Errorf("GetPostEntriesForGlobalWhitelist: next start post hash not found in global feed post entries")
 			}
 		}
 		endIndex := lib.MinInt(index+numToFetch-len(postEntries), len(fes.GlobalFeedPostHashes))
@@ -787,12 +795,23 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 		}
 	}
 
+	// Get a view with all the mempool transactions (used to get all posts / reader state).
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsStateless: Error fetching mempool view"))
+		return
+	}
+
 	var startPostHash *lib.BlockHash
 	if requestData.PostHashHex != "" {
 		// Decode the postHash.  This will give us the location where we start our paginated search.
 		startPostHash, err = GetPostHashFromPostHashHex(requestData.PostHashHex)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetPostsStateless: %v", err))
+			return
+		}
+		if postEntry := utxoView.GetPostEntryForPostHash(startPostHash); postEntry == nil || postEntry.IsDeleted() {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPostsStateless: no post entry found for post hash hex %v", requestData.PostHashHex))
 			return
 		}
 	}
@@ -805,13 +824,6 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 
 	if startPostHash == nil && numToFetch == 1 {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPostsStateless: Must provide PostHashHex when NumToFetch is 1"))
-		return
-	}
-
-	// Get a view with all the mempool transactions (used to get all posts / reader state).
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetPostsStateless: Error fetching mempool view"))
 		return
 	}
 
@@ -852,13 +864,6 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPostsStateless: Error fetching posts: %v", err))
-		return
-	}
-
-	// Get a utxoView.
-	utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetPostsStateless: Error constucting utxoView: %v", err))
 		return
 	}
 
