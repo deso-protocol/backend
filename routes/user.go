@@ -3122,7 +3122,7 @@ func (fes *APIServer) GetUsernameForPublicKey(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	if err = json.NewEncoder(ww).Encode(profileEntry.Username); err != nil {
+	if err = json.NewEncoder(ww).Encode(string(profileEntry.Username)); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUsernameForPublicKey: Error encoding response: %v", err))
 		return
 	}
