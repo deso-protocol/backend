@@ -2044,7 +2044,7 @@ func (fes *APIServer) GetNFTsCreatedByPublicKey(ww http.ResponseWriter, req *htt
 	}
 
 	// Get Posts Ordered by time.
-	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash, requestData.NumToFetch, false, true)
+	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash, requestData.NumToFetch, false, true, false)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetNFTsCreatedByPublicKey: Problem getting paginated NFTs: %v", err))
 		return
