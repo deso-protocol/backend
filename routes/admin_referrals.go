@@ -952,7 +952,7 @@ func (fes *APIServer) AdminDownloadRefereeCSV(ww http.ResponseWriter, req *http.
 		// it is not critical.
 		refereePostsLen := int64(-1)
 		refereePostEntries, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(
-			refereePKID[:], nil, 1000, false, false)
+			refereePKID[:], nil, 1000, false, false, false)
 		if err == nil {
 			refereePostsLen = int64(len(refereePostEntries))
 		}

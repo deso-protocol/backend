@@ -1437,6 +1437,7 @@ type GetPostsForPublicKeyRequest struct {
 	// Number of records to fetch
 	NumToFetch    uint64 `safeForLogging:"true"`
 	MediaRequired bool   `safeForLogging:"true"`
+	IncludeComments bool `safeForLogging:"true"`
 }
 
 // GetPostsForPublicKeyResponse ...
@@ -1501,7 +1502,7 @@ func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Req
 	}
 
 	// Get Posts Ordered by time.
-	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash, requestData.NumToFetch, requestData.MediaRequired, false)
+	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash, requestData.NumToFetch, requestData.MediaRequired, false, requestData.IncludeComments)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPostsForPublicKey: Problem getting paginated posts: %v", err))
 		return
