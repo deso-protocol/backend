@@ -287,6 +287,14 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 	}
 
 	/**************************************************************/
+	// Ensure the phone number prefix is supported
+	/**************************************************************/
+	if fes.GetPhoneVerificationAmountToSendNanos(requestData.PhoneNumber) == 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("SendPhoneNumberVerificationText: phone number prefix not supported"))
+		return
+	}
+
+	/**************************************************************/
 	// Actual logic
 	/**************************************************************/
 
