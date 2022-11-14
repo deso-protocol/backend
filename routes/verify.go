@@ -104,6 +104,14 @@ func (fes *APIServer) SendPhoneNumberVerificationText(ww http.ResponseWriter, re
 	}
 
 	/**************************************************************/
+	// Ensure the phone number prefix is supported
+	/**************************************************************/
+	if fes.GetPhoneVerificationAmountToSendNanos(requestData.PhoneNumber) == 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("SendPhoneNumberVerificationText: phone number prefix not supported"))
+		return
+	}
+
+	/**************************************************************/
 	// Send the actual verification text
 	/**************************************************************/
 	ctx, cancel = context.WithCancel(context.Background())
@@ -360,22 +368,7 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 		}
 
 		if requestData.PhoneNumber != "" {
-			// We sort the country codes by size, with the longest prefix
-			// first so that we match on the longest prefix when we iterate.
-			sortedPrefixExceptionMap := []string{}
-			for countryCodePrefix := range fes.Config.StarterPrefixNanosMap {
-				sortedPrefixExceptionMap = append(sortedPrefixExceptionMap, countryCodePrefix)
-			}
-			sort.Slice(sortedPrefixExceptionMap, func(ii, jj int) bool {
-				return len(sortedPrefixExceptionMap[ii]) > len(sortedPrefixExceptionMap[jj])
-			})
-			for _, countryPrefix := range sortedPrefixExceptionMap {
-				amountForPrefix := fes.Config.StarterPrefixNanosMap[countryPrefix]
-				if strings.Contains(requestData.PhoneNumber, countryPrefix) {
-					amountToSendNanos = amountForPrefix
-					break
-				}
-			}
+			amountToSendNanos = fes.GetPhoneVerificationAmountToSendNanos(requestData.PhoneNumber)
 		}
 
 		var txnHash *lib.BlockHash
@@ -392,6 +385,25 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 			return
 		}
 	}
+}
+
+func (fes *APIServer) GetPhoneVerificationAmountToSendNanos(phoneNumber string) uint64 {
+	// We sort the country codes by size, with the longest prefix
+	// first so that we match on the longest prefix when we iterate.
+	sortedPrefixExceptionMap := []string{}
+	for countryCodePrefix := range fes.Config.StarterPrefixNanosMap {
+		sortedPrefixExceptionMap = append(sortedPrefixExceptionMap, countryCodePrefix)
+	}
+	sort.Slice(sortedPrefixExceptionMap, func(ii, jj int) bool {
+		return len(sortedPrefixExceptionMap[ii]) > len(sortedPrefixExceptionMap[jj])
+	})
+	for _, countryPrefix := range sortedPrefixExceptionMap {
+		amountForPrefix := fes.Config.StarterPrefixNanosMap[countryPrefix]
+		if strings.Contains(phoneNumber, countryPrefix) {
+			return amountForPrefix
+		}
+	}
+	return fes.Config.StarterDESONanos
 }
 
 type ResendVerifyEmailRequest struct {
