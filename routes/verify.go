@@ -85,6 +85,14 @@ func (fes *APIServer) SendPhoneNumberVerificationText(ww http.ResponseWriter, re
 	}
 
 	/**************************************************************/
+	// Ensure the phone number prefix is supported
+	/**************************************************************/
+	if fes.GetPhoneVerificationAmountToSendNanos(requestData.PhoneNumber) == 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("SendPhoneNumberVerificationText: phone number prefix not supported"))
+		return
+	}
+
+	/**************************************************************/
 	// Ensure the user-provided number is not a VOIP number
 	/**************************************************************/
 	phoneNumber := requestData.PhoneNumber
@@ -100,14 +108,6 @@ func (fes *APIServer) SendPhoneNumberVerificationText(ww http.ResponseWriter, re
 	}
 	if lookup.Carrier.Type == TwilioVoipCarrierType {
 		_AddBadRequestError(ww, fmt.Sprintf("SendPhoneNumberVerificationText: VOIP number not allowed"))
-		return
-	}
-
-	/**************************************************************/
-	// Ensure the phone number prefix is supported
-	/**************************************************************/
-	if fes.GetPhoneVerificationAmountToSendNanos(requestData.PhoneNumber) == 0 {
-		_AddBadRequestError(ww, fmt.Sprintf("SendPhoneNumberVerificationText: phone number prefix not supported"))
 		return
 	}
 
