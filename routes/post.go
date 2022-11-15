@@ -958,6 +958,105 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 	}
 }
 
+// GetPostsHashlistRequest ...
+type GetPostsHashlistRequest struct {
+	PostsHashlist              []string `safeForLogging:"true"`
+	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
+	OrderBy                    string `safeForLogging:"true"`
+}
+
+// GetPostsHashlistResponse ...
+type GetPostsHashlistResponse struct {
+	PostsFound []*PostEntryResponse
+}
+
+func (fes *APIServer) GetPostsHashlist(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetPostsHashlistRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsHashlist: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Decode the reader public key into bytes. Default to nil if no pub key is passed in.
+	var readerPublicKeyBytes []byte
+	if requestData.ReaderPublicKeyBase58Check != "" {
+		var err error
+		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
+		if requestData.ReaderPublicKeyBase58Check != "" && err != nil {
+			_AddBadRequestError(ww,
+				fmt.Sprintf("GetPostsHashlist: Problem decoding user public key: %v : %s", err, requestData.ReaderPublicKeyBase58Check))
+			return
+		}
+	}
+
+	// Get a view with all the mempool transactions.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsHashlist: Error constucting utxoView: %v", err))
+		return
+	}
+
+	postEntryResponses := []*PostEntryResponse{}
+	for _, postHashHex := range requestData.PostsHashlist {
+		postHash, err := GetPostHashFromPostHashHex(postHashHex)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPostsHashlist: %v", err))
+			return
+		}
+
+		// Fetch the postEntry requested.
+		postEntry := utxoView.GetPostEntryForPostHash(postHash)
+		if postEntry == nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPostsHashlist: Could not find postEntry for PostHashHex: %s", postHashHex))
+			return
+		}
+		var postEntryResponse *PostEntryResponse
+		postEntryResponse, err = fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, readerPublicKeyBytes, 2)
+		if err != nil {
+			// Just ignore posts that fail to convert for whatever reason.
+			continue
+		}
+
+		//postEntryResponse.PostEntryReaderState = readerStateMap[*postEntry.PostHash]
+		postEntryResponses = append(postEntryResponses, postEntryResponse)
+
+	}
+
+	if requestData.OrderBy == "newest" {
+		// Now sort the post list on the timestamp
+		sort.Slice(postEntryResponses, func(ii, jj int) bool {
+			return postEntryResponses[ii].TimestampNanos > postEntryResponses[jj].TimestampNanos
+		})
+	} else if requestData.OrderBy == "oldest" {
+		sort.Slice(postEntryResponses, func(ii, jj int) bool {
+			return postEntryResponses[ii].TimestampNanos < postEntryResponses[jj].TimestampNanos
+		})
+	} else if requestData.OrderBy == "last_comment" {
+		sort.Slice(postEntryResponses, func(ii, jj int) bool {
+			lastCommentTimeii := uint64(0)
+			if len(postEntryResponses[ii].Comments) > 0 {
+				lastCommentTimeii = postEntryResponses[ii].Comments[len(postEntryResponses[ii].Comments)-1].TimestampNanos
+			}
+			lastCommentTimejj := uint64(0)
+			if len(postEntryResponses[jj].Comments) > 0 {
+				lastCommentTimejj = postEntryResponses[jj].Comments[len(postEntryResponses[jj].Comments)-1].TimestampNanos
+			}
+			return lastCommentTimeii > lastCommentTimejj
+		})
+	}
+
+	// Return the posts found.
+	res := &GetPostsStatelessResponse{
+		PostsFound: postEntryResponses,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetPostsHashlist: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
 type GetSinglePostRequest struct {
 	// PostHashHex to fetch.
 	PostHashHex                string `safeForLogging:"true"`
