@@ -182,7 +182,7 @@ func (fes *APIServer) GetBlockchainDotComExchangeRate() (_exchangeRate float64, 
 		glog.Errorf("GetBlockchainDotComExchangeRate: Problem getting max from list of float64s: %v", err)
 		return 0, err
 	}
-	glog.Infof("Blockchain exchange rate: %v %v", blockchainDotComExchangeRate, exchangeRatesFetched)
+	// glog.Debugf("Blockchain exchange rate: %v %v", blockchainDotComExchangeRate, exchangeRatesFetched)
 	if fes.backendServer != nil && fes.backendServer.GetStatsdClient() != nil {
 		if err = fes.backendServer.GetStatsdClient().Gauge("BLOCKCHAIN_LAST_TRADE_PRICE", blockchainDotComExchangeRate, []string{}, 1); err != nil {
 			glog.Errorf("GetBlockchainDotComExchangeRate: Error logging Last Trade Price of %f to datadog: %v", blockchainDotComExchangeRate, err)
@@ -243,18 +243,18 @@ func (fes *APIServer) GetCoinbaseExchangeRate() (_exchangeRate float64, _err err
 
 // UpdateUSDCentsToDeSoExchangeRate updates app state's USD Cents per DeSo value
 func (fes *APIServer) UpdateUSDCentsToDeSoExchangeRate() {
-	glog.Infof("Refreshing exchange rate...")
+	// glog.Debugf("Refreshing exchange rate...")
 
 	// Fetch price from blockchain.com
 	blockchainDotComPrice, err := fes.GetBlockchainDotComExchangeRate()
-	glog.Infof("Blockchain.com price (USD cents): %v", blockchainDotComPrice)
+	// glog.Debugf("Blockchain.com price (USD cents): %v", blockchainDotComPrice)
 	if err != nil {
 		glog.Errorf("UpdateUSDCentsToDeSoExchangeRate: Error fetching exchange rate from blockchain.com: %v", err)
 	}
 
 	// Fetch price from coinbase
 	coinbasePrice, err := fes.GetCoinbaseExchangeRate()
-	glog.Infof("Coinbase price (USD Cents): %v", coinbasePrice)
+	// glog.Debugf("Coinbase price (USD Cents): %v", coinbasePrice)
 	if err != nil {
 		glog.Errorf("UpdateUSDCentsToDeSoExchangeRate: Error fetching exchange rate from coinbase: %v", err)
 	}
@@ -287,25 +287,25 @@ func (fes *APIServer) UpdateUSDCentsToDeSoExchangeRate() {
 }
 
 func (fes *APIServer) UpdateUSDToBTCPrice() {
-	glog.Info("Refreshing USD to BTC exchange rate")
+	// glog.Debug("Refreshing USD to BTC exchange rate")
 	btcExchangeRate, err := GetUSDToBTCPrice()
 	if err != nil {
 		glog.Errorf("Error getting BTC price: %v", err)
 		return
 	}
 	fes.UsdCentsPerBitCoinExchangeRate = btcExchangeRate * 100
-	glog.Infof("New USD to BTC exchange rate: %f", fes.UsdCentsPerBitCoinExchangeRate/100)
+	// glog.Debugf("New USD to BTC exchange rate: %f", fes.UsdCentsPerBitCoinExchangeRate/100)
 }
 
 func (fes *APIServer) UpdateUSDToETHPrice() {
-	glog.Info("Refreshing USD to ETH exchange rate")
+	// glog.Debug("Refreshing USD to ETH exchange rate")
 	ethExchangeRate, err := apis.GetUSDToETHPrice()
 	if err != nil {
 		glog.Errorf("Error getting ETH price: %v", err)
 		return
 	}
 	fes.UsdCentsPerETHExchangeRate = uint64(ethExchangeRate * 100)
-	glog.Infof("New USD to ETH exchange rate: %f", float64(fes.UsdCentsPerETHExchangeRate)/100)
+	// glog.Debugf("New USD to ETH exchange rate: %f", float64(fes.UsdCentsPerETHExchangeRate)/100)
 }
 
 // getMaxPriceFromHistoryAndCull removes elements that are outside of the lookback window and return the max price

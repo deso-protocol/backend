@@ -1585,7 +1585,7 @@ func (fes *APIServer) GetProfilesByCoinValue(
 	return profilesByPublicKey, postsByPublicKey, postEntryReaderStates, nil
 }
 
-func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, startAfterPostHash *lib.BlockHash, publicKey []byte, numToFetch int, skipHidden bool, mediaRequired bool) (
+func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, startAfterPostHash *lib.BlockHash, publicKey []byte, numToFetch int, skipHidden bool, mediaRequired bool, onlyNFTs bool, onlyPosts bool) (
 	_postEntries []*lib.PostEntry, _err error) {
 	// Get the people who follow publicKey
 	// Note: GetFollowEntriesForPublicKey also loads them into the view
@@ -1649,6 +1649,13 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 			continue
 		}
 
+		if onlyNFTs && !postEntry.IsNFT {
+			continue
+		}
+		if onlyPosts && postEntry.IsNFT {
+			continue
+		}
+
 		if _, isFollowedByUser := followedPubKeysMap[lib.MakePkMapKey(postEntry.PosterPublicKey)]; isFollowedByUser {
 			postEntriesForFollowFeed = append(postEntriesForFollowFeed, postEntry)
 		}
@@ -1687,7 +1694,7 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 // This is then joined with mempool and all posts are returned.  Because the mempool may contain
 // post changes, the number of posts returned in the map is not guaranteed to be numToFetch.
 func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.BlockHash, readerPK []byte,
-	numToFetch int, skipHidden bool, skipVanillaRepost bool, mediaRequired bool) (
+	numToFetch int, skipHidden bool, skipVanillaRepost bool, mediaRequired bool, onlyNFTs bool, onlyPosts bool) (
 	_corePosts []*lib.PostEntry, _commentsByPostHash map[lib.BlockHash][]*lib.PostEntry, _err error) {
 
 	var startPost *lib.PostEntry
@@ -1743,6 +1750,14 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 				continue
 			}
 
+			if onlyNFTs && !postEntry.IsNFT {
+				continue
+			}
+			if onlyPosts && postEntry.IsNFT {
+				continue
+			}
+
+
 			// We make sure that the post isn't a comment.
 			if len(postEntry.ParentStakeID) == 0 {
 				postEntryPubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] = postEntry.PosterPublicKey
@@ -1766,6 +1781,13 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 
 			// If media is required and this post does not have media, skip it.
 			if mediaRequired && !postEntry.HasMedia() {
+				continue
+			}
+
+			if onlyNFTs && !postEntry.IsNFT {
+				continue
+			}
+			if onlyPosts && postEntry.IsNFT {
 				continue
 			}
 
