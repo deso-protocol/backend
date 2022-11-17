@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	fmt "fmt"
-	"github.com/pkg/errors"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/config"
@@ -314,6 +315,10 @@ type APIServer struct {
 	LastTradeDeSoPriceHistory []LastTradePriceHistoryItem
 	// How far back do we consider trade prices when we set the current price of $DESO in nanoseconds
 	LastTradePriceLookback uint64
+
+	// most recent exchange prices fetched
+	MostRecentCoinbasePriceUSDCents         uint64
+	MostRecentBlockchainDotComPriceUSDCents uint64
 
 	// Base-58 prefix to check for to determine if a string could be a public key.
 	PublicKeyBase58Prefix string
