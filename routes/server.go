@@ -269,6 +269,10 @@ const (
 	RoutePathGetTotalSupply       = "/api/v0/total-supply"
 	RoutePathGetRichList          = "/api/v0/rich-list"
 	RoutePathGetCountKeysWithDESO = "/api/v0/count-keys-with-deso"
+
+	// associations.go
+	RoutePathUserAssociations = "/api/v0/user-associations"
+	RoutePathPostAssociations = "/api/v0/post-associations"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -1122,6 +1126,62 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetTransactorDaoCoinLimitOrders,
 			fes.GetTransactorDAOCoinLimitOrders,
+			PublicAccess,
+		},
+		{
+			"CreateUserAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/create",
+			fes.CreateUserAssociation,
+			PublicAccess,
+		},
+		{
+			"DeleteUserAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/delete",
+			fes.DeleteUserAssociation,
+			PublicAccess,
+		},
+		{
+			"GetUserAssociationByID",
+			[]string{"GET", "OPTIONS"},
+			RoutePathUserAssociations + "/{associationID:[a-fA-F0-9]+$}",
+			fes.GetUserAssociationByID,
+			PublicAccess,
+		},
+		{
+			"GetUserAssociations",
+			[]string{"GET", "OPTIONS"},
+			RoutePathUserAssociations,
+			fes.GetUserAssociations,
+			PublicAccess,
+		},
+		{
+			"CreatePostAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/create",
+			fes.CreatePostAssociation,
+			PublicAccess,
+		},
+		{
+			"DeletePostAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/delete",
+			fes.DeletePostAssociation,
+			PublicAccess,
+		},
+		{
+			"GetPostAssociationByID",
+			[]string{"GET", "OPTIONS"},
+			RoutePathPostAssociations + "/{associationID:[a-fA-F0-9]+$}",
+			fes.GetPostAssociationByID,
+			PublicAccess,
+		},
+		{
+			"GetPostAssociations",
+			[]string{"GET", "OPTIONS"},
+			RoutePathPostAssociations,
+			fes.GetPostAssociations,
 			PublicAccess,
 		},
 		// Jumio Routes
