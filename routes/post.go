@@ -1017,6 +1017,9 @@ func (fes *APIServer) GetPostsHashlist(ww http.ResponseWriter, req *http.Request
 			// Just ignore posts that fail to convert for whatever reason.
 			continue
 		}
+		profileEntryFound := profileEntryMap[lib.MakePkMapKey(postEntry.PosterPublicKey)]
+		postEntryResponse.ProfileEntryResponse = fes._profileEntryToResponse(
+			profileEntryFound, utxoView)
 
 		//postEntryResponse.PostEntryReaderState = readerStateMap[*postEntry.PostHash]
 		postEntryResponses = append(postEntryResponses, postEntryResponse)
