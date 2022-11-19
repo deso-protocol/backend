@@ -998,6 +998,7 @@ func (fes *APIServer) GetPostsHashlist(ww http.ResponseWriter, req *http.Request
 	}
 
 	postEntryResponses := []*PostEntryResponse{}
+	var profileEntryMap map[lib.PkMapKey]*lib.ProfileEntry
 	for _, postHashHex := range requestData.PostsHashlist {
 		postHash, err := GetPostHashFromPostHashHex(postHashHex)
 		if err != nil {
