@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/deso-protocol/backend/apis"
 	"io"
 	"io/ioutil"
 	"math/big"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/deso-protocol/backend/apis"
 
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
@@ -68,6 +69,8 @@ type GetExchangeRateResponse struct {
 	USDCentsPerDeSoExchangeRate        uint64
 	USDCentsPerDeSoReserveExchangeRate uint64
 	BuyDeSoFeeBasisPoints              uint64
+	USDCentsPerDeSoBlockchainDotCom    uint64
+	USDCentsPerDeSoCoinbase            uint64
 
 	SatoshisPerBitCloutExchangeRate        uint64 // Deprecated
 	USDCentsPerBitCloutExchangeRate        uint64 // Deprecated
@@ -105,6 +108,8 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 		USDCentsPerDeSoExchangeRate:        usdCentsPerDeSoExchangeRate,
 		USDCentsPerDeSoReserveExchangeRate: fes.USDCentsToDESOReserveExchangeRate,
 		BuyDeSoFeeBasisPoints:              fes.BuyDESOFeeBasisPoints,
+		USDCentsPerDeSoCoinbase:            fes.MostRecentCoinbasePriceUSDCents,
+		USDCentsPerDeSoBlockchainDotCom:    fes.MostRecentBlockchainDotComPriceUSDCents,
 
 		// Deprecated
 		SatoshisPerBitCloutExchangeRate:        satoshisPerUnit,
@@ -257,6 +262,10 @@ func (fes *APIServer) UpdateUSDCentsToDeSoExchangeRate() {
 	// Take the max
 	lastTradePrice, err := stats.Max([]float64{blockchainDotComPrice, coinbasePrice})
 
+	// store the most recent exchange prices
+	fes.MostRecentCoinbasePriceUSDCents = uint64(coinbasePrice)
+	fes.MostRecentBlockchainDotComPriceUSDCents = uint64(blockchainDotComPrice)
+
 	// Get the current timestamp and append the current last trade price to the LastTradeDeSoPriceHistory slice
 	timestamp := uint64(time.Now().UnixNano())
 	fes.LastTradeDeSoPriceHistory = append(fes.LastTradeDeSoPriceHistory, LastTradePriceHistoryItem{
@@ -341,10 +350,12 @@ type GetAppStateResponse struct {
 	HasJumioIntegration   bool
 	BuyWithETH            bool
 
-	USDCentsPerDeSoExchangeRate uint64
-	JumioDeSoNanos              uint64 // Deprecated
-	JumioUSDCents               uint64
-	JumioKickbackUSDCents       uint64
+	USDCentsPerDeSoExchangeRate     uint64
+	USDCentsPerDeSoCoinbase         uint64
+	USDCentsPerDeSoBlockchainDotCom uint64
+	JumioDeSoNanos                  uint64 // Deprecated
+	JumioUSDCents                   uint64
+	JumioKickbackUSDCents           uint64
 	// CountrySignUpBonus is the sign-up bonus configuration for the country inferred from a request's IP address.
 	CountrySignUpBonus CountryLevelSignUpBonus
 
@@ -396,6 +407,8 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		HasJumioIntegration:                 fes.IsConfiguredForJumio(),
 		BuyWithETH:                          fes.IsConfiguredForETH(),
 		USDCentsPerDeSoExchangeRate:         fes.GetExchangeDeSoPrice(),
+		USDCentsPerDeSoCoinbase:             fes.MostRecentCoinbasePriceUSDCents,
+		USDCentsPerDeSoBlockchainDotCom:     fes.MostRecentBlockchainDotComPriceUSDCents,
 		JumioDeSoNanos:                      fes.GetJumioDeSoNanos(), // Deprecated
 		JumioUSDCents:                       fes.JumioUSDCents,
 		JumioKickbackUSDCents:               fes.JumioKickbackUSDCents,
