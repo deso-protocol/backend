@@ -18,6 +18,8 @@ import (
 func TestAssociations(t *testing.T) {
 	var associationID string
 	apiServer := newTestApiServer(t)
+	defer apiServer.backendServer.Stop()
+	defer apiServer.Stop()
 
 	//
 	// UserAssociations
@@ -131,13 +133,102 @@ func TestAssociations(t *testing.T) {
 	//
 	// PostAssociations
 	//
+	var postHashHex string
+	{
+		// Create a Post.
+		// Send POST request.
+		body := &SubmitPostRequest{
+			UpdaterPublicKeyBase58Check: senderPkString,
+			BodyObj: &lib.DeSoBodySchema{
+				Body: "Hello, world!",
+			},
+			MinFeeRateNanosPerKB: apiServer.MinFeeRateNanosPerKB,
+		}
+		bodyJSON, err := json.Marshal(body)
+		require.NoError(t, err)
+		request, _ := http.NewRequest("POST", RoutePathSubmitPost, bytes.NewBuffer(bodyJSON))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.NotContains(t, string(response.Body.Bytes()), "error")
+
+		// Decode response.
+		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+		submitPostResponse := SubmitPostResponse{}
+		err = decoder.Decode(&submitPostResponse)
+		require.NoError(t, err)
+		txn := submitPostResponse.Transaction
+		transactorPkBytes, _, err := lib.Base58CheckDecode(senderPkString)
+		require.Equal(t, txn.PublicKey, transactorPkBytes)
+		txnMeta := txn.TxnMeta.(*lib.SubmitPostMetadata)
+		require.NotNil(t, txnMeta.Body)
+
+		// Sign txn.
+		require.Nil(t, txn.Signature.Sign)
+		signTxn(t, txn, senderPrivString)
+		require.NotNil(t, txn.Signature.Sign)
+
+		// Submit txn.
+		submitTxnResponse := submitTxn(t, apiServer, txn)
+		postHashHex = submitTxnResponse.TxnHashHex
+	}
 	{
 		// Create a PostAssociation.
-		// TODO
+		// Send POST request.
+		body := &CreatePostAssociationRequest{
+			TransactorPublicKeyBase58Check: senderPkString,
+			PostHashHex:                    postHashHex,
+			AssociationType:                "REACTION",
+			AssociationValue:               "HEART",
+			MinFeeRateNanosPerKB:           apiServer.MinFeeRateNanosPerKB,
+			TransactionFees:                []TransactionFee{},
+		}
+		bodyJSON, err := json.Marshal(body)
+		require.NoError(t, err)
+		request, _ := http.NewRequest("POST", RoutePathPostAssociations+"/create", bytes.NewBuffer(bodyJSON))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.NotContains(t, string(response.Body.Bytes()), "error")
+
+		// Decode response.
+		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+		txnResponse := AssociationTxnResponse{}
+		err = decoder.Decode(&txnResponse)
+		require.NoError(t, err)
+		txn := txnResponse.Transaction
+		transactorPkBytes, _, err := lib.Base58CheckDecode(senderPkString)
+		require.Equal(t, txn.PublicKey, transactorPkBytes)
+		txnMeta := txn.TxnMeta.(*lib.CreatePostAssociationMetadata)
+		require.Equal(t, txnMeta.AssociationType, "REACTION")
+		require.Equal(t, txnMeta.AssociationValue, "HEART")
+
+		// Sign txn.
+		require.Nil(t, txn.Signature.Sign)
+		signTxn(t, txn, senderPrivString)
+		require.NotNil(t, txn.Signature.Sign)
+
+		// Submit txn.
+		submitTxnResponse := submitTxn(t, apiServer, txn)
+		associationID = submitTxnResponse.TxnHashHex
 	}
 	{
 		// Query for PostAssociation by ID.
-		// TODO
+		// Send GET request.
+		request, _ := http.NewRequest("GET", RoutePathPostAssociations+"/"+associationID, nil)
+		response := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.NotContains(t, string(response.Body.Bytes()), "error")
+
+		// Decode response.
+		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+		associationResponse := PostAssociationResponse{}
+		err := decoder.Decode(&associationResponse)
+		require.NoError(t, err)
+		require.Equal(t, associationResponse.AssociationID, associationID)
+		require.Equal(t, associationResponse.PostHashHex, postHashHex)
+		require.Equal(t, associationResponse.AssociationType, "REACTION")
+		require.Equal(t, associationResponse.AssociationValue, "HEART")
 	}
 	{
 		// Query for PostAssociation by attributes.
@@ -145,10 +236,46 @@ func TestAssociations(t *testing.T) {
 	}
 	{
 		// Delete a PostAssociation.
-		// TODO
-	}
+		// Send POST request.
+		body := &DeleteAssociationRequest{
+			AssociationID:                  associationID,
+			TransactorPublicKeyBase58Check: senderPkString,
+			MinFeeRateNanosPerKB:           apiServer.MinFeeRateNanosPerKB,
+			TransactionFees:                []TransactionFee{},
+		}
+		bodyJSON, err := json.Marshal(body)
+		require.NoError(t, err)
+		request, _ := http.NewRequest("POST", RoutePathPostAssociations+"/delete", bytes.NewBuffer(bodyJSON))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.NotContains(t, string(response.Body.Bytes()), "error")
 
-	apiServer.backendServer.Stop()
+		// Decode response.
+		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+		txnResponse := AssociationTxnResponse{}
+		err = decoder.Decode(&txnResponse)
+		require.NoError(t, err)
+		txn := txnResponse.Transaction
+		transactorPkBytes, _, err := lib.Base58CheckDecode(senderPkString)
+		require.Equal(t, txn.PublicKey, transactorPkBytes)
+		txnMeta := txn.TxnMeta.(*lib.DeletePostAssociationMetadata)
+		require.NotNil(t, txnMeta.AssociationID)
+
+		// Sign txn.
+		require.Nil(t, txn.Signature.Sign)
+		signTxn(t, txn, senderPrivString)
+		require.NotNil(t, txn.Signature.Sign)
+
+		// Submit txn.
+		submitTxn(t, apiServer, txn)
+
+		// Try to GET deleted association by ID. Errors.
+		getRequest, _ := http.NewRequest("GET", RoutePathPostAssociations+"/"+associationID, nil)
+		getResponse := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(getResponse, getRequest)
+		require.Contains(t, string(getResponse.Body.Bytes()), "association not found")
+	}
 }
 
 func newTestApiServer(t *testing.T) *APIServer {
