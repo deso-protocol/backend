@@ -2,7 +2,9 @@ package routes
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/config"
 	coreCmd "github.com/deso-protocol/core/cmd"
 	"github.com/deso-protocol/core/lib"
@@ -14,6 +16,7 @@ import (
 )
 
 func TestAssociations(t *testing.T) {
+	var associationID string
 	apiServer := newTestApiServer(t)
 
 	//
@@ -21,6 +24,7 @@ func TestAssociations(t *testing.T) {
 	//
 	{
 		// Create a UserAssociation.
+		// Send POST request.
 		body := &CreateUserAssociationRequest{
 			TransactorPublicKeyBase58Check: senderPkString,
 			TargetUserPublicKeyBase58Check: recipientPkString,
@@ -37,21 +41,45 @@ func TestAssociations(t *testing.T) {
 		apiServer.router.ServeHTTP(response, request)
 		require.NotContains(t, string(response.Body.Bytes()), "error")
 
+		// Decode response.
 		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
 		txnResponse := AssociationTxnResponse{}
 		err = decoder.Decode(&txnResponse)
 		require.NoError(t, err)
+		txn := txnResponse.Transaction
 		transactorPkBytes, _, err := lib.Base58CheckDecode(senderPkString)
-		require.Equal(t, txnResponse.Transaction.PublicKey, transactorPkBytes)
-		txnMeta := txnResponse.Transaction.TxnMeta.(*lib.CreateUserAssociationMetadata)
+		require.Equal(t, txn.PublicKey, transactorPkBytes)
+		txnMeta := txn.TxnMeta.(*lib.CreateUserAssociationMetadata)
 		targetUserPkBytes, _, err := lib.Base58CheckDecode(recipientPkString)
 		require.Equal(t, txnMeta.TargetUserPublicKey, lib.NewPublicKey(targetUserPkBytes))
 		require.Equal(t, txnMeta.AssociationType, "ENDORSEMENT")
 		require.Equal(t, txnMeta.AssociationValue, "SQL")
+
+		// Sign txn.
+		require.Nil(t, txn.Signature.Sign)
+		signTxn(t, txn, senderPrivString)
+		require.NotNil(t, txn.Signature.Sign)
+
+		// Submit txn.
+		submitTxnResponse := submitTxn(t, apiServer, txn)
+		associationID = submitTxnResponse.TxnHashHex
 	}
 	{
 		// Query for UserAssociation by ID.
-		// TODO
+		// Send GET request.
+		request, _ := http.NewRequest("GET", RoutePathUserAssociations+"/"+associationID, nil)
+		response := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.NotContains(t, string(response.Body.Bytes()), "error")
+
+		// Decode response.
+		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+		associationResponse := UserAssociationResponse{}
+		err := decoder.Decode(&associationResponse)
+		require.NoError(t, err)
+		require.Equal(t, associationResponse.AssociationID, associationID)
+		require.Equal(t, associationResponse.AssociationType, "ENDORSEMENT")
+		require.Equal(t, associationResponse.AssociationValue, "SQL")
 	}
 	{
 		// Query for UserAssociation by attributes.
@@ -132,4 +160,39 @@ func newTestApiServer(t *testing.T) *APIServer {
 	apiServer.MinFeeRateNanosPerKB = node.Config.MinFeerate
 	apiServer.initState()
 	return apiServer
+}
+
+func signTxn(t *testing.T, txn *lib.MsgDeSoTxn, privKeyBase58Check string) {
+	privKeyBytes, _, err := lib.Base58CheckDecode(privKeyBase58Check)
+	require.NoError(t, err)
+	privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), privKeyBytes)
+	txnSignature, err := txn.Sign(privKey)
+	require.NoError(t, err)
+	txn.Signature.SetSignature(txnSignature)
+}
+
+func submitTxn(t *testing.T, apiServer *APIServer, txn *lib.MsgDeSoTxn) *SubmitTransactionResponse {
+	// Convert txn to txn hex.
+	txnBytes, err := txn.ToBytes(false)
+	require.NoError(t, err)
+	txnHex := hex.EncodeToString(txnBytes)
+
+	// Submit txn.
+	body := SubmitTransactionRequest{
+		TransactionHex: txnHex,
+	}
+	bodyJSON, err := json.Marshal(body)
+	require.NoError(t, err)
+	request, _ := http.NewRequest("POST", RoutePathSubmitTransaction, bytes.NewBuffer(bodyJSON))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	apiServer.router.ServeHTTP(response, request)
+	require.NotContains(t, string(response.Body.Bytes()), "error")
+
+	// Decode response.
+	decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+	txnResponse := SubmitTransactionResponse{}
+	err = decoder.Decode(&txnResponse)
+	require.NoError(t, err)
+	return &txnResponse
 }
