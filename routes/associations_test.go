@@ -87,7 +87,45 @@ func TestAssociations(t *testing.T) {
 	}
 	{
 		// Delete a UserAssociation.
-		// TODO
+		// Send POST request.
+		body := &DeleteAssociationRequest{
+			AssociationID:                  associationID,
+			TransactorPublicKeyBase58Check: senderPkString,
+			MinFeeRateNanosPerKB:           apiServer.MinFeeRateNanosPerKB,
+			TransactionFees:                []TransactionFee{},
+		}
+		bodyJSON, err := json.Marshal(body)
+		require.NoError(t, err)
+		request, _ := http.NewRequest("POST", RoutePathUserAssociations+"/delete", bytes.NewBuffer(bodyJSON))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.NotContains(t, string(response.Body.Bytes()), "error")
+
+		// Decode response.
+		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+		txnResponse := AssociationTxnResponse{}
+		err = decoder.Decode(&txnResponse)
+		require.NoError(t, err)
+		txn := txnResponse.Transaction
+		transactorPkBytes, _, err := lib.Base58CheckDecode(senderPkString)
+		require.Equal(t, txn.PublicKey, transactorPkBytes)
+		txnMeta := txn.TxnMeta.(*lib.DeleteUserAssociationMetadata)
+		require.NotNil(t, txnMeta.AssociationID)
+
+		// Sign txn.
+		require.Nil(t, txn.Signature.Sign)
+		signTxn(t, txn, senderPrivString)
+		require.NotNil(t, txn.Signature.Sign)
+
+		// Submit txn.
+		submitTxn(t, apiServer, txn)
+
+		// Try to GET deleted association by ID. Errors.
+		getRequest, _ := http.NewRequest("GET", RoutePathUserAssociations+"/"+associationID, nil)
+		getResponse := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(getResponse, getRequest)
+		require.Contains(t, string(getResponse.Body.Bytes()), "association not found")
 	}
 
 	//

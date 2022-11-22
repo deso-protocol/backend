@@ -311,6 +311,10 @@ func (fes *APIServer) GetUserAssociationByID(ww http.ResponseWriter, req *http.R
 		_AddInternalServerError(ww, fmt.Sprintf("GetUserAssociationByID: problem retrieving association: %v", err))
 		return
 	}
+	if associationEntry == nil {
+		_AddBadRequestError(ww, "GetUserAssociationByID: association not found")
+		return
+	}
 
 	// Convert AssociationEntry to AssociationResponse.
 	response := UserAssociationResponse{
@@ -550,6 +554,10 @@ func (fes *APIServer) GetPostAssociationByID(ww http.ResponseWriter, req *http.R
 	associationEntry, err := utxoView.GetPostAssociationByID(lib.NewBlockHash(associationIdBytes))
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociationByID: problem retrieving association: %v", err))
+		return
+	}
+	if associationEntry == nil {
+		_AddBadRequestError(ww, "GetPostAssociationByID: association not found")
 		return
 	}
 
