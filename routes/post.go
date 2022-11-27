@@ -53,6 +53,7 @@ type GetPostsStatelessRequest struct {
 
 type SkippedPostEntryResponse struct {
 	PostHashHex string
+	Error       string
 }
 
 type PostEntryResponse struct {
@@ -1005,7 +1006,7 @@ func (fes *APIServer) GetPostsHashlist(ww http.ResponseWriter, req *http.Request
 	postEntryResponses := []*PostEntryResponse{}
 	skippedPostEntryResponses := []*SkippedPostEntryResponse{}
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetPostsStateless: Error fetching blocked pub keys for user: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsHashlist: Error fetching blocked pub keys for user: %v", err))
 		return
 	}
 
@@ -1021,9 +1022,9 @@ func (fes *APIServer) GetPostsHashlist(ww http.ResponseWriter, req *http.Request
 		postEntry := utxoView.GetPostEntryForPostHash(postHash)
 		if postEntry == nil {
 			// Post not found, add to skipped list
-			var skippedPostEntryResponse *SkippedPostEntryResponse
-			skippedPostEntryResponse = &SkippedPostEntryResponse{
+			skippedPostEntryResponse := &SkippedPostEntryResponse{
 				PostHashHex: postHashHex,
+				Error: "GetPostsHashlist: Post not found",
 			}
 			skippedPostEntryResponses = append(skippedPostEntryResponses, skippedPostEntryResponse)
 			continue
@@ -1032,15 +1033,14 @@ func (fes *APIServer) GetPostsHashlist(ww http.ResponseWriter, req *http.Request
 		postEntryResponse, err = fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, readerPublicKeyBytes, 2)
 		if err != nil {
 			// Just skip posts that fail to convert for whatever reason.
-			var skippedPostEntryResponse *SkippedPostEntryResponse
-			skippedPostEntryResponse = &SkippedPostEntryResponse{
+			skippedPostEntryResponse := &SkippedPostEntryResponse{
 				PostHashHex: postHashHex,
+				Error: fmt.Sprintf("GetPostsHashlist: Failed to convert post: %v", err),
 			}
 			skippedPostEntryResponses = append(skippedPostEntryResponses, skippedPostEntryResponse)
 			continue
 		}
 		profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
-		fmt.Printf("GetPostsStateless: profileEntry: %v", profileEntry)
 		if profileEntry != nil {
 			// Convert it to a response since that sanitizes the inputs.
 			profileEntryResponse := fes._profileEntryToResponse(profileEntry, utxoView)
