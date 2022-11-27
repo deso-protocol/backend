@@ -51,6 +51,10 @@ type GetPostsStatelessRequest struct {
 	AddGlobalFeedBool bool `safeForLogging:"true"`
 }
 
+type SkippedPostEntryResponse struct {
+	PostHashHex string
+}
+
 type PostEntryResponse struct {
 	PostHashHex                string
 	PosterPublicKeyBase58Check string
@@ -968,6 +972,7 @@ type GetPostsHashlistRequest struct {
 // GetPostsHashlistResponse ...
 type GetPostsHashlistResponse struct {
 	PostsFound []*PostEntryResponse
+	PostsSkipped []*SkippedPostEntryResponse
 }
 
 func (fes *APIServer) GetPostsHashlist(ww http.ResponseWriter, req *http.Request) {
@@ -998,7 +1003,13 @@ func (fes *APIServer) GetPostsHashlist(ww http.ResponseWriter, req *http.Request
 	}
 
 	postEntryResponses := []*PostEntryResponse{}
-	var profileEntryMap map[lib.PkMapKey]*lib.ProfileEntry
+	skippedPostEntryResponses := []*SkippedPostEntryResponse{}
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsStateless: Error fetching blocked pub keys for user: %v", err))
+		return
+	}
+
+
 	for _, postHashHex := range requestData.PostsHashlist {
 		postHash, err := GetPostHashFromPostHashHex(postHashHex)
 		if err != nil {
@@ -1009,20 +1020,33 @@ func (fes *APIServer) GetPostsHashlist(ww http.ResponseWriter, req *http.Request
 		// Fetch the postEntry requested.
 		postEntry := utxoView.GetPostEntryForPostHash(postHash)
 		if postEntry == nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetPostsHashlist: Could not find postEntry for PostHashHex: %s", postHashHex))
-			return
+			// Post not found, add to skipped list
+			var skippedPostEntryResponse *SkippedPostEntryResponse
+			skippedPostEntryResponse = &SkippedPostEntryResponse{
+				PostHashHex: postHashHex,
+			}
+			skippedPostEntryResponses = append(skippedPostEntryResponses, skippedPostEntryResponse)
+			continue
 		}
 		var postEntryResponse *PostEntryResponse
 		postEntryResponse, err = fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, readerPublicKeyBytes, 2)
 		if err != nil {
-			// Just ignore posts that fail to convert for whatever reason.
+			// Just skip posts that fail to convert for whatever reason.
+			var skippedPostEntryResponse *SkippedPostEntryResponse
+			skippedPostEntryResponse = &SkippedPostEntryResponse{
+				PostHashHex: postHashHex,
+			}
+			skippedPostEntryResponses = append(skippedPostEntryResponses, skippedPostEntryResponse)
 			continue
 		}
-		profileEntryFound := profileEntryMap[lib.MakePkMapKey(postEntry.PosterPublicKey)]
-		postEntryResponse.ProfileEntryResponse = fes._profileEntryToResponse(
-			profileEntryFound, utxoView)
+		profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
+		fmt.Printf("GetPostsStateless: profileEntry: %v", profileEntry)
+		if profileEntry != nil {
+			// Convert it to a response since that sanitizes the inputs.
+			profileEntryResponse := fes._profileEntryToResponse(profileEntry, utxoView)
+			postEntryResponse.ProfileEntryResponse = profileEntryResponse
+		}
 
-		//postEntryResponse.PostEntryReaderState = readerStateMap[*postEntry.PostHash]
 		postEntryResponses = append(postEntryResponses, postEntryResponse)
 
 	}
@@ -1051,8 +1075,9 @@ func (fes *APIServer) GetPostsHashlist(ww http.ResponseWriter, req *http.Request
 	}
 
 	// Return the posts found.
-	res := &GetPostsStatelessResponse{
+	res := &GetPostsHashlistResponse{
 		PostsFound: postEntryResponses,
+		PostsSkipped: skippedPostEntryResponses,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
