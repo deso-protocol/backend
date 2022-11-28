@@ -73,7 +73,7 @@ type PostAssociationResponse struct {
 }
 
 type PostAssociationsResponse struct {
-	Associations []*PostAssociationsResponse
+	Associations []*PostAssociationResponse
 }
 
 type DeleteAssociationRequest struct {
@@ -663,5 +663,80 @@ func (fes *APIServer) GetPostAssociationByID(ww http.ResponseWriter, req *http.R
 }
 
 func (fes *APIServer) GetPostAssociations(ww http.ResponseWriter, req *http.Request) {
-	// TODO
+	var err error
+
+	// Decode request body.
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := PostAssociationQuery{}
+	if err = decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, "GetPostAssociations: problem parsing request body")
+		return
+	}
+
+	// Create UTXO view.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, "GetPostAssociations: problem getting UTXO view")
+		return
+	}
+
+	// Parse TransactorPKID from TransactorPublicKeyBase58Check.
+	var transactorPKID *lib.PKID
+
+	if requestData.TransactorPublicKeyBase58Check != "" {
+		transactorPKID, err = fes.getPKIDFromPublicKeyBase58Check(
+			utxoView, requestData.TransactorPublicKeyBase58Check,
+		)
+		if err != nil {
+			_AddInternalServerError(ww, "GetPostAssociations: problem getting PKID for the transactor")
+			return
+		}
+	}
+
+	// Parse PostHash from PostHashHex.
+	var postHash *lib.BlockHash
+
+	if requestData.PostHashHex != "" {
+		postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
+		if err != nil {
+			_AddBadRequestError(ww, "GetPostAssociations: invalid PostHashHex provided")
+			return
+		}
+		postHash = lib.NewBlockHash(postHashBytes)
+	}
+
+	// Query for association entries.
+	associationEntries, err := utxoView.GetPostAssociationsByAttributes(&lib.PostAssociationQuery{
+		TransactorPKID:         transactorPKID,
+		PostHash:               postHash,
+		AssociationType:        requestData.AssociationType,
+		AssociationTypePrefix:  requestData.AssociationTypePrefix,
+		AssociationValue:       requestData.AssociationValue,
+		AssociationValuePrefix: requestData.AssociationValuePrefix,
+	})
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociations: %v", err))
+		return
+	}
+
+	// Convert AssociationEntries to AssociationResponses.
+	associationResponses := []*PostAssociationResponse{}
+
+	for _, associationEntry := range associationEntries {
+		associationResponses = append(associationResponses, &PostAssociationResponse{
+			AssociationID:                  hex.EncodeToString(associationEntry.AssociationID.ToBytes()),
+			TransactorPublicKeyBase58Check: lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.TransactorPKID), false, fes.Params),
+			PostHashHex:                    hex.EncodeToString(associationEntry.PostHash.ToBytes()),
+			AssociationType:                associationEntry.AssociationType,
+			AssociationValue:               associationEntry.AssociationValue,
+			BlockHeight:                    associationEntry.BlockHeight,
+		})
+	}
+
+	// JSON encode response.
+	response := PostAssociationsResponse{Associations: associationResponses}
+	if err = json.NewEncoder(ww).Encode(response); err != nil {
+		_AddInternalServerError(ww, "GetPostAssociations: problem encoding response as JSON")
+		return
+	}
 }

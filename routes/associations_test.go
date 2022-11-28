@@ -266,7 +266,41 @@ func TestAssociations(t *testing.T) {
 	}
 	{
 		// Query for PostAssociations by attributes.
-		// TODO
+		// Send POST request.
+		body := &PostAssociationQuery{
+			PostHashHex:           postHashHex,
+			AssociationTypePrefix: "REACT",
+		}
+		bodyJSON, err := json.Marshal(body)
+		require.NoError(t, err)
+		request, _ := http.NewRequest("POST", RoutePathPostAssociations+"/query", bytes.NewBuffer(bodyJSON))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.NotContains(t, string(response.Body.Bytes()), "error")
+
+		// Decode response.
+		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+		queryResponse := PostAssociationsResponse{}
+		err = decoder.Decode(&queryResponse)
+		require.NoError(t, err)
+		require.Len(t, queryResponse.Associations, 1)
+		require.Equal(t, queryResponse.Associations[0].TransactorPublicKeyBase58Check, senderPkString)
+		require.Equal(t, queryResponse.Associations[0].PostHashHex, postHashHex)
+		require.Equal(t, queryResponse.Associations[0].AssociationType, "REACTION")
+		require.Equal(t, queryResponse.Associations[0].AssociationValue, "HEART")
+		require.NotNil(t, queryResponse.Associations[0].BlockHeight)
+
+		// Submit invalid query.
+		body = &PostAssociationQuery{}
+		bodyJSON, err = json.Marshal(body)
+		require.NoError(t, err)
+		request, _ = http.NewRequest("POST", RoutePathPostAssociations+"/query", bytes.NewBuffer(bodyJSON))
+		request.Header.Set("Content-Type", "application/json")
+		response = httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.Contains(t, string(response.Body.Bytes()), "error")
+		require.Contains(t, string(response.Body.Bytes()), "invalid query params")
 	}
 	{
 		// Delete a PostAssociation.
