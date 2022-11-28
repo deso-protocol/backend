@@ -7,6 +7,7 @@ import (
 	chainlib "github.com/btcsuite/btcd/blockchain"
 	"github.com/deso-protocol/backend/config"
 	"github.com/deso-protocol/core/lib"
+	"github.com/google/uuid"
 	"io"
 	"io/ioutil"
 	"log"
@@ -40,7 +41,7 @@ const (
 )
 
 func GetTestBadgerDb() (_db *badger.DB, _dir string) {
-	dir, err := ioutil.TempDir("", "badgerdb")
+	dir, err := ioutil.TempDir("", "badgerdb-"+uuid.New().String())
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -41,6 +41,10 @@ type UserAssociationResponse struct {
 	BlockHeight                    uint32 `safeForLogging:"true"`
 }
 
+type UserAssociationsResponse struct {
+	Associations []*UserAssociationResponse
+}
+
 type CreatePostAssociationRequest struct {
 	TransactorPublicKeyBase58Check string           `safeForLogging:"true"`
 	PostHashHex                    string           `safeForLogging:"true"`
@@ -66,6 +70,10 @@ type PostAssociationResponse struct {
 	AssociationType                string `safeForLogging:"true"`
 	AssociationValue               string `safeForLogging:"true"`
 	BlockHeight                    uint32 `safeForLogging:"true"`
+}
+
+type PostAssociationsResponse struct {
+	Associations []*PostAssociationsResponse
 }
 
 type DeleteAssociationRequest struct {
@@ -334,7 +342,83 @@ func (fes *APIServer) GetUserAssociationByID(ww http.ResponseWriter, req *http.R
 }
 
 func (fes *APIServer) GetUserAssociations(ww http.ResponseWriter, req *http.Request) {
-	// TODO
+	var err error
+
+	// Decode request body.
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := UserAssociationQuery{}
+	if err = decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, "GetUserAssociations: problem parsing request body")
+		return
+	}
+
+	// Create UTXO view.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, "GetUserAssociations: problem getting UTXO view")
+		return
+	}
+
+	// Parse TransactorPKID from TransactorPublicKeyBase58Check.
+	var transactorPKID *lib.PKID
+
+	if requestData.TransactorPublicKeyBase58Check != "" {
+		transactorPKID, err = fes.getPKIDFromPublicKeyBase58Check(
+			utxoView, requestData.TransactorPublicKeyBase58Check,
+		)
+		if err != nil {
+			_AddInternalServerError(ww, "GetUserAssociations: problem getting PKID for the transactor")
+			return
+		}
+	}
+
+	// Parse TargetUserPKID from TargetUserPublicKeyBase58Check.
+	var targetUserPKID *lib.PKID
+
+	if requestData.TargetUserPublicKeyBase58Check != "" {
+		targetUserPKID, err = fes.getPKIDFromPublicKeyBase58Check(
+			utxoView, requestData.TargetUserPublicKeyBase58Check,
+		)
+		if err != nil {
+			_AddInternalServerError(ww, "GetUserAssociations: problem getting PKID for the target user")
+			return
+		}
+	}
+
+	// Query for association entries.
+	associationEntries, err := utxoView.GetUserAssociationsByAttributes(&lib.UserAssociationQuery{
+		TransactorPKID:         transactorPKID,
+		TargetUserPKID:         targetUserPKID,
+		AssociationType:        requestData.AssociationType,
+		AssociationTypePrefix:  requestData.AssociationTypePrefix,
+		AssociationValue:       requestData.AssociationValue,
+		AssociationValuePrefix: requestData.AssociationValuePrefix,
+	})
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetUserAssociations: %v", err))
+		return
+	}
+
+	// Convert AssociationEntries to AssociationResponses.
+	associationResponses := []*UserAssociationResponse{}
+
+	for _, associationEntry := range associationEntries {
+		associationResponses = append(associationResponses, &UserAssociationResponse{
+			AssociationID:                  hex.EncodeToString(associationEntry.AssociationID.ToBytes()),
+			TransactorPublicKeyBase58Check: lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.TransactorPKID), false, fes.Params),
+			TargetUserPublicKeyBase58Check: lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.TargetUserPKID), false, fes.Params),
+			AssociationType:                associationEntry.AssociationType,
+			AssociationValue:               associationEntry.AssociationValue,
+			BlockHeight:                    associationEntry.BlockHeight,
+		})
+	}
+
+	// JSON encode response.
+	response := UserAssociationsResponse{Associations: associationResponses}
+	if err = json.NewEncoder(ww).Encode(response); err != nil {
+		_AddInternalServerError(ww, "GetUserAssociations: problem encoding response as JSON")
+		return
+	}
 }
 
 func (fes *APIServer) CreatePostAssociation(ww http.ResponseWriter, req *http.Request) {

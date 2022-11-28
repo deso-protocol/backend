@@ -84,8 +84,42 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, associationResponse.AssociationValue, "SQL")
 	}
 	{
-		// Query for UserAssociation by attributes.
-		// TODO
+		// Query for UserAssociations by attributes.
+		// Send POST request.
+		body := &UserAssociationQuery{
+			TransactorPublicKeyBase58Check: senderPkString,
+			AssociationType:                "ENDORSEMENT",
+		}
+		bodyJSON, err := json.Marshal(body)
+		require.NoError(t, err)
+		request, _ := http.NewRequest("POST", RoutePathUserAssociations+"/query", bytes.NewBuffer(bodyJSON))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.NotContains(t, string(response.Body.Bytes()), "error")
+
+		// Decode response.
+		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+		queryResponse := UserAssociationsResponse{}
+		err = decoder.Decode(&queryResponse)
+		require.NoError(t, err)
+		require.Len(t, queryResponse.Associations, 1)
+		require.Equal(t, queryResponse.Associations[0].TransactorPublicKeyBase58Check, senderPkString)
+		require.Equal(t, queryResponse.Associations[0].TargetUserPublicKeyBase58Check, recipientPkString)
+		require.Equal(t, queryResponse.Associations[0].AssociationType, "ENDORSEMENT")
+		require.Equal(t, queryResponse.Associations[0].AssociationValue, "SQL")
+		require.NotNil(t, queryResponse.Associations[0].BlockHeight)
+
+		// Submit invalid query.
+		body = &UserAssociationQuery{}
+		bodyJSON, err = json.Marshal(body)
+		require.NoError(t, err)
+		request, _ = http.NewRequest("POST", RoutePathUserAssociations+"/query", bytes.NewBuffer(bodyJSON))
+		request.Header.Set("Content-Type", "application/json")
+		response = httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.Contains(t, string(response.Body.Bytes()), "error")
+		require.Contains(t, string(response.Body.Bytes()), "invalid query params")
 	}
 	{
 		// Delete a UserAssociation.
@@ -231,7 +265,7 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, associationResponse.AssociationValue, "HEART")
 	}
 	{
-		// Query for PostAssociation by attributes.
+		// Query for PostAssociations by attributes.
 		// TODO
 	}
 	{
@@ -279,23 +313,26 @@ func TestAssociations(t *testing.T) {
 }
 
 func newTestApiServer(t *testing.T) *APIServer {
+	// Create a badger db instance.
+	badgerDB, badgerDir := GetTestBadgerDb()
+
 	// Set core node's config.
 	coreConfig := coreCmd.LoadConfig()
 	coreConfig.Params = &lib.DeSoTestnetParams
+	coreConfig.DataDirectory = badgerDir
+	coreConfig.MempoolDumpDirectory = badgerDir
 	coreConfig.Regtest = true
 	coreConfig.TXIndex = false
 	coreConfig.MinerPublicKeys = []string{senderPkString}
 	coreConfig.NumMiningThreads = 1
 	coreConfig.HyperSync = false
 	coreConfig.MinFeerate = 2000
+	coreConfig.LogDirectory = badgerDir
 
 	// Create a core node.
 	shutdownListener := make(chan struct{})
 	node := coreCmd.NewNode(coreConfig)
 	node.Start(&shutdownListener)
-
-	// Create a badger db instance.
-	badgerDB, _ := GetTestBadgerDb()
 
 	// Set api server's config.
 	config := config.LoadConfig(coreConfig)
