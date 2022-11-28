@@ -1173,6 +1173,12 @@ func (fes *APIServer) GetSingleProfilePicture(ww http.ResponseWriter, req *http.
 		return
 	}
 
+	// Check to see if the content type is specified in the request.
+	contentTypeQueryParam := req.URL.Query().Get("contentType")
+	if contentTypeQueryParam != "" {
+		contentType = contentTypeQueryParam
+	}
+
 	profilePictureStr := string(profilePicture)
 	decodedBytes, err := base64.StdEncoding.DecodeString(profilePictureStr[strings.Index(profilePictureStr, ";base64,")+8:])
 	if err != nil {
