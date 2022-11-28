@@ -1238,7 +1238,7 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 	}
 
 	// Return an error if we failed to find a profile entry
-	if profileEntry == nil {
+	if profileEntry == nil || profileEntry.IsDeleted() {
 		if !requestData.NoErrorOnMissing {
 			_AddNotFoundError(ww, fmt.Sprintf("GetSingleProfile: could not find profile for username or public key: %v, %v", requestData.Username, requestData.PublicKeyBase58Check))
 		}
