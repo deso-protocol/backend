@@ -1860,7 +1860,7 @@ func (fes *APIServer) GetFollowsStateless(ww http.ResponseWriter, rr *http.Reque
 		getFollowsRequest.GetEntriesFollowingUsername,
 		utxoView,
 		lastPublicKeySeenBytes,
-		getFollowsRequest.NumToFetch, true, false)
+		getFollowsRequest.NumToFetch, getFollowsRequest.NumToFetch != 0, false)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetFollowsStateless: Problem fetching and decrypting follows: %v", err))
 		return
