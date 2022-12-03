@@ -1238,7 +1238,7 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 	}
 
 	// Return an error if we failed to find a profile entry
-	if profileEntry == nil {
+	if profileEntry == nil || profileEntry.IsDeleted() {
 		if !requestData.NoErrorOnMissing {
 			_AddNotFoundError(ww, fmt.Sprintf("GetSingleProfile: could not find profile for username or public key: %v, %v", requestData.Username, requestData.PublicKeyBase58Check))
 		}
@@ -1860,7 +1860,7 @@ func (fes *APIServer) GetFollowsStateless(ww http.ResponseWriter, rr *http.Reque
 		getFollowsRequest.GetEntriesFollowingUsername,
 		utxoView,
 		lastPublicKeySeenBytes,
-		getFollowsRequest.NumToFetch, true, false)
+		getFollowsRequest.NumToFetch, getFollowsRequest.NumToFetch != 0, false)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetFollowsStateless: Problem fetching and decrypting follows: %v", err))
 		return
