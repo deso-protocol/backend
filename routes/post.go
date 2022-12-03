@@ -347,7 +347,7 @@ func (fes *APIServer) GetPostEntriesForFollowFeed(
 	if onlyNFTs && onlyPosts {
 		return nil, nil, nil, fmt.Errorf("GetPostEntriesForFollowFeed: OnlyNFTS and OnlyPosts can not be enabled both")
 	}
-	
+
 	// Sort the postEntries by time.
 	sort.Slice(postEntries, func(ii, jj int) bool {
 		return postEntries[ii].TimestampNanos > postEntries[jj].TimestampNanos
@@ -1647,8 +1647,8 @@ type GetPostsForPublicKeyRequest struct {
 	// Number of records to fetch
 	NumToFetch    uint64 `safeForLogging:"true"`
 	MediaRequired bool   `safeForLogging:"true"`
-	OnlyNFTs bool   `safeForLogging:"true"`
-	OnlyPosts bool   `safeForLogging:"true"`
+	OnlyNFTs      bool   `safeForLogging:"true"`
+	OnlyPosts     bool   `safeForLogging:"true"`
 }
 
 // GetPostsForPublicKeyResponse ...
