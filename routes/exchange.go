@@ -1596,6 +1596,10 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 			err, "GetPostsForFollowFeedForPublicKey: Problem fetching FollowEntries from augmented UtxoView: ")
 	}
 
+	if onlyNFTs && onlyPosts {
+		return nil, fmt.Errorf("GetPostsForFollowFeedForPublicKey: OnlyNFTS and OnlyPosts can not be enabled both")
+	}
+
 	// Extract the followed pub keys from the follow entries.
 	followedPubKeysMap := make(map[lib.PkMapKey][]byte)
 	for _, followEntry := range followEntries {
@@ -1703,6 +1707,10 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 		if startPost == nil || startPost.IsDeleted() {
 			return nil, nil, fmt.Errorf("GetPostsByTime: start post entry not found")
 		}
+	}
+
+	if onlyNFTs && onlyPosts {
+		return nil, nil, fmt.Errorf("GetPostsByTime: OnlyNFTS and OnlyPosts can not be enabled both")
 	}
 
 	var startTstampNanos uint64

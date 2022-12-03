@@ -344,6 +344,10 @@ func (fes *APIServer) GetPostEntriesForFollowFeed(
 		return nil, nil, nil, fmt.Errorf("GetPostEntriesForFollowFeed: Error fetching posts from view: %v", err)
 	}
 
+	if onlyNFTs && onlyPosts {
+		return nil, nil, nil, fmt.Errorf("GetPostEntriesForFollowFeed: OnlyNFTS and OnlyPosts can not be enabled both")
+	}
+	
 	// Sort the postEntries by time.
 	sort.Slice(postEntries, func(ii, jj int) bool {
 		return postEntries[ii].TimestampNanos > postEntries[jj].TimestampNanos
@@ -380,6 +384,10 @@ func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
 
 	if minutesLookback > 60 {
 		return nil, nil, fmt.Errorf("GetPostEntriesByDESO: Cannot fetch posts by deso more than an hour back")
+	}
+
+	if onlyNFTs && onlyPosts {
+		return nil, nil, fmt.Errorf("GetPostEntriesByDESO: OnlyNFTS and OnlyPosts can not be enabled both")
 	}
 
 	currentTime := time.Now().UnixNano()
@@ -501,6 +509,10 @@ func (fes *APIServer) GetPostEntriesByTimePaginated(
 		return nil, nil, nil, nil, fmt.Errorf("GetAllPostEntries: Error fetching posts from view: %v", err)
 	}
 
+	if onlyNFTs && onlyPosts {
+		return nil, nil, nil, nil, fmt.Errorf("GetAllPostEntries: OnlyNFTS and OnlyPosts can not be enabled both")
+	}
+
 	// Sort the postEntries by time.
 	sort.Slice(postEntries, func(ii, jj int) bool {
 		return postEntries[ii].TimestampNanos > postEntries[jj].TimestampNanos
@@ -595,6 +607,10 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 		if startPost == nil || startPost.IsDeleted() {
 			return nil, nil, nil, fmt.Errorf("GetPostEntriesForGlobalWhitelist: Start post entry not found")
 		}
+	}
+
+	if onlyNFTs && onlyPosts {
+		return nil, nil, nil, fmt.Errorf("GetPostEntriesForGlobalWhitelist: OnlyNFTS and OnlyPosts can not be enabled both")
 	}
 
 	var seekStartPostHash *lib.BlockHash
@@ -819,6 +835,11 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 	requestData := GetPostsStatelessRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPostsStateless: Problem parsing request body: %v", err))
+		return
+	}
+
+	if requestData.OnlyNFTs && requestData.OnlyPosts {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsStateless: OnlyNFTs and OnlyPosts can not be enabled both"))
 		return
 	}
 
@@ -1642,6 +1663,11 @@ func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Req
 	requestData := GetPostsForPublicKeyRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPostsForPublicKey: Error parsing request body: %v", err))
+		return
+	}
+
+	if requestData.OnlyNFTs && requestData.OnlyPosts {
+		_AddBadRequestError(ww, fmt.Sprint("GetPostsForPublicKey: OnlyNFTs and OnlyPosts can not be enabled both"))
 		return
 	}
 
