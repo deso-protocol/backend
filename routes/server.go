@@ -100,7 +100,7 @@ const (
 	RoutePathGetTransactorDaoCoinLimitOrders = "/api/v0/get-transactor-dao-coin-limit-orders"
 
 	// post.go
-	RoutePathGetPostsHashlist       = "/api/v0/get-posts-hashlist"
+	RoutePathGetPostsHashHexList    = "/api/v0/get-posts-hashhexlist"
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
 	RoutePathGetSinglePost          = "/api/v0/get-single-post"
 	RoutePathGetLikesForPost        = "/api/v0/get-likes-for-post"
@@ -655,11 +655,10 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
-			"GetPostsHashlist",
+			"PostsHashHexList",
 			[]string{"POST", "OPTIONS"},
-			RoutePathGetPostsHashlist,
-			fes.GetPostsHashlist,
-			// CheckSecret: No need to check the secret since this is a read-only endpoint.
+			RoutePathGetPostsHashHexList,
+			fes.GetPostsHashHexList,
 			PublicAccess,
 		},
 		{
