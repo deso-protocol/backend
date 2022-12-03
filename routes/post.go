@@ -984,6 +984,11 @@ func (fes *APIServer) GetPostsHashHexList(ww http.ResponseWriter, req *http.Requ
 		return
 	}
 
+	if len(requestData.PostsHashHexList) == 0 {
+		_AddBadRequestError(ww, fmt.Sprint("GetPostsHashHexList: PostsHashHexList is empty"))
+		return
+	}
+
 	if len(requestData.PostsHashHexList) > 50 {
 		_AddBadRequestError(ww, fmt.Sprint("GetPostsHashHexList: The number of posthash is limited to 50"))
 		return
