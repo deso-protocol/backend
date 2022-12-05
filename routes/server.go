@@ -100,6 +100,7 @@ const (
 	RoutePathGetTransactorDaoCoinLimitOrders = "/api/v0/get-transactor-dao-coin-limit-orders"
 
 	// post.go
+	RoutePathGetPostsHashHexList    = "/api/v0/get-posts-hashhexlist"
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
 	RoutePathGetSinglePost          = "/api/v0/get-single-post"
 	RoutePathGetLikesForPost        = "/api/v0/get-likes-for-post"
@@ -651,6 +652,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathSubmitPost,
 			fes.SubmitPost,
+			PublicAccess,
+		},
+		{
+			"PostsHashHexList",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPostsHashHexList,
+			fes.GetPostsHashHexList,
 			PublicAccess,
 		},
 		{

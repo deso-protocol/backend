@@ -51,6 +51,11 @@ type GetPostsStatelessRequest struct {
 	AddGlobalFeedBool bool `safeForLogging:"true"`
 }
 
+type SkippedPostEntryResponse struct {
+	PostHashHex string
+	Error       string
+}
+
 type PostEntryResponse struct {
 	PostHashHex                string
 	PosterPublicKeyBase58Check string
@@ -958,6 +963,156 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 	}
 }
 
+// GetPostsHashHexListRequest ...
+type GetPostsHashHexListRequest struct {
+	PostsHashHexList           []string `safeForLogging:"true"`
+	ReaderPublicKeyBase58Check string   `safeForLogging:"true"`
+	OrderBy                    string   `safeForLogging:"true"`
+}
+
+// GetPostsHashHexListResponse ...
+type GetPostsHashHexListResponse struct {
+	PostsFound   []*PostEntryResponse
+	PostsSkipped []*SkippedPostEntryResponse
+}
+
+func (fes *APIServer) GetPostsHashHexList(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetPostsHashHexListRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsHashHexList: Problem parsing request body: %v", err))
+		return
+	}
+
+	if len(requestData.PostsHashHexList) == 0 {
+		_AddBadRequestError(ww, fmt.Sprint("GetPostsHashHexList: PostsHashHexList is empty"))
+		return
+	}
+
+	if len(requestData.PostsHashHexList) > 50 {
+		_AddBadRequestError(ww, fmt.Sprint("GetPostsHashHexList: The number of posthash is limited to 50"))
+		return
+	}
+
+	if requestData.OrderBy != "newest" && requestData.OrderBy != "oldest" && requestData.OrderBy != "" {
+		_AddBadRequestError(ww, fmt.Sprint("GetPostsHashHexList: OrderBy can be only empty, newest or oldest"))
+		return
+	}
+
+	// Decode the reader public key into bytes. Default to nil if no pub key is passed in.
+	var readerPublicKeyBytes []byte
+	if requestData.ReaderPublicKeyBase58Check != "" {
+		var err error
+		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww,
+				fmt.Sprintf("GetPostsHashHexList: Problem decoding reader public key: %v : %s", err, requestData.ReaderPublicKeyBase58Check))
+			return
+		}
+	}
+
+	// Get a view with all the mempool transactions.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsHashHexList: Error constructing utxoView: %v", err))
+		return
+	}
+
+	postEntryResponses := []*PostEntryResponse{}
+	skippedPostEntryResponses := []*SkippedPostEntryResponse{}
+
+	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(readerPublicKeyBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsHashHexList: Error fetching blocked pub keys for user: %v", err))
+		return
+	}
+
+	// profileEntries cache
+	profileEntryResponses := make(map[string]*ProfileEntryResponse)
+
+	for _, postHashHex := range requestData.PostsHashHexList {
+		postHash, err := GetPostHashFromPostHashHex(postHashHex)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPostsHashHexList: invalid post hash hex (%v) provided: %v", postHashHex, err))
+			return
+		}
+
+		// Fetch the postEntry requested.
+		postEntry := utxoView.GetPostEntryForPostHash(postHash)
+		if postEntry == nil {
+			// Post not found, add to skipped list
+			skippedPostEntryResponse := &SkippedPostEntryResponse{
+				PostHashHex: postHashHex,
+				Error:       "GetPostsHashHexList: Post not found",
+			}
+			skippedPostEntryResponses = append(skippedPostEntryResponses, skippedPostEntryResponse)
+			continue
+		}
+
+		// If the creator who posted postEntry is in the map of blocked pub keys, skip this postEntry
+		if _, isOnBlocklist := blockedPubKeys[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]; isOnBlocklist {
+			// Post not found, add to skipped list
+			skippedPostEntryResponse := &SkippedPostEntryResponse{
+				PostHashHex: postHashHex,
+				Error:       "GetPostsHashHexList: Creator is blocked on this node",
+			}
+			skippedPostEntryResponses = append(skippedPostEntryResponses, skippedPostEntryResponse)
+			continue
+		}
+
+		var postEntryResponse *PostEntryResponse
+		postEntryResponse, err = fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, readerPublicKeyBytes, 2)
+		if err != nil {
+			// Just skip posts that fail to convert for whatever reason.
+			skippedPostEntryResponse := &SkippedPostEntryResponse{
+				PostHashHex: postHashHex,
+				Error:       fmt.Sprintf("GetPostsHashHexList: Failed to convert post: %v", err),
+			}
+			skippedPostEntryResponses = append(skippedPostEntryResponses, skippedPostEntryResponse)
+			continue
+		}
+
+		// Only get profileEntryRepsonse if we don't have it in the cache yet
+		publicKey := lib.PkToString(postEntry.PosterPublicKey, fes.Params)
+		if profileEntryResponse, exists := profileEntryResponses[publicKey]; !exists {
+			profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
+			if profileEntry != nil {
+				// Convert it to a response since that sanitizes the inputs.
+				profileEntryResponse := fes._profileEntryToResponse(profileEntry, utxoView)
+				postEntryResponse.ProfileEntryResponse = profileEntryResponse
+				profileEntryResponses[publicKey] = profileEntryResponse
+			}
+		} else {
+			postEntryResponse.ProfileEntryResponse = profileEntryResponse
+		}
+
+		postEntryResponses = append(postEntryResponses, postEntryResponse)
+
+	}
+
+	if requestData.OrderBy == "newest" {
+		// Now sort the post list on the timestamp
+		sort.Slice(postEntryResponses, func(ii, jj int) bool {
+			return postEntryResponses[ii].TimestampNanos > postEntryResponses[jj].TimestampNanos
+		})
+	} else if requestData.OrderBy == "oldest" {
+		sort.Slice(postEntryResponses, func(ii, jj int) bool {
+			return postEntryResponses[ii].TimestampNanos < postEntryResponses[jj].TimestampNanos
+		})
+	}
+
+	// Return the posts found.
+	res := &GetPostsHashHexListResponse{
+		PostsFound:   postEntryResponses,
+		PostsSkipped: skippedPostEntryResponses,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetPostsHashHexList: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
 type GetSinglePostRequest struct {
 	// PostHashHex to fetch.
 	PostHashHex                string `safeForLogging:"true"`
@@ -1008,7 +1163,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	if requestData.ReaderPublicKeyBase58Check != "" {
 		var err error
 		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
-		if requestData.ReaderPublicKeyBase58Check != "" && err != nil {
+		if err != nil {
 			_AddBadRequestError(ww,
 				fmt.Sprintf("GetSinglePost: Problem decoding user public key: %v : %s", err, requestData.ReaderPublicKeyBase58Check))
 			return
@@ -1018,7 +1173,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	// Get a view with all the mempool transactions.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error constucting utxoView: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error constructing utxoView: %v", err))
 		return
 	}
 
@@ -1786,7 +1941,7 @@ func (fes *APIServer) GetLikesForPost(ww http.ResponseWriter, req *http.Request)
 	// Get a view with all the mempool transactions.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetLikesForPost: Error constucting utxoView: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetLikesForPost: Error constructing utxoView: %v", err))
 		return
 	}
 
@@ -1906,7 +2061,7 @@ func (fes *APIServer) GetDiamondsForPost(ww http.ResponseWriter, req *http.Reque
 	// Get a view with all the mempool transactions.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetDiamondsForPost: Error constucting utxoView: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetDiamondsForPost: Error constructing utxoView: %v", err))
 		return
 	}
 
@@ -2040,7 +2195,7 @@ func (fes *APIServer) GetRepostsForPost(ww http.ResponseWriter, req *http.Reques
 	// Get a view with all the mempool transactions.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetRepostsForPost: Error constucting utxoView: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetRepostsForPost: Error constructing utxoView: %v", err))
 		return
 	}
 
@@ -2159,7 +2314,7 @@ func (fes *APIServer) GetQuoteRepostsForPost(ww http.ResponseWriter, req *http.R
 	// Get a view with all the mempool transactions.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetQuoteRepostsForPost: Error constucting utxoView: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetQuoteRepostsForPost: Error constructing utxoView: %v", err))
 		return
 	}
 
