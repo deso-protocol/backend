@@ -1589,15 +1589,15 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 	_postEntries []*lib.PostEntry, _err error) {
 	// Get the people who follow publicKey
 	// Note: GetFollowEntriesForPublicKey also loads them into the view
+	if onlyNFTs && onlyPosts {
+		return nil, fmt.Errorf("GetPostsForFollowFeedForPublicKey: OnlyNFTS and OnlyPosts can not be enabled both")
+	}
+
 	followEntries, err := bav.GetFollowEntriesForPublicKey(publicKey, false /* getEntriesFollowingPublicKey */)
 
 	if err != nil {
 		return nil, errors.Wrapf(
 			err, "GetPostsForFollowFeedForPublicKey: Problem fetching FollowEntries from augmented UtxoView: ")
-	}
-
-	if onlyNFTs && onlyPosts {
-		return nil, fmt.Errorf("GetPostsForFollowFeedForPublicKey: OnlyNFTS and OnlyPosts can not be enabled both")
 	}
 
 	// Extract the followed pub keys from the follow entries.
@@ -1701,16 +1701,16 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 	numToFetch int, skipHidden bool, skipVanillaRepost bool, mediaRequired bool, onlyNFTs bool, onlyPosts bool) (
 	_corePosts []*lib.PostEntry, _commentsByPostHash map[lib.BlockHash][]*lib.PostEntry, _err error) {
 
+	if onlyNFTs && onlyPosts {
+		return nil, nil, fmt.Errorf("GetPostsByTime: OnlyNFTS and OnlyPosts can not be enabled both")
+	}
+			
 	var startPost *lib.PostEntry
 	if startPostHash != nil {
 		startPost = bav.GetPostEntryForPostHash(startPostHash)
 		if startPost == nil || startPost.IsDeleted() {
 			return nil, nil, fmt.Errorf("GetPostsByTime: start post entry not found")
 		}
-	}
-
-	if onlyNFTs && onlyPosts {
-		return nil, nil, fmt.Errorf("GetPostsByTime: OnlyNFTS and OnlyPosts can not be enabled both")
 	}
 
 	var startTstampNanos uint64

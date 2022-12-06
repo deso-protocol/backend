@@ -339,13 +339,13 @@ func (fes *APIServer) GetPostEntriesForFollowFeed(
 	_profilesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry,
 	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, err error) {
 
+	if onlyNFTs && onlyPosts {
+		return nil, nil, nil, fmt.Errorf("GetPostEntriesForFollowFeed: OnlyNFTS and OnlyPosts can not be enabled both")
+	}
+
 	postEntries, err := fes.GetPostsForFollowFeedForPublicKey(utxoView, startAfterPostHash, readerPK, numToFetch, true /* skip hidden */, mediaRequired, onlyNFTs, onlyPosts)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("GetPostEntriesForFollowFeed: Error fetching posts from view: %v", err)
-	}
-
-	if onlyNFTs && onlyPosts {
-		return nil, nil, nil, fmt.Errorf("GetPostEntriesForFollowFeed: OnlyNFTS and OnlyPosts can not be enabled both")
 	}
 
 	// Sort the postEntries by time.
@@ -380,14 +380,15 @@ func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
 	minutesLookback uint64, numToFetch int, mediaRequired bool, onlyNFTs bool, onlyPosts bool) (
 	_postEntries []*lib.PostEntry,
 	_profilesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry, err error) {
+
+	if onlyNFTs && onlyPosts {
+		return nil, nil, fmt.Errorf("GetPostEntriesByDESO: OnlyNFTS and OnlyPosts can not be enabled both")
+	}
+
 	// As a safeguard, we should only be able to look at least one hour in the past -- can be changed later.
 
 	if minutesLookback > 60 {
 		return nil, nil, fmt.Errorf("GetPostEntriesByDESO: Cannot fetch posts by deso more than an hour back")
-	}
-
-	if onlyNFTs && onlyPosts {
-		return nil, nil, fmt.Errorf("GetPostEntriesByDESO: OnlyNFTS and OnlyPosts can not be enabled both")
 	}
 
 	currentTime := time.Now().UnixNano()
@@ -500,6 +501,11 @@ func (fes *APIServer) GetPostEntriesByTimePaginated(
 	_profilesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry,
 	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, err error) {
 
+
+	if onlyNFTs && onlyPosts {
+		return nil, nil, nil, nil, fmt.Errorf("GetAllPostEntries: OnlyNFTS and OnlyPosts can not be enabled both")
+	}
+	
 	postEntries,
 		commentsByPostHash,
 		err := fes.GetPostsByTime(utxoView, startPostHash, readerPK, numToFetch,
@@ -507,10 +513,6 @@ func (fes *APIServer) GetPostEntriesByTimePaginated(
 
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("GetAllPostEntries: Error fetching posts from view: %v", err)
-	}
-
-	if onlyNFTs && onlyPosts {
-		return nil, nil, nil, nil, fmt.Errorf("GetAllPostEntries: OnlyNFTS and OnlyPosts can not be enabled both")
 	}
 
 	// Sort the postEntries by time.
@@ -601,16 +603,16 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 	_profilesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry,
 	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, err error) {
 
+	if onlyNFTs && onlyPosts {
+		return nil, nil, nil, fmt.Errorf("GetPostEntriesForGlobalWhitelist: OnlyNFTS and OnlyPosts can not be enabled both")
+	}
+	
 	var startPost *lib.PostEntry
 	if startPostHash != nil {
 		startPost = utxoView.GetPostEntryForPostHash(startPostHash)
 		if startPost == nil || startPost.IsDeleted() {
 			return nil, nil, nil, fmt.Errorf("GetPostEntriesForGlobalWhitelist: Start post entry not found")
 		}
-	}
-
-	if onlyNFTs && onlyPosts {
-		return nil, nil, nil, fmt.Errorf("GetPostEntriesForGlobalWhitelist: OnlyNFTS and OnlyPosts can not be enabled both")
 	}
 
 	var seekStartPostHash *lib.BlockHash
