@@ -1704,7 +1704,7 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 	if onlyNFTs && onlyPosts {
 		return nil, nil, fmt.Errorf("GetPostsByTime: OnlyNFTS and OnlyPosts can not be enabled both")
 	}
-			
+
 	var startPost *lib.PostEntry
 	if startPostHash != nil {
 		startPost = bav.GetPostEntryForPostHash(startPostHash)
