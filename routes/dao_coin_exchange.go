@@ -349,8 +349,10 @@ func buildDAOCoinLimitOrderResponse(
 // GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell computes the best available decimal string exchange rate at which
 // the market is able to exchange one base unit of the selling coin pair for the buying coin. Since we are interested
 // in computing the best exchange rate for the selling coin, the denominator for the output will always be the selling coin.
-//   Example: given buying coin B, and selling coin S, an output exchange rate of "1.5" implies an exchange rate of
-//            (1.5 coin B) per (1 coin S).
+//
+//	Example: given buying coin B, and selling coin S, an output exchange rate of "1.5" implies an exchange rate of
+//	         (1.5 coin B) per (1 coin S).
+//
 // This function can support any arbitrary coin pair, but is most useful for markets where one coin is always considered
 // the denominating coin (ex: DAO coin <> DESO). In such cases, this computes the best available ask price.
 func (fes *APIServer) GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell(
