@@ -501,11 +501,10 @@ func (fes *APIServer) GetPostEntriesByTimePaginated(
 	_profilesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry,
 	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, err error) {
 
-
 	if onlyNFTs && onlyPosts {
 		return nil, nil, nil, nil, fmt.Errorf("GetAllPostEntries: OnlyNFTS and OnlyPosts can not be enabled both")
 	}
-	
+
 	postEntries,
 		commentsByPostHash,
 		err := fes.GetPostsByTime(utxoView, startPostHash, readerPK, numToFetch,
@@ -606,7 +605,7 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 	if onlyNFTs && onlyPosts {
 		return nil, nil, nil, fmt.Errorf("GetPostEntriesForGlobalWhitelist: OnlyNFTS and OnlyPosts can not be enabled both")
 	}
-	
+
 	var startPost *lib.PostEntry
 	if startPostHash != nil {
 		startPost = utxoView.GetPostEntryForPostHash(startPostHash)
@@ -1025,6 +1024,8 @@ type GetPostsHashHexListRequest struct {
 	PostsHashHexList           []string `safeForLogging:"true"`
 	ReaderPublicKeyBase58Check string   `safeForLogging:"true"`
 	OrderBy                    string   `safeForLogging:"true"`
+	OnlyNFTs                   bool     `safeForLogging:"true"`
+	OnlyPosts                  bool     `safeForLogging:"true"`
 }
 
 // GetPostsHashHexListResponse ...
@@ -1038,6 +1039,11 @@ func (fes *APIServer) GetPostsHashHexList(ww http.ResponseWriter, req *http.Requ
 	requestData := GetPostsHashHexListRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPostsHashHexList: Problem parsing request body: %v", err))
+		return
+	}
+
+	if requestData.OnlyNFTs && requestData.OnlyPosts {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsStateless: OnlyNFTs and OnlyPosts can not be enabled both"))
 		return
 	}
 
@@ -1101,6 +1107,24 @@ func (fes *APIServer) GetPostsHashHexList(ww http.ResponseWriter, req *http.Requ
 			skippedPostEntryResponse := &SkippedPostEntryResponse{
 				PostHashHex: postHashHex,
 				Error:       "GetPostsHashHexList: Post not found",
+			}
+			skippedPostEntryResponses = append(skippedPostEntryResponses, skippedPostEntryResponse)
+			continue
+		}
+
+		if requestData.OnlyNFTs && !postEntry.IsNFT {
+			skippedPostEntryResponse := &SkippedPostEntryResponse{
+				PostHashHex: postHashHex,
+				Error:       "GetPostsHashHexList: OnlyNFTs is enabled, post is not an NFT",
+			}
+			skippedPostEntryResponses = append(skippedPostEntryResponses, skippedPostEntryResponse)
+			continue
+		}
+
+		if requestData.OnlyPosts && postEntry.IsNFT {
+			skippedPostEntryResponse := &SkippedPostEntryResponse{
+				PostHashHex: postHashHex,
+				Error:       "GetPostsHashHexList: OnlyPosts is enabled, post is an NFT",
 			}
 			skippedPostEntryResponses = append(skippedPostEntryResponses, skippedPostEntryResponse)
 			continue
