@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	fmt "fmt"
-	"github.com/pkg/errors"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/config"
@@ -99,6 +100,7 @@ const (
 	RoutePathGetTransactorDaoCoinLimitOrders = "/api/v0/get-transactor-dao-coin-limit-orders"
 
 	// post.go
+	RoutePathGetPostsHashHexList    = "/api/v0/get-posts-hashhexlist"
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
 	RoutePathGetSinglePost          = "/api/v0/get-single-post"
 	RoutePathGetLikesForPost        = "/api/v0/get-likes-for-post"
@@ -314,6 +316,10 @@ type APIServer struct {
 	LastTradeDeSoPriceHistory []LastTradePriceHistoryItem
 	// How far back do we consider trade prices when we set the current price of $DESO in nanoseconds
 	LastTradePriceLookback uint64
+
+	// most recent exchange prices fetched
+	MostRecentCoinbasePriceUSDCents         uint64
+	MostRecentBlockchainDotComPriceUSDCents uint64
 
 	// Base-58 prefix to check for to determine if a string could be a public key.
 	PublicKeyBase58Prefix string
@@ -646,6 +652,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathSubmitPost,
 			fes.SubmitPost,
+			PublicAccess,
+		},
+		{
+			"PostsHashHexList",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPostsHashHexList,
+			fes.GetPostsHashHexList,
 			PublicAccess,
 		},
 		{

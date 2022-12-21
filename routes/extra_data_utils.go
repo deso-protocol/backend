@@ -50,7 +50,7 @@ var specialExtraDataKeysToEncoding = map[string]ExtraDataEncoding{
 	lib.DESORoyaltiesMapKey: {Decode: DecodePubKeyToUint64MapString, Encode: ReservedFieldCannotEncode},
 	lib.CoinRoyaltiesMapKey: {Decode: DecodePubKeyToUint64MapString, Encode: ReservedFieldCannotEncode},
 
-	lib.MessagesVersionString: {Decode: Decode64BitIntString, Encode: Encode64BitIntString},
+	lib.MessagesVersionString: {Decode: Decode64BitUintString, Encode: Encode64BitUintString},
 
 	lib.NodeSourceMapKey: {Decode: Decode64BitUintString, Encode: Encode64BitUintString},
 

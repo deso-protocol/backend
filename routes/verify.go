@@ -33,22 +33,25 @@ type SendPhoneNumberVerificationTextRequest struct {
 type SendPhoneNumberVerificationTextResponse struct {
 }
 
-/*************************************************************
+/*
+************************************************************
 How verification works:
 
 1. User inputs phone number and hits submit
 
-2. Frontend hits SendPhoneNumberVerificationText. It uses Twilio to send a text to
-   the user with a verification code. Before sending the text, it validates that the
-   phone number isn't already in use by checking phoneNumberMetadata (explained below).
+ 2. Frontend hits SendPhoneNumberVerificationText. It uses Twilio to send a text to
+    the user with a verification code. Before sending the text, it validates that the
+    phone number isn't already in use by checking phoneNumberMetadata (explained below).
 
 3. User inputs the code and hits submit
 
-4. Frontend hits SubmitPhoneNumberVerificationCode. This verifies the code and updates
-   two mappings in global state.
-     A. userMetadata is updated to include the user's phone number
-     B. phoneNumberMetadata is created, which maps phone number => user's public key
-*************************************************************/
+ 4. Frontend hits SubmitPhoneNumberVerificationCode. This verifies the code and updates
+    two mappings in global state.
+    A. userMetadata is updated to include the user's phone number
+    B. phoneNumberMetadata is created, which maps phone number => user's public key
+
+************************************************************
+*/
 func (fes *APIServer) SendPhoneNumberVerificationText(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := SendPhoneNumberVerificationTextRequest{}
@@ -81,6 +84,14 @@ func (fes *APIServer) SendPhoneNumberVerificationText(ww http.ResponseWriter, re
 		requestData.PhoneNumber, requestData.PublicKeyBase58Check); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"SendPhoneNumberVerificationText: Error with validatePhoneNumberNotAlreadyInUse: %v", err))
+		return
+	}
+
+	/**************************************************************/
+	// Ensure the phone number prefix is supported
+	/**************************************************************/
+	if fes.GetPhoneVerificationAmountToSendNanos(requestData.PhoneNumber) == 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("SendPhoneNumberVerificationText: phone number prefix not supported"))
 		return
 	}
 
@@ -279,6 +290,14 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 	}
 
 	/**************************************************************/
+	// Ensure the phone number prefix is supported
+	/**************************************************************/
+	if fes.GetPhoneVerificationAmountToSendNanos(requestData.PhoneNumber) == 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("SendPhoneNumberVerificationText: phone number prefix not supported"))
+		return
+	}
+
+	/**************************************************************/
 	// Actual logic
 	/**************************************************************/
 
@@ -360,22 +379,7 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 		}
 
 		if requestData.PhoneNumber != "" {
-			// We sort the country codes by size, with the longest prefix
-			// first so that we match on the longest prefix when we iterate.
-			sortedPrefixExceptionMap := []string{}
-			for countryCodePrefix := range fes.Config.StarterPrefixNanosMap {
-				sortedPrefixExceptionMap = append(sortedPrefixExceptionMap, countryCodePrefix)
-			}
-			sort.Slice(sortedPrefixExceptionMap, func(ii, jj int) bool {
-				return len(sortedPrefixExceptionMap[ii]) > len(sortedPrefixExceptionMap[jj])
-			})
-			for _, countryPrefix := range sortedPrefixExceptionMap {
-				amountForPrefix := fes.Config.StarterPrefixNanosMap[countryPrefix]
-				if strings.Contains(requestData.PhoneNumber, countryPrefix) {
-					amountToSendNanos = amountForPrefix
-					break
-				}
-			}
+			amountToSendNanos = fes.GetPhoneVerificationAmountToSendNanos(requestData.PhoneNumber)
 		}
 
 		var txnHash *lib.BlockHash
@@ -392,6 +396,25 @@ func (fes *APIServer) SubmitPhoneNumberVerificationCode(ww http.ResponseWriter, 
 			return
 		}
 	}
+}
+
+func (fes *APIServer) GetPhoneVerificationAmountToSendNanos(phoneNumber string) uint64 {
+	// We sort the country codes by size, with the longest prefix
+	// first so that we match on the longest prefix when we iterate.
+	sortedPrefixExceptionMap := []string{}
+	for countryCodePrefix := range fes.Config.StarterPrefixNanosMap {
+		sortedPrefixExceptionMap = append(sortedPrefixExceptionMap, countryCodePrefix)
+	}
+	sort.Slice(sortedPrefixExceptionMap, func(ii, jj int) bool {
+		return len(sortedPrefixExceptionMap[ii]) > len(sortedPrefixExceptionMap[jj])
+	})
+	for _, countryPrefix := range sortedPrefixExceptionMap {
+		amountForPrefix := fes.Config.StarterPrefixNanosMap[countryPrefix]
+		if strings.Contains(phoneNumber, countryPrefix) {
+			return amountForPrefix
+		}
+	}
+	return fes.Config.StarterDESONanos
 }
 
 type ResendVerifyEmailRequest struct {
