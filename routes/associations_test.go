@@ -27,13 +27,14 @@ func TestAssociations(t *testing.T) {
 	{
 		// Create a UserAssociation.
 		// Send POST request.
+		extraData := map[string]string{"PeerID": "A"}
 		body := &CreateUserAssociationRequest{
 			TransactorPublicKeyBase58Check: senderPkString,
 			TargetUserPublicKeyBase58Check: recipientPkString,
 			AppPublicKeyBase58Check:        moneyPkString,
 			AssociationType:                "ENDORSEMENT",
 			AssociationValue:               "SQL",
-			ExtraData:                      map[string]string{"PeerID": "A"},
+			ExtraData:                      extraData,
 			MinFeeRateNanosPerKB:           apiServer.MinFeeRateNanosPerKB,
 			TransactionFees:                []TransactionFee{},
 		}
@@ -58,7 +59,11 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, txnMeta.TargetUserPublicKey, lib.NewPublicKey(targetUserPkBytes))
 		require.Equal(t, txnMeta.AssociationType, []byte("ENDORSEMENT"))
 		require.Equal(t, txnMeta.AssociationValue, []byte("SQL"))
-		//require.Equal(t, txn.ExtraData["PeerID"], []byte("A"))
+
+		// There is a GoLang JSON-decoding issue where the nested Txn.ExtraData isn't
+		// decoded properly. For now, we just reset the Txn.ExtraData here.
+		txn.ExtraData, err = EncodeExtraDataMap(extraData)
+		require.NoError(t, err)
 
 		// Sign txn.
 		require.Nil(t, txn.Signature.Sign)
@@ -85,7 +90,7 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, associationResponse.AssociationID, associationID)
 		require.Equal(t, associationResponse.AssociationType, "ENDORSEMENT")
 		require.Equal(t, associationResponse.AssociationValue, "SQL")
-		//require.Equal(t, associationResponse.ExtraData["PeerID"], "A")
+		require.Equal(t, associationResponse.ExtraData["PeerID"], "A")
 	}
 	{
 		// Query for UserAssociations by attributes.
@@ -114,7 +119,7 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, queryResponse.Associations[0].TargetUserPublicKeyBase58Check, recipientPkString)
 		require.Equal(t, queryResponse.Associations[0].AssociationType, "ENDORSEMENT")
 		require.Equal(t, queryResponse.Associations[0].AssociationValue, "SQL")
-		//require.Equal(t, queryResponse.Associations[0].ExtraData["PeerID"], "A")
+		require.Equal(t, queryResponse.Associations[0].ExtraData["PeerID"], "A")
 		require.NotNil(t, queryResponse.Associations[0].BlockHeight)
 
 		// Submit invalid query.
@@ -134,7 +139,6 @@ func TestAssociations(t *testing.T) {
 		body := &DeleteAssociationRequest{
 			TransactorPublicKeyBase58Check: senderPkString,
 			AssociationID:                  associationID,
-			ExtraData:                      map[string]string{"PeerID": "B"},
 			MinFeeRateNanosPerKB:           apiServer.MinFeeRateNanosPerKB,
 			TransactionFees:                []TransactionFee{},
 		}
@@ -156,7 +160,6 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, txn.PublicKey, transactorPkBytes)
 		txnMeta := txn.TxnMeta.(*lib.DeleteUserAssociationMetadata)
 		require.NotNil(t, txnMeta.AssociationID)
-		//require.Equal(t, txn.ExtraData["PeerID"], []byte("B"))
 
 		// Sign txn.
 		require.Nil(t, txn.Signature.Sign)
@@ -218,13 +221,14 @@ func TestAssociations(t *testing.T) {
 	{
 		// Create a PostAssociation.
 		// Send POST request.
+		extraData := map[string]string{"PeerID": "B"}
 		body := &CreatePostAssociationRequest{
 			TransactorPublicKeyBase58Check: senderPkString,
 			PostHashHex:                    postHashHex,
 			AppPublicKeyBase58Check:        moneyPkString,
 			AssociationType:                "REACTION",
 			AssociationValue:               "HEART",
-			ExtraData:                      map[string]string{"PeerID": "C"},
+			ExtraData:                      extraData,
 			MinFeeRateNanosPerKB:           apiServer.MinFeeRateNanosPerKB,
 			TransactionFees:                []TransactionFee{},
 		}
@@ -247,7 +251,11 @@ func TestAssociations(t *testing.T) {
 		txnMeta := txn.TxnMeta.(*lib.CreatePostAssociationMetadata)
 		require.Equal(t, txnMeta.AssociationType, []byte("REACTION"))
 		require.Equal(t, txnMeta.AssociationValue, []byte("HEART"))
-		//require.Equal(t, txn.ExtraData["PeerID"], []byte("C"))
+
+		// There is a GoLang JSON-decoding issue where the nested Txn.ExtraData isn't
+		// decoded properly. For now, we just reset the Txn.ExtraData here.
+		txn.ExtraData, err = EncodeExtraDataMap(extraData)
+		require.NoError(t, err)
 
 		// Sign txn.
 		require.Nil(t, txn.Signature.Sign)
@@ -275,7 +283,7 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, associationResponse.PostHashHex, postHashHex)
 		require.Equal(t, associationResponse.AssociationType, "REACTION")
 		require.Equal(t, associationResponse.AssociationValue, "HEART")
-		//require.Equal(t, associationResponse.ExtraData["PeerID"], "C")
+		require.Equal(t, associationResponse.ExtraData["PeerID"], "B")
 	}
 	{
 		// Query for PostAssociations by attributes.
@@ -304,7 +312,7 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, queryResponse.Associations[0].PostHashHex, postHashHex)
 		require.Equal(t, queryResponse.Associations[0].AssociationType, "REACTION")
 		require.Equal(t, queryResponse.Associations[0].AssociationValue, "HEART")
-		//require.Equal(t, queryResponse.Associations[0].ExtraData["PeerID"], "C")
+		require.Equal(t, queryResponse.Associations[0].ExtraData["PeerID"], "B")
 		require.NotNil(t, queryResponse.Associations[0].BlockHeight)
 
 		// Submit invalid query.
@@ -324,7 +332,6 @@ func TestAssociations(t *testing.T) {
 		body := &DeleteAssociationRequest{
 			TransactorPublicKeyBase58Check: senderPkString,
 			AssociationID:                  associationID,
-			ExtraData:                      map[string]string{"PeerID": "D"},
 			MinFeeRateNanosPerKB:           apiServer.MinFeeRateNanosPerKB,
 			TransactionFees:                []TransactionFee{},
 		}
@@ -346,7 +353,6 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, txn.PublicKey, transactorPkBytes)
 		txnMeta := txn.TxnMeta.(*lib.DeletePostAssociationMetadata)
 		require.NotNil(t, txnMeta.AssociationID)
-		//require.Equal(t, txn.ExtraData["PeerID"], []byte("D"))
 
 		// Sign txn.
 		require.Nil(t, txn.Signature.Sign)
