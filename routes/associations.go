@@ -15,13 +15,14 @@ import (
 // ------------
 
 type CreateUserAssociationRequest struct {
-	TransactorPublicKeyBase58Check string           `safeForLogging:"true"`
-	TargetUserPublicKeyBase58Check string           `safeForLogging:"true"`
-	AppPublicKeyBase58Check        string           `safeForLogging:"true"`
-	AssociationType                string           `safeForLogging:"true"`
-	AssociationValue               string           `safeForLogging:"true"`
-	MinFeeRateNanosPerKB           uint64           `safeForLogging:"true"`
-	TransactionFees                []TransactionFee `safeForLogging:"true"`
+	TransactorPublicKeyBase58Check string            `safeForLogging:"true"`
+	TargetUserPublicKeyBase58Check string            `safeForLogging:"true"`
+	AppPublicKeyBase58Check        string            `safeForLogging:"true"`
+	AssociationType                string            `safeForLogging:"true"`
+	AssociationValue               string            `safeForLogging:"true"`
+	ExtraData                      map[string]string `safeForLogging:"true"`
+	MinFeeRateNanosPerKB           uint64            `safeForLogging:"true"`
+	TransactionFees                []TransactionFee  `safeForLogging:"true"`
 }
 
 type UserAssociationQuery struct {
@@ -38,13 +39,14 @@ type UserAssociationQuery struct {
 }
 
 type UserAssociationResponse struct {
-	AssociationID                  string `safeForLogging:"true"`
-	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
-	TargetUserPublicKeyBase58Check string `safeForLogging:"true"`
-	AppPublicKeyBase58Check        string `safeForLogging:"true"`
-	AssociationType                string `safeForLogging:"true"`
-	AssociationValue               string `safeForLogging:"true"`
-	BlockHeight                    uint32 `safeForLogging:"true"`
+	AssociationID                  string            `safeForLogging:"true"`
+	TransactorPublicKeyBase58Check string            `safeForLogging:"true"`
+	TargetUserPublicKeyBase58Check string            `safeForLogging:"true"`
+	AppPublicKeyBase58Check        string            `safeForLogging:"true"`
+	AssociationType                string            `safeForLogging:"true"`
+	AssociationValue               string            `safeForLogging:"true"`
+	ExtraData                      map[string]string `safeForLogging:"true"`
+	BlockHeight                    uint32            `safeForLogging:"true"`
 }
 
 type UserAssociationsResponse struct {
@@ -52,13 +54,14 @@ type UserAssociationsResponse struct {
 }
 
 type CreatePostAssociationRequest struct {
-	TransactorPublicKeyBase58Check string           `safeForLogging:"true"`
-	PostHashHex                    string           `safeForLogging:"true"`
-	AppPublicKeyBase58Check        string           `safeForLogging:"true"`
-	AssociationType                string           `safeForLogging:"true"`
-	AssociationValue               string           `safeForLogging:"true"`
-	MinFeeRateNanosPerKB           uint64           `safeForLogging:"true"`
-	TransactionFees                []TransactionFee `safeForLogging:"true"`
+	TransactorPublicKeyBase58Check string            `safeForLogging:"true"`
+	PostHashHex                    string            `safeForLogging:"true"`
+	AppPublicKeyBase58Check        string            `safeForLogging:"true"`
+	AssociationType                string            `safeForLogging:"true"`
+	AssociationValue               string            `safeForLogging:"true"`
+	ExtraData                      map[string]string `safeForLogging:"true"`
+	MinFeeRateNanosPerKB           uint64            `safeForLogging:"true"`
+	TransactionFees                []TransactionFee  `safeForLogging:"true"`
 }
 
 type PostAssociationQuery struct {
@@ -75,13 +78,14 @@ type PostAssociationQuery struct {
 }
 
 type PostAssociationResponse struct {
-	AssociationID                  string `safeForLogging:"true"`
-	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
-	PostHashHex                    string `safeForLogging:"true"`
-	AppPublicKeyBase58Check        string `safeForLogging:"true"`
-	AssociationType                string `safeForLogging:"true"`
-	AssociationValue               string `safeForLogging:"true"`
-	BlockHeight                    uint32 `safeForLogging:"true"`
+	AssociationID                  string            `safeForLogging:"true"`
+	TransactorPublicKeyBase58Check string            `safeForLogging:"true"`
+	PostHashHex                    string            `safeForLogging:"true"`
+	AppPublicKeyBase58Check        string            `safeForLogging:"true"`
+	AssociationType                string            `safeForLogging:"true"`
+	AssociationValue               string            `safeForLogging:"true"`
+	ExtraData                      map[string]string `safeForLogging:"true"`
+	BlockHeight                    uint32            `safeForLogging:"true"`
 }
 
 type PostAssociationsResponse struct {
@@ -89,10 +93,11 @@ type PostAssociationsResponse struct {
 }
 
 type DeleteAssociationRequest struct {
-	TransactorPublicKeyBase58Check string           `safeForLogging:"true"`
-	AssociationID                  string           `safeForLogging:"true"`
-	MinFeeRateNanosPerKB           uint64           `safeForLogging:"true"`
-	TransactionFees                []TransactionFee `safeForLogging:"true"`
+	TransactorPublicKeyBase58Check string            `safeForLogging:"true"`
+	AssociationID                  string            `safeForLogging:"true"`
+	ExtraData                      map[string]string `safeForLogging:"true"`
+	MinFeeRateNanosPerKB           uint64            `safeForLogging:"true"`
+	TransactionFees                []TransactionFee  `safeForLogging:"true"`
 }
 
 type AssociationTxnResponse struct {
@@ -179,6 +184,13 @@ func (fes *APIServer) CreateUserAssociation(ww http.ResponseWriter, req *http.Re
 		return
 	}
 
+	// Parse ExtraData.
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, "CreateUserAssociation: invalid ExtraData provided")
+		return
+	}
+
 	// Compute the additional transaction fees as specified
 	// by the request body and the node-level fees.
 	additionalOutputs, err := fes.getTransactionFee(
@@ -200,7 +212,7 @@ func (fes *APIServer) CreateUserAssociation(ww http.ResponseWriter, req *http.Re
 			AssociationType:     []byte(requestData.AssociationType),
 			AssociationValue:    []byte(requestData.AssociationValue),
 		},
-		nil, // ExtraData
+		extraData,
 		requestData.MinFeeRateNanosPerKB,
 		fes.backendServer.GetMempool(),
 		additionalOutputs,
@@ -272,6 +284,13 @@ func (fes *APIServer) DeleteUserAssociation(ww http.ResponseWriter, req *http.Re
 		return
 	}
 
+	// Parse ExtraData.
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, "DeleteUserAssociation: invalid ExtraData provided")
+		return
+	}
+
 	// Compute the additional transaction fees as specified
 	// by the request body and the node-level fees.
 	additionalOutputs, err := fes.getTransactionFee(
@@ -288,7 +307,7 @@ func (fes *APIServer) DeleteUserAssociation(ww http.ResponseWriter, req *http.Re
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateDeleteUserAssociationTxn(
 		transactorPublicKeyBytes,
 		&lib.DeleteUserAssociationMetadata{AssociationID: lib.NewBlockHash(associationIdBytes)},
-		nil, // ExtraData
+		extraData,
 		requestData.MinFeeRateNanosPerKB,
 		fes.backendServer.GetMempool(),
 		additionalOutputs,
@@ -361,6 +380,7 @@ func (fes *APIServer) GetUserAssociationByID(ww http.ResponseWriter, req *http.R
 		AppPublicKeyBase58Check:        lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.AppPKID), false, fes.Params),
 		AssociationType:                string(associationEntry.AssociationType),
 		AssociationValue:               string(associationEntry.AssociationValue),
+		ExtraData:                      DecodeExtraDataMap(fes.Params, utxoView, associationEntry.ExtraData),
 		BlockHeight:                    associationEntry.BlockHeight,
 	}
 
@@ -426,10 +446,14 @@ func (fes *APIServer) GetUserAssociations(ww http.ResponseWriter, req *http.Requ
 	}
 
 	// Parse LastSeenAssociationID (BlockHash) from LastSeenAssociationIdHex (string).
-	associationIdBytes, err := hex.DecodeString(requestData.LastSeenAssociationID)
-	if err != nil {
-		_AddBadRequestError(ww, "GetUserAssociationByID: invalid LastSeenAssociationID provided")
-		return
+	var lastSeenAssociationID *lib.BlockHash
+	if requestData.LastSeenAssociationID != "" {
+		lastSeenAssociationIdBytes, err := hex.DecodeString(requestData.LastSeenAssociationID)
+		if err != nil {
+			_AddBadRequestError(ww, "GetUserAssociations: invalid LastSeenAssociationID provided")
+			return
+		}
+		lastSeenAssociationID = lib.NewBlockHash(lastSeenAssociationIdBytes)
 	}
 
 	// Query for association entries.
@@ -442,7 +466,7 @@ func (fes *APIServer) GetUserAssociations(ww http.ResponseWriter, req *http.Requ
 		AssociationValue:       []byte(requestData.AssociationValue),
 		AssociationValuePrefix: []byte(requestData.AssociationValuePrefix),
 		Limit:                  requestData.Limit,
-		LastSeenAssociationID:  lib.NewBlockHash(associationIdBytes),
+		LastSeenAssociationID:  lastSeenAssociationID,
 		SortDescending:         requestData.SortDescending,
 	})
 	if err != nil {
@@ -452,7 +476,6 @@ func (fes *APIServer) GetUserAssociations(ww http.ResponseWriter, req *http.Requ
 
 	// Convert AssociationEntries to AssociationResponses.
 	associationResponses := []*UserAssociationResponse{}
-
 	for _, associationEntry := range associationEntries {
 		associationResponses = append(associationResponses, &UserAssociationResponse{
 			AssociationID:                  hex.EncodeToString(associationEntry.AssociationID.ToBytes()),
@@ -461,6 +484,7 @@ func (fes *APIServer) GetUserAssociations(ww http.ResponseWriter, req *http.Requ
 			AppPublicKeyBase58Check:        lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.AppPKID), false, fes.Params),
 			AssociationType:                string(associationEntry.AssociationType),
 			AssociationValue:               string(associationEntry.AssociationValue),
+			ExtraData:                      DecodeExtraDataMap(fes.Params, utxoView, associationEntry.ExtraData),
 			BlockHeight:                    associationEntry.BlockHeight,
 		})
 	}
@@ -540,6 +564,13 @@ func (fes *APIServer) CreatePostAssociation(ww http.ResponseWriter, req *http.Re
 		return
 	}
 
+	// Parse ExtraData.
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, "CreatePostAssociation: invalid ExtraData provided")
+		return
+	}
+
 	// Compute the additional transaction fees as specified
 	// by the request body and the node-level fees.
 	additionalOutputs, err := fes.getTransactionFee(
@@ -561,7 +592,7 @@ func (fes *APIServer) CreatePostAssociation(ww http.ResponseWriter, req *http.Re
 			AssociationType:  []byte(requestData.AssociationType),
 			AssociationValue: []byte(requestData.AssociationValue),
 		},
-		nil, // ExtraData
+		extraData,
 		requestData.MinFeeRateNanosPerKB,
 		fes.backendServer.GetMempool(),
 		additionalOutputs,
@@ -633,6 +664,13 @@ func (fes *APIServer) DeletePostAssociation(ww http.ResponseWriter, req *http.Re
 		return
 	}
 
+	// Parse ExtraData.
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, "DeletePostAssociation: invalid ExtraData provided")
+		return
+	}
+
 	// Compute the additional transaction fees as specified
 	// by the request body and the node-level fees.
 	additionalOutputs, err := fes.getTransactionFee(
@@ -649,7 +687,7 @@ func (fes *APIServer) DeletePostAssociation(ww http.ResponseWriter, req *http.Re
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateDeletePostAssociationTxn(
 		transactorPublicKeyBytes,
 		&lib.DeletePostAssociationMetadata{AssociationID: lib.NewBlockHash(associationIdBytes)},
-		nil, // ExtraData
+		extraData,
 		requestData.MinFeeRateNanosPerKB,
 		fes.backendServer.GetMempool(),
 		additionalOutputs,
@@ -722,6 +760,7 @@ func (fes *APIServer) GetPostAssociationByID(ww http.ResponseWriter, req *http.R
 		AppPublicKeyBase58Check:        lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.AppPKID), false, fes.Params),
 		AssociationType:                string(associationEntry.AssociationType),
 		AssociationValue:               string(associationEntry.AssociationValue),
+		ExtraData:                      DecodeExtraDataMap(fes.Params, utxoView, associationEntry.ExtraData),
 		BlockHeight:                    associationEntry.BlockHeight,
 	}
 
@@ -786,10 +825,14 @@ func (fes *APIServer) GetPostAssociations(ww http.ResponseWriter, req *http.Requ
 	}
 
 	// Parse LastSeenAssociationID (BlockHash) from LastSeenAssociationIdHex (string).
-	associationIdBytes, err := hex.DecodeString(requestData.LastSeenAssociationID)
-	if err != nil {
-		_AddBadRequestError(ww, "GetUserAssociationByID: invalid LastSeenAssociationID provided")
-		return
+	var lastSeenAssociationID *lib.BlockHash
+	if requestData.LastSeenAssociationID != "" {
+		lastSeenAssociationIdBytes, err := hex.DecodeString(requestData.LastSeenAssociationID)
+		if err != nil {
+			_AddBadRequestError(ww, "GetPostAssociations: invalid LastSeenAssociationID provided")
+			return
+		}
+		lastSeenAssociationID = lib.NewBlockHash(lastSeenAssociationIdBytes)
 	}
 
 	// Query for association entries.
@@ -802,7 +845,7 @@ func (fes *APIServer) GetPostAssociations(ww http.ResponseWriter, req *http.Requ
 		AssociationValue:       []byte(requestData.AssociationValue),
 		AssociationValuePrefix: []byte(requestData.AssociationValuePrefix),
 		Limit:                  requestData.Limit,
-		LastSeenAssociationID:  lib.NewBlockHash(associationIdBytes),
+		LastSeenAssociationID:  lastSeenAssociationID,
 		SortDescending:         requestData.SortDescending,
 	})
 	if err != nil {
@@ -812,7 +855,6 @@ func (fes *APIServer) GetPostAssociations(ww http.ResponseWriter, req *http.Requ
 
 	// Convert AssociationEntries to AssociationResponses.
 	associationResponses := []*PostAssociationResponse{}
-
 	for _, associationEntry := range associationEntries {
 		associationResponses = append(associationResponses, &PostAssociationResponse{
 			AssociationID:                  hex.EncodeToString(associationEntry.AssociationID.ToBytes()),
@@ -821,6 +863,7 @@ func (fes *APIServer) GetPostAssociations(ww http.ResponseWriter, req *http.Requ
 			AppPublicKeyBase58Check:        lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.AppPKID), false, fes.Params),
 			AssociationType:                string(associationEntry.AssociationType),
 			AssociationValue:               string(associationEntry.AssociationValue),
+			ExtraData:                      DecodeExtraDataMap(fes.Params, utxoView, associationEntry.ExtraData),
 			BlockHeight:                    associationEntry.BlockHeight,
 		})
 	}
