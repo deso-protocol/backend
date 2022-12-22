@@ -11,6 +11,15 @@ import (
 )
 
 // ------------
+// Constants
+// ------------
+
+// This is the maximum number of associations that can be retrieved in a single
+// Get{User|Post}Associations request. The client can always paginate through
+// results using the LastSeenAssociationID field and additional requests.
+const MaxAssociationsPerQueryLimit = 100
+
+// ------------
 // Types
 // ------------
 
@@ -445,6 +454,15 @@ func (fes *APIServer) GetUserAssociations(ww http.ResponseWriter, req *http.Requ
 		}
 	}
 
+	// Parse Limit.
+	if requestData.Limit < 0 || requestData.Limit > MaxAssociationsPerQueryLimit {
+		_AddBadRequestError(ww, "GetUserAssociations: invalid Limit provided")
+		return
+	}
+	if requestData.Limit == 0 {
+		requestData.Limit = MaxAssociationsPerQueryLimit
+	}
+
 	// Parse LastSeenAssociationID (BlockHash) from LastSeenAssociationIdHex (string).
 	var lastSeenAssociationID *lib.BlockHash
 	if requestData.LastSeenAssociationID != "" {
@@ -822,6 +840,15 @@ func (fes *APIServer) GetPostAssociations(ww http.ResponseWriter, req *http.Requ
 			_AddInternalServerError(ww, "GetPostAssociations: problem getting PKID for the app")
 			return
 		}
+	}
+
+	// Parse Limit.
+	if requestData.Limit < 0 || requestData.Limit > MaxAssociationsPerQueryLimit {
+		_AddBadRequestError(ww, "GetPostAssociations: invalid Limit provided")
+		return
+	}
+	if requestData.Limit == 0 {
+		requestData.Limit = MaxAssociationsPerQueryLimit
 	}
 
 	// Parse LastSeenAssociationID (BlockHash) from LastSeenAssociationIdHex (string).
