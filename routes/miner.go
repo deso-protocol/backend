@@ -142,6 +142,8 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	glog.Infof("Currently submitting block for block ID: %v", requestData.BlockID)
+
 	// Decode the public key
 	pkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 	if err != nil {

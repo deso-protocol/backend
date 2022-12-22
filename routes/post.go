@@ -45,10 +45,21 @@ type GetPostsStatelessRequest struct {
 	// This only gets posts that include media, like photos and videos
 	MediaRequired bool `safeForLogging:"true"`
 
+	// This only gets posts that are a NFT
+	OnlyNFTs bool `safeForLogging:"true"`
+
+	// This only gets posts that are a Post
+	OnlyPosts bool `safeForLogging:"true"`
+
 	PostsByDESOMinutesLookback uint64 `safeForLogging:"true"`
 
 	// If set to true, then the posts in the response will contain a boolean about whether they're in the global feed
 	AddGlobalFeedBool bool `safeForLogging:"true"`
+}
+
+type SkippedPostEntryResponse struct {
+	PostHashHex string
+	Error       string
 }
 
 type PostEntryResponse struct {
@@ -323,12 +334,16 @@ func (fes *APIServer) GetAllPostEntries(readerPK []byte) (
 }
 
 func (fes *APIServer) GetPostEntriesForFollowFeed(
-	startAfterPostHash *lib.BlockHash, readerPK []byte, numToFetch int, utxoView *lib.UtxoView, mediaRequired bool) (
+	startAfterPostHash *lib.BlockHash, readerPK []byte, numToFetch int, utxoView *lib.UtxoView, mediaRequired bool, onlyNFTs bool, onlyPosts bool) (
 	_postEntries []*lib.PostEntry,
 	_profilesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry,
 	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, err error) {
 
-	postEntries, err := fes.GetPostsForFollowFeedForPublicKey(utxoView, startAfterPostHash, readerPK, numToFetch, true /* skip hidden */, mediaRequired)
+	if onlyNFTs && onlyPosts {
+		return nil, nil, nil, fmt.Errorf("GetPostEntriesForFollowFeed: OnlyNFTS and OnlyPosts can not be enabled both")
+	}
+
+	postEntries, err := fes.GetPostsForFollowFeedForPublicKey(utxoView, startAfterPostHash, readerPK, numToFetch, true /* skip hidden */, mediaRequired, onlyNFTs, onlyPosts)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("GetPostEntriesForFollowFeed: Error fetching posts from view: %v", err)
 	}
@@ -362,9 +377,14 @@ func (fes *APIServer) GetPostEntriesForFollowFeed(
 
 // Get the top numToFetch posts ordered by poster's coin price in the last number of minutes as defined by minutesLookback.
 func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
-	minutesLookback uint64, numToFetch int, mediaRequired bool) (
+	minutesLookback uint64, numToFetch int, mediaRequired bool, onlyNFTs bool, onlyPosts bool) (
 	_postEntries []*lib.PostEntry,
 	_profilesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry, err error) {
+
+	if onlyNFTs && onlyPosts {
+		return nil, nil, fmt.Errorf("GetPostEntriesByDESO: OnlyNFTS and OnlyPosts can not be enabled both")
+	}
+
 	// As a safeguard, we should only be able to look at least one hour in the past -- can be changed later.
 
 	if minutesLookback > 60 {
@@ -407,6 +427,13 @@ func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
 			continue
 		}
 
+		if onlyNFTs && !postEntry.IsNFT {
+			continue
+		}
+		if onlyPosts && postEntry.IsNFT {
+			continue
+		}
+
 		// We make sure that the post isn't a comment.
 		if len(postEntry.ParentStakeID) == 0 {
 			postEntryPubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] = postEntry.PosterPublicKey
@@ -429,6 +456,13 @@ func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
 		}
 
 		if mediaRequired && !postEntry.HasMedia() {
+			continue
+		}
+
+		if onlyNFTs && !postEntry.IsNFT {
+			continue
+		}
+		if onlyPosts && postEntry.IsNFT {
 			continue
 		}
 
@@ -462,15 +496,19 @@ func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
 }
 
 func (fes *APIServer) GetPostEntriesByTimePaginated(
-	startPostHash *lib.BlockHash, readerPK []byte, numToFetch int, utxoView *lib.UtxoView, mediaRequired bool) (
+	startPostHash *lib.BlockHash, readerPK []byte, numToFetch int, utxoView *lib.UtxoView, mediaRequired bool, onlyNFTs bool, onlyPosts bool) (
 	_postEntries []*lib.PostEntry, _commentsByPostHash map[lib.BlockHash][]*lib.PostEntry,
 	_profilesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry,
 	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, err error) {
 
+	if onlyNFTs && onlyPosts {
+		return nil, nil, nil, nil, fmt.Errorf("GetAllPostEntries: OnlyNFTS and OnlyPosts can not be enabled both")
+	}
+
 	postEntries,
 		commentsByPostHash,
 		err := fes.GetPostsByTime(utxoView, startPostHash, readerPK, numToFetch,
-		true /*skipHidden*/, true, mediaRequired)
+		true /*skipHidden*/, true, mediaRequired, onlyNFTs, onlyPosts)
 
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("GetAllPostEntries: Error fetching posts from view: %v", err)
@@ -559,10 +597,14 @@ func (fes *APIServer) _shouldSkipCommentResponse(commentResponse *PostEntryRespo
 }
 
 func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
-	startPostHash *lib.BlockHash, readerPK []byte, numToFetch int, utxoView *lib.UtxoView, mediaRequired bool) (
+	startPostHash *lib.BlockHash, readerPK []byte, numToFetch int, utxoView *lib.UtxoView, mediaRequired bool, onlyNFTs bool, onlyPosts bool) (
 	_postEntries []*lib.PostEntry,
 	_profilesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry,
 	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, err error) {
+
+	if onlyNFTs && onlyPosts {
+		return nil, nil, nil, fmt.Errorf("GetPostEntriesForGlobalWhitelist: OnlyNFTS and OnlyPosts can not be enabled both")
+	}
 
 	var startPost *lib.PostEntry
 	if startPostHash != nil {
@@ -629,6 +671,13 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 				continue
 			}
 
+			if onlyNFTs && !postEntry.IsNFT {
+				continue
+			}
+			if onlyPosts && postEntry.IsNFT {
+				continue
+			}
+
 			if readerPK != nil && postEntry != nil && !reflect.DeepEqual(postEntry.PosterPublicKey, readerPK) {
 				// We add the readers posts later so we can skip them here to avoid duplicates.
 				postEntries = append(postEntries, postEntry)
@@ -683,6 +732,13 @@ func (fes *APIServer) GetPostEntriesForGlobalWhitelist(
 
 			// mediaRequired set to determine if we only want posts that include media and ignore posts without
 			if mediaRequired && !postEntry.HasMedia() {
+				continue
+			}
+
+			if onlyNFTs && !postEntry.IsNFT {
+				continue
+			}
+			if onlyPosts && postEntry.IsNFT {
 				continue
 			}
 
@@ -783,6 +839,11 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	if requestData.OnlyNFTs && requestData.OnlyPosts {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsStateless: OnlyNFTs and OnlyPosts can not be enabled both"))
+		return
+	}
+
 	// Decode the reader public key into bytes. Default to nil if no pub key is passed in.
 	var readerPublicKeyBytes []byte
 	var err error
@@ -837,7 +898,7 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 			profileEntryMap,
 			readerStateMap,
 			err = fes.GetPostEntriesForFollowFeed(startPostHash, readerPublicKeyBytes, numToFetch, utxoView,
-			requestData.MediaRequired)
+			requestData.MediaRequired, requestData.OnlyNFTs, requestData.OnlyPosts)
 		// if we're getting posts for follow feed, no comments are returned (they aren't necessary)
 		commentsByPostHash = make(map[lib.BlockHash][]*lib.PostEntry)
 	} else if requestData.GetPostsForGlobalWhitelist {
@@ -845,21 +906,21 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 			profileEntryMap,
 			readerStateMap,
 			err = fes.GetPostEntriesForGlobalWhitelist(startPostHash, readerPublicKeyBytes, numToFetch, utxoView,
-			requestData.MediaRequired)
+			requestData.MediaRequired, requestData.OnlyNFTs, requestData.OnlyPosts)
 		// if we're getting posts for the global whitelist, no comments are returned (they aren't necessary)
 		commentsByPostHash = make(map[lib.BlockHash][]*lib.PostEntry)
 	} else if requestData.GetPostsByDESO || requestData.GetPostsByClout {
 		postEntries,
 			profileEntryMap,
 			err = fes.GetPostEntriesByDESOAfterTimePaginated(readerPublicKeyBytes,
-			requestData.PostsByDESOMinutesLookback, numToFetch, requestData.MediaRequired)
+			requestData.PostsByDESOMinutesLookback, numToFetch, requestData.MediaRequired, requestData.OnlyNFTs, requestData.OnlyPosts)
 	} else {
 		postEntries,
 			commentsByPostHash,
 			profileEntryMap,
 			readerStateMap,
 			err = fes.GetPostEntriesByTimePaginated(startPostHash, readerPublicKeyBytes, numToFetch,
-			utxoView, requestData.MediaRequired)
+			utxoView, requestData.MediaRequired, requestData.OnlyNFTs, requestData.OnlyPosts)
 	}
 
 	if err != nil {
@@ -958,6 +1019,181 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 	}
 }
 
+// GetPostsHashHexListRequest ...
+type GetPostsHashHexListRequest struct {
+	PostsHashHexList           []string `safeForLogging:"true"`
+	ReaderPublicKeyBase58Check string   `safeForLogging:"true"`
+	OrderBy                    string   `safeForLogging:"true"`
+	OnlyNFTs                   bool     `safeForLogging:"true"`
+	OnlyPosts                  bool     `safeForLogging:"true"`
+}
+
+// GetPostsHashHexListResponse ...
+type GetPostsHashHexListResponse struct {
+	PostsFound   []*PostEntryResponse
+	PostsSkipped []*SkippedPostEntryResponse
+}
+
+func (fes *APIServer) GetPostsHashHexList(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetPostsHashHexListRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsHashHexList: Problem parsing request body: %v", err))
+		return
+	}
+
+	if requestData.OnlyNFTs && requestData.OnlyPosts {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsStateless: OnlyNFTs and OnlyPosts can not be enabled both"))
+		return
+	}
+
+	if len(requestData.PostsHashHexList) == 0 {
+		_AddBadRequestError(ww, fmt.Sprint("GetPostsHashHexList: PostsHashHexList is empty"))
+		return
+	}
+
+	if len(requestData.PostsHashHexList) > 50 {
+		_AddBadRequestError(ww, fmt.Sprint("GetPostsHashHexList: The number of posthash is limited to 50"))
+		return
+	}
+
+	if requestData.OrderBy != "newest" && requestData.OrderBy != "oldest" && requestData.OrderBy != "" {
+		_AddBadRequestError(ww, fmt.Sprint("GetPostsHashHexList: OrderBy can be only empty, newest or oldest"))
+		return
+	}
+
+	// Decode the reader public key into bytes. Default to nil if no pub key is passed in.
+	var readerPublicKeyBytes []byte
+	if requestData.ReaderPublicKeyBase58Check != "" {
+		var err error
+		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww,
+				fmt.Sprintf("GetPostsHashHexList: Problem decoding reader public key: %v : %s", err, requestData.ReaderPublicKeyBase58Check))
+			return
+		}
+	}
+
+	// Get a view with all the mempool transactions.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsHashHexList: Error constructing utxoView: %v", err))
+		return
+	}
+
+	postEntryResponses := []*PostEntryResponse{}
+	skippedPostEntryResponses := []*SkippedPostEntryResponse{}
+
+	blockedPubKeys, err := fes.GetBlockedPubKeysForUser(readerPublicKeyBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPostsHashHexList: Error fetching blocked pub keys for user: %v", err))
+		return
+	}
+
+	// profileEntries cache
+	profileEntryResponses := make(map[string]*ProfileEntryResponse)
+
+	for _, postHashHex := range requestData.PostsHashHexList {
+		postHash, err := GetPostHashFromPostHashHex(postHashHex)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPostsHashHexList: invalid post hash hex (%v) provided: %v", postHashHex, err))
+			return
+		}
+
+		// Fetch the postEntry requested.
+		postEntry := utxoView.GetPostEntryForPostHash(postHash)
+		if postEntry == nil {
+			// Post not found, add to skipped list
+			skippedPostEntryResponse := &SkippedPostEntryResponse{
+				PostHashHex: postHashHex,
+				Error:       "GetPostsHashHexList: Post not found",
+			}
+			skippedPostEntryResponses = append(skippedPostEntryResponses, skippedPostEntryResponse)
+			continue
+		}
+
+		if requestData.OnlyNFTs && !postEntry.IsNFT {
+			skippedPostEntryResponse := &SkippedPostEntryResponse{
+				PostHashHex: postHashHex,
+				Error:       "GetPostsHashHexList: OnlyNFTs is enabled, post is not an NFT",
+			}
+			skippedPostEntryResponses = append(skippedPostEntryResponses, skippedPostEntryResponse)
+			continue
+		}
+
+		if requestData.OnlyPosts && postEntry.IsNFT {
+			skippedPostEntryResponse := &SkippedPostEntryResponse{
+				PostHashHex: postHashHex,
+				Error:       "GetPostsHashHexList: OnlyPosts is enabled, post is an NFT",
+			}
+			skippedPostEntryResponses = append(skippedPostEntryResponses, skippedPostEntryResponse)
+			continue
+		}
+
+		// If the creator who posted postEntry is in the map of blocked pub keys, skip this postEntry
+		if _, isOnBlocklist := blockedPubKeys[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]; isOnBlocklist {
+			// Post not found, add to skipped list
+			skippedPostEntryResponse := &SkippedPostEntryResponse{
+				PostHashHex: postHashHex,
+				Error:       "GetPostsHashHexList: Creator is blocked on this node",
+			}
+			skippedPostEntryResponses = append(skippedPostEntryResponses, skippedPostEntryResponse)
+			continue
+		}
+
+		var postEntryResponse *PostEntryResponse
+		postEntryResponse, err = fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, readerPublicKeyBytes, 2)
+		if err != nil {
+			// Just skip posts that fail to convert for whatever reason.
+			skippedPostEntryResponse := &SkippedPostEntryResponse{
+				PostHashHex: postHashHex,
+				Error:       fmt.Sprintf("GetPostsHashHexList: Failed to convert post: %v", err),
+			}
+			skippedPostEntryResponses = append(skippedPostEntryResponses, skippedPostEntryResponse)
+			continue
+		}
+
+		// Only get profileEntryRepsonse if we don't have it in the cache yet
+		publicKey := lib.PkToString(postEntry.PosterPublicKey, fes.Params)
+		if profileEntryResponse, exists := profileEntryResponses[publicKey]; !exists {
+			profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
+			if profileEntry != nil {
+				// Convert it to a response since that sanitizes the inputs.
+				profileEntryResponse := fes._profileEntryToResponse(profileEntry, utxoView)
+				postEntryResponse.ProfileEntryResponse = profileEntryResponse
+				profileEntryResponses[publicKey] = profileEntryResponse
+			}
+		} else {
+			postEntryResponse.ProfileEntryResponse = profileEntryResponse
+		}
+
+		postEntryResponses = append(postEntryResponses, postEntryResponse)
+
+	}
+
+	if requestData.OrderBy == "newest" {
+		// Now sort the post list on the timestamp
+		sort.Slice(postEntryResponses, func(ii, jj int) bool {
+			return postEntryResponses[ii].TimestampNanos > postEntryResponses[jj].TimestampNanos
+		})
+	} else if requestData.OrderBy == "oldest" {
+		sort.Slice(postEntryResponses, func(ii, jj int) bool {
+			return postEntryResponses[ii].TimestampNanos < postEntryResponses[jj].TimestampNanos
+		})
+	}
+
+	// Return the posts found.
+	res := &GetPostsHashHexListResponse{
+		PostsFound:   postEntryResponses,
+		PostsSkipped: skippedPostEntryResponses,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetPostsHashHexList: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
 type GetSinglePostRequest struct {
 	// PostHashHex to fetch.
 	PostHashHex                string `safeForLogging:"true"`
@@ -1008,7 +1244,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	if requestData.ReaderPublicKeyBase58Check != "" {
 		var err error
 		readerPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ReaderPublicKeyBase58Check)
-		if requestData.ReaderPublicKeyBase58Check != "" && err != nil {
+		if err != nil {
 			_AddBadRequestError(ww,
 				fmt.Sprintf("GetSinglePost: Problem decoding user public key: %v : %s", err, requestData.ReaderPublicKeyBase58Check))
 			return
@@ -1018,7 +1254,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	// Get a view with all the mempool transactions.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error constucting utxoView: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Error constructing utxoView: %v", err))
 		return
 	}
 
@@ -1437,6 +1673,8 @@ type GetPostsForPublicKeyRequest struct {
 	// Number of records to fetch
 	NumToFetch    uint64 `safeForLogging:"true"`
 	MediaRequired bool   `safeForLogging:"true"`
+	OnlyNFTs      bool   `safeForLogging:"true"`
+	OnlyPosts     bool   `safeForLogging:"true"`
 }
 
 // GetPostsForPublicKeyResponse ...
@@ -1451,6 +1689,11 @@ func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Req
 	requestData := GetPostsForPublicKeyRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPostsForPublicKey: Error parsing request body: %v", err))
+		return
+	}
+
+	if requestData.OnlyNFTs && requestData.OnlyPosts {
+		_AddBadRequestError(ww, fmt.Sprint("GetPostsForPublicKey: OnlyNFTs and OnlyPosts can not be enabled both"))
 		return
 	}
 
@@ -1501,7 +1744,7 @@ func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Req
 	}
 
 	// Get Posts Ordered by time.
-	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash, requestData.NumToFetch, requestData.MediaRequired, false)
+	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash, requestData.NumToFetch, requestData.MediaRequired, requestData.OnlyNFTs, requestData.OnlyPosts)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPostsForPublicKey: Problem getting paginated posts: %v", err))
 		return
@@ -1786,7 +2029,7 @@ func (fes *APIServer) GetLikesForPost(ww http.ResponseWriter, req *http.Request)
 	// Get a view with all the mempool transactions.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetLikesForPost: Error constucting utxoView: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetLikesForPost: Error constructing utxoView: %v", err))
 		return
 	}
 
@@ -1906,7 +2149,7 @@ func (fes *APIServer) GetDiamondsForPost(ww http.ResponseWriter, req *http.Reque
 	// Get a view with all the mempool transactions.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetDiamondsForPost: Error constucting utxoView: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetDiamondsForPost: Error constructing utxoView: %v", err))
 		return
 	}
 
@@ -2040,7 +2283,7 @@ func (fes *APIServer) GetRepostsForPost(ww http.ResponseWriter, req *http.Reques
 	// Get a view with all the mempool transactions.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetRepostsForPost: Error constucting utxoView: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetRepostsForPost: Error constructing utxoView: %v", err))
 		return
 	}
 
@@ -2159,7 +2402,7 @@ func (fes *APIServer) GetQuoteRepostsForPost(ww http.ResponseWriter, req *http.R
 	// Get a view with all the mempool transactions.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetQuoteRepostsForPost: Error constucting utxoView: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetQuoteRepostsForPost: Error constructing utxoView: %v", err))
 		return
 	}
 
