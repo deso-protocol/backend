@@ -93,6 +93,28 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, associationResponse.ExtraData["PeerID"], "A")
 	}
 	{
+		// Count UserAssociations by attributes.
+		// Send POST request.
+		body := &UserAssociationQuery{
+			TransactorPublicKeyBase58Check: senderPkString,
+			AssociationType:                "ENDORSEMENT",
+		}
+		bodyJSON, err := json.Marshal(body)
+		require.NoError(t, err)
+		request, _ := http.NewRequest("POST", RoutePathUserAssociations+"/count", bytes.NewBuffer(bodyJSON))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.NotContains(t, string(response.Body.Bytes()), "error")
+
+		// Decode response.
+		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+		countResponse := AssociationsCountResponse{}
+		err = decoder.Decode(&countResponse)
+		require.NoError(t, err)
+		require.Equal(t, countResponse.Count, uint64(1))
+	}
+	{
 		// Query for UserAssociations by attributes.
 		// Send POST request.
 		body := &UserAssociationQuery{
@@ -284,6 +306,28 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, associationResponse.AssociationType, "REACTION")
 		require.Equal(t, associationResponse.AssociationValue, "HEART")
 		require.Equal(t, associationResponse.ExtraData["PeerID"], "B")
+	}
+	{
+		// Count PostAssociations by attributes.
+		// Send POST request.
+		body := &PostAssociationQuery{
+			PostHashHex:           postHashHex,
+			AssociationTypePrefix: "REACT",
+		}
+		bodyJSON, err := json.Marshal(body)
+		require.NoError(t, err)
+		request, _ := http.NewRequest("POST", RoutePathPostAssociations+"/count", bytes.NewBuffer(bodyJSON))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.NotContains(t, string(response.Body.Bytes()), "error")
+
+		// Decode response.
+		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+		countResponse := AssociationsCountResponse{}
+		err = decoder.Decode(&countResponse)
+		require.NoError(t, err)
+		require.Equal(t, countResponse.Count, uint64(1))
 	}
 	{
 		// Query for PostAssociations by attributes.

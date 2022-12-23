@@ -1165,6 +1165,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"CountUserAssociations",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/count",
+			fes.CountUserAssociations,
+			PublicAccess,
+		},
+		{
 			"CreatePostAssociation",
 			[]string{"POST", "OPTIONS"},
 			RoutePathPostAssociations + "/create",
@@ -1190,6 +1197,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathPostAssociations + "/query",
 			fes.GetPostAssociations,
+			PublicAccess,
+		},
+		{
+			"CountPostAssociations",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/count",
+			fes.CountPostAssociations,
 			PublicAccess,
 		},
 		// Jumio Routes
