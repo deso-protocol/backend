@@ -1337,7 +1337,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	if _, ok := filteredProfilePubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)]; !ok {
 		currentPosterPKID := utxoView.GetPKIDForPublicKey(postEntry.PosterPublicKey)
 		// If the currentPoster's userMetadata doesn't exist, then they are no greylisted, so we can exit.
-		if fes.IsUserGraylisted(currentPosterPKID.PKID) && !fes.IsUserBlacklisted(currentPosterPKID.PKID) {
+		if fes.IsUserGraylisted(currentPosterPKID.PKID, utxoView) && !fes.IsUserBlacklisted(currentPosterPKID.PKID, utxoView) {
 			// If the currentPoster is not blacklisted (removed everywhere) and is greylisted (removed from leaderboard)
 			// add them back to the filteredProfilePubKeyMap and note that the currentPoster is greylisted.
 			isCurrentPosterGreylisted = true
