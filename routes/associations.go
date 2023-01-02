@@ -144,22 +144,12 @@ func (fes *APIServer) CreateUserAssociation(ww http.ResponseWriter, req *http.Re
 		return
 	}
 
-	// Create UTXO view.
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		_AddInternalServerError(ww, "CreateUserAssociation: problem getting UTXO view")
-		return
-	}
-
 	// Parse TransactorPublicKeyBytes from TransactorPublicKeyBase58Check.
 	if requestData.TransactorPublicKeyBase58Check == "" {
 		_AddBadRequestError(ww, "CreateUserAssociation: must provide a TransactorPublicKeyBase58Check")
 		return
 	}
-	transactorPublicKeyBytes, _, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
-		requestData.TransactorPublicKeyBase58Check,
-		utxoView,
-	)
+	transactorPublicKeyBytes, err := GetPubKeyBytesFromBase58Check(requestData.TransactorPublicKeyBase58Check)
 	if err != nil {
 		_AddInternalServerError(ww, "CreateUserAssociation: problem getting public key for the transactor")
 		return
@@ -170,27 +160,23 @@ func (fes *APIServer) CreateUserAssociation(ww http.ResponseWriter, req *http.Re
 		_AddBadRequestError(ww, "CreateUserAssociation: must provide a TargetUserPublicKeyBase58Check")
 		return
 	}
-	targetUserPublicKeyBytes, _, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
-		requestData.TargetUserPublicKeyBase58Check,
-		utxoView,
-	)
+	targetUserPublicKeyBytes, err := GetPubKeyBytesFromBase58Check(requestData.TargetUserPublicKeyBase58Check)
 	if err != nil {
 		_AddInternalServerError(ww, "CreateUserAssociation: problem getting public key for the target user")
 		return
 	}
 
-	// Parse AppPublicKeyBytes from AppPublicKeyBase58Check
-	if requestData.AppPublicKeyBase58Check == "" {
-		_AddBadRequestError(ww, "CreateUserAssociation: must provide an AppPublicKeyBase58Check")
-		return
-	}
-	appPublicKeyBytes, _, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
-		requestData.AppPublicKeyBase58Check,
-		utxoView,
-	)
-	if err != nil {
-		_AddInternalServerError(ww, "CreateUserAssociation: problem getting public key for the app")
-		return
+	// Parse AppPublicKeyBytes from AppPublicKeyBase58Check.
+	// If not provided, we default to the ZeroPublicKey (global).
+	var appPublicKeyBytes []byte
+	if requestData.AppPublicKeyBase58Check != "" {
+		appPublicKeyBytes, err = GetPubKeyBytesFromBase58Check(requestData.AppPublicKeyBase58Check)
+		if err != nil {
+			_AddInternalServerError(ww, "CreateUserAssociation: problem getting public key for the app")
+			return
+		}
+	} else {
+		appPublicKeyBytes = lib.ZeroPublicKey.ToBytes()
 	}
 
 	// Validate AssociationType.
@@ -273,22 +259,12 @@ func (fes *APIServer) DeleteUserAssociation(ww http.ResponseWriter, req *http.Re
 		return
 	}
 
-	// Create UTXO view.
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		_AddInternalServerError(ww, "DeleteUserAssociation: problem getting UTXO view")
-		return
-	}
-
 	// Parse TransactorPublicKeyBytes from TransactorPublicKeyBase58Check.
 	if requestData.TransactorPublicKeyBase58Check == "" {
 		_AddBadRequestError(ww, "DeleteUserAssociation: must provide a TransactorPublicKeyBase58Check")
 		return
 	}
-	transactorPublicKeyBytes, _, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
-		requestData.TransactorPublicKeyBase58Check,
-		utxoView,
-	)
+	transactorPublicKeyBytes, err := GetPubKeyBytesFromBase58Check(requestData.TransactorPublicKeyBase58Check)
 	if err != nil {
 		_AddInternalServerError(ww, "DeleteUserAssociation: problem getting public key for the transactor")
 		return
@@ -389,21 +365,12 @@ func (fes *APIServer) GetUserAssociationByID(ww http.ResponseWriter, req *http.R
 		return
 	}
 	if associationEntry == nil {
-		_AddBadRequestError(ww, "GetUserAssociationByID: association not found")
+		_AddNotFoundError(ww, "GetUserAssociationByID: association not found")
 		return
 	}
 
 	// Convert AssociationEntry to AssociationResponse.
-	response := UserAssociationResponse{
-		AssociationID:                  hex.EncodeToString(associationEntry.AssociationID.ToBytes()),
-		TransactorPublicKeyBase58Check: lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.TransactorPKID), false, fes.Params),
-		TargetUserPublicKeyBase58Check: lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.TargetUserPKID), false, fes.Params),
-		AppPublicKeyBase58Check:        lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.AppPKID), false, fes.Params),
-		AssociationType:                string(associationEntry.AssociationType),
-		AssociationValue:               string(associationEntry.AssociationValue),
-		ExtraData:                      DecodeExtraDataMap(fes.Params, utxoView, associationEntry.ExtraData),
-		BlockHeight:                    associationEntry.BlockHeight,
-	}
+	response := fes._convertUserAssociationEntryToResponse(utxoView, associationEntry)
 
 	// JSON encode response.
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
@@ -437,16 +404,9 @@ func (fes *APIServer) GetUserAssociations(ww http.ResponseWriter, req *http.Requ
 	// Convert AssociationEntries to AssociationResponses.
 	associationResponses := []*UserAssociationResponse{}
 	for _, associationEntry := range associationEntries {
-		associationResponses = append(associationResponses, &UserAssociationResponse{
-			AssociationID:                  hex.EncodeToString(associationEntry.AssociationID.ToBytes()),
-			TransactorPublicKeyBase58Check: lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.TransactorPKID), false, fes.Params),
-			TargetUserPublicKeyBase58Check: lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.TargetUserPKID), false, fes.Params),
-			AppPublicKeyBase58Check:        lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.AppPKID), false, fes.Params),
-			AssociationType:                string(associationEntry.AssociationType),
-			AssociationValue:               string(associationEntry.AssociationValue),
-			ExtraData:                      DecodeExtraDataMap(fes.Params, utxoView, associationEntry.ExtraData),
-			BlockHeight:                    associationEntry.BlockHeight,
-		})
+		associationResponses = append(
+			associationResponses, fes._convertUserAssociationEntryToResponse(utxoView, associationEntry),
+		)
 	}
 
 	// JSON encode response.
@@ -487,6 +447,21 @@ func (fes *APIServer) CountUserAssociations(ww http.ResponseWriter, req *http.Re
 	}
 }
 
+func (fes *APIServer) _convertUserAssociationEntryToResponse(
+	utxoView *lib.UtxoView, associationEntry *lib.UserAssociationEntry,
+) *UserAssociationResponse {
+	return &UserAssociationResponse{
+		AssociationID:                  hex.EncodeToString(associationEntry.AssociationID.ToBytes()),
+		TransactorPublicKeyBase58Check: lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.TransactorPKID), false, fes.Params),
+		TargetUserPublicKeyBase58Check: lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.TargetUserPKID), false, fes.Params),
+		AppPublicKeyBase58Check:        lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.AppPKID), false, fes.Params),
+		AssociationType:                string(associationEntry.AssociationType),
+		AssociationValue:               string(associationEntry.AssociationValue),
+		ExtraData:                      DecodeExtraDataMap(fes.Params, utxoView, associationEntry.ExtraData),
+		BlockHeight:                    associationEntry.BlockHeight,
+	}
+}
+
 func (fes *APIServer) _constructUserAssociationQueryFromParams(
 	utxoView *lib.UtxoView, requestBody io.ReadCloser, queryType AssociationQueryType,
 ) (*lib.UserAssociationQuery, error) {
@@ -497,6 +472,47 @@ func (fes *APIServer) _constructUserAssociationQueryFromParams(
 	requestData := UserAssociationQuery{}
 	if err = decoder.Decode(&requestData); err != nil {
 		return nil, errors.New("problem parsing request body")
+	}
+
+	// Parse Limit.
+	switch queryType {
+	case AssociationQueryTypeQuery:
+		if requestData.Limit < 0 || requestData.Limit > MaxAssociationsPerQueryLimit {
+			return nil, errors.New("invalid Limit provided")
+		}
+		if requestData.Limit == 0 {
+			requestData.Limit = MaxAssociationsPerQueryLimit
+		}
+	case AssociationQueryTypeCount:
+		if requestData.Limit != 0 {
+			return nil, errors.New("unsupported Limit param for count operation")
+		}
+	default:
+		return nil, errors.New("invalid query type") // This can never happen.
+	}
+
+	// Parse LastSeenAssociationID (BlockHash) from LastSeenAssociationIdHex (string).
+	var lastSeenAssociationID *lib.BlockHash
+	switch queryType {
+	case AssociationQueryTypeQuery:
+		if requestData.LastSeenAssociationID != "" {
+			lastSeenAssociationIdBytes, err := hex.DecodeString(requestData.LastSeenAssociationID)
+			if err != nil {
+				return nil, errors.New("invalid LastSeenAssociationID provided")
+			}
+			lastSeenAssociationID = lib.NewBlockHash(lastSeenAssociationIdBytes)
+		}
+	case AssociationQueryTypeCount:
+		if requestData.LastSeenAssociationID != "" {
+			return nil, errors.New("unsupported LastSeenAssociationID param for count operation")
+		}
+	default:
+		return nil, errors.New("invalid query type") // This can never happen.
+	}
+
+	// Validate SortDescending.
+	if queryType == AssociationQueryTypeCount && requestData.SortDescending {
+		return nil, errors.New("unsupported SortDescending param for count operation")
 	}
 
 	// Parse TransactorPKID from TransactorPublicKeyBase58Check.
@@ -532,45 +548,6 @@ func (fes *APIServer) _constructUserAssociationQueryFromParams(
 		}
 	}
 
-	// Parse Limit.
-	if queryType == AssociationQueryTypeQuery {
-		if requestData.Limit < 0 || requestData.Limit > MaxAssociationsPerQueryLimit {
-			return nil, errors.New("invalid Limit provided")
-		}
-		if requestData.Limit == 0 {
-			requestData.Limit = MaxAssociationsPerQueryLimit
-		}
-	} else if queryType == AssociationQueryTypeCount {
-		if requestData.Limit != 0 {
-			return nil, errors.New("unsupported Limit param for count operation")
-		}
-	} else {
-		return nil, errors.New("invalid query type") // This can never happen.
-	}
-
-	// Parse LastSeenAssociationID (BlockHash) from LastSeenAssociationIdHex (string).
-	var lastSeenAssociationID *lib.BlockHash
-	if queryType == AssociationQueryTypeQuery {
-		if requestData.LastSeenAssociationID != "" {
-			lastSeenAssociationIdBytes, err := hex.DecodeString(requestData.LastSeenAssociationID)
-			if err != nil {
-				return nil, errors.New("invalid LastSeenAssociationID provided")
-			}
-			lastSeenAssociationID = lib.NewBlockHash(lastSeenAssociationIdBytes)
-		}
-	} else if queryType == AssociationQueryTypeCount {
-		if requestData.LastSeenAssociationID != "" {
-			return nil, errors.New("unsupported LastSeenAssociationID param for count operation")
-		}
-	} else {
-		return nil, errors.New("invalid query type") // This can never happen.
-	}
-
-	// Validate SortDescending.
-	if queryType == AssociationQueryTypeCount && requestData.SortDescending {
-		return nil, errors.New("unsupported SortDescending param for count operation")
-	}
-
 	// Construct association query.
 	assocationQuery := &lib.UserAssociationQuery{
 		TransactorPKID:         transactorPKID,
@@ -596,22 +573,12 @@ func (fes *APIServer) CreatePostAssociation(ww http.ResponseWriter, req *http.Re
 		return
 	}
 
-	// Create UTXO view.
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		_AddInternalServerError(ww, "CreatePostAssociation: problem getting UTXO view")
-		return
-	}
-
 	// Parse TransactorPublicKeyBytes from TransactorPublicKeyBase58Check.
 	if requestData.TransactorPublicKeyBase58Check == "" {
 		_AddBadRequestError(ww, "CreatePostAssociation: must provide a TransactorPublicKeyBase58Check")
 		return
 	}
-	transactorPublicKeyBytes, _, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
-		requestData.TransactorPublicKeyBase58Check,
-		utxoView,
-	)
+	transactorPublicKeyBytes, err := GetPubKeyBytesFromBase58Check(requestData.TransactorPublicKeyBase58Check)
 	if err != nil {
 		_AddInternalServerError(ww, "CreatePostAssociation: problem getting public key for the transactor")
 		return
@@ -629,17 +596,16 @@ func (fes *APIServer) CreatePostAssociation(ww http.ResponseWriter, req *http.Re
 	}
 
 	// Parse AppPublicKeyBytes from AppPublicKeyBase58Check.
-	if requestData.AppPublicKeyBase58Check == "" {
-		_AddBadRequestError(ww, "CreatePostAssociation: must provide an AppPublicKeyBase58Check")
-		return
-	}
-	appPublicKeyBytes, _, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
-		requestData.AppPublicKeyBase58Check,
-		utxoView,
-	)
-	if err != nil {
-		_AddInternalServerError(ww, "CreatePostAssociation: problem getting public key for the app")
-		return
+	// If not provided, we default to the ZeroPublicKey (global).
+	var appPublicKeyBytes []byte
+	if requestData.AppPublicKeyBase58Check != "" {
+		appPublicKeyBytes, err = GetPubKeyBytesFromBase58Check(requestData.AppPublicKeyBase58Check)
+		if err != nil {
+			_AddInternalServerError(ww, "CreatePostAssociation: problem getting public key for the app")
+			return
+		}
+	} else {
+		appPublicKeyBytes = lib.ZeroPublicKey.ToBytes()
 	}
 
 	// Validate AssociationType.
@@ -722,22 +688,12 @@ func (fes *APIServer) DeletePostAssociation(ww http.ResponseWriter, req *http.Re
 		return
 	}
 
-	// Create UTXO view.
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		_AddInternalServerError(ww, "DeletePostAssociation: problem getting UTXO view")
-		return
-	}
-
 	// Parse TransactorPublicKeyBytes from TransactorPublicKeyBase58Check.
 	if requestData.TransactorPublicKeyBase58Check == "" {
 		_AddBadRequestError(ww, "DeletePostAssociation: must provide a TransactorPublicKeyBase58Check")
 		return
 	}
-	transactorPublicKeyBytes, _, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
-		requestData.TransactorPublicKeyBase58Check,
-		utxoView,
-	)
+	transactorPublicKeyBytes, err := GetPubKeyBytesFromBase58Check(requestData.TransactorPublicKeyBase58Check)
 	if err != nil {
 		_AddInternalServerError(ww, "DeletePostAssociation: problem getting public key for the transactor")
 		return
@@ -838,21 +794,12 @@ func (fes *APIServer) GetPostAssociationByID(ww http.ResponseWriter, req *http.R
 		return
 	}
 	if associationEntry == nil {
-		_AddBadRequestError(ww, "GetPostAssociationByID: association not found")
+		_AddNotFoundError(ww, "GetPostAssociationByID: association not found")
 		return
 	}
 
 	// Convert AssociationEntry to AssociationResponse.
-	response := PostAssociationResponse{
-		AssociationID:                  hex.EncodeToString(associationEntry.AssociationID.ToBytes()),
-		TransactorPublicKeyBase58Check: lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.TransactorPKID), false, fes.Params),
-		PostHashHex:                    hex.EncodeToString(associationEntry.PostHash.ToBytes()),
-		AppPublicKeyBase58Check:        lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.AppPKID), false, fes.Params),
-		AssociationType:                string(associationEntry.AssociationType),
-		AssociationValue:               string(associationEntry.AssociationValue),
-		ExtraData:                      DecodeExtraDataMap(fes.Params, utxoView, associationEntry.ExtraData),
-		BlockHeight:                    associationEntry.BlockHeight,
-	}
+	response := fes._convertPostAssociationEntryToResponse(utxoView, associationEntry)
 
 	// JSON encode response.
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
@@ -886,16 +833,9 @@ func (fes *APIServer) GetPostAssociations(ww http.ResponseWriter, req *http.Requ
 	// Convert AssociationEntries to AssociationResponses.
 	associationResponses := []*PostAssociationResponse{}
 	for _, associationEntry := range associationEntries {
-		associationResponses = append(associationResponses, &PostAssociationResponse{
-			AssociationID:                  hex.EncodeToString(associationEntry.AssociationID.ToBytes()),
-			TransactorPublicKeyBase58Check: lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.TransactorPKID), false, fes.Params),
-			PostHashHex:                    hex.EncodeToString(associationEntry.PostHash.ToBytes()),
-			AppPublicKeyBase58Check:        lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.AppPKID), false, fes.Params),
-			AssociationType:                string(associationEntry.AssociationType),
-			AssociationValue:               string(associationEntry.AssociationValue),
-			ExtraData:                      DecodeExtraDataMap(fes.Params, utxoView, associationEntry.ExtraData),
-			BlockHeight:                    associationEntry.BlockHeight,
-		})
+		associationResponses = append(
+			associationResponses, fes._convertPostAssociationEntryToResponse(utxoView, associationEntry),
+		)
 	}
 
 	// JSON encode response.
@@ -936,6 +876,21 @@ func (fes *APIServer) CountPostAssociations(ww http.ResponseWriter, req *http.Re
 	}
 }
 
+func (fes *APIServer) _convertPostAssociationEntryToResponse(
+	utxoView *lib.UtxoView, associationEntry *lib.PostAssociationEntry,
+) *PostAssociationResponse {
+	return &PostAssociationResponse{
+		AssociationID:                  hex.EncodeToString(associationEntry.AssociationID.ToBytes()),
+		TransactorPublicKeyBase58Check: lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.TransactorPKID), false, fes.Params),
+		PostHashHex:                    hex.EncodeToString(associationEntry.PostHash.ToBytes()),
+		AppPublicKeyBase58Check:        lib.Base58CheckEncode(utxoView.GetPublicKeyForPKID(associationEntry.AppPKID), false, fes.Params),
+		AssociationType:                string(associationEntry.AssociationType),
+		AssociationValue:               string(associationEntry.AssociationValue),
+		ExtraData:                      DecodeExtraDataMap(fes.Params, utxoView, associationEntry.ExtraData),
+		BlockHeight:                    associationEntry.BlockHeight,
+	}
+}
+
 func (fes *APIServer) _constructPostAssociationQueryFromParams(
 	utxoView *lib.UtxoView, requestBody io.ReadCloser, queryType AssociationQueryType,
 ) (*lib.PostAssociationQuery, error) {
@@ -946,6 +901,47 @@ func (fes *APIServer) _constructPostAssociationQueryFromParams(
 	requestData := PostAssociationQuery{}
 	if err = decoder.Decode(&requestData); err != nil {
 		return nil, errors.New("problem parsing request body")
+	}
+
+	// Parse Limit.
+	switch queryType {
+	case AssociationQueryTypeQuery:
+		if requestData.Limit < 0 || requestData.Limit > MaxAssociationsPerQueryLimit {
+			return nil, errors.New("invalid Limit provided")
+		}
+		if requestData.Limit == 0 {
+			requestData.Limit = MaxAssociationsPerQueryLimit
+		}
+	case AssociationQueryTypeCount:
+		if requestData.Limit != 0 {
+			return nil, errors.New("unsupported Limit param for count operation")
+		}
+	default:
+		return nil, errors.New("invalid query type") // This can never happen.
+	}
+
+	// Parse LastSeenAssociationID (BlockHash) from LastSeenAssociationIdHex (string).
+	var lastSeenAssociationID *lib.BlockHash
+	switch queryType {
+	case AssociationQueryTypeQuery:
+		if requestData.LastSeenAssociationID != "" {
+			lastSeenAssociationIdBytes, err := hex.DecodeString(requestData.LastSeenAssociationID)
+			if err != nil {
+				return nil, errors.New("invalid LastSeenAssociationID provided")
+			}
+			lastSeenAssociationID = lib.NewBlockHash(lastSeenAssociationIdBytes)
+		}
+	case AssociationQueryTypeCount:
+		if requestData.LastSeenAssociationID != "" {
+			return nil, errors.New("unsupported Limit param for count operation")
+		}
+	default:
+		return nil, errors.New("invalid query type") // This can never happen.
+	}
+
+	// Validate SortDescending.
+	if queryType == AssociationQueryTypeCount && requestData.SortDescending {
+		return nil, errors.New("unsupported SortDescending param for count operation")
 	}
 
 	// Parse TransactorPKID from TransactorPublicKeyBase58Check.
@@ -978,45 +974,6 @@ func (fes *APIServer) _constructPostAssociationQueryFromParams(
 		if err != nil {
 			return nil, errors.New("problem getting PKID for the app")
 		}
-	}
-
-	// Parse Limit.
-	if queryType == AssociationQueryTypeQuery {
-		if requestData.Limit < 0 || requestData.Limit > MaxAssociationsPerQueryLimit {
-			return nil, errors.New("invalid Limit provided")
-		}
-		if requestData.Limit == 0 {
-			requestData.Limit = MaxAssociationsPerQueryLimit
-		}
-	} else if queryType == AssociationQueryTypeCount {
-		if requestData.Limit != 0 {
-			return nil, errors.New("unsupported Limit param for count operation")
-		}
-	} else {
-		return nil, errors.New("invalid query type") // This can never happen.
-	}
-
-	// Parse LastSeenAssociationID (BlockHash) from LastSeenAssociationIdHex (string).
-	var lastSeenAssociationID *lib.BlockHash
-	if queryType == AssociationQueryTypeQuery {
-		if requestData.LastSeenAssociationID != "" {
-			lastSeenAssociationIdBytes, err := hex.DecodeString(requestData.LastSeenAssociationID)
-			if err != nil {
-				return nil, errors.New("invalid LastSeenAssociationID provided")
-			}
-			lastSeenAssociationID = lib.NewBlockHash(lastSeenAssociationIdBytes)
-		}
-	} else if queryType == AssociationQueryTypeCount {
-		if requestData.LastSeenAssociationID != "" {
-			return nil, errors.New("unsupported Limit param for count operation")
-		}
-	} else {
-		return nil, errors.New("invalid query type") // This can never happen.
-	}
-
-	// Validate SortDescending.
-	if queryType == AssociationQueryTypeCount && requestData.SortDescending {
-		return nil, errors.New("unsupported SortDescending param for count operation")
 	}
 
 	// Construct association query.

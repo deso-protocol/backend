@@ -1152,7 +1152,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		},
 		{
 			"GetUserAssociationByID",
-			[]string{"GET", "OPTIONS"},
+			[]string{"GET"},
 			RoutePathUserAssociations + "/{associationID:[a-fA-F0-9]+$}",
 			fes.GetUserAssociationByID,
 			PublicAccess,
@@ -1187,7 +1187,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		},
 		{
 			"GetPostAssociationByID",
-			[]string{"GET", "OPTIONS"},
+			[]string{"GET"},
 			RoutePathPostAssociations + "/{associationID:[a-fA-F0-9]+$}",
 			fes.GetPostAssociationByID,
 			PublicAccess,
