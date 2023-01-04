@@ -1744,7 +1744,7 @@ func (fes *APIServer) GetPostsForPublicKey(ww http.ResponseWriter, req *http.Req
 	}
 
 	// Get Posts Ordered by time.
-	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash, requestData.NumToFetch, requestData.MediaRequired, requestData.OnlyNFTs, requestData.OnlyPosts)
+	posts, err := utxoView.GetPostsPaginatedForPublicKeyOrderedByTimestamp(publicKeyBytes, startPostHash, requestData.NumToFetch, requestData.MediaRequired, requestData.OnlyNFTs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPostsForPublicKey: Problem getting paginated posts: %v", err))
 		return
