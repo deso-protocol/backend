@@ -10,8 +10,10 @@ import (
 )
 
 type CreateAccessGroupRequest struct {
-	// SenderPublicKeyBase58Check is the public key in base58check of the message sender.
-	SenderPublicKeyBase58Check string `safeForLogging:"true"`
+	// AccessGroupOwnerPublicKeyBase58Check is the public key in base58check of the message sender.
+	// This needs to match your public key used for signing the transaction.
+	// You cannot create a group for another public key.
+	AccessGroupOwnerPublicKeyBase58Check string `safeForLogging:"true"`
 	// AccessGroupPublicKeyBase58Check is the Public key required to participate in the access groups.
 	AccessGroupPublicKeyBase58Check string `safeForLogging:"true"`
 	// Name of the access group to be created.
@@ -29,8 +31,11 @@ type CreateAccessGroupRequest struct {
 
 // 1. Creating an access group requires two public keys
 //    One is of course your account public key, which is your identity on the blockchain.
+//    You submit your public key as AccessGroupOwnerPublicKeyBase58Check in the request field.
+//    Again, AccessGroupOwnerPublicKey should match the key used for signing the transaction.
+//    You cannot create access groups for a different account or a public key.
 //    In addition to that you need an AccessGroupPublicKey, which is used to create identity for access control.
-// 2. The AccessGroupPublicKey must be different your account public key.
+// 2. The AccessGroupPublicKey must be different than your account public key.
 //    If they are the same the API will return lib.RuleErrorAccessPublicKeyCannotBeOwnerKey
 // 3. On creating a new access group, the you will become the owner of the access group.
 //    Hence, the AccessGroupOwnerPublicKey will be same your accounts Public key.
@@ -53,25 +58,38 @@ func (fes *APIServer) CreateAccessGroup(ww http.ResponseWriter, req *http.Reques
 		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem parsing request body: %v", err))
 		return
 	}
-	// Decode the sender public key.
-	senderPkBytes, _, err := lib.Base58CheckDecode(requestData.SenderPublicKeyBase58Check)
+	// Decode the access group owner public key.
+	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.AccessGroupOwnerPublicKeyBase58Check)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem decoding sender "+
-			"base58 public key %s: %v", requestData.SenderPublicKeyBase58Check, err))
+		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem decoding owner"+
+			"base58 public key %s: %v", requestData.AccessGroupOwnerPublicKeyBase58Check, err))
 		return
 	}
 
-	// Parse sender public key to lib.PublicKey
-	senderPublicKey := lib.NewPublicKey(senderPkBytes)
+	// get the byte array of the access group key name.
+	accessGroupKeyNameBytes := []byte(requestData.AccessGroupKeyName)
 
+	if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupOwnerPkBytes, accessGroupKeyNameBytes); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem validating recipient "+
+			"public key and group messaging key name %s: %v", requestData.AccessGroupKeyName, err))
+		return
+	}
+	// Decode the access group public key.
 	accessGroupPkBytes, _, err := lib.Base58CheckDecode(requestData.AccessGroupPublicKeyBase58Check)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem decoding recipient "+
+		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem decoding access group "+
 			"base58 public key %s: %v", requestData.AccessGroupPublicKeyBase58Check, err))
 		return
 	}
 
-	accessGroupKeyNameBytes := []byte(requestData.AccessGroupKeyName)
+	// validate whether the access group public key is a valid public key.
+	if err = lib.IsByteArrayValidPublicKey(accessGroupPkBytes); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem validating access group "+
+			"public key %s: %v", senderPkBytes, err))
+		return
+	}
+	// Parse sender public key to lib.PublicKey
+	senderPublicKey := lib.NewPublicKey(senderPkBytes)
 
 }
 
