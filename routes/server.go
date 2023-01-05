@@ -1820,6 +1820,42 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetCountKeysWithDESO,
 			PublicAccess,
 		},
+		// registering the routes related to access groups
+		{
+			"CreateAccessGroup",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateAccessGroup,
+			fes.GetCountKeysWithDESO,
+			PublicAccess,
+		},
+		{
+			"AddAccessGroupMembers",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAddAccessGroupMembers,
+			fes.GetCountKeysWithDESO,
+			PublicAccess,
+		},
+		{
+			"GetAllAccessGroups",
+			[]string{"GET"},
+			RoutePathGetAllUserAccessGroups,
+			fes.GetCountKeysWithDESO,
+			PublicAccess,
+		},
+		{
+			"GetAllUserAccessGroupsOwned",
+			[]string{"GET"},
+			RoutePathGetAllUserAccessGroupsOwned,
+			fes.GetCountKeysWithDESO,
+			PublicAccess,
+		},
+		{
+			"GetAllUserAccessGroupsMemberOnly",
+			[]string{"GET"},
+			RoutePathGetAllUserAccessGroupsMemberOnly,
+			fes.GetCountKeysWithDESO,
+			PublicAccess,
+		},
 	}
 
 	router := muxtrace.NewRouter().StrictSlash(true)
