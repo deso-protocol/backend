@@ -270,6 +270,30 @@ const (
 	RoutePathGetTotalSupply       = "/api/v0/total-supply"
 	RoutePathGetRichList          = "/api/v0/rich-list"
 	RoutePathGetCountKeysWithDESO = "/api/v0/count-keys-with-deso"
+
+	// access-groups.go
+
+	// This endpoint should enable users to create a new access group.
+	// The endpoint should call the CreateAccessGroupTxn function from the core repo.
+	RoutePathCreateAccessGroup = "/api/v0/create-access-group"
+
+	// This endpoint should enable users to add members to an existing access group.
+	// This should call the CreateAccessGroupMembersTxn function from the core repo.
+	RoutePathAddAccessGroupMembers = "/api/v0/add-access-group-members"
+
+	// This endpoint should return all access groups owned by the user and access
+	// groups for which the user is a member.
+	// This should call the GetAllAccessGroupIdsForUser function from the core repo.
+	RoutePathGetAllUserAccessGroups = "/api/v0/get-all-user-access-groups"
+
+	// This endpoint should be very similar to the /api/v0/get-all-user-access-group endpoint,
+	//  except it only returns the owned access groups,
+	// where accessGroupOwnerPublicKey is the same as the public key in the response
+	RoutePathGetAllUserAccessGroupsOwned = "/api/v0/get-all-user-access-groups-owned"
+
+	// This endpoint should be very similar to the /api/v0/get-all-user-access-group endpoint,
+	// except it only returns access groups where user is a just a member (not an owner).
+	RoutePathGetAllUserAccessGroupsMemberOnly = "/api/v0/get-all-user-access-groups-member-only"
 )
 
 // APIServer provides the interface between the blockchain and things like the
