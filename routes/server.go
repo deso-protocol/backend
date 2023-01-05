@@ -1825,14 +1825,14 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			"CreateAccessGroup",
 			[]string{"POST", "OPTIONS"},
 			RoutePathCreateAccessGroup,
-			fes.GetCountKeysWithDESO,
+			fes.CreateAccessGroup,
 			PublicAccess,
 		},
 		{
 			"AddAccessGroupMembers",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAddAccessGroupMembers,
-			fes.GetCountKeysWithDESO,
+			fes.AddAccessGroupMembers,
 			PublicAccess,
 		},
 		{
