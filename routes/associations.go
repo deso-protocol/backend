@@ -168,15 +168,13 @@ func (fes *APIServer) CreateUserAssociation(ww http.ResponseWriter, req *http.Re
 
 	// Parse AppPublicKeyBytes from AppPublicKeyBase58Check.
 	// If not provided, we default to the ZeroPublicKey (global).
-	var appPublicKeyBytes []byte
+	appPublicKeyBytes := lib.ZeroPublicKey.ToBytes()
 	if requestData.AppPublicKeyBase58Check != "" {
 		appPublicKeyBytes, err = GetPubKeyBytesFromBase58Check(requestData.AppPublicKeyBase58Check)
 		if err != nil {
 			_AddInternalServerError(ww, "CreateUserAssociation: problem getting public key for the app")
 			return
 		}
-	} else {
-		appPublicKeyBytes = lib.ZeroPublicKey.ToBytes()
 	}
 
 	// Validate AssociationType.
@@ -597,17 +595,14 @@ func (fes *APIServer) CreatePostAssociation(ww http.ResponseWriter, req *http.Re
 
 	// Parse AppPublicKeyBytes from AppPublicKeyBase58Check.
 	// If not provided, we default to the ZeroPublicKey (global).
-	var appPublicKeyBytes []byte
+	appPublicKeyBytes := lib.ZeroPublicKey.ToBytes()
 	if requestData.AppPublicKeyBase58Check != "" {
 		appPublicKeyBytes, err = GetPubKeyBytesFromBase58Check(requestData.AppPublicKeyBase58Check)
 		if err != nil {
 			_AddInternalServerError(ww, "CreatePostAssociation: problem getting public key for the app")
 			return
 		}
-	} else {
-		appPublicKeyBytes = lib.ZeroPublicKey.ToBytes()
 	}
-
 	// Validate AssociationType.
 	if requestData.AssociationType == "" {
 		_AddBadRequestError(ww, "CreatePostAssociation: must provide an AssociationType")
