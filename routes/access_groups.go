@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -92,6 +93,12 @@ func (fes *APIServer) CreateAccessGroup(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	// Access group name key cannot be equal to base name key (equal to all zeros).
+	if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"CreateAccessGroup: Access Group key cannot be same as base key (all zeros)."+"access group key name %s", requestData.AccessGroupKeyName))
+		return
+	}
 	// Decode the access group public key.
 	accessGroupPkBytes, _, err := lib.Base58CheckDecode(requestData.AccessGroupPublicKeyBase58Check)
 	if err != nil {
@@ -153,6 +160,33 @@ func (fes *APIServer) CreateAccessGroup(ww http.ResponseWriter, req *http.Reques
 	}
 }
 
+//  1. AccessGroupMemberPublicKeyBase58Check : The public key of the member to be added to the group.
+//     Should be a valid public key.
+//  2. AccessGroupMemberKeyName:  String containing the key of one of the existing access group to which the user belongs to.
+//     Cannot be a random string. A validation is performed to check that the AccessGroupMemberPublicKey is indeed a
+//     member to the access group with AccessGroupMemberKeyName.
+//     Hence you cannot pass a value to AccessGroupMemberKeyName if the user doesn't belong to an access group with key AccessGroupMemberKeyName.
+//     The access group owner can add themselves as a member using lib.BaseGroup() as AccessGroupMemberKeyName.
+//     Access Group owners cannot add themselves to the same group using the
+//     name of the access group they own as the value of the AccessGroupMemberKeyName field.
+//  3. EncryptedKey, which stores the main group's access public key encrypted to the member group's access public key.
+//     This is used to allow the member to decrypt the main group's access public key
+//     using their individual access groups' secrets.
+//     This value cannot be empty.
+type AccessGroupMember struct {
+	// AccessGroupOwnerPublicKeyBase58Check is the public key of the access group owner.
+	// This needs to match your public key used for signing the transaction.
+	// You cannot create a group for another public key.
+	AccessGroupMemberPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// AccessGroupMemberKeyName is the name of the user in the access group
+	AccessGroupMemberKeyName string `safeForLogging:"true"`
+
+	EncryptedKey []byte
+
+	ExtraData map[string][]byte
+}
+
 type AddAccessGroupMembersRequest struct {
 	// AccessGroupOwnerPublicKeyBase58Check is the public key of the access group owner.
 	// This needs to match your public key used for signing the transaction.
@@ -162,28 +196,9 @@ type AddAccessGroupMembersRequest struct {
 	AccessGroupKeyName string `safeForLogging:"true"`
 	// The details of the members to add are contained in the accessGroupMemberList array.
 	// Each entry in the accessGroupMemberList represents one user to add to the access group.
-	// Here is a sample entry:
-	// []*AccessGroupMember{
-	// 		{
-	//
-	//			AccessGroupMemberPublicKey: m0PubBytes,
-	// 			AccessGroupMemberKeyName: groupName1,
-	//			EncryptedKey: []byte{1},
-	// 			ExtraData: nil},
-	//      }
-	// }
-	// 1. AccessGroupMemberPublicKey : The public key of the member to be added to the group.
-	//    Should be a valid public key.
-	// 2. AccessGroupMemberKeyName:  String containing the key of one of the existing access group to which the user belongs to.
-	//    Cannot be a random string. A validation is performed to check that the AccessGroupMemberPublicKey indeed belongs to an access group with AccessGroupMemberKeyName.
-	//    Hence you cannot pass a value to AccessGroupMemberKeyName if the user doesn't belong to an access group with key AccessGroupMemberKeyName.
-	// 3. EncryptedKey, which stores the main group's access public key encrypted to the member group's access public key.
-	//    This is used to allow the member to decrypt the main group's access public key
-	//    using their individual access groups' secrets.
-	//    This value cannot be empty.
-	accessGroupMemberList []*lib.AccessGroupMember
 
-	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+	accessGroupMemberList []AccessGroupMember `safeForLogging:"true"`
+	MinFeeRateNanosPerKB  uint64              `safeForLogging:"true"`
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
 	// ExtraData is an arbitrary key value map
@@ -229,6 +244,14 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 	}
 	// get the byte array of the access group key name.
 	accessGroupKeyNameBytes := []byte(requestData.AccessGroupKeyName)
+
+	// Access group name key cannot be equal to base name key (equal to all zeros).
+	if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"CreateAccessGroup: Access Group key cannot be same as base key (all zeros). "+
+				"access group key name %s", requestData.AccessGroupKeyName))
+		return
+	}
 	// Validates whether the accessGroupOwner key is a valid public key and
 	// some basic checks on access group key name like Min and Max characters.
 	if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupOwnerPkBytes, accessGroupKeyNameBytes); err != nil {
@@ -237,18 +260,62 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 		return
 	}
 
-	// Decode the access group public key.
-	accessGroupPkBytes, _, err := lib.Base58CheckDecode(requestData.AccessGroupPublicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem decoding access group "+
-			"base58 public key %s: %v", requestData.AccessGroupPublicKeyBase58Check, err))
-		return
-	}
-	// validate whether the access group public key is a valid public key.
-	if err = lib.IsByteArrayValidPublicKey(accessGroupPkBytes); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem validating access group "+
-			"public key %s: %v", accessGroupPkBytes, err))
-		return
+	accessGroupMembers := []*lib.AccessGroupMemberEntry{}
+	accessGroupMemberPublicKeys := make(map[lib.PublicKey]struct{})
+	for i := 0; i < len(requestData.accessGroupMemberList); i++ {
+
+		member := requestData.accessGroupMemberList[i]
+
+		// Decode the access group owner public key.
+		accessGroupMemberPkBytes, _, err := lib.Base58CheckDecode(member.AccessGroupMemberPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem decoding member"+
+				"base58 public key %s: %v", member.AccessGroupMemberPublicKeyBase58Check, err))
+			return
+		}
+		// get the byte array of the access group key name.
+
+		// Validates whether the accessGroupOwner key is a valid public key and
+		// some basic checks on access group key name like Min and Max characters.
+		if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupMemberPkBytes,
+			[]byte(member.AccessGroupMemberKeyName)); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem validating access group owner "+
+				"public key and access group key name %s: %v", requestData.AccessGroupKeyName, err))
+			return
+		}
+
+		if bytes.Equal(accessGroupOwnerPkBytes, accessGroupMemberPkBytes) &&
+			bytes.Equal(lib.NewGroupKeyName(accessGroupKeyNameBytes).ToBytes(),
+				lib.NewGroupKeyName([]byte(member.AccessGroupMemberKeyName)).ToBytes()) {
+
+			_AddBadRequestError(ww, fmt.Sprintf("Can't add the owner of the group as a member of the "+
+				"group using the same group key name."))
+			return
+
+		}
+
+		if len(member.EncryptedKey) == 0 {
+			_AddBadRequestError(ww, fmt.Sprintf("EncryptedKey for access member (%v)"+
+				"cannot be empty.", member))
+			return
+		}
+
+		memberPublicKey := *lib.NewPublicKey(accessGroupMemberPkBytes)
+		if _, exists := accessGroupMemberPublicKeys[memberPublicKey]; exists {
+			_AddBadRequestError(ww, fmt.Sprintf("EncryptedKey for access member (%v)"+
+				"cannot be empty.", member))
+			return
+		}
+
+		accessGroupMemberEntry := &lib.AccessGroupMemberEntry{
+			AccessGroupMemberPublicKey: lib.NewPublicKey(accessGroupMemberPkBytes),
+			AccessGroupMemberKeyName:   lib.NewGroupKeyName([]byte(member.AccessGroupMemberKeyName)),
+			EncryptedKey:               member.EncryptedKey,
+			ExtraData:                  member.ExtraData,
+		}
+		accessGroupMembers = append(accessGroupMembers, accessGroupMemberEntry)
+
+		accessGroupMemberPublicKeys[memberPublicKey] = struct{}{}
 	}
 
 	// Compute the additional transaction fees as specified by the request body and the node-level fees.
