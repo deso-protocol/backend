@@ -3186,6 +3186,11 @@ type TransactionSpendingLimitResponse struct {
 	// of SellingCoinPublicKey mapped to the number of DAO Coin Limit Order transactions with
 	// this Buying and Selling coin pair that the derived key is authorized to perform.
 	DAOCoinLimitOrderLimitMap map[string]map[string]uint64
+	// AssociationLimitMap is a map with AssociationClass { User | Post } as keys mapped to a map of
+	// AssociationType (arbitrary strings) keys mapped to a map of AssociationAppScopeTypeStrings { Any | Scoped }
+	// keys mapped to a map of public key string mapped to a map of AssociationOperationString { Any | Create | Delete }
+	// with count uint64 as values
+	AssociationLimitMap map[lib.AssociationClassString]map[string]map[lib.AssociationAppScopeTypeString]map[string]map[lib.AssociationOperationString]uint64
 
 	// ===== ENCODER MIGRATION lib.UnlimitedDerivedKeysMigration =====
 	// IsUnlimited determines whether this derived key is unlimited. An unlimited derived key can perform all transactions
@@ -3471,6 +3476,39 @@ func TransactionSpendingLimitToResponse(
 			transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap[buyingPublicKey][sellingPublicKey] = opCount
 		}
 	}
+
+	if len(transactionSpendingLimit.AssociationLimitMap) > 0 {
+		transactionSpendingLimitResponse.AssociationLimitMap = make(
+			map[lib.AssociationClassString]map[string]map[lib.AssociationAppScopeTypeString]map[string]map[lib.AssociationOperationString]uint64)
+		for associationLimitKey, opCount := range transactionSpendingLimit.AssociationLimitMap {
+			associationClassString := associationLimitKey.AssociationClass.ToAssociationClassString()
+			associationType := associationLimitKey.AssociationType
+			associationAppScopeTypeString := associationLimitKey.AppScopeType.ToAssociationAppScopeTypeString()
+			associationOperationString := associationLimitKey.Operation.ToAssociationOperationString()
+			var appPublicKey string
+			if !associationLimitKey.AppPKID.IsZeroPKID() {
+				appPkBytes := utxoView.GetPublicKeyForPKID(&associationLimitKey.AppPKID)
+				appPublicKey = lib.PkToString(appPkBytes, params)
+			}
+			if _, exists := transactionSpendingLimitResponse.AssociationLimitMap[associationClassString]; !exists {
+				transactionSpendingLimitResponse.AssociationLimitMap[associationClassString] = make(
+					map[string]map[lib.AssociationAppScopeTypeString]map[string]map[lib.AssociationOperationString]uint64)
+			}
+			if _, exists := transactionSpendingLimitResponse.AssociationLimitMap[associationClassString][associationType]; !exists {
+				transactionSpendingLimitResponse.AssociationLimitMap[associationClassString][associationType] = make(
+					map[lib.AssociationAppScopeTypeString]map[string]map[lib.AssociationOperationString]uint64)
+			}
+			if _, exists := transactionSpendingLimitResponse.AssociationLimitMap[associationClassString][associationType][associationAppScopeTypeString]; !exists {
+				transactionSpendingLimitResponse.AssociationLimitMap[associationClassString][associationType][associationAppScopeTypeString] = make(
+					map[string]map[lib.AssociationOperationString]uint64)
+			}
+			if _, exists := transactionSpendingLimitResponse.AssociationLimitMap[associationClassString][associationType][associationAppScopeTypeString][appPublicKey]; !exists {
+				transactionSpendingLimitResponse.AssociationLimitMap[associationClassString][associationType][associationAppScopeTypeString][appPublicKey] = make(
+					map[lib.AssociationOperationString]uint64)
+			}
+			transactionSpendingLimitResponse.AssociationLimitMap[associationClassString][associationType][associationAppScopeTypeString][appPublicKey][associationOperationString] = opCount
+		}
+	}
 	return transactionSpendingLimitResponse
 }
 
@@ -3576,6 +3614,34 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 				}
 				transactionSpendingLimit.DAOCoinLimitOrderLimitMap[lib.MakeDAOCoinLimitOrderLimitKey(
 					*buyingPKID, *sellingPKID)] = count
+			}
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.AssociationLimitMap) > 0 {
+		transactionSpendingLimit.AssociationLimitMap = make(map[lib.AssociationLimitKey]uint64)
+		for associationClass, associationTypeMap := range transactionSpendingLimitResponse.AssociationLimitMap {
+			for associationType, appScopeTypeMap := range associationTypeMap {
+				for appScopeType, appPKIDMap := range appScopeTypeMap {
+					for appPublicKey, associationOperationMap := range appPKIDMap {
+						appPKID := &lib.ZeroPKID
+						if appPublicKey != "" {
+							appPKID, err = getCreatorPKIDForBase58Check(appPublicKey)
+							if err != nil {
+								return nil, err
+							}
+						}
+						for associationOperation, opCount := range associationOperationMap {
+							transactionSpendingLimit.AssociationLimitMap[lib.MakeAssociationLimitKey(
+								associationClass.ToAssociationClass(),
+								[]byte(associationType),
+								*appPKID,
+								appScopeType.ToAssociationAppScopeType(),
+								associationOperation.ToAssociationOperation())
+							] = opCount
+						}
+					}
+				}
 			}
 		}
 	}
