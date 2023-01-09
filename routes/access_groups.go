@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/deso-protocol/core/lib"
+	"github.com/pkg/errors"
 )
 
 type CreateAccessGroupRequest struct {
@@ -377,12 +378,99 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 	}
 }
 
+type GetAccessGroupIDsRequest struct {
+	// PublicKeyBase58Check is the public key whose group IDs needs to be queried.
+	PublicKeyBase58Check string `safeForLogging:"true"`
+}
+
+// struct to construct the response to create an access group.
+type GetAccessGroupIDsResponse struct {
+	// access group Ids of groups owned by a given public Key.
+	// using omitempty tag so that the filed is omitted if empty during serialization.
+	AccessGroupIdsOwned []*lib.AccessGroupId `json:",omitempty" safeForLogging:"true"`
+	// access group Ids of groups where a given public key account is just a member.
+	AccessGroupIdsMember []*lib.AccessGroupId `json:",omitempty" safeForLogging:"true"`
+}
+
+func (fes *APIServer) getAllAccessIdsForPublicKey(publicKeyBase58DecodedBytes []byte) (groupIds *GetAccessGroupIDsResponse, err error) {
+	accessGroupIdsOwned, err := fes.getGroupOwnerAccessIdsForPublicKey(publicKeyBase58DecodedBytes)
+
+	if err != nil {
+		return nil, errors.Wrap(fmt.Errorf("getGroupOwnerAccessIdsForPublicKey: Error generating "+
+			"utxo view: %v", err), "")
+	}
+
+	accessGroupIdsMember, err := utxoView.GetAccessGroupIdsForMember(publicKeyBase58DecodedBytes)
+	if err != nil {
+		return nil, errors.Wrapf(err, "getMemberOnlyAccessIdsForPublicKey: Problem getting access group ids for member")
+	}
+
+	groupIds = &GetAccessGroupIDsResponse{
+		AccessGroupIdsOwned: accessGroupIdsOwned,
+		AccessGroupIdsMember:  accessGroupIdsMember
+	}
+	
+	return groupIds, nil
+}
+
+func (fes *APIServer) getGroupOwnerAccessIdsForPublicKey(publicKeyBase58DecodedBytes []byte) (accessGroupIdsOwned []*lib.AccessGroupId, err error) {
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return nil, errors.Wrap(fmt.Errorf("getGroupOwnerAccessIdsForPublicKey: Error generating "+
+			"utxo view: %v", err), "")
+	}
+	// This is our helper map to keep track of all user access keys.
+	accessGroupIdsOwned, err = utxoView.GetAccessGroupIdsForOwner(publicKeyBase58DecodedBytes)
+	if err != nil {
+		return nil, errors.Wrapf(err, "getGroupOwnerAccessIdsForPublicKey: Problem getting access group ids for member")
+	}
+	return accessGroupIdsOwned, nil
+}
+
+func (fes *APIServer) getMemberOnlyAccessIdsForPublicKey(publicKeyBase58DecodedBytes []byte) (accessGroupIdsMember []*lib.AccessGroupId, err error) {
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return nil, errors.Wrap(fmt.Errorf("getMemberOnlyAccessIdsForPublicKey: Error generating "+
+			"utxo view: %v", err), "")
+	}
+	accessGroupIdsMember, err = utxoView.GetAccessGroupIdsForMember(publicKeyBase58DecodedBytes)
+	if err != nil {
+		return nil, errors.Wrapf(err, "getMemberOnlyAccessIdsForPublicKey: Problem getting access group ids for member")
+	}
+
+	return accessGroupIdsMember, nil
+}
+
 func (fes *APIServer) GetAllAccessGroups(ww http.ResponseWriter, req *http.Request) {
 
-}
-func (fes *APIServer) GetAllUserAccessGroupsOwned(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetAccessGroupIDsResponse{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem parsing request body: %v", err))
+		return
+	}
 
+	// Decode the access group owner public key.
+	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem decoding owner"+
+			"base58 public key %s: %v", requestData.PublicKeyBase58Check, err))
+		return
+	}
 }
 func (fes *APIServer) GetAllUserAccessGroupsMemberOnly(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetAccessGroupIDsResponse{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem parsing request body: %v", err))
+		return
+	}
 
+	// Decode the access group owner public key.
+	pkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem decoding owner"+
+			"base58 public key %s: %v", requestData.PublicKeyBase58Check, err))
+		return
+	}
 }
