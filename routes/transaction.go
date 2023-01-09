@@ -3163,12 +3163,12 @@ func (fes *APIServer) getTransactionFee(txnType lib.TxnType, transactorPublicKey
 }
 
 type AssociationLimitMapItem struct {
-	AssociationClass lib.AssociationClassString
-	AssociationType  string
-	AppScopeType     lib.AssociationAppScopeTypeString
+	AssociationClass        lib.AssociationClassString
+	AssociationType         string
+	AppScopeType            lib.AssociationAppScopeTypeString
 	AppPublicKeyBase58Check string
-	AssociationOperation lib.AssociationOperationString
-	OpCount           uint64
+	AssociationOperation    lib.AssociationOperationString
+	OpCount                 uint64
 }
 
 // TransactionSpendingLimitResponse is a backend struct used to describe the TransactionSpendingLimit for a Derived key
@@ -3499,12 +3499,12 @@ func TransactionSpendingLimitToResponse(
 			}
 			transactionSpendingLimitResponse.AssociationLimitMap = append(transactionSpendingLimitResponse.AssociationLimitMap,
 				AssociationLimitMapItem{
-					AssociationClass: associationClassString,
-					AssociationType: associationType,
-					AppScopeType: associationAppScopeTypeString,
+					AssociationClass:        associationClassString,
+					AssociationType:         associationType,
+					AppScopeType:            associationAppScopeTypeString,
 					AppPublicKeyBase58Check: appPublicKey,
-					AssociationOperation: associationOperationString,
-					OpCount: opCount,
+					AssociationOperation:    associationOperationString,
+					OpCount:                 opCount,
 				})
 		}
 	}
@@ -3633,7 +3633,7 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 				*appPKID,
 				associationLimitMapItem.AppScopeType.ToAssociationAppScopeType(),
 				associationLimitMapItem.AssociationOperation.ToAssociationOperation(),
-				)] = associationLimitMapItem.OpCount
+			)] = associationLimitMapItem.OpCount
 		}
 	}
 
