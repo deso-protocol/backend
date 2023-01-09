@@ -3637,8 +3637,8 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 								[]byte(associationType),
 								*appPKID,
 								appScopeType.ToAssociationAppScopeType(),
-								associationOperation.ToAssociationOperation())
-							] = opCount
+								associationOperation.ToAssociationOperation(),
+							)] = opCount
 						}
 					}
 				}
