@@ -1853,7 +1853,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			"GetAllUserAccessGroupsMemberOnly",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetAllUserAccessGroupsMemberOnly,
-			fes.GetCountKeysWithDESO,
+			fes.GetAllUserAccessGroupsMemberOnly,
 			PublicAccess,
 		},
 	}
