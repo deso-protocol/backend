@@ -1,11 +1,13 @@
 package routes
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
@@ -94,7 +96,7 @@ func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check, accessGroupKeyNam
 	accessGroupKeyNameBytes = []byte(accessGroupKeyName)
 	// Validates whether the accessGroupOwner key is a valid public key and
 	// some basic checks on access group key name like Min and Max characters.
-	if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupOwnerPkBytes, accessGroupKeyNameBytes); err != nil {
+	if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupKeyNameBytes, accessGroupKeyNameBytes); err != nil {
 		return nil, nil, errors.New(fmt.Sprintf("ValidateAccessGroupPublicKeyAndName: Problem validating access group owner "+
 			"public key and access group key name %s: %v", accessGroupKeyName, err))
 
@@ -104,7 +106,7 @@ func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check, accessGroupKeyNam
 	// By default all users belong to the access group with base name key.
 	if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
 		errors.New(fmt.Sprintf(
-			"ValidateAccessGroupPublicKeyAndName: Access Group key cannot be same as base key (all zeros)."+"access group key name %s", requestData.AccessGroupKeyName))
+			"ValidateAccessGroupPublicKeyAndName: Access Group key cannot be same as base key (all zeros)."+"access group key name %s", accessGroupKeyName))
 		return
 	}
 
@@ -141,10 +143,10 @@ func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
 
 	if bytes.Equal(senderGroupOwnerPkBytes, recipientGroupOwnerPkBytes) {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Dm sender and recipient "+
-		"cannot be the same %s: %s",
-		requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
-	return
-		
+			"cannot be the same %s: %s",
+			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
+		return
+
 	}
 
 	senderAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
@@ -178,10 +180,10 @@ func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
 
 	// Core from the core lib to construct the transaction to create an access group.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNewMessageTxn(
-		senderGroupOwnerPkBytes, senderGroupOwnerPkBytes, senderGroupKeyNameBytes,senderAccessGroupPkbytes
-		recipientGroupOwnerPkBytes,recipientGroupKeyNameBytes, recipientAccessGroupPkbytes,
-		requestData.EncryptedMessageText, tstamp, 
-		lib.NewMessageTypeDm,lib.	, 
+		senderGroupOwnerPkBytes, *lib.NewPublicKey(senderGroupOwnerPkBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes), *lib.NewPublicKey(senderAccessGroupPkbytes),
+		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes), *lib.NewPublicKey(recipientAccessGroupPkbytes),
+		requestData.EncryptedMessageText, tstamp,
+		lib.NewMessageTypeDm, lib.NewMessageOperationCreate,
 		extraData, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem creating transaction: %v", err))
@@ -243,10 +245,10 @@ func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Req
 
 	if bytes.Equal(senderGroupOwnerPkBytes, recipientGroupOwnerPkBytes) {
 		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Dm sender and recipient "+
-		"cannot be the same %s: %s",
-		requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
-	return
-		
+			"cannot be the same %s: %s",
+			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
+		return
+
 	}
 
 	senderAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
@@ -280,10 +282,10 @@ func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Req
 
 	// Core from the core lib to construct the transaction to create an access group.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNewMessageTxn(
-		senderGroupOwnerPkBytes, senderGroupOwnerPkBytes, senderGroupKeyNameBytes,senderAccessGroupPkbytes
-		recipientGroupOwnerPkBytes,recipientGroupKeyNameBytes, recipientAccessGroupPkbytes,
-		requestData.EncryptedMessageText, tstamp, 
-		lib.NewMessageTypeGroupChat,lib.	, 
+		senderGroupOwnerPkBytes, *lib.NewPublicKey(senderGroupOwnerPkBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes), *lib.NewPublicKey(senderAccessGroupPkbytes),
+		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes), *lib.NewPublicKey(recipientAccessGroupPkbytes),
+		requestData.EncryptedMessageText, tstamp,
+		lib.NewMessageTypeGroupChat, lib.NewMessageOperationCreate,
 		extraData, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem creating transaction: %v", err))

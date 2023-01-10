@@ -1875,7 +1875,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			"SendGroupChatMessage",
 			[]string{"POST", "OPTIONS"},
 			RoutePathSendGroupChatMessage,
-			fes.SendDmMessage,
+			fes.SendGroupChatMessage,
 			PublicAccess,
 		},
 	}
