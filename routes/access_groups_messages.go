@@ -82,6 +82,7 @@ func Base58DecodeAndValidatePublickey(publicKeyBase58Check string) (publicKeyByt
 
 	return publicKeyBytes, nil
 }
+
 func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check, accessGroupKeyName string) (publicKeyBytes []byte, accessGroupKeyNameBytes []byte, err error) {
 	publicKeyBytes, _, err = lib.Base58CheckDecode(publicKeyBase58Check)
 	if err != nil {
@@ -108,7 +109,6 @@ func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check, accessGroupKeyNam
 	}
 
 	return publicKeyBytes, accessGroupKeyNameBytes, nil
-
 }
 
 func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
@@ -139,34 +139,52 @@ func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// validate whether the access group public key is a valid public key.
-	if err = lib.IsByteArrayValidPublicKey(accessGroupPkBytes); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem validating access group "+
-			"public key %s: %v", accessGroupPkBytes, err))
+	if bytes.Equal(senderGroupOwnerPkBytes, recipientGroupOwnerPkBytes) {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Dm sender and recipient "+
+		"cannot be the same %s: %s",
+		requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
+	return
+		
+	}
+
+	senderAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem validating sender "+
+			"base58 public key %s: %v", requestData.SenderAccessGroupPublicKeyBase58Check, err))
+		return
+	}
+
+	recipientAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem validating recipient "+
+			"base58 public key %s: %v", requestData.SenderAccessGroupPublicKeyBase58Check, err))
 		return
 	}
 
 	// Compute the additional transaction fees as specified by the request body and the node-level fees.
-	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeAccessGroup, accessGroupOwnerPkBytes, requestData.TransactionFees)
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeAccessGroup, senderGroupOwnerPkBytes, requestData.TransactionFees)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: TransactionFees specified in Request body are invalid: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: TransactionFees specified in Request body are invalid: %v", err))
 		return
 	}
 
 	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem encoding ExtraData: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem encoding ExtraData: %v", err))
 		return
 	}
 
+	tstamp := uint64(time.Now().UnixNano())
+
 	// Core from the core lib to construct the transaction to create an access group.
-	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateAccessGroupTxn(
-		accessGroupOwnerPkBytes, accessGroupPkBytes,
-		accessGroupKeyNameBytes, lib.AccessGroupOperationTypeCreate,
-		extraData,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNewMessageTxn(
+		senderGroupOwnerPkBytes, senderGroupOwnerPkBytes, senderGroupKeyNameBytes,senderAccessGroupPkbytes
+		recipientGroupOwnerPkBytes,recipientGroupKeyNameBytes, recipientAccessGroupPkbytes,
+		requestData.EncryptedMessageText, tstamp, 
+		lib.NewMessageTypeDm,lib.NewMessageOperationCreate, 
+		extraData, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem creating transaction: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem creating transaction: %v", err))
 		return
 	}
 
@@ -175,7 +193,7 @@ func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem serializing transaction: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem serializing transaction: %v", err))
 		return
 	}
 
@@ -188,7 +206,7 @@ func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
 		TransactionHex:    hex.EncodeToString(txnBytes),
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem encoding response as JSON: %v", err))
 		return
 	}
 
