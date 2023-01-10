@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/deso-protocol/core/lib"
+	"github.com/pkg/errors"
 )
 
 /*type NewMessageMetadata struct {
@@ -61,45 +62,83 @@ type SendDmResponse struct {
 	TransactionHex    string
 }
 
-func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
+// Base58 decodes a public key string and verifies if it is in a valid public key format.
+func Base58DecodeAndValidatePublickey(publicKeyBase58Check string) (publicKeyBytes []byte, err error) {
 
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := CreateAccessGroupRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem parsing request body: %v", err))
-		return
+	publicKeyBytes, _, err = lib.Base58CheckDecode(publicKeyBase58Check)
+	if err != nil {
+		return nil, errors.New(fmt.Sprintf("Base58DecodeAndValidatePublickey: Problem decoding "+
+			"base58 public key %s: %v", publicKeyBase58Check, err))
+
 	}
 
-	// Decode the access group owner public key.
-	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.AccessGroupOwnerPublicKeyBase58Check)
+	// validate whether the access group public key is a valid public key.
+	err = lib.IsByteArrayValidPublicKey(publicKeyBytes)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem decoding owner"+
-			"base58 public key %s: %v", requestData.AccessGroupOwnerPublicKeyBase58Check, err))
-		return
+		return nil, errors.New(fmt.Sprintf("Base58DecodeAndValidatePublickey: Problem validating "+
+			"base58 public key %s: %v", publicKeyBase58Check, err))
+
+	}
+
+	return publicKeyBytes, nil
+}
+func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check, accessGroupKeyName string) (publicKeyBytes []byte, accessGroupKeyNameBytes []byte, err error) {
+	publicKeyBytes, _, err = lib.Base58CheckDecode(publicKeyBase58Check)
+	if err != nil {
+		return nil, nil, errors.New(fmt.Sprintf("ValidateAccessGroupPublicKeyAndName: Problem decoding "+
+			"base58 public key %s: %v", publicKeyBase58Check, err))
+
 	}
 	// get the byte array of the access group key name.
-	accessGroupKeyNameBytes := []byte(requestData.AccessGroupKeyName)
+	accessGroupKeyNameBytes = []byte(accessGroupKeyName)
 	// Validates whether the accessGroupOwner key is a valid public key and
 	// some basic checks on access group key name like Min and Max characters.
 	if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupOwnerPkBytes, accessGroupKeyNameBytes); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem validating access group owner "+
-			"public key and access group key name %s: %v", requestData.AccessGroupKeyName, err))
+		return nil, nil, errors.New(fmt.Sprintf("ValidateAccessGroupPublicKeyAndName: Problem validating access group owner "+
+			"public key and access group key name %s: %v", accessGroupKeyName, err))
+
+	}
+
+	// Access group name key cannot be equal to base group name key (equal to all zeros).
+	// By default all users belong to the access group with base name key.
+	if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
+		errors.New(fmt.Sprintf(
+			"ValidateAccessGroupPublicKeyAndName: Access Group key cannot be same as base key (all zeros)."+"access group key name %s", requestData.AccessGroupKeyName))
 		return
 	}
 
-	// Access group name key cannot be equal to base name key (equal to all zeros).
-	if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"CreateAccessGroup: Access Group key cannot be same as base key (all zeros)."+"access group key name %s", requestData.AccessGroupKeyName))
+	return publicKeyBytes, accessGroupKeyNameBytes, nil
+
+}
+
+func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
+
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := SendDmMessageRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem parsing request body: %v", err))
 		return
 	}
-	// Decode the access group public key.
-	accessGroupPkBytes, _, err := lib.Base58CheckDecode(requestData.AccessGroupPublicKeyBase58Check)
+	senderGroupOwnerPkBytes, senderGroupKeyNameBytes, err :=
+		ValidateAccessGroupPublicKeyAndName(requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName)
+	// Decode the access group owner public key.
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem decoding access group "+
-			"base58 public key %s: %v", requestData.AccessGroupPublicKeyBase58Check, err))
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem validating sender public key and access group name"+
+			"base58 public key %s: %s %v",
+			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName, err))
 		return
 	}
+
+	recipientGroupOwnerPkBytes, recipientGroupKeyNameBytes, err :=
+		ValidateAccessGroupPublicKeyAndName(requestData.RecipientAccessGroupOwnerPublicKeyBase58Check, requestData.RecipientAccessGroupKeyName)
+	// Decode the access group owner public key.
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem validating sender public key and access group name"+
+			"base58 public key %s: %s %v",
+			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName, err))
+		return
+	}
+
 	// validate whether the access group public key is a valid public key.
 	if err = lib.IsByteArrayValidPublicKey(accessGroupPkBytes); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem validating access group "+
