@@ -294,6 +294,9 @@ const (
 	// This endpoint should be very similar to the /api/v0/get-all-user-access-group endpoint,
 	// except it only returns access groups where user is a just a member (not an owner).
 	RoutePathGetAllUserAccessGroupsMemberOnly = "/api/v0/get-all-user-access-groups-member-only"
+
+	// Routes for access groups based DM and group chat messaging.
+	RoutePathSendDmMessage = "/api/v0/send-dm-message"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -1854,6 +1857,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetAllUserAccessGroupsMemberOnly,
 			fes.GetAllUserAccessGroupsMemberOnly,
+			PublicAccess,
+		},
+		{
+			"SendDmMessage",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSendDmMessage,
+			fes.SendDmMessage,
 			PublicAccess,
 		},
 	}
