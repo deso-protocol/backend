@@ -3195,10 +3195,8 @@ type TransactionSpendingLimitResponse struct {
 	// of SellingCoinPublicKey mapped to the number of DAO Coin Limit Order transactions with
 	// this Buying and Selling coin pair that the derived key is authorized to perform.
 	DAOCoinLimitOrderLimitMap map[string]map[string]uint64
-	// AssociationLimitMap is a map with AssociationClass { User | Post } as keys mapped to a map of
-	// AssociationType (arbitrary strings) keys mapped to a map of AssociationAppScopeTypeStrings { Any | Scoped }
-	// keys mapped to a map of public key string mapped to a map of AssociationOperationString { Any | Create | Delete }
-	// with count uint64 as values
+	// AssociationLimitMap is a slice of AssociationLimitMapItems. Because there are so many attributes to define
+	// the key for AssociationLimits, we represent it as a slice instead of a deeply nested map.
 	AssociationLimitMap []AssociationLimitMapItem
 
 	// ===== ENCODER MIGRATION lib.UnlimitedDerivedKeysMigration =====
@@ -3493,8 +3491,11 @@ func TransactionSpendingLimitToResponse(
 			associationAppScopeTypeString := associationLimitKey.AppScopeType.ToAssociationAppScopeTypeString()
 			associationOperationString := associationLimitKey.Operation.ToAssociationOperationString()
 			var appPublicKey string
-			if !associationLimitKey.AppPKID.IsZeroPKID() {
-				appPkBytes := utxoView.GetPublicKeyForPKID(&associationLimitKey.AppPKID)
+			if associationLimitKey.AppScopeType != lib.AssociationAppScopeTypeAny {
+				appPkBytes := lib.ZeroPublicKey.ToBytes()
+				if !associationLimitKey.AppPKID.IsZeroPKID() {
+					appPkBytes = utxoView.GetPublicKeyForPKID(&associationLimitKey.AppPKID)
+				}
 				appPublicKey = lib.PkToString(appPkBytes, params)
 			}
 			transactionSpendingLimitResponse.AssociationLimitMap = append(transactionSpendingLimitResponse.AssociationLimitMap,
