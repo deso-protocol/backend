@@ -297,6 +297,9 @@ const (
 
 	// Routes for access groups based DM and group chat messaging.
 	RoutePathSendDmMessage = "/api/v0/send-dm-message"
+
+	// Routes for access groups based DM and group chat messaging.
+	RoutePathSendGroupChatMessage = "/api/v0/send-group-chat-message"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -1859,10 +1862,19 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetAllUserAccessGroupsMemberOnly,
 			PublicAccess,
 		},
+
+		// access group message APIs.
 		{
 			"SendDmMessage",
 			[]string{"POST", "OPTIONS"},
 			RoutePathSendDmMessage,
+			fes.SendDmMessage,
+			PublicAccess,
+		},
+		{
+			"SendGroupChatMessage",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSendGroupChatMessage,
 			fes.SendDmMessage,
 			PublicAccess,
 		},

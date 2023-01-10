@@ -181,7 +181,7 @@ func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
 		senderGroupOwnerPkBytes, senderGroupOwnerPkBytes, senderGroupKeyNameBytes,senderAccessGroupPkbytes
 		recipientGroupOwnerPkBytes,recipientGroupKeyNameBytes, recipientAccessGroupPkbytes,
 		requestData.EncryptedMessageText, tstamp, 
-		lib.NewMessageTypeDm,lib.NewMessageOperationCreate, 
+		lib.NewMessageTypeDm,lib.	, 
 		extraData, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem creating transaction: %v", err))
@@ -205,8 +205,111 @@ func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
 		Transaction:       txn,
 		TransactionHex:    hex.EncodeToString(txnBytes),
 	}
+
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem encoding response as JSON: %v", err))
+		return
+	}
+
+}
+
+func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Request) {
+
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := SendDmMessageRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem parsing request body: %v", err))
+		return
+	}
+	senderGroupOwnerPkBytes, senderGroupKeyNameBytes, err :=
+		ValidateAccessGroupPublicKeyAndName(requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName)
+	// Decode the access group owner public key.
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem validating sender public key and access group name"+
+			"base58 public key %s: %s %v",
+			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName, err))
+		return
+	}
+
+	recipientGroupOwnerPkBytes, recipientGroupKeyNameBytes, err :=
+		ValidateAccessGroupPublicKeyAndName(requestData.RecipientAccessGroupOwnerPublicKeyBase58Check, requestData.RecipientAccessGroupKeyName)
+	// Decode the access group owner public key.
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem validating sender public key and access group name"+
+			"base58 public key %s: %s %v",
+			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName, err))
+		return
+	}
+
+	if bytes.Equal(senderGroupOwnerPkBytes, recipientGroupOwnerPkBytes) {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Dm sender and recipient "+
+		"cannot be the same %s: %s",
+		requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
+	return
+		
+	}
+
+	senderAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem validating sender "+
+			"base58 public key %s: %v", requestData.SenderAccessGroupPublicKeyBase58Check, err))
+		return
+	}
+
+	recipientAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem validating recipient "+
+			"base58 public key %s: %v", requestData.SenderAccessGroupPublicKeyBase58Check, err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeAccessGroup, senderGroupOwnerPkBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem encoding ExtraData: %v", err))
+		return
+	}
+
+	tstamp := uint64(time.Now().UnixNano())
+
+	// Core from the core lib to construct the transaction to create an access group.
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNewMessageTxn(
+		senderGroupOwnerPkBytes, senderGroupOwnerPkBytes, senderGroupKeyNameBytes,senderAccessGroupPkbytes
+		recipientGroupOwnerPkBytes,recipientGroupKeyNameBytes, recipientAccessGroupPkbytes,
+		requestData.EncryptedMessageText, tstamp, 
+		lib.NewMessageTypeGroupChat,lib.	, 
+		extraData, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem creating transaction: %v", err))
+		return
+	}
+
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := CreateAccessGroupResponse{
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+	}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem encoding response as JSON: %v", err))
 		return
 	}
 
