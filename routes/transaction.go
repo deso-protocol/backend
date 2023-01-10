@@ -3484,6 +3484,8 @@ func TransactionSpendingLimitToResponse(
 		}
 	}
 
+	// Iterate over the AssociationLimitMap - convert association limit key and op count to AssociationLimitMapItem
+	// structs.
 	if len(transactionSpendingLimit.AssociationLimitMap) > 0 {
 		for associationLimitKey, opCount := range transactionSpendingLimit.AssociationLimitMap {
 			associationClassString := associationLimitKey.AssociationClass.ToAssociationClassString()
@@ -3491,11 +3493,8 @@ func TransactionSpendingLimitToResponse(
 			associationAppScopeTypeString := associationLimitKey.AppScopeType.ToAssociationAppScopeTypeString()
 			associationOperationString := associationLimitKey.Operation.ToAssociationOperationString()
 			var appPublicKey string
-			if associationLimitKey.AppScopeType != lib.AssociationAppScopeTypeAny {
-				appPkBytes := lib.ZeroPublicKey.ToBytes()
-				if !associationLimitKey.AppPKID.IsZeroPKID() {
-					appPkBytes = utxoView.GetPublicKeyForPKID(&associationLimitKey.AppPKID)
-				}
+			if !associationLimitKey.AppPKID.IsZeroPKID() {
+				appPkBytes := utxoView.GetPublicKeyForPKID(&associationLimitKey.AppPKID)
 				appPublicKey = lib.PkToString(appPkBytes, params)
 			}
 			transactionSpendingLimitResponse.AssociationLimitMap = append(transactionSpendingLimitResponse.AssociationLimitMap,
