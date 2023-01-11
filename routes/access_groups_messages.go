@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/deso-protocol/core/lib"
@@ -200,7 +201,7 @@ func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Return all the data associated with the transaction in the response
-	res := CreateAccessGroupResponse{
+	res := SendDmResponse{
 		TotalInputNanos:   totalInput,
 		ChangeAmountNanos: changeAmount,
 		FeeNanos:          fees,
@@ -302,7 +303,7 @@ func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Req
 	}
 
 	// Return all the data associated with the transaction in the response
-	res := CreateAccessGroupResponse{
+	res := SendDmResponse{
 		TotalInputNanos:   totalInput,
 		ChangeAmountNanos: changeAmount,
 		FeeNanos:          fees,
@@ -337,7 +338,7 @@ func (fes *APIServer) fetchLatestMessageFromDmThreads(dmThreads []*lib.DmThreadK
 
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		return "", errors.Wrap(fmt.Errorf("getGroupOwnerAccessIdsForPublicKey: Error generating "+
+		return nil, errors.Wrap(fmt.Errorf("getGroupOwnerAccessIdsForPublicKey: Error generating "+
 			"utxo view: %v", err), "")
 	}
 
@@ -369,7 +370,7 @@ func (fes *APIServer) getAllDmThreadsForPublicKey(publicKeyBase58DecodedBytes []
 	}
 
 	// call the core library and fetch group IDs owned by the public key.
-	dmThreads, err = utxoView.GetAllUserDmThreads(publicKeyBase58DecodedBytes)
+	dmThreads, err = utxoView.GetAllUserDmThreads(*lib.NewPublicKey(publicKeyBase58DecodedBytes))
 	if err != nil {
 		return nil, errors.Wrapf(err, "getGroupOwnerAccessIdsForPublicKey: Problem getting access group ids for member")
 	}
@@ -379,7 +380,18 @@ func (fes *APIServer) getAllDmThreadsForPublicKey(publicKeyBase58DecodedBytes []
 
 type GetUserDmRequest struct {
 	// PublicKeyBase58Check is the public key whose group IDs needs to be queried.
-	PublicKeyBase58Check string `safeForLogging:"true"`
+	SenderPublicKeyBase58Check string `safeForLogging:"true"`
+}
+
+type GetUserDmResponse struct {
+	SenderPublicKeyBase58Check string `safeForLogging:"true"`
+	Threads                    []struct {
+		SenderAccessGroupKeyname                string
+		RecipientGroupOwnerPublicKeyBase58Check string
+		RecipientGroupKeyName                   string
+		EncryptedText                           []byte
+		TstampNanos                             uint64
+	}
 }
 
 func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter, req *http.Request) {
@@ -405,6 +417,17 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 			"public key %s: %v", requestData.PublicKeyBase58Check, err))
 		return
 	}
+	// get all the thread keys along with the latest dm message for each of them.
+	threadKeysLatestMessages, err := fes.fetchLatestMessageFromDmThreads(dmThreads)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroups: Problem getting access group IDs of"+
+			"public key %s: %v", requestData.PublicKeyBase58Check, err))
+		return
+	}
+
+	sort.Slice(threadKeysLatestMessages, func(i, j int) bool {
+		return threadKeysLatestMessages[i].LatestMessageEntry.TimestampNanos > threadKeysLatestMessages[j].LatestMessageEntry.TimestampNanos
+	})
 
 	// response containing the list of access groups.
 	res := GetAccessGroupIDsResponse{
