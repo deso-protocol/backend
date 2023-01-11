@@ -317,8 +317,104 @@ func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Req
 
 }
 
-func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter, req *http.Request) {
+func (fes *APIServer) fetchLatestMessageFromSingleDmThread(utxoView *lib.UtxoView, dmThreadKey *lib.DmThreadKey, startTimestamp uint64) (*lib.NewMessageEntry, error) {
+	latestMessageEntries, err := utxoView.GetPaginatedMessageEntriesForDmThread(*dmThreadKey, startTimestamp, 1)
+	if err != nil {
+		return nil, errors.Wrap(fmt.Errorf("Error fetching latest entry for dmThreadKey: %v", dmThreadKey), "")
+	}
+	if len(latestMessageEntries) > 0 {
+		return latestMessageEntries[0], nil
+	}
+	return nil, errors.Wrap(fmt.Errorf("No Dm entries found for dmThreadKey: %v", dmThreadKey), "")
+}
 
+type DmThreadAndLatestMessageEntry struct {
+	DmThreadKey        *lib.DmThreadKey
+	LatestMessageEntry *lib.NewMessageEntry
+}
+
+func (fes *APIServer) fetchLatestMessageFromDmThreads(dmThreads []*lib.DmThreadKey) ([]*DmThreadAndLatestMessageEntry, error) {
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return "", errors.Wrap(fmt.Errorf("getGroupOwnerAccessIdsForPublicKey: Error generating "+
+			"utxo view: %v", err), "")
+	}
+
+	var latestMessageEntries []*DmThreadAndLatestMessageEntry
+
+	currTime := time.Now().Unix()
+	for _, dmThread := range dmThreads {
+		latestMessageEntry, err := fes.fetchLatestMessageFromSingleDmThread(utxoView, dmThread, uint64(currTime))
+		if err != nil {
+			return nil, errors.Wrap(err, "")
+		}
+		latestMessageEntries = append(latestMessageEntries, &DmThreadAndLatestMessageEntry{
+			DmThreadKey:        dmThread,
+			LatestMessageEntry: latestMessageEntry,
+		})
+	}
+
+	return latestMessageEntries, nil
+}
+
+// Helper function retrieve access groups of the given public keys.
+// Returns both the accessGroupIdsOwned , accessGroupIdsMember by the public key.
+func (fes *APIServer) getAllDmThreadsForPublicKey(publicKeyBase58DecodedBytes []byte) (dmThreads []*lib.DmThreadKey, err error) {
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return nil, errors.Wrap(fmt.Errorf("getGroupOwnerAccessIdsForPublicKey: Error generating "+
+			"utxo view: %v", err), "")
+	}
+
+	// call the core library and fetch group IDs owned by the public key.
+	dmThreads, err = utxoView.GetAllUserDmThreads(publicKeyBase58DecodedBytes)
+	if err != nil {
+		return nil, errors.Wrapf(err, "getGroupOwnerAccessIdsForPublicKey: Problem getting access group ids for member")
+	}
+
+	return dmThreads, nil
+}
+
+type GetUserDmRequest struct {
+	// PublicKeyBase58Check is the public key whose group IDs needs to be queried.
+	PublicKeyBase58Check string `safeForLogging:"true"`
+}
+
+func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetAccessGroupIDsRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllAccessGroups: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Decode the access group owner public key.
+	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllAccessGroups: Problem decoding owner"+
+			"base58 public key %s: %v", requestData.PublicKeyBase58Check, err))
+		return
+	}
+
+	// get all the access groups associated with the public key.
+	dmThreads, err := fes.getAllDmThreadsForPublicKey(accessGroupOwnerPkBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroups: Problem getting access group IDs of"+
+			"public key %s: %v", requestData.PublicKeyBase58Check, err))
+		return
+	}
+
+	// response containing the list of access groups.
+	res := GetAccessGroupIDsResponse{
+		AccessGroupIds: groupIds,
+	}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroups: Problem encoding response as JSON: %v", err))
+		return
+	}
 }
 
 func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, req *http.Request) {
