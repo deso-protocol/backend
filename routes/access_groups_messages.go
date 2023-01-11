@@ -316,3 +316,17 @@ func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Req
 	}
 
 }
+
+func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter, req *http.Request) {
+
+}
+
+func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, req *http.Request) {
+}
+
+func (fes *APIServer) GetUserGroupChatThreadsOrderedByTimestamp(ww http.ResponseWriter, req *http.Request) {
+}
+func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWriter, req *http.Request) {
+}
+func (fes *APIServer) GetAllUserMessageThreads(ww http.ResponseWriter, req *http.Request) {
+}

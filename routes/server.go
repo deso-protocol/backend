@@ -300,6 +300,16 @@ const (
 
 	// Routes for access groups based DM and group chat messaging.
 	RoutePathSendGroupChatMessage = "/api/v0/send-group-chat-message"
+
+	RoutePathGetUserDmThreadsOrderedByTimeStamp = "get-user-dm-threads-ordered-by-timestamp"
+
+	RoutePathGetPaginatedMessagesForDmThread = "/api/v0/get-paginated-messages-for-dm-thread"
+
+	RoutePathGetUserGroupChatThreadsOrderedByTimestamp = "/api/v0/get-user-group-chat-threads-ordered-by-timestamp"
+
+	RoutePathGetPaginatedMessagesForGroupChatThread = "/api/v0/get-paginated-messages-for-group-chat-thread"
+
+	RoutePathGetAllUserMessageThreads = "/api/v0/get-all-user-message-threads"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -1876,6 +1886,41 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathSendGroupChatMessage,
 			fes.SendGroupChatMessage,
+			PublicAccess,
+		},
+		{
+			"GetUserDmThreadsOrderedByTimeStamp",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetUserDmThreadsOrderedByTimeStamp,
+			fes.GetUserDmThreadsOrderedByTimeStamp,
+			PublicAccess,
+		},
+		{
+			"GetPaginatedMessagesForDmThread",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPaginatedMessagesForDmThread,
+			fes.GetPaginatedMessagesForDmThread,
+			PublicAccess,
+		},
+		{
+			"GetUserGroupChatThreadsOrderedByTimestamp",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetUserGroupChatThreadsOrderedByTimestamp,
+			fes.GetUserGroupChatThreadsOrderedByTimestamp,
+			PublicAccess,
+		},
+		{
+			"GetPaginatedMessagesForGroupChatThread",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPaginatedMessagesForGroupChatThread,
+			fes.GetPaginatedMessagesForGroupChatThread,
+			PublicAccess,
+		},
+		{
+			"GetAllUserMessageThreads",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAllUserMessageThreads,
+			fes.GetAllUserMessageThreads,
 			PublicAccess,
 		},
 	}
