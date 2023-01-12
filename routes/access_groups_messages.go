@@ -728,7 +728,7 @@ type GroupChatThread struct {
 }
 
 type GetPaginatedMessagesForGroupChatThreadResponse struct {
-	GroupChats []GroupChatThread
+	GroupChatMessages []GroupChatThread
 }
 
 func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWriter, req *http.Request) {
@@ -767,29 +767,33 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 		return
 	}
 
-	dms := GetPaginatedMessagesForDmResponse{
-		SenderInfo: AccessGroupInfo{
-			OwnerPublicKeyBase58Check: Base58EncodePublickey(accessGroupOwnerPkBytes),
-			AccessGroupKeyName:        hex.EncodeToString(AccessGroupKeyNameBytes),
-		},
-		RecipientInfo: AccessGroupInfo{
-			OwnerPublicKeyBase58Check: Base58EncodePublickey(recipientGroupOwnerPkBytes),
-			AccessGroupKeyName:        hex.EncodeToString(recipientGroupKeyNameBytes),
-		},
-		MessageInfo: []DmMessageInfo{},
-	}
+	messages := []GroupChatThread{}
 
 	for _, threadMsg := range groupChatMessages {
-		dms.MessageInfo = append(dms.MessageInfo,
-			DmMessageInfo{
+		message := GroupChatThread{
+			SenderInfo: AccessGroupInfo{
+				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
+				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
+				AccessGroupKeyName:              hex.EncodeToString(threadMsg.SenderAccessGroupKeyName.ToBytes()),
+			},
+			RecipientInfo: AccessGroupInfo{
+				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes()),
+				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.RecipientAccessGroupPublicKey.ToBytes()),
+				AccessGroupKeyName:              hex.EncodeToString((threadMsg.RecipientAccessGroupKeyName.ToBytes())),
+			},
+			MessageInfo: DmMessageInfo{
 				EncryptedText:  threadMsg.EncryptedText,
 				TimestampNanos: threadMsg.TimestampNanos,
 			},
-		)
+		}
+
+		messages = append(messages, message)
 	}
 
-	// response containing dms between sender and the party.
-	res := dms
+	// response containing group chat messages from the given access group ID of a public key.
+	res := GetPaginatedMessagesForGroupChatThreadResponse{
+		GroupChatMessages: messages,
+	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem encoding response as JSON: %v", err))
@@ -798,4 +802,5 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 }
 
 func (fes *APIServer) GetAllUserMessageThreads(ww http.ResponseWriter, req *http.Request) {
+
 }
