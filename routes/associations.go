@@ -20,6 +20,11 @@ import (
 // results using the LastSeenAssociationID field and additional requests.
 const MaxAssociationsPerQueryLimit = 100
 
+// This is the maximum number of AssociationValues that can be retrieved in a
+// single Count{User|Post}AssociationsByValue request. The client can always
+// send multiple requests to retrieve additional AssociationValue counts.
+const MaxAssociationValuesPerCountQueryLimit = 12
+
 // ------------
 // Types
 // ------------
@@ -46,6 +51,14 @@ type UserAssociationQuery struct {
 	Limit                          int    `safeForLogging:"true"`
 	LastSeenAssociationID          string `safeForLogging:"true"`
 	SortDescending                 bool   `safeForLogging:"true"`
+}
+
+type UserAssociationCountByValueQuery struct {
+	TransactorPublicKeyBase58Check string   `safeForLogging:"true"`
+	TargetUserPublicKeyBase58Check string   `safeForLogging:"true"`
+	AppPublicKeyBase58Check        string   `safeForLogging:"true"`
+	AssociationType                string   `safeForLogging:"true"`
+	AssociationValues              []string `safeForLogging:"true"`
 }
 
 type UserAssociationResponse struct {
@@ -87,6 +100,14 @@ type PostAssociationQuery struct {
 	SortDescending                 bool   `safeForLogging:"true"`
 }
 
+type PostAssociationCountByValueQuery struct {
+	TransactorPublicKeyBase58Check string   `safeForLogging:"true"`
+	PostHashHex                    string   `safeForLogging:"true"`
+	AppPublicKeyBase58Check        string   `safeForLogging:"true"`
+	AssociationType                string   `safeForLogging:"true"`
+	AssociationValues              []string `safeForLogging:"true"`
+}
+
 type PostAssociationResponse struct {
 	AssociationID                  string            `safeForLogging:"true"`
 	TransactorPublicKeyBase58Check string            `safeForLogging:"true"`
@@ -122,6 +143,11 @@ type AssociationTxnResponse struct {
 
 type AssociationsCountResponse struct {
 	Count uint64
+}
+
+type AssociationCountsReponse struct {
+	Counts map[string]uint64
+	Total  uint64
 }
 
 type AssociationQueryType uint8
@@ -439,6 +465,99 @@ func (fes *APIServer) CountUserAssociations(ww http.ResponseWriter, req *http.Re
 
 	// JSON encode response.
 	response := AssociationsCountResponse{Count: count}
+	if err = json.NewEncoder(ww).Encode(response); err != nil {
+		_AddInternalServerError(ww, "CountUserAssociations: problem encoding response as JSON")
+		return
+	}
+}
+
+func (fes *APIServer) CountUserAssociationsByValue(ww http.ResponseWriter, req *http.Request) {
+	// Decode request body.
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := UserAssociationCountByValueQuery{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, "CountUserAssociationsByValue: problem parsing request body")
+		return
+	}
+
+	// Validate AssociationType.
+	if requestData.AssociationType == "" {
+		_AddBadRequestError(ww, "CountUserAssociationsByValue: invalid AssociationType param")
+		return
+	}
+
+	// Validate AssociationValues.
+	if len(requestData.AssociationValues) == 0 ||
+		len(requestData.AssociationValues) > MaxAssociationValuesPerCountQueryLimit {
+		_AddBadRequestError(ww, "CountUserAssociationsByValue: invalid AssociationValues param")
+		return
+	}
+
+	// Create UTXO view.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, "CountUserAssociationsByValue: problem getting UTXO view")
+		return
+	}
+
+	// Parse TransactorPKID from TransactorPublicKeyBase58Check.
+	var transactorPKID *lib.PKID
+	if requestData.TransactorPublicKeyBase58Check != "" {
+		transactorPKID, err = fes.getPKIDFromPublicKeyBase58Check(
+			utxoView, requestData.TransactorPublicKeyBase58Check,
+		)
+		if err != nil {
+			_AddBadRequestError(ww, "CountUserAssociationsByValue: problem getting PKID for the transactor")
+			return
+		}
+	}
+
+	// Parse TargetUserPKID from TargetUserPublicKeyBase58Check.
+	var targetUserPKID *lib.PKID
+	if requestData.TargetUserPublicKeyBase58Check != "" {
+		targetUserPKID, err = fes.getPKIDFromPublicKeyBase58Check(
+			utxoView, requestData.TargetUserPublicKeyBase58Check,
+		)
+		if err != nil {
+			_AddBadRequestError(ww, "CountUserAssociationsByValue: problem getting PKID for the target user")
+			return
+		}
+	}
+
+	// Parse AppPKID from AppPublicKeyBase58Check
+	var appPKID *lib.PKID
+	if requestData.AppPublicKeyBase58Check != "" {
+		appPKID, err = fes.getPKIDFromPublicKeyBase58Check(
+			utxoView, requestData.AppPublicKeyBase58Check,
+		)
+		if err != nil {
+			_AddBadRequestError(ww, "CountUserAssociationsByValue: problem getting PKID for the app")
+			return
+		}
+	}
+
+	// Retrieve count for each AssociationValue.
+	counts := make(map[string]uint64)
+	total := uint64(0)
+	for _, associationValue := range requestData.AssociationValues {
+		associationQuery := &lib.UserAssociationQuery{
+			TransactorPKID:   transactorPKID,
+			TargetUserPKID:   targetUserPKID,
+			AppPKID:          appPKID,
+			AssociationType:  []byte(requestData.AssociationType),
+			AssociationValue: []byte(associationValue),
+		}
+		count, err := utxoView.CountUserAssociationsByAttributes(associationQuery)
+		if err != nil {
+			_AddInternalServerError(ww, fmt.Sprintf("CountUserAssociationsByValue: %v", err))
+			return
+		}
+		counts[associationValue] = count
+		total += count
+	}
+
+	// JSON encode response.
+	response := AssociationCountsReponse{Counts: counts, Total: total}
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
 		_AddInternalServerError(ww, "CountUserAssociations: problem encoding response as JSON")
 		return
@@ -867,6 +986,98 @@ func (fes *APIServer) CountPostAssociations(ww http.ResponseWriter, req *http.Re
 	response := AssociationsCountResponse{Count: count}
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
 		_AddInternalServerError(ww, "CountPostAssociations: problem encoding response as JSON")
+		return
+	}
+}
+
+func (fes *APIServer) CountPostAssociationsByValue(ww http.ResponseWriter, req *http.Request) {
+	// Decode request body.
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := PostAssociationCountByValueQuery{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, "CountPostAssociationsByValue: problem parsing request body")
+		return
+	}
+
+	// Validate AssociationType.
+	if requestData.AssociationType == "" {
+		_AddBadRequestError(ww, "CountPostAssociationsByValue: invalid AssociationType param")
+		return
+	}
+
+	// Validate AssociationValues.
+	if len(requestData.AssociationValues) == 0 ||
+		len(requestData.AssociationValues) > MaxAssociationValuesPerCountQueryLimit {
+		_AddBadRequestError(ww, "CountPostAssociationsByValue: invalid AssociationValues param")
+		return
+	}
+
+	// Create UTXO view.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, "CountPostAssociationsByValue: problem getting UTXO view")
+		return
+	}
+
+	// Parse TransactorPKID from TransactorPublicKeyBase58Check.
+	var transactorPKID *lib.PKID
+	if requestData.TransactorPublicKeyBase58Check != "" {
+		transactorPKID, err = fes.getPKIDFromPublicKeyBase58Check(
+			utxoView, requestData.TransactorPublicKeyBase58Check,
+		)
+		if err != nil {
+			_AddBadRequestError(ww, "CountPostAssociationsByValue: problem getting PKID for the transactor")
+			return
+		}
+	}
+
+	// Parse PostHash from PostHashHex.
+	var postHash *lib.BlockHash
+	if requestData.PostHashHex != "" {
+		postHashBytes, err := hex.DecodeString(requestData.PostHashHex)
+		if err != nil {
+			_AddBadRequestError(ww, "CountPostAssociationsByValue: invalid PostHashHex provided")
+			return
+		}
+		postHash = lib.NewBlockHash(postHashBytes)
+	}
+
+	// Parse AppPKID from AppPublicKeyBase58Check
+	var appPKID *lib.PKID
+	if requestData.AppPublicKeyBase58Check != "" {
+		appPKID, err = fes.getPKIDFromPublicKeyBase58Check(
+			utxoView, requestData.AppPublicKeyBase58Check,
+		)
+		if err != nil {
+			_AddBadRequestError(ww, "CountPostAssociationsByValue: problem getting PKID for the app")
+			return
+		}
+	}
+
+	// Retrieve count for each AssociationValue.
+	counts := make(map[string]uint64)
+	total := uint64(0)
+	for _, associationValue := range requestData.AssociationValues {
+		associationQuery := &lib.PostAssociationQuery{
+			TransactorPKID:   transactorPKID,
+			PostHash:         postHash,
+			AppPKID:          appPKID,
+			AssociationType:  []byte(requestData.AssociationType),
+			AssociationValue: []byte(associationValue),
+		}
+		count, err := utxoView.CountPostAssociationsByAttributes(associationQuery)
+		if err != nil {
+			_AddInternalServerError(ww, fmt.Sprintf("CountPostAssociationsByValue: %v", err))
+			return
+		}
+		counts[associationValue] = count
+		total += count
+	}
+
+	// JSON encode response.
+	response := AssociationCountsReponse{Counts: counts, Total: total}
+	if err = json.NewEncoder(ww).Encode(response); err != nil {
+		_AddInternalServerError(ww, "CountPostAssociationsByValue: problem encoding response as JSON")
 		return
 	}
 }
