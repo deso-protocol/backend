@@ -466,6 +466,16 @@ type DmThread struct {
 	MessageInfo   DmMessageInfo
 }
 
+type GroupChatThread struct {
+	SenderInfo    AccessGroupInfo
+	RecipientInfo AccessGroupInfo
+	MessageInfo   DmMessageInfo
+}
+
+type GetGroupChatResponse struct {
+	GroupChatThreads []GroupChatThread
+}
+
 type GetUserDmResponse struct {
 	DmThreads []DmThread
 }
@@ -528,7 +538,9 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 	}
 
 	// response containing the list of access groups.
-	res := GetUserDmResponse{}
+	res := GetUserDmResponse{
+		DmThreads: dmMessageThreads,
+	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem encoding response as JSON: %v", err))
@@ -662,16 +674,51 @@ func (fes *APIServer) GetUserGroupChatThreadsOrderedByTimestamp(ww http.Response
 		return
 	}
 	// get all the thread keys along with the latest dm message for each of them.
-	latestMessagesForThreadKeys, err := fes.fetchLatestMessageFromDmThreads(dmThreads)
+	latestMessagesForGroupChats, err := fes.fetchLatestMessageFromGroupChatThreads(groupChatThreads)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem getting access group IDs of"+
 			"public key %s: %v", requestData.OwnerPublicKeyBase58Check, err))
 		return
 	}
 
-	sort.Slice(latestMessagesForThreadKeys, func(i, j int) bool {
-		return latestMessagesForThreadKeys[i].TimestampNanos > latestMessagesForThreadKeys[j].TimestampNanos
+	sort.Slice(latestMessagesForGroupChats, func(i, j int) bool {
+		return latestMessagesForGroupChats[i].TimestampNanos > latestMessagesForGroupChats[j].TimestampNanos
 	})
+
+	groupChats := []GroupChatThread{}
+
+	for _, threadMsg := range latestMessagesForGroupChats {
+		groupChat := GroupChatThread{
+			SenderInfo: AccessGroupInfo{
+				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
+				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
+				AccessGroupKeyName:              hex.EncodeToString(threadMsg.SenderAccessGroupKeyName.ToBytes()),
+			},
+			RecipientInfo: AccessGroupInfo{
+				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes()),
+				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.RecipientAccessGroupPublicKey.ToBytes()),
+				AccessGroupKeyName:              hex.EncodeToString((threadMsg.RecipientAccessGroupKeyName.ToBytes())),
+			},
+			MessageInfo: DmMessageInfo{
+				EncryptedText:  threadMsg.EncryptedText,
+				TimestampNanos: threadMsg.TimestampNanos,
+			},
+		}
+
+		groupChats = append(groupChats, groupChat)
+	}
+
+	// response containing the list of group chat threads with latest message
+	// the group chat threads are sorted by the latest timestamp of their last message.
+	res := GetGroupChatResponse{
+		GroupChatThreads: groupChats,
+	}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem encoding response as JSON: %v", err))
+		return
+	}
+
 }
 
 func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWriter, req *http.Request) {
