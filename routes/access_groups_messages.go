@@ -421,7 +421,6 @@ func (fes *APIServer) fetchLatestMessageFromGroupChatThreads(groupChatThreads []
 
 		latestMessageEntries = append(latestMessageEntries, latestMessageEntry)
 	}
-
 	return latestMessageEntries, nil
 }
 
@@ -444,11 +443,6 @@ func (fes *APIServer) getAllGroupChatThreadsForPublicKey(publicKeyBase58DecodedB
 	return groupChatThreads, nil
 }
 
-type GetUserDmThreadsRequest struct {
-	// PublicKeyBase58Check is the public key whose group IDs needs to be queried.
-	OwnerPublicKeyBase58Check string `safeForLogging:"true"`
-}
-
 type AccessGroupInfo struct {
 	OwnerPublicKeyBase58Check       string `safeForLogging:"true"`
 	AccessGroupPublicKeyBase58Check string `safeForLogging:"true"`
@@ -466,10 +460,9 @@ type DmThread struct {
 	MessageInfo   DmMessageInfo
 }
 
-type GroupChatThread struct {
-	SenderInfo    AccessGroupInfo
-	RecipientInfo AccessGroupInfo
-	MessageInfo   DmMessageInfo
+type GetUserDmThreadsRequest struct {
+	// PublicKeyBase58Check is the public key whose group IDs needs to be queried.
+	OwnerPublicKeyBase58Check string `safeForLogging:"true"`
 }
 
 type GetGroupChatResponse struct {
@@ -583,7 +576,6 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 
 	senderGroupOwnerPkBytes, senderGroupKeyNameBytes, err :=
 		ValidateAccessGroupPublicKeyAndName(requestData.UserGroupOwnerPublicKeyBase58Check, requestData.UserGroupKeyName)
-	// Decode the access group owner public key.
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem validating "+
 			"user group owner public key and access group name %s: %s %v",
@@ -718,11 +710,91 @@ func (fes *APIServer) GetUserGroupChatThreadsOrderedByTimestamp(ww http.Response
 		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
 
+// Fetch messages from the group chat thread of a user
+type GetPaginatedMessagesForGroupChatThreadRequest struct {
+	AccessGroupOwnerPublicKeyBase58Check string
+	AccessGroupKeyName                   string
+
+	StartTimeStamp     uint64
+	MaxMessagesToFetch int
+}
+
+type GroupChatThread struct {
+	SenderInfo    AccessGroupInfo
+	RecipientInfo AccessGroupInfo
+	MessageInfo   DmMessageInfo
+}
+
+type GetPaginatedMessagesForGroupChatThreadResponse struct {
+	GroupChats []GroupChatThread
 }
 
 func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetPaginatedMessagesForGroupChatThreadRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForGroupChatThread: Problem parsing request body: %v", err))
+		return
+	}
 
+	if requestData.MaxMessagesToFetch < 1 {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForGroupChatThread: MaxMessagesToFetch cannot be less than 1: %v", requestData.MaxMessagesToFetch))
+		return
+	}
+
+	accessGroupOwnerPkBytes, AccessGroupKeyNameBytes, err :=
+		ValidateAccessGroupPublicKeyAndName(requestData.AccessGroupOwnerPublicKeyBase58Check, requestData.AccessGroupKeyName)
+	// Decode the access group owner public key.
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForGroupChatThread: Problem validating "+
+			"user group owner public key and access group name %s: %s %v",
+			requestData.AccessGroupOwnerPublicKeyBase58Check, requestData.AccessGroupKeyName, err))
+		return
+	}
+
+	accessGroupId := lib.AccessGroupId{
+		AccessGroupOwnerPublicKey: *lib.NewPublicKey(accessGroupOwnerPkBytes),
+		AccessGroupKeyName:        *lib.NewGroupKeyName(AccessGroupKeyNameBytes),
+	}
+
+	// Fetch the max messages between the sender and the party.
+	groupChatMessages, err := fes.fetchMaxMessagesFromGroupChatThread(&accessGroupId, requestData.StartTimeStamp, requestData.MaxMessagesToFetch)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated messages for "+
+			"Request Data: %s: %v", requestData, err))
+		return
+	}
+
+	dms := GetPaginatedMessagesForDmResponse{
+		SenderInfo: AccessGroupInfo{
+			OwnerPublicKeyBase58Check: Base58EncodePublickey(accessGroupOwnerPkBytes),
+			AccessGroupKeyName:        hex.EncodeToString(AccessGroupKeyNameBytes),
+		},
+		RecipientInfo: AccessGroupInfo{
+			OwnerPublicKeyBase58Check: Base58EncodePublickey(recipientGroupOwnerPkBytes),
+			AccessGroupKeyName:        hex.EncodeToString(recipientGroupKeyNameBytes),
+		},
+		MessageInfo: []DmMessageInfo{},
+	}
+
+	for _, threadMsg := range groupChatMessages {
+		dms.MessageInfo = append(dms.MessageInfo,
+			DmMessageInfo{
+				EncryptedText:  threadMsg.EncryptedText,
+				TimestampNanos: threadMsg.TimestampNanos,
+			},
+		)
+	}
+
+	// response containing dms between sender and the party.
+	res := dms
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem encoding response as JSON: %v", err))
+		return
+	}
 }
 
 func (fes *APIServer) GetAllUserMessageThreads(ww http.ResponseWriter, req *http.Request) {
