@@ -319,14 +319,25 @@ func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Req
 }
 
 func (fes *APIServer) fetchLatestMessageFromSingleDmThread(utxoView *lib.UtxoView, dmThreadKey *lib.DmThreadKey, startTimestamp uint64) (*lib.NewMessageEntry, error) {
-	latestMessageEntries, err := utxoView.GetPaginatedMessageEntriesForDmThread(*dmThreadKey, startTimestamp, 1)
+	latestMessageEntries, err := fes.fetchMaxMessagesFromDmThread(utxoView, dmThreadKey, startTimestamp, 1)
 	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf("Error fetching latest entry for dmThreadKey: %v", dmThreadKey), "")
+		return nil, errors.Wrap(err, "")
 	}
-	if len(latestMessageEntries) > 0 {
-		return latestMessageEntries[0], nil
+
+	return latestMessageEntries[0], nil
+}
+
+func (fes *APIServer) fetchMaxMessagesFromDmThread(utxoView *lib.UtxoView, dmThreadKey *lib.DmThreadKey, startTimestamp uint64, MaxMessagesToFetch int) ([]*lib.NewMessageEntry, error) {
+	latestMessageEntries, err := utxoView.GetPaginatedMessageEntriesForDmThread(*dmThreadKey, startTimestamp, uint64(MaxMessagesToFetch))
+	if err != nil {
+		return nil, errors.Wrap(fmt.Errorf("Error fetching entries for dmThreadKey, "+
+			"startTimestamp, and MaxMessagesToFetch: %v %v %v", dmThreadKey, startTimestamp, MaxMessagesToFetch), "")
 	}
-	return nil, errors.Wrap(fmt.Errorf("No Dm entries found for dmThreadKey: %v", dmThreadKey), "")
+	if len(latestMessageEntries) == 0 {
+		return nil, errors.Wrap(fmt.Errorf("No Dm entries found for  dmThreadKey, "+
+			"startTimestamp, and MaxMessagesToFetch: %v %v %v", dmThreadKey, startTimestamp, MaxMessagesToFetch), "")
+	}
+	return latestMessageEntries, nil
 }
 
 type DmThreadAndLatestMessageEntry struct {
@@ -450,7 +461,107 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 			RecipientInfo: AccessGroupInfo{
 				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.LatestMessageEntry.RecipientAccessGroupOwnerPublicKey.ToBytes()),
 				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.LatestMessageEntry.RecipientAccessGroupPublicKey.ToBytes()),
-				AccessGroupKeyName:              hex.EncodeToString((threadMsg.LatestMessageEntry.RecipientAccessGroupKeyName.ToBytes()),
+				AccessGroupKeyName:              hex.EncodeToString((threadMsg.LatestMessageEntry.RecipientAccessGroupKeyName.ToBytes())),
+			},
+			MessageInfo: DmMessageInfo{
+				EncryptedText:  threadMsg.LatestMessageEntry.EncryptedText,
+				TimestampNanos: threadMsg.LatestMessageEntry.TimestampNanos,
+			},
+		}
+
+		dmMessageThreads = append(dmMessageThreads, msgThread)
+	}
+
+	// response containing the list of access groups.
+	res := GetUserDmResponse{}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroups: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+func Base58EncodePublickey(publickeyBytes []byte) (Base58EncodedPublickey string) {
+	Base58CheckPrefix := [3]byte{0xcd, 0x14, 0x0}
+	return lib.Base58CheckEncodeWithPrefix(publickeyBytes, Base58CheckPrefix)
+}
+
+type GetPaginatedMessagesForDmThreadRequest struct {
+	UserGroupOwnerPublicKeyBase58Check  string
+	UserGroupKeyName                    string
+	PartyGroupOwnerPublicKeyBase58Check string
+	PartyGroupKeyName                   string
+	StartTimeStamp                      uint64
+	MaxMessagesToFetch                  int
+}
+
+func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetPaginatedMessagesForDmThreadRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem parsing request body: %v", err))
+		return
+	}
+
+	if requestData.MaxMessagesToFetch < 1 {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: MaxMessagesToFetch cannot be less than 1: %v", requestData.MaxMessagesToFetch))
+		return
+	}
+
+	senderGroupOwnerPkBytes, senderGroupKeyNameBytes, err :=
+		ValidateAccessGroupPublicKeyAndName(requestData.UserGroupOwnerPublicKeyBase58Check, requestData.UserGroupKeyName)
+	// Decode the access group owner public key.
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem validating "+
+			"user group owner public key and access group name %s: %s %v",
+			requestData.UserGroupOwnerPublicKeyBase58Check, requestData.PartyGroupOwnerPublicKeyBase58Check, err))
+		return
+	}
+
+	recipientGroupOwnerPkBytes, recipientGroupKeyNameBytes, err :=
+		ValidateAccessGroupPublicKeyAndName(requestData.PartyGroupOwnerPublicKeyBase58Check, requestData.PartyGroupKeyName)
+	// Decode the access group owner public key.
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem validating "+
+			"party group owner public key and access group name %s: %s %v",
+			requestData.PartyGroupOwnerPublicKeyBase58Check, requestData.PartyGroupKeyName, err))
+		return
+	}
+
+	if bytes.Equal(senderGroupOwnerPkBytes, recipientGroupOwnerPkBytes) {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Dm sender and recipient "+
+			"cannot be the same %s: %s",
+			requestData.UserGroupOwnerPublicKeyBase58Check, requestData.PartyGroupOwnerPublicKeyBase58Check))
+		return
+
+	}
+
+	dmThreadKey := lib.MakeDmThreadKey(*lib.NewPublicKey(senderGroupKeyNameBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes),
+		*lib.NewPublicKey(senderGroupKeyNameBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes))
+	// get all the thread keys along with the latest dm message for each of them.
+	threadKeysLatestMessages, err := fes.fetchMaxMessagesFromDmThread(dmThreadKey)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroups: Problem getting access group IDs of"+
+			"public key %s: %v", requestData.PublicKeyBase58Check, err))
+		return
+	}
+
+	sort.Slice(threadKeysLatestMessages, func(i, j int) bool {
+		return threadKeysLatestMessages[i].LatestMessageEntry.TimestampNanos > threadKeysLatestMessages[j].LatestMessageEntry.TimestampNanos
+	})
+
+	dmMessageThreads := []DmMessageThread{}
+	for _, threadMsg := range threadKeysLatestMessages {
+		msgThread := DmMessageThread{
+			SenderInfo: AccessGroupInfo{
+				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.LatestMessageEntry.SenderAccessGroupOwnerPublicKey.ToBytes()),
+				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.LatestMessageEntry.SenderAccessGroupPublicKey.ToBytes()),
+				AccessGroupKeyName:              hex.EncodeToString(threadMsg.LatestMessageEntry.SenderAccessGroupKeyName.ToBytes()),
+			},
+			RecipientInfo: AccessGroupInfo{
+				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.LatestMessageEntry.RecipientAccessGroupOwnerPublicKey.ToBytes()),
+				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.LatestMessageEntry.RecipientAccessGroupPublicKey.ToBytes()),
+				AccessGroupKeyName:              hex.EncodeToString((threadMsg.LatestMessageEntry.RecipientAccessGroupKeyName.ToBytes())),
 			},
 			MessageInfo: DmMessageInfo{
 				EncryptedText:  threadMsg.LatestMessageEntry.EncryptedText,
@@ -470,14 +581,7 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroups: Problem encoding response as JSON: %v", err))
 		return
 	}
-}
 
-func Base58EncodePublickey(publickeyBytes []byte) (Base58EncodedPublickey string) {
-	Base58CheckPrefix := [3]byte{0xcd, 0x14, 0x0}
-	return lib.Base58CheckEncodeWithPrefix(publickeyBytes, Base58CheckPrefix)
-}
-
-func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, req *http.Request) {
 }
 
 func (fes *APIServer) GetUserGroupChatThreadsOrderedByTimestamp(ww http.ResponseWriter, req *http.Request) {
