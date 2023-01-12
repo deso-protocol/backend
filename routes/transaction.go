@@ -3162,6 +3162,15 @@ func (fes *APIServer) getTransactionFee(txnType lib.TxnType, transactorPublicKey
 	return newOutputs, nil
 }
 
+type AssociationLimitMapItem struct {
+	AssociationClass        lib.AssociationClassString
+	AssociationType         string
+	AppScopeType            lib.AssociationAppScopeTypeString
+	AppPublicKeyBase58Check string
+	AssociationOperation    lib.AssociationOperationString
+	OpCount                 uint64
+}
+
 // TransactionSpendingLimitResponse is a backend struct used to describe the TransactionSpendingLimit for a Derived key
 // in a way that can be JSON encoded/decoded.
 type TransactionSpendingLimitResponse struct {
@@ -3186,6 +3195,9 @@ type TransactionSpendingLimitResponse struct {
 	// of SellingCoinPublicKey mapped to the number of DAO Coin Limit Order transactions with
 	// this Buying and Selling coin pair that the derived key is authorized to perform.
 	DAOCoinLimitOrderLimitMap map[string]map[string]uint64
+	// AssociationLimitMap is a slice of AssociationLimitMapItems. Because there are so many attributes to define
+	// the key for AssociationLimits, we represent it as a slice instead of a deeply nested map.
+	AssociationLimitMap []AssociationLimitMapItem
 
 	// ===== ENCODER MIGRATION lib.UnlimitedDerivedKeysMigration =====
 	// IsUnlimited determines whether this derived key is unlimited. An unlimited derived key can perform all transactions
@@ -3471,6 +3483,31 @@ func TransactionSpendingLimitToResponse(
 			transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap[buyingPublicKey][sellingPublicKey] = opCount
 		}
 	}
+
+	// Iterate over the AssociationLimitMap - convert association limit key and op count to AssociationLimitMapItem
+	// structs.
+	if len(transactionSpendingLimit.AssociationLimitMap) > 0 {
+		for associationLimitKey, opCount := range transactionSpendingLimit.AssociationLimitMap {
+			associationClassString := associationLimitKey.AssociationClass.ToAssociationClassString()
+			associationType := associationLimitKey.AssociationType
+			associationAppScopeTypeString := associationLimitKey.AppScopeType.ToAssociationAppScopeTypeString()
+			associationOperationString := associationLimitKey.Operation.ToAssociationOperationString()
+			var appPublicKey string
+			if !associationLimitKey.AppPKID.IsZeroPKID() {
+				appPkBytes := utxoView.GetPublicKeyForPKID(&associationLimitKey.AppPKID)
+				appPublicKey = lib.PkToString(appPkBytes, params)
+			}
+			transactionSpendingLimitResponse.AssociationLimitMap = append(transactionSpendingLimitResponse.AssociationLimitMap,
+				AssociationLimitMapItem{
+					AssociationClass:        associationClassString,
+					AssociationType:         associationType,
+					AppScopeType:            associationAppScopeTypeString,
+					AppPublicKeyBase58Check: appPublicKey,
+					AssociationOperation:    associationOperationString,
+					OpCount:                 opCount,
+				})
+		}
+	}
 	return transactionSpendingLimitResponse
 }
 
@@ -3577,6 +3614,26 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 				transactionSpendingLimit.DAOCoinLimitOrderLimitMap[lib.MakeDAOCoinLimitOrderLimitKey(
 					*buyingPKID, *sellingPKID)] = count
 			}
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.AssociationLimitMap) > 0 {
+		transactionSpendingLimit.AssociationLimitMap = make(map[lib.AssociationLimitKey]uint64)
+		for _, associationLimitMapItem := range transactionSpendingLimitResponse.AssociationLimitMap {
+			appPKID := &lib.ZeroPKID
+			if associationLimitMapItem.AppPublicKeyBase58Check != "" {
+				appPKID, err = getCreatorPKIDForBase58Check(associationLimitMapItem.AppPublicKeyBase58Check)
+				if err != nil {
+					return nil, err
+				}
+			}
+			transactionSpendingLimit.AssociationLimitMap[lib.MakeAssociationLimitKey(
+				associationLimitMapItem.AssociationClass.ToAssociationClass(),
+				[]byte(associationLimitMapItem.AssociationType),
+				*appPKID,
+				associationLimitMapItem.AppScopeType.ToAssociationAppScopeType(),
+				associationLimitMapItem.AssociationOperation.ToAssociationOperation(),
+			)] = associationLimitMapItem.OpCount
 		}
 	}
 
