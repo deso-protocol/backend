@@ -14,60 +14,9 @@ import (
 	"github.com/pkg/errors"
 )
 
-/*type NewMessageMetadata struct {
-	SenderAccessGroupOwnerPublicKey    PublicKey
-	SenderAccessGroupKeyName           GroupKeyName
-	SenderAccessGroupPublicKey         PublicKey
-	RecipientAccessGroupOwnerPublicKey PublicKey
-	RecipientAccessGroupKeyName        GroupKeyName
-	RecipientAccessGroupPublicKey      PublicKey
-	EncryptedText                      []byte
-	TimestampNanos                     uint64
-	// TODO: Add operation type create/update
-	NewMessageType
-	NewMessageOperation
-}*/
-
-type SendDmMessageRequest struct {
-	// Public key of the direct message sender.
-	// This needs to match your public key used for signing the transaction.
-	SenderAccessGroupOwnerPublicKeyBase58Check string `safeForLogging:"true"`
-	// AccessGroupPublicKeyBase58Check is the Public key required to participate in the access groups.
-	SenderAccessGroupPublicKeyBase58Check string `safeForLogging:"true"`
-	// Name of the access group to be created.
-	SenderAccessGroupKeyName string `safeForLogging:"true"`
-
-	// Public key of the direct message receiver.
-	RecipientAccessGroupOwnerPublicKeyBase58Check string `safeForLogging:"true"`
-	// AccessGroupPublicKeyBase58Check is the Public key required to participate in the access groups.
-	RecipientAccessGroupPublicKeyBase58Check string `safeForLogging:"true"`
-	// Name of the access group to be created.
-	RecipientAccessGroupKeyName string `safeForLogging:"true"`
-
-	// EncryptedMessageText is the intended message content. It is recommended to pass actual encrypted message here,
-	// although unencrypted message can be passed as well.
-	EncryptedMessageText []byte
-
-	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
-	// No need to specify ProfileEntryResponse in each TransactionFee
-	TransactionFees []TransactionFee `safeForLogging:"true"`
-	// ExtraData is an arbitrary key value map
-	ExtraData map[string]string
-}
-
-type SendDmResponse struct {
-	TstampNanos uint64
-
-	TotalInputNanos   uint64
-	ChangeAmountNanos uint64
-	FeeNanos          uint64
-	Transaction       *lib.MsgDeSoTxn
-	TransactionHex    string
-}
-
 // Base58 decodes a public key string and verifies if it is in a valid public key format.
 func Base58DecodeAndValidatePublickey(publicKeyBase58Check string) (publicKeyBytes []byte, err error) {
-
+	// Decode in Base58 Checksum format.
 	publicKeyBytes, _, err = lib.Base58CheckDecode(publicKeyBase58Check)
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("Base58DecodeAndValidatePublickey: Problem decoding "+
@@ -86,8 +35,9 @@ func Base58DecodeAndValidatePublickey(publicKeyBase58Check string) (publicKeyByt
 	return publicKeyBytes, nil
 }
 
+// Basic validations on public key and access Group Keu name.
 func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check, accessGroupKeyName string) (publicKeyBytes []byte, accessGroupKeyNameBytes []byte, err error) {
-	publicKeyBytes, _, err = lib.Base58CheckDecode(publicKeyBase58Check)
+	publicKeyBytes, err = Base58DecodeAndValidatePublickey(publicKeyBase58Check)
 	if err != nil {
 		return nil, nil, errors.New(fmt.Sprintf("ValidateAccessGroupPublicKeyAndName: Problem decoding "+
 			"base58 public key %s: %v", publicKeyBase58Check, err))
@@ -98,237 +48,39 @@ func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check, accessGroupKeyNam
 	// Validates whether the accessGroupOwner key is a valid public key and
 	// some basic checks on access group key name like Min and Max characters.
 	if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupKeyNameBytes, accessGroupKeyNameBytes); err != nil {
-		return nil, nil, errors.New(fmt.Sprintf("ValidateAccessGroupPublicKeyAndName: Problem validating access group owner "+
-			"public key and access group key name %s: %v", accessGroupKeyName, err))
+		return nil, nil, errors.New(fmt.Sprintf("ValidateAccessGroupPublicKeyAndName: Problem validating "+
+			"public key and access group key name %s %s: %v", publicKeyBase58Check, accessGroupKeyName, err))
 
 	}
 
 	// Access group name key cannot be equal to base group name key (equal to all zeros).
-	// By default all users belong to the access group with base name key.
+	// By default all users belong to the access group with the base name key, hence it is reserved.
 	if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
 		errors.New(fmt.Sprintf(
-			"ValidateAccessGroupPublicKeyAndName: Access Group key cannot be same as base key (all zeros)."+"access group key name %s", accessGroupKeyName))
+			"ValidateAccessGroupPublicKeyAndName: Access Group key cannot be same as base key (all zeros)."+
+				"Access group key name %s", accessGroupKeyName))
 		return
 	}
 
 	return publicKeyBytes, accessGroupKeyNameBytes, nil
 }
 
-func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
-
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := SendDmMessageRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem parsing request body: %v", err))
-		return
-	}
-	senderGroupOwnerPkBytes, senderGroupKeyNameBytes, err :=
-		ValidateAccessGroupPublicKeyAndName(requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName)
-	// Decode the access group owner public key.
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem validating sender public key and access group name"+
-			"base58 public key %s: %s %v",
-			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName, err))
-		return
-	}
-
-	recipientGroupOwnerPkBytes, recipientGroupKeyNameBytes, err :=
-		ValidateAccessGroupPublicKeyAndName(requestData.RecipientAccessGroupOwnerPublicKeyBase58Check, requestData.RecipientAccessGroupKeyName)
-	// Decode the access group owner public key.
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem validating sender public key and access group name"+
-			"base58 public key %s: %s %v",
-			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName, err))
-		return
-	}
-
-	if bytes.Equal(senderGroupOwnerPkBytes, recipientGroupOwnerPkBytes) {
-		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Dm sender and recipient "+
-			"cannot be the same %s: %s",
-			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
-		return
-
-	}
-
-	senderAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem validating sender "+
-			"base58 public key %s: %v", requestData.SenderAccessGroupPublicKeyBase58Check, err))
-		return
-	}
-
-	recipientAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem validating recipient "+
-			"base58 public key %s: %v", requestData.SenderAccessGroupPublicKeyBase58Check, err))
-		return
-	}
-
-	// Compute the additional transaction fees as specified by the request body and the node-level fees.
-	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeAccessGroup, senderGroupOwnerPkBytes, requestData.TransactionFees)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: TransactionFees specified in Request body are invalid: %v", err))
-		return
-	}
-
-	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem encoding ExtraData: %v", err))
-		return
-	}
-
-	tstamp := uint64(time.Now().UnixNano())
-
-	// Core from the core lib to construct the transaction to create an access group.
-	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNewMessageTxn(
-		senderGroupOwnerPkBytes, *lib.NewPublicKey(senderGroupOwnerPkBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes), *lib.NewPublicKey(senderAccessGroupPkbytes),
-		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes), *lib.NewPublicKey(recipientAccessGroupPkbytes),
-		requestData.EncryptedMessageText, tstamp,
-		lib.NewMessageTypeDm, lib.NewMessageOperationCreate,
-		extraData, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem creating transaction: %v", err))
-		return
-	}
-
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
-
-	txnBytes, err := txn.ToBytes(true)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem serializing transaction: %v", err))
-		return
-	}
-
-	// Return all the data associated with the transaction in the response
-	res := SendDmResponse{
-		TotalInputNanos:   totalInput,
-		ChangeAmountNanos: changeAmount,
-		FeeNanos:          fees,
-		Transaction:       txn,
-		TransactionHex:    hex.EncodeToString(txnBytes),
-	}
-
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem encoding response as JSON: %v", err))
-		return
-	}
-
-}
-
-func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Request) {
-
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := SendDmMessageRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem parsing request body: %v", err))
-		return
-	}
-	senderGroupOwnerPkBytes, senderGroupKeyNameBytes, err :=
-		ValidateAccessGroupPublicKeyAndName(requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName)
-	// Decode the access group owner public key.
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem validating sender public key and access group name"+
-			"base58 public key %s: %s %v",
-			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName, err))
-		return
-	}
-
-	recipientGroupOwnerPkBytes, recipientGroupKeyNameBytes, err :=
-		ValidateAccessGroupPublicKeyAndName(requestData.RecipientAccessGroupOwnerPublicKeyBase58Check, requestData.RecipientAccessGroupKeyName)
-	// Decode the access group owner public key.
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem validating sender public key and access group name"+
-			"base58 public key %s: %s %v",
-			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName, err))
-		return
-	}
-
-	if bytes.Equal(senderGroupOwnerPkBytes, recipientGroupOwnerPkBytes) {
-		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Dm sender and recipient "+
-			"cannot be the same %s: %s",
-			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
-		return
-
-	}
-
-	senderAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem validating sender "+
-			"base58 public key %s: %v", requestData.SenderAccessGroupPublicKeyBase58Check, err))
-		return
-	}
-
-	recipientAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem validating recipient "+
-			"base58 public key %s: %v", requestData.SenderAccessGroupPublicKeyBase58Check, err))
-		return
-	}
-
-	// Compute the additional transaction fees as specified by the request body and the node-level fees.
-	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeAccessGroup, senderGroupOwnerPkBytes, requestData.TransactionFees)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: TransactionFees specified in Request body are invalid: %v", err))
-		return
-	}
-
-	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem encoding ExtraData: %v", err))
-		return
-	}
-
-	tstamp := uint64(time.Now().UnixNano())
-
-	// Core from the core lib to construct the transaction to create an access group.
-	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNewMessageTxn(
-		senderGroupOwnerPkBytes, *lib.NewPublicKey(senderGroupOwnerPkBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes), *lib.NewPublicKey(senderAccessGroupPkbytes),
-		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes), *lib.NewPublicKey(recipientAccessGroupPkbytes),
-		requestData.EncryptedMessageText, tstamp,
-		lib.NewMessageTypeGroupChat, lib.NewMessageOperationCreate,
-		extraData, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem creating transaction: %v", err))
-		return
-	}
-
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
-
-	txnBytes, err := txn.ToBytes(true)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem serializing transaction: %v", err))
-		return
-	}
-
-	// Return all the data associated with the transaction in the response
-	res := SendDmResponse{
-		TotalInputNanos:   totalInput,
-		ChangeAmountNanos: changeAmount,
-		FeeNanos:          fees,
-		Transaction:       txn,
-		TransactionHex:    hex.EncodeToString(txnBytes),
-	}
-
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem encoding response as JSON: %v", err))
-		return
-	}
-
-}
-
+// Helper function to fetch just the latest message from the given Dm thread.
+// StartTimestamp is set to current unix time to fetch the latest message.
+// DmThread key consists of the sender and recipient public key and access group key names to fetch the direct messages
+// between the two parties.
 func (fes *APIServer) fetchLatestMessageFromSingleDmThread(dmThreadKey *lib.DmThreadKey, startTimestamp uint64) (*lib.NewMessageEntry, error) {
-
+	// Fetch just one message.
 	latestMessageEntries, err := fes.fetchMaxMessagesFromDmThread(dmThreadKey, startTimestamp, 1)
 	if err != nil {
 		return nil, errors.Wrap(err, "")
 	}
-
+	// If there are more than one entries fetch just the last message.
 	if len(latestMessageEntries) > 0 {
 		return latestMessageEntries[0], nil
 	}
-
+	// Don't return an error if there are zero entries, return empty value.
+	// client might be dependent on empty value to implement the fetching logic.
 	return &lib.NewMessageEntry{}, nil
 }
 
@@ -441,6 +193,266 @@ func (fes *APIServer) getAllGroupChatThreadsForPublicKey(publicKeyBase58DecodedB
 	}
 
 	return groupChatThreads, nil
+}
+
+type SendDmMessageRequest struct {
+	// Public key of the direct message sender.
+	// This needs to match your public key used for signing the transaction.
+	SenderAccessGroupOwnerPublicKeyBase58Check string `safeForLogging:"true"`
+	// AccessGroupPublicKeyBase58Check is the Public key required to participate in the access groups.
+	SenderAccessGroupPublicKeyBase58Check string `safeForLogging:"true"`
+	// Name of the access group to be created.
+	SenderAccessGroupKeyName string `safeForLogging:"true"`
+
+	// Public key of the direct message receiver.
+	RecipientAccessGroupOwnerPublicKeyBase58Check string `safeForLogging:"true"`
+	// AccessGroupPublicKeyBase58Check is the Public key required to participate in the access groups.
+	RecipientAccessGroupPublicKeyBase58Check string `safeForLogging:"true"`
+	// Name of the access group to be created.
+	RecipientAccessGroupKeyName string `safeForLogging:"true"`
+
+	// EncryptedMessageText is the intended message content. It is recommended to pass actual encrypted message here,
+	// although unencrypted message can be passed as well.
+	EncryptedMessageText []byte
+
+	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+	// ExtraData is an arbitrary key value map
+	ExtraData map[string]string
+}
+
+// struct to serialize the response.
+type SendDmResponse struct {
+	TstampNanos uint64
+
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgDeSoTxn
+	TransactionHex    string
+}
+
+// API to send Direct message.
+// Direct message is from <SenderPublicKey, Access Group Key Name> to <RecipientPublickey, Access Group Key Name>
+// This API only helps you compose a Direct message transaction, it doesn't execute it.
+// To execute the Direct message transaction, you need to collect the response from this API, sign it and then submit the transaction for on-chain execution.
+// Read more about the three step transaction submission process here https://docs.deso.org/for-developers/backend/transactions.
+// Since the transaction execution doesn't happen here, deeper validations like whether the user is the owner of access group key name
+// are performed after submitting the transaction.
+// Only basic validations on the input data are performed here.
+func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
+	// Deserialize the request data.
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := SendDmMessageRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Basic validation of the sender public key and access group name.
+	senderGroupOwnerPkBytes, senderGroupKeyNameBytes, err :=
+		ValidateAccessGroupPublicKeyAndName(requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName)
+		// Abruptly end the request processing on error and return.
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem validating sender public key and access group name"+
+			"base58 public key %s: %s %v",
+			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName, err))
+		return
+	}
+
+	// Basic validation of the recipient public key and access group name.
+	recipientGroupOwnerPkBytes, recipientGroupKeyNameBytes, err :=
+		ValidateAccessGroupPublicKeyAndName(requestData.RecipientAccessGroupOwnerPublicKeyBase58Check, requestData.RecipientAccessGroupKeyName)
+		// Abruptly end the request processing on error and return.
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem validating sender public key and access group name"+
+			"base58 public key %s: %s %v",
+			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName, err))
+		return
+	}
+
+	// sender and the recipient public keys cannot be the same.
+	if bytes.Equal(senderGroupOwnerPkBytes, recipientGroupOwnerPkBytes) {
+		// Abruptly end the request processing on error and return.
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Dm sender and recipient "+
+			"cannot be the same %s: %s",
+			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
+		return
+	}
+
+	// Validate the sender access group public key.
+	senderAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
+	if err != nil {
+		// Abruptly end the request processing on error and return.
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem validating sender "+
+			"base58 public key %s: %v", requestData.SenderAccessGroupPublicKeyBase58Check, err))
+		return
+	}
+
+	// Validate the recipient access group public key.
+	recipientAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem validating recipient "+
+			"base58 public key %s: %v", requestData.SenderAccessGroupPublicKeyBase58Check, err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeAccessGroup, senderGroupOwnerPkBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
+	// extra is relevant for certain type of requests. Refer to documentation for any requirement of adding extra data.
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem encoding ExtraData: %v", err))
+		return
+	}
+
+	tstamp := uint64(time.Now().UnixNano())
+
+	// Invoke function from the core library to construct the transaction to create an access group.
+	// Returns the Input, change amount and fee required to create a new transaction.
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNewMessageTxn(
+		senderGroupOwnerPkBytes, *lib.NewPublicKey(senderGroupOwnerPkBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes), *lib.NewPublicKey(senderAccessGroupPkbytes),
+		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes), *lib.NewPublicKey(recipientAccessGroupPkbytes),
+		requestData.EncryptedMessageText, tstamp,
+		lib.NewMessageTypeDm, lib.NewMessageOperationCreate,
+		extraData, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem creating transaction: %v", err))
+		return
+	}
+
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := SendDmResponse{
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+	}
+
+	// Response to the client.
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem encoding response as JSON: %v", err))
+		return
+	}
+
+}
+
+func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Request) {
+
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := SendDmMessageRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem parsing request body: %v", err))
+		return
+	}
+	senderGroupOwnerPkBytes, senderGroupKeyNameBytes, err :=
+		ValidateAccessGroupPublicKeyAndName(requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName)
+	// Decode the access group owner public key.
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem validating sender public key and access group name"+
+			"base58 public key %s: %s %v",
+			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName, err))
+		return
+	}
+
+	recipientGroupOwnerPkBytes, recipientGroupKeyNameBytes, err :=
+		ValidateAccessGroupPublicKeyAndName(requestData.RecipientAccessGroupOwnerPublicKeyBase58Check, requestData.RecipientAccessGroupKeyName)
+	// Decode the access group owner public key.
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem validating sender public key and access group name"+
+			"base58 public key %s: %s %v",
+			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName, err))
+		return
+	}
+
+	if bytes.Equal(senderGroupOwnerPkBytes, recipientGroupOwnerPkBytes) {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Dm sender and recipient "+
+			"cannot be the same %s: %s",
+			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
+		return
+
+	}
+
+	senderAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem validating sender "+
+			"base58 public key %s: %v", requestData.SenderAccessGroupPublicKeyBase58Check, err))
+		return
+	}
+
+	recipientAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem validating recipient "+
+			"base58 public key %s: %v", requestData.SenderAccessGroupPublicKeyBase58Check, err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeAccessGroup, senderGroupOwnerPkBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem encoding ExtraData: %v", err))
+		return
+	}
+
+	tstamp := uint64(time.Now().UnixNano())
+
+	// Core from the core lib to construct the transaction to create an access group.
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNewMessageTxn(
+		senderGroupOwnerPkBytes, *lib.NewPublicKey(senderGroupOwnerPkBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes), *lib.NewPublicKey(senderAccessGroupPkbytes),
+		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes), *lib.NewPublicKey(recipientAccessGroupPkbytes),
+		requestData.EncryptedMessageText, tstamp,
+		lib.NewMessageTypeGroupChat, lib.NewMessageOperationCreate,
+		extraData, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem creating transaction: %v", err))
+		return
+	}
+
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := SendDmResponse{
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+	}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem encoding response as JSON: %v", err))
+		return
+	}
+
 }
 
 type AccessGroupInfo struct {
