@@ -325,7 +325,11 @@ func (fes *APIServer) fetchLatestMessageFromSingleDmThread(dmThreadKey *lib.DmTh
 		return nil, errors.Wrap(err, "")
 	}
 
-	return latestMessageEntries[0], nil
+	if len(latestMessageEntries) > 0 {
+		return latestMessageEntries[0], nil
+	}
+
+	return &lib.NewMessageEntry{}, nil
 }
 
 func (fes *APIServer) fetchMaxMessagesFromDmThread(dmThreadKey *lib.DmThreadKey, startTimestamp uint64, MaxMessagesToFetch int) ([]*lib.NewMessageEntry, error) {
@@ -339,10 +343,7 @@ func (fes *APIServer) fetchMaxMessagesFromDmThread(dmThreadKey *lib.DmThreadKey,
 		return nil, errors.Wrap(fmt.Errorf("Error fetching entries for dmThreadKey, "+
 			"startTimestamp, and MaxMessagesToFetch: %v %v %v", dmThreadKey, startTimestamp, MaxMessagesToFetch), "")
 	}
-	if len(latestMessageEntries) == 0 {
-		return nil, errors.Wrap(fmt.Errorf("No Dm entries found for  dmThreadKey, "+
-			"startTimestamp, and MaxMessagesToFetch: %v %v %v", dmThreadKey, startTimestamp, MaxMessagesToFetch), "")
-	}
+
 	return latestMessageEntries, nil
 }
 
@@ -356,9 +357,7 @@ func (fes *APIServer) fetchLatestMessageFromDmThreads(dmThreads []*lib.DmThreadK
 			return nil, errors.Wrap(err, "")
 		}
 
-		if !bytes.Equal(latestMessageEntry.SenderAccessGroupOwnerPublicKey.ToBytes(), []byte{}) {
-			latestMessageEntries = append(latestMessageEntries, latestMessageEntry)
-		}
+		latestMessageEntries = append(latestMessageEntries, latestMessageEntry)
 	}
 
 	return latestMessageEntries, nil
@@ -383,9 +382,71 @@ func (fes *APIServer) getAllDmThreadsForPublicKey(publicKeyBase58DecodedBytes []
 	return dmThreads, nil
 }
 
-type GetUserDmRequest struct {
+func (fes *APIServer) fetchLatestMessageFromGroupChatThread(accessGroupId *lib.AccessGroupId, startTimestamp uint64) (*lib.NewMessageEntry, error) {
+
+	latestMessageEntries, err := fes.fetchMaxMessagesFromGroupChatThread(accessGroupId, startTimestamp, 1)
+	if err != nil {
+		return nil, errors.Wrap(err, "")
+	}
+	if len(latestMessageEntries) > 0 {
+		return latestMessageEntries[0], nil
+	}
+
+	return &lib.NewMessageEntry{}, nil
+}
+
+func (fes *APIServer) fetchMaxMessagesFromGroupChatThread(accessGroupId *lib.AccessGroupId, startTimestamp uint64, MaxMessagesToFetch int) ([]*lib.NewMessageEntry, error) {
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return nil, errors.Wrap(fmt.Errorf("getGroupOwnerAccessIdsForPublicKey: Error generating "+
+			"utxo view: %v", err), "")
+	}
+	latestMessageEntries, err := utxoView.GetPaginatedMessageEntriesForGroupChatThread(*accessGroupId, startTimestamp, uint64(MaxMessagesToFetch))
+	if err != nil {
+		return nil, errors.Wrap(fmt.Errorf("Error fetching messages for access group ID, "+
+			"startTimestamp, and MaxMessagesToFetch: %v %v %v", accessGroupId, startTimestamp, MaxMessagesToFetch), "")
+	}
+	return latestMessageEntries, nil
+}
+
+func (fes *APIServer) fetchLatestMessageFromGroupChatThreads(groupChatThreads []*lib.AccessGroupId) ([]*lib.NewMessageEntry, error) {
+
+	var latestMessageEntries []*lib.NewMessageEntry
+	currTime := time.Now().Unix()
+	for _, dmThread := range groupChatThreads {
+		latestMessageEntry, err := fes.fetchLatestMessageFromGroupChatThread(dmThread, uint64(currTime))
+		if err != nil {
+			return nil, errors.Wrap(err, "")
+		}
+
+		latestMessageEntries = append(latestMessageEntries, latestMessageEntry)
+	}
+
+	return latestMessageEntries, nil
+}
+
+// Helper function retrieve group chat threads for a given public key.
+// Returns both the accessGroupIdsOwned , accessGroupIdsMember by the public key.
+func (fes *APIServer) getAllGroupChatThreadsForPublicKey(publicKeyBase58DecodedBytes []byte) (groupChatThreads []*lib.AccessGroupId, err error) {
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return nil, errors.Wrap(fmt.Errorf("getGroupOwnerAccessIdsForPublicKey: Error generating "+
+			"utxo view: %v", err), "")
+	}
+
+	// call the core library and fetch group IDs owned by the public key.
+	groupChatThreads, err = utxoView.GetAllUserGroupChatThreads(*lib.NewPublicKey(publicKeyBase58DecodedBytes))
+	if err != nil {
+		return nil, errors.Wrapf(err, "getGroupOwnerAccessIdsForPublicKey: Problem getting access group ids for member")
+	}
+
+	return groupChatThreads, nil
+}
+
+type GetUserDmThreadsRequest struct {
 	// PublicKeyBase58Check is the public key whose group IDs needs to be queried.
-	SenderPublicKeyBase58Check string `safeForLogging:"true"`
+	OwnerPublicKeyBase58Check string `safeForLogging:"true"`
 }
 
 type AccessGroupInfo struct {
@@ -411,17 +472,17 @@ type GetUserDmResponse struct {
 
 func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := GetAccessGroupIDsRequest{}
+	requestData := GetUserDmThreadsRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem parsing request body: %v", err))
 		return
 	}
 
 	// Decode the access group owner public key.
-	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.OwnerPublicKeyBase58Check)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem decoding owner"+
-			"base58 public key %s: %v", requestData.PublicKeyBase58Check, err))
+			"base58 public key %s: %v", requestData.OwnerPublicKeyBase58Check, err))
 		return
 	}
 
@@ -429,14 +490,14 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 	dmThreads, err := fes.getAllDmThreadsForPublicKey(accessGroupOwnerPkBytes)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem getting access group IDs of"+
-			"public key %s: %v", requestData.PublicKeyBase58Check, err))
+			"public key %s: %v", requestData.OwnerPublicKeyBase58Check, err))
 		return
 	}
 	// get all the thread keys along with the latest dm message for each of them.
 	latestMessagesForThreadKeys, err := fes.fetchLatestMessageFromDmThreads(dmThreads)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem getting access group IDs of"+
-			"public key %s: %v", requestData.PublicKeyBase58Check, err))
+			"public key %s: %v", requestData.OwnerPublicKeyBase58Check, err))
 		return
 	}
 
@@ -579,8 +640,43 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 }
 
 func (fes *APIServer) GetUserGroupChatThreadsOrderedByTimestamp(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetUserDmThreadsRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Decode the access group owner public key.
+	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.OwnerPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem decoding owner"+
+			"base58 public key %s: %v", requestData.OwnerPublicKeyBase58Check, err))
+		return
+	}
+	// get all the group chat threads for the public key.
+	groupChatThreads, err := fes.getAllGroupChatThreadsForPublicKey(accessGroupOwnerPkBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem getting access group IDs of"+
+			"public key %s: %v", requestData.OwnerPublicKeyBase58Check, err))
+		return
+	}
+	// get all the thread keys along with the latest dm message for each of them.
+	latestMessagesForThreadKeys, err := fes.fetchLatestMessageFromDmThreads(dmThreads)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem getting access group IDs of"+
+			"public key %s: %v", requestData.OwnerPublicKeyBase58Check, err))
+		return
+	}
+
+	sort.Slice(latestMessagesForThreadKeys, func(i, j int) bool {
+		return latestMessagesForThreadKeys[i].TimestampNanos > latestMessagesForThreadKeys[j].TimestampNanos
+	})
 }
+
 func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWriter, req *http.Request) {
+
 }
+
 func (fes *APIServer) GetAllUserMessageThreads(ww http.ResponseWriter, req *http.Request) {
 }
