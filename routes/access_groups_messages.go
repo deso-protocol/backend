@@ -399,14 +399,14 @@ type DmMessageInfo struct {
 	TimestampNanos uint64
 }
 
-type DmMessageThread struct {
+type DmThread struct {
 	SenderInfo    AccessGroupInfo
 	RecipientInfo AccessGroupInfo
 	MessageInfo   DmMessageInfo
 }
 
 type GetUserDmResponse struct {
-	DmThreads []DmMessageThread
+	DmThreads []DmThread
 }
 
 func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter, req *http.Request) {
@@ -444,9 +444,9 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 		return latestMessagesForThreadKeys[i].TimestampNanos > latestMessagesForThreadKeys[j].TimestampNanos
 	})
 
-	dmMessageThreads := []DmMessageThread{}
+	dmMessageThreads := []DmThread{}
 	for _, threadMsg := range latestMessagesForThreadKeys {
-		msgThread := DmMessageThread{
+		msgThread := DmThread{
 			SenderInfo: AccessGroupInfo{
 				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
 				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
@@ -487,6 +487,12 @@ type GetPaginatedMessagesForDmThreadRequest struct {
 	PartyGroupKeyName                   string
 	StartTimeStamp                      uint64
 	MaxMessagesToFetch                  int
+}
+
+type GetPaginatedMessagesForDmResponse struct {
+	SenderInfo    AccessGroupInfo
+	RecipientInfo AccessGroupInfo
+	MessageInfo   []DmMessageInfo
 }
 
 func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, req *http.Request) {
@@ -534,42 +540,39 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes))
 
 	// Fetch the max messages between the sender and the party.
-	threadKeysLatestMessages, err := fes.fetchMaxMessagesFromDmThread(&dmThreadKey, requestData.StartTimeStamp, requestData.MaxMessagesToFetch)
+	latestMessages, err := fes.fetchMaxMessagesFromDmThread(&dmThreadKey, requestData.StartTimeStamp, requestData.MaxMessagesToFetch)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated messages for "+
 			"Request Data: %s: %v", requestData, err))
 		return
 	}
 
-	dmMessageThreads := []DmMessageThread{}
-	for _, threadMsg := range threadKeysLatestMessages {
-		msgThread := DmMessageThread{
-			SenderInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.LatestMessageEntry.SenderAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.LatestMessageEntry.SenderAccessGroupPublicKey.ToBytes()),
-				AccessGroupKeyName:              hex.EncodeToString(threadMsg.LatestMessageEntry.SenderAccessGroupKeyName.ToBytes()),
-			},
-			RecipientInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.LatestMessageEntry.RecipientAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.LatestMessageEntry.RecipientAccessGroupPublicKey.ToBytes()),
-				AccessGroupKeyName:              hex.EncodeToString((threadMsg.LatestMessageEntry.RecipientAccessGroupKeyName.ToBytes())),
-			},
-			MessageInfo: DmMessageInfo{
-				EncryptedText:  threadMsg.LatestMessageEntry.EncryptedText,
-				TimestampNanos: threadMsg.LatestMessageEntry.TimestampNanos,
-			},
-		}
-
-		dmMessageThreads = append(dmMessageThreads, msgThread)
+	dms := GetPaginatedMessagesForDmResponse{
+		SenderInfo: AccessGroupInfo{
+			OwnerPublicKeyBase58Check: Base58EncodePublickey(senderGroupKeyNameBytes),
+			AccessGroupKeyName:        hex.EncodeToString(senderGroupKeyNameBytes),
+		},
+		RecipientInfo: AccessGroupInfo{
+			OwnerPublicKeyBase58Check: Base58EncodePublickey(recipientGroupOwnerPkBytes),
+			AccessGroupKeyName:        hex.EncodeToString(recipientGroupKeyNameBytes),
+		},
+		MessageInfo: []DmMessageInfo{},
 	}
 
-	// response containing the list of access groups.
-	res := GetUserDmResponse{
-		DmThreads: dmMessageThreads,
+	for _, threadMsg := range latestMessages {
+		dms.MessageInfo = append(dms.MessageInfo,
+			DmMessageInfo{
+				EncryptedText:  threadMsg.EncryptedText,
+				TimestampNanos: threadMsg.TimestampNanos,
+			},
+		)
 	}
+
+	// response containing dms between sender and the party.
+	res := dms
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroups: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem encoding response as JSON: %v", err))
 		return
 	}
 
