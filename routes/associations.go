@@ -147,6 +147,7 @@ type AssociationsCountResponse struct {
 
 type AssociationCountsReponse struct {
 	Counts map[string]uint64
+	Total  uint64
 }
 
 type AssociationQueryType uint8
@@ -537,6 +538,7 @@ func (fes *APIServer) CountUserAssociationsByValue(ww http.ResponseWriter, req *
 
 	// Retrieve count for each AssociationValue.
 	counts := make(map[string]uint64)
+	total := uint64(0)
 	for _, associationValue := range requestData.AssociationValues {
 		associationQuery := &lib.UserAssociationQuery{
 			TransactorPKID:   transactorPKID,
@@ -551,10 +553,11 @@ func (fes *APIServer) CountUserAssociationsByValue(ww http.ResponseWriter, req *
 			return
 		}
 		counts[associationValue] = count
+		total += count
 	}
 
 	// JSON encode response.
-	response := AssociationCountsReponse{Counts: counts}
+	response := AssociationCountsReponse{Counts: counts, Total: total}
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
 		_AddInternalServerError(ww, "CountUserAssociations: problem encoding response as JSON")
 		return
@@ -1053,6 +1056,7 @@ func (fes *APIServer) CountPostAssociationsByValue(ww http.ResponseWriter, req *
 
 	// Retrieve count for each AssociationValue.
 	counts := make(map[string]uint64)
+	total := uint64(0)
 	for _, associationValue := range requestData.AssociationValues {
 		associationQuery := &lib.PostAssociationQuery{
 			TransactorPKID:   transactorPKID,
@@ -1067,10 +1071,11 @@ func (fes *APIServer) CountPostAssociationsByValue(ww http.ResponseWriter, req *
 			return
 		}
 		counts[associationValue] = count
+		total += count
 	}
 
 	// JSON encode response.
-	response := AssociationCountsReponse{Counts: counts}
+	response := AssociationCountsReponse{Counts: counts, Total: total}
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
 		_AddInternalServerError(ww, "CountPostAssociationsByValue: problem encoding response as JSON")
 		return

@@ -137,6 +137,7 @@ func TestAssociations(t *testing.T) {
 		require.NoError(t, err)
 		require.Zero(t, countsResponse.Counts["JAVASCRIPT"])
 		require.Equal(t, countsResponse.Counts["SQL"], uint64(1))
+		require.Equal(t, countsResponse.Total, uint64(1))
 	}
 	{
 		// Query for UserAssociations by attributes.
@@ -376,6 +377,7 @@ func TestAssociations(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, countsResponse.Counts["HEART"], uint64(1))
 		require.Zero(t, countsResponse.Counts["LAUGH"])
+		require.Equal(t, countsResponse.Total, uint64(1))
 	}
 	{
 		// Query for PostAssociations by attributes.
