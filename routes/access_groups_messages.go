@@ -465,10 +465,6 @@ type GetUserDmThreadsRequest struct {
 	OwnerPublicKeyBase58Check string `safeForLogging:"true"`
 }
 
-type GetGroupChatResponse struct {
-	GroupChatThreads []GroupChatThread
-}
-
 type GetUserDmResponse struct {
 	DmThreads []DmThread
 }
@@ -643,6 +639,16 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 
 }
 
+type GroupChatThread struct {
+	SenderInfo    AccessGroupInfo
+	RecipientInfo AccessGroupInfo
+	MessageInfo   DmMessageInfo
+}
+
+type GetUserGroupChatResponse struct {
+	GroupChatThreads []GroupChatThread
+}
+
 func (fes *APIServer) GetUserGroupChatThreadsOrderedByTimestamp(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetUserDmThreadsRequest{}
@@ -702,7 +708,7 @@ func (fes *APIServer) GetUserGroupChatThreadsOrderedByTimestamp(ww http.Response
 
 	// response containing the list of group chat threads with latest message
 	// the group chat threads are sorted by the latest timestamp of their last message.
-	res := GetGroupChatResponse{
+	res := GetUserGroupChatResponse{
 		GroupChatThreads: groupChats,
 	}
 
@@ -719,12 +725,6 @@ type GetPaginatedMessagesForGroupChatThreadRequest struct {
 
 	StartTimeStamp     uint64
 	MaxMessagesToFetch int
-}
-
-type GroupChatThread struct {
-	SenderInfo    AccessGroupInfo
-	RecipientInfo AccessGroupInfo
-	MessageInfo   DmMessageInfo
 }
 
 type GetPaginatedMessagesForGroupChatThreadResponse struct {
