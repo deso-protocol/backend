@@ -383,15 +383,25 @@ type GetUserDmRequest struct {
 	SenderPublicKeyBase58Check string `safeForLogging:"true"`
 }
 
+type AccessGroupInfo struct {
+	OwnerPublicKeyBase58Check       string `safeForLogging:"true"`
+	AccessGroupPublicKeyBase58Check string `safeForLogging:"true"`
+	AccessGroupKeyName              string `safeForLogging:"true"`
+}
+
+type DmMessageInfo struct {
+	EncryptedText  []byte
+	TimestampNanos uint64
+}
+
+type DmMessageThread struct {
+	SenderInfo    AccessGroupInfo
+	RecipientInfo AccessGroupInfo
+	MessageInfo   DmMessageInfo
+}
+
 type GetUserDmResponse struct {
-	SenderPublicKeyBase58Check string `safeForLogging:"true"`
-	Threads                    []struct {
-		SenderAccessGroupKeyname                string
-		RecipientGroupOwnerPublicKeyBase58Check string
-		RecipientGroupKeyName                   string
-		EncryptedText                           []byte
-		TstampNanos                             uint64
-	}
+	DmThreads []DmMessageThread
 }
 
 func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter, req *http.Request) {
@@ -429,15 +439,42 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 		return threadKeysLatestMessages[i].LatestMessageEntry.TimestampNanos > threadKeysLatestMessages[j].LatestMessageEntry.TimestampNanos
 	})
 
+	dmMessageThreads := []DmMessageThread{}
+	for _, threadMsg := range threadKeysLatestMessages {
+		msgThread := DmMessageThread{
+			SenderInfo: AccessGroupInfo{
+				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.LatestMessageEntry.SenderAccessGroupOwnerPublicKey.ToBytes()),
+				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.LatestMessageEntry.SenderAccessGroupPublicKey.ToBytes()),
+				AccessGroupKeyName:              hex.EncodeToString(threadMsg.LatestMessageEntry.SenderAccessGroupKeyName.ToBytes()),
+			},
+			RecipientInfo: AccessGroupInfo{
+				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.LatestMessageEntry.RecipientAccessGroupOwnerPublicKey.ToBytes()),
+				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.LatestMessageEntry.RecipientAccessGroupPublicKey.ToBytes()),
+				AccessGroupKeyName:              hex.EncodeToString((threadMsg.LatestMessageEntry.RecipientAccessGroupKeyName.ToBytes()),
+			},
+			MessageInfo: DmMessageInfo{
+				EncryptedText:  threadMsg.LatestMessageEntry.EncryptedText,
+				TimestampNanos: threadMsg.LatestMessageEntry.TimestampNanos,
+			},
+		}
+
+		dmMessageThreads = append(dmMessageThreads, msgThread)
+	}
+
 	// response containing the list of access groups.
-	res := GetAccessGroupIDsResponse{
-		AccessGroupIds: groupIds,
+	res := GetUserDmResponse{
+		DmThreads: dmMessageThreads,
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroups: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+func Base58EncodePublickey(publickeyBytes []byte) (Base58EncodedPublickey string) {
+	Base58CheckPrefix := [3]byte{0xcd, 0x14, 0x0}
+	return lib.Base58CheckEncodeWithPrefix(publickeyBytes, Base58CheckPrefix)
 }
 
 func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, req *http.Request) {
