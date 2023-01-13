@@ -115,9 +115,9 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, countResponse.Count, uint64(1))
 	}
 	{
-		// Count UserAssociations for each AssociationValue.
+		// Count UserAssociations for multiple AssociationValues.
 		// Send POST request.
-		body := &UserAssociationCountByValueQuery{
+		body := &UserAssociationQuery{
 			TransactorPublicKeyBase58Check: senderPkString,
 			AssociationType:                "ENDORSEMENT",
 			AssociationValues:              []string{"JAVASCRIPT", "SQL"},
@@ -179,6 +179,35 @@ func TestAssociations(t *testing.T) {
 		apiServer.router.ServeHTTP(response, request)
 		require.Contains(t, string(response.Body.Bytes()), "error")
 		require.Contains(t, string(response.Body.Bytes()), "invalid query params")
+	}
+	{
+		// Query for UserAssociations by multiple AssociationValues.
+		// Send POST request.
+		body := &UserAssociationQuery{
+			TransactorPublicKeyBase58Check: senderPkString,
+			AssociationType:                "ENDORSEMENT",
+			AssociationValues:              []string{"JAVASCRIPT", "SQL"},
+		}
+		bodyJSON, err := json.Marshal(body)
+		require.NoError(t, err)
+		request, _ := http.NewRequest("POST", RoutePathUserAssociations+"/query", bytes.NewBuffer(bodyJSON))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.NotContains(t, string(response.Body.Bytes()), "error")
+
+		// Decode response.
+		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+		queryResponse := UserAssociationsResponse{}
+		err = decoder.Decode(&queryResponse)
+		require.NoError(t, err)
+		require.Len(t, queryResponse.Associations, 1)
+		require.Equal(t, queryResponse.Associations[0].TransactorPublicKeyBase58Check, senderPkString)
+		require.Equal(t, queryResponse.Associations[0].TargetUserPublicKeyBase58Check, recipientPkString)
+		require.Equal(t, queryResponse.Associations[0].AssociationType, "ENDORSEMENT")
+		require.Equal(t, queryResponse.Associations[0].AssociationValue, "SQL")
+		require.Equal(t, queryResponse.Associations[0].ExtraData["PeerID"], "A")
+		require.NotNil(t, queryResponse.Associations[0].BlockHeight)
 	}
 	{
 		// Delete a UserAssociation.
@@ -355,9 +384,9 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, countResponse.Count, uint64(1))
 	}
 	{
-		// Count PostAssociations for each AssociationValue.
+		// Count PostAssociations for multiple AssociationValues.
 		// Send POST request.
-		body := &PostAssociationCountByValueQuery{
+		body := &PostAssociationQuery{
 			PostHashHex:       postHashHex,
 			AssociationType:   "REACTION",
 			AssociationValues: []string{"HEART", "LAUGH"},
@@ -419,6 +448,35 @@ func TestAssociations(t *testing.T) {
 		apiServer.router.ServeHTTP(response, request)
 		require.Contains(t, string(response.Body.Bytes()), "error")
 		require.Contains(t, string(response.Body.Bytes()), "invalid query params")
+	}
+	{
+		// Query for PostAssociations by multiple AssociationValues.
+		// Send POST request.
+		body := &PostAssociationQuery{
+			PostHashHex:       postHashHex,
+			AssociationType:   "REACTION",
+			AssociationValues: []string{"HEART", "LAUGH"},
+		}
+		bodyJSON, err := json.Marshal(body)
+		require.NoError(t, err)
+		request, _ := http.NewRequest("POST", RoutePathPostAssociations+"/query", bytes.NewBuffer(bodyJSON))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.NotContains(t, string(response.Body.Bytes()), "error")
+
+		// Decode response.
+		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+		queryResponse := PostAssociationsResponse{}
+		err = decoder.Decode(&queryResponse)
+		require.NoError(t, err)
+		require.Len(t, queryResponse.Associations, 1)
+		require.Equal(t, queryResponse.Associations[0].TransactorPublicKeyBase58Check, senderPkString)
+		require.Equal(t, queryResponse.Associations[0].PostHashHex, postHashHex)
+		require.Equal(t, queryResponse.Associations[0].AssociationType, "REACTION")
+		require.Equal(t, queryResponse.Associations[0].AssociationValue, "HEART")
+		require.Equal(t, queryResponse.Associations[0].ExtraData["PeerID"], "B")
+		require.NotNil(t, queryResponse.Associations[0].BlockHeight)
 	}
 	{
 		// Delete a PostAssociation.
