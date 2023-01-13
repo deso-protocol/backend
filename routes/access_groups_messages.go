@@ -84,27 +84,37 @@ func (fes *APIServer) fetchLatestMessageFromSingleDmThread(dmThreadKey *lib.DmTh
 	return &lib.NewMessageEntry{}, nil
 }
 
+// Fetch MaxMessagesToFetch with message time stamp starting from startTimestamp.
+// Fetches the Direct messages between the sender and recipient information inside the dmThreadKey.
 func (fes *APIServer) fetchMaxMessagesFromDmThread(dmThreadKey *lib.DmThreadKey, startTimestamp uint64, MaxMessagesToFetch int) ([]*lib.NewMessageEntry, error) {
+	// Universal view gives the endpoint a "union" of the "state" between what's in the mempool and what's in the blocks.
+	// Basically gives you access to both the transactions in mined blocks, and not yet mined transaction data in the mempool.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf("getGroupOwnerAccessIdsForPublicKey: Error generating "+
+		return nil, errors.Wrap(fmt.Errorf("Error generating "+
 			"utxo view: %v", err), "")
 	}
+
+	// Fetch MaxMessagesToFetch with message time stamp starting from startTimestamp.
 	latestMessageEntries, err := utxoView.GetPaginatedMessageEntriesForDmThread(*dmThreadKey, startTimestamp, uint64(MaxMessagesToFetch))
 	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf("Error fetching entries for dmThreadKey, "+
+		return nil, errors.Wrap(fmt.Errorf("Error fetching dm entries for dmThreadKey, "+
 			"startTimestamp, and MaxMessagesToFetch: %v %v %v", dmThreadKey, startTimestamp, MaxMessagesToFetch), "")
 	}
 
 	return latestMessageEntries, nil
 }
 
+// Takes an array of DmThread Keys (Sender and Recipient public keys and access group key names),
+// returns the latest message with their timestamp for each dmthread key.
 func (fes *APIServer) fetchLatestMessageFromDmThreads(dmThreads []*lib.DmThreadKey) ([]*lib.NewMessageEntry, error) {
-
+	// *lib.NewMessageEntry is data structure used in core library for each direct message or a message in a group chat.
 	var latestMessageEntries []*lib.NewMessageEntry
-	currTime := time.Now().Unix()
+	// Using current unix time as a time stamp since we're fetching the latest message.
+	currentUnixTime := time.Now().Unix()
+	// Iterate over DmThreads and Fetch latest message for each of them.
 	for _, dmThread := range dmThreads {
-		latestMessageEntry, err := fes.fetchLatestMessageFromSingleDmThread(dmThread, uint64(currTime))
+		latestMessageEntry, err := fes.fetchLatestMessageFromSingleDmThread(dmThread, uint64(currentUnixTime))
 		if err != nil {
 			return nil, errors.Wrap(err, "")
 		}
@@ -115,38 +125,47 @@ func (fes *APIServer) fetchLatestMessageFromDmThreads(dmThreads []*lib.DmThreadK
 	return latestMessageEntries, nil
 }
 
-// Helper function retrieve access groups of the given public keys.
-// Returns both the accessGroupIdsOwned , accessGroupIdsMember by the public key.
+// Helper function retrieve all the keys of the direct messages of the user(identified by publicKeyBase58DecodedBytes)(identified by )
+// Returns the <Public key, access group key> of every direct message conversation of the user.
 func (fes *APIServer) getAllDmThreadsForPublicKey(publicKeyBase58DecodedBytes []byte) (dmThreads []*lib.DmThreadKey, err error) {
-
+	// Universal view gives the endpoint a "union" of the "state" between what's in the mempool and what's in the blocks.
+	// Basically gives you access to both the transactions in mined blocks, and not yet mined transaction data in the mempool.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf("getGroupOwnerAccessIdsForPublicKey: Error generating "+
 			"utxo view: %v", err), "")
 	}
 
-	// call the core library and fetch group IDs owned by the public key.
+	// call the core library function to fetch the direct message threads (dmThreads) of the user.
 	dmThreads, err = utxoView.GetAllUserDmThreads(*lib.NewPublicKey(publicKeyBase58DecodedBytes))
 	if err != nil {
-		return nil, errors.Wrapf(err, "getGroupOwnerAccessIdsForPublicKey: Problem getting access group ids for member")
+		return nil, errors.Wrapf(err, "Problem getting direct message threads for user %s", Base58EncodePublickey(publicKeyBase58DecodedBytes))
 	}
 
 	return dmThreads, nil
 }
 
+// Helper function to fetch just the latest message from the given group chat thread.
+// StartTimestamp is set to current unix time to fetch the latest message.
+// accessGroupId (type  *lib.AccessGroupId) consists of a member public key and the access key name to be used to fetch the group chats.
 func (fes *APIServer) fetchLatestMessageFromGroupChatThread(accessGroupId *lib.AccessGroupId, startTimestamp uint64) (*lib.NewMessageEntry, error) {
-
+	// Just fetch the latest message from the group chat represented by accessGroupId.
 	latestMessageEntries, err := fes.fetchMaxMessagesFromGroupChatThread(accessGroupId, startTimestamp, 1)
 	if err != nil {
 		return nil, errors.Wrap(err, "")
 	}
+	// If there are more than one entry, just send the latest one.
 	if len(latestMessageEntries) > 0 {
 		return latestMessageEntries[0], nil
 	}
-
+	// Send empty response for nil entries.
+	// Don't send an error, since clients/caller can form a logic based on empty entries.
 	return &lib.NewMessageEntry{}, nil
 }
 
+// Fetch MaxMessagesToFetch number of group chat messages, starting from the message timestamp of startTimestamp,
+// where the public key and access group key name in accessGroupId is a member.
+// accessGroupId (type  *lib.AccessGroupId) consists of a member public key and the access key name to be used to fetch the group chats.
 func (fes *APIServer) fetchMaxMessagesFromGroupChatThread(accessGroupId *lib.AccessGroupId, startTimestamp uint64, MaxMessagesToFetch int) ([]*lib.NewMessageEntry, error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
@@ -161,10 +180,15 @@ func (fes *APIServer) fetchMaxMessagesFromGroupChatThread(accessGroupId *lib.Acc
 	return latestMessageEntries, nil
 }
 
+// Fetch only the latest group chat message threads.
+// Iterates the access group key names in groupChatThreads, and fetches their latest message.
+// accessGroupId (type  *lib.AccessGroupId) consists of a member public key and the access key name to be used to fetch the group chats.
 func (fes *APIServer) fetchLatestMessageFromGroupChatThreads(groupChatThreads []*lib.AccessGroupId) ([]*lib.NewMessageEntry, error) {
 
 	var latestMessageEntries []*lib.NewMessageEntry
+	// Use current unix time stamp since we're fetching only the latest message.
 	currTime := time.Now().Unix()
+	// Iterate through each group chat thread and fetch their latest message.
 	for _, dmThread := range groupChatThreads {
 		latestMessageEntry, err := fes.fetchLatestMessageFromGroupChatThread(dmThread, uint64(currTime))
 		if err != nil {
@@ -177,7 +201,7 @@ func (fes *APIServer) fetchLatestMessageFromGroupChatThreads(groupChatThreads []
 }
 
 // Helper function retrieve group chat threads for a given public key.
-// Returns both the accessGroupIdsOwned , accessGroupIdsMember by the public key.
+// Returns the Access group Ids of all the group chats where publicKeyBase58DecodedBytes is participating.
 func (fes *APIServer) getAllGroupChatThreadsForPublicKey(publicKeyBase58DecodedBytes []byte) (groupChatThreads []*lib.AccessGroupId, err error) {
 
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
