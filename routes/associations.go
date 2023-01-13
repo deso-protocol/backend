@@ -446,33 +446,48 @@ func (fes *APIServer) CountUserAssociations(ww http.ResponseWriter, req *http.Re
 		_AddBadRequestError(ww, fmt.Sprintf("CountUserAssociations: %v", err))
 		return
 	}
-
-	// POST /count endpoint response
-	if len(associationQueries) == 1 {
-		// Count association entries.
-		count, err := utxoView.CountUserAssociationsByAttributes(associationQueries[0])
-		if err != nil {
-			_AddInternalServerError(ww, fmt.Sprintf("CountUserAssociations: %v", err))
-			return
-		}
-
-		// JSON encode response.
-		response := AssociationsCountResponse{Count: count}
-		if err = json.NewEncoder(ww).Encode(response); err != nil {
-			_AddInternalServerError(ww, "CountUserAssociations: problem encoding response as JSON")
-			return
-		}
+	if len(associationQueries) > 1 {
+		_AddBadRequestError(ww, "CountUserAssociations: unsupported AssociationValues param provided")
 		return
 	}
 
-	// POST /counts endpoint response
+	// Count association entries.
+	count, err := utxoView.CountUserAssociationsByAttributes(associationQueries[0])
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CountUserAssociations: %v", err))
+		return
+	}
+
+	// JSON encode response.
+	response := AssociationsCountResponse{Count: count}
+	if err = json.NewEncoder(ww).Encode(response); err != nil {
+		_AddInternalServerError(ww, "CountUserAssociations: problem encoding response as JSON")
+		return
+	}
+}
+
+func (fes *APIServer) CountUserAssociationsByValue(ww http.ResponseWriter, req *http.Request) {
+	// Create UTXO view.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, "CountUserAssociationsByValue: problem getting UTXO view")
+		return
+	}
+
+	// Construct association queries.
+	associationQueries, err := fes._constructUserAssociationQueriesFromParams(utxoView, req.Body, AssociationQueryTypeCount)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CountUserAssociationsByValue: %v", err))
+		return
+	}
+
 	// Retrieve count for each AssociationValue.
 	counts := make(map[string]uint64)
 	total := uint64(0)
 	for _, associationQuery := range associationQueries {
 		count, err := utxoView.CountUserAssociationsByAttributes(associationQuery)
 		if err != nil {
-			_AddInternalServerError(ww, fmt.Sprintf("CountUserAssociations: %v", err))
+			_AddInternalServerError(ww, fmt.Sprintf("CountUserAssociationsByValue: %v", err))
 			return
 		}
 		counts[string(associationQuery.AssociationValue)] = count
@@ -482,7 +497,7 @@ func (fes *APIServer) CountUserAssociations(ww http.ResponseWriter, req *http.Re
 	// JSON encode response.
 	response := AssociationCountsReponse{Counts: counts, Total: total}
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
-		_AddInternalServerError(ww, "CountUserAssociations: problem encoding response as JSON")
+		_AddInternalServerError(ww, "CountUserAssociationsByValue: problem encoding response as JSON")
 		return
 	}
 }
@@ -899,33 +914,48 @@ func (fes *APIServer) CountPostAssociations(ww http.ResponseWriter, req *http.Re
 		_AddBadRequestError(ww, fmt.Sprintf("CountPostAssociations: %v", err))
 		return
 	}
-
-	// POST /count endpoint response
-	if len(associationQueries) == 1 {
-		// Count association entries.
-		count, err := utxoView.CountPostAssociationsByAttributes(associationQueries[0])
-		if err != nil {
-			_AddInternalServerError(ww, fmt.Sprintf("CountPostAssociations: %v", err))
-			return
-		}
-
-		// JSON encode response.
-		response := AssociationsCountResponse{Count: count}
-		if err = json.NewEncoder(ww).Encode(response); err != nil {
-			_AddInternalServerError(ww, "CountPostAssociations: problem encoding response as JSON")
-			return
-		}
+	if len(associationQueries) > 1 {
+		_AddBadRequestError(ww, "CountPostAssociations: unsupported AssociationValues param provided")
 		return
 	}
 
-	// POST /counts endpoint response
+	// Count association entries.
+	count, err := utxoView.CountPostAssociationsByAttributes(associationQueries[0])
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CountPostAssociations: %v", err))
+		return
+	}
+
+	// JSON encode response.
+	response := AssociationsCountResponse{Count: count}
+	if err = json.NewEncoder(ww).Encode(response); err != nil {
+		_AddInternalServerError(ww, "CountPostAssociations: problem encoding response as JSON")
+		return
+	}
+}
+
+func (fes *APIServer) CountPostAssociationsByValue(ww http.ResponseWriter, req *http.Request) {
+	// Create UTXO view.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, "CountPostAssociationsByValue: problem getting UTXO view")
+		return
+	}
+
+	// Construct association queries.
+	associationQueries, err := fes._constructPostAssociationQueriesFromParams(utxoView, req.Body, AssociationQueryTypeCount)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CountPostAssociationsByValue: %v", err))
+		return
+	}
+
 	// Retrieve count for each AssociationValue.
 	counts := make(map[string]uint64)
 	total := uint64(0)
 	for _, associationQuery := range associationQueries {
 		count, err := utxoView.CountPostAssociationsByAttributes(associationQuery)
 		if err != nil {
-			_AddInternalServerError(ww, fmt.Sprintf("CountPostAssociations: %v", err))
+			_AddInternalServerError(ww, fmt.Sprintf("CountPostAssociationsByValue: %v", err))
 			return
 		}
 		counts[string(associationQuery.AssociationValue)] = count
@@ -935,7 +965,7 @@ func (fes *APIServer) CountPostAssociations(ww http.ResponseWriter, req *http.Re
 	// JSON encode response.
 	response := AssociationCountsReponse{Counts: counts, Total: total}
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
-		_AddInternalServerError(ww, "CountPostAssociations: problem encoding response as JSON")
+		_AddInternalServerError(ww, "CountPostAssociationsByValue: problem encoding response as JSON")
 		return
 	}
 }
@@ -1094,7 +1124,7 @@ func (fes *APIServer) _parseAssociationQueryParams(
 	// Parse AppPKID from TransactorPublicKeyBase58Check.
 	var appPKID *lib.PKID
 	if appPublicKeyBase58Check != "" {
-		transactorPKID, err = fes.getPKIDFromPublicKeyBase58Check(utxoView, appPublicKeyBase58Check)
+		appPKID, err = fes.getPKIDFromPublicKeyBase58Check(utxoView, appPublicKeyBase58Check)
 		if err != nil {
 			return nil, nil, nil, nil, errors.New("problem getting PKID for the app")
 		}
