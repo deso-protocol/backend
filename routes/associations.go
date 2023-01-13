@@ -1062,16 +1062,6 @@ func (fes *APIServer) _parseAssociationQueryParams(
 	postHashHex string,
 	appPublicKeyBase58Check string,
 ) (*lib.PKID, *lib.PKID, *lib.BlockHash, *lib.PKID, error) {
-	// Parse PostHash from PostHashHex.
-	var postHash *lib.BlockHash
-	if postHashHex != "" {
-		postHashBytes, err := hex.DecodeString(postHashHex)
-		if err != nil {
-			return nil, nil, nil, nil, errors.New("invalid PostHashHex provided")
-		}
-		postHash = lib.NewBlockHash(postHashBytes)
-	}
-
 	// Parse TransactorPKID from TransactorPublicKeyBase58Check.
 	var transactorPKID *lib.PKID
 	var err error
@@ -1089,6 +1079,16 @@ func (fes *APIServer) _parseAssociationQueryParams(
 		if err != nil {
 			return nil, nil, nil, nil, errors.New("problem getting PKID for the target user")
 		}
+	}
+
+	// Parse PostHash from PostHashHex.
+	var postHash *lib.BlockHash
+	if postHashHex != "" {
+		postHashBytes, err := hex.DecodeString(postHashHex)
+		if err != nil {
+			return nil, nil, nil, nil, errors.New("invalid PostHashHex provided")
+		}
+		postHash = lib.NewBlockHash(postHashBytes)
 	}
 
 	// Parse AppPKID from TransactorPublicKeyBase58Check.
