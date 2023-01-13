@@ -1106,6 +1106,12 @@ func _isValidUserAssociationValuesParam(requestData UserAssociationQuery) error 
 	if len(requestData.AssociationValues) == 0 {
 		return nil
 	}
+	if len(requestData.AssociationValues) == 1 {
+		return errors.New("only one AssociationValues value provided; use AssociationValue instead")
+	}
+	if len(requestData.AssociationValues) > MaxAssociationValuesPerQueryLimit {
+		return errors.New("too many AssociationValues values provided")
+	}
 	if requestData.SortDescending {
 		return errors.New("cannot provide both SortDescending and AssociationValues")
 	}
@@ -1125,6 +1131,12 @@ func _isValidUserAssociationValuesParam(requestData UserAssociationQuery) error 
 func _isValidPostAssociationValuesParam(requestData PostAssociationQuery) error {
 	if len(requestData.AssociationValues) == 0 {
 		return nil
+	}
+	if len(requestData.AssociationValues) == 1 {
+		return errors.New("only one AssociationValues value provided; use AssociationValue instead")
+	}
+	if len(requestData.AssociationValues) > MaxAssociationValuesPerQueryLimit {
+		return errors.New("too many AssociationValues values provided")
 	}
 	if requestData.SortDescending {
 		return errors.New("cannot provide both SortDescending and AssociationValues")
