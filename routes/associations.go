@@ -140,8 +140,9 @@ type AssociationCountsReponse struct {
 type AssociationQueryType uint8
 
 const (
-	AssociationQueryTypeQuery AssociationQueryType = 0
-	AssociationQueryTypeCount AssociationQueryType = 1
+	AssociationQueryTypeQuery        AssociationQueryType = 0
+	AssociationQueryTypeCount        AssociationQueryType = 1
+	AssociationQueryTypeCountByValue AssociationQueryType = 2
 )
 
 // ------------
@@ -446,10 +447,6 @@ func (fes *APIServer) CountUserAssociations(ww http.ResponseWriter, req *http.Re
 		_AddBadRequestError(ww, fmt.Sprintf("CountUserAssociations: %v", err))
 		return
 	}
-	if len(associationQueries) > 1 {
-		_AddBadRequestError(ww, "CountUserAssociations: unsupported AssociationValues param provided")
-		return
-	}
 
 	// Count association entries.
 	count, err := utxoView.CountUserAssociationsByAttributes(associationQueries[0])
@@ -475,7 +472,9 @@ func (fes *APIServer) CountUserAssociationsByValue(ww http.ResponseWriter, req *
 	}
 
 	// Construct association queries.
-	associationQueries, err := fes._constructUserAssociationQueriesFromParams(utxoView, req.Body, AssociationQueryTypeCount)
+	associationQueries, err := fes._constructUserAssociationQueriesFromParams(
+		utxoView, req.Body, AssociationQueryTypeCountByValue,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CountUserAssociationsByValue: %v", err))
 		return
@@ -538,7 +537,7 @@ func (fes *APIServer) _constructUserAssociationQueriesFromParams(
 		if requestData.Limit == 0 {
 			requestData.Limit = MaxAssociationsPerQueryLimit
 		}
-	case AssociationQueryTypeCount:
+	case AssociationQueryTypeCount, AssociationQueryTypeCountByValue:
 		if requestData.Limit != 0 {
 			return nil, errors.New("unsupported Limit param for count operation")
 		}
@@ -557,7 +556,7 @@ func (fes *APIServer) _constructUserAssociationQueriesFromParams(
 			}
 			lastSeenAssociationID = lib.NewBlockHash(lastSeenAssociationIdBytes)
 		}
-	case AssociationQueryTypeCount:
+	case AssociationQueryTypeCount, AssociationQueryTypeCountByValue:
 		if requestData.LastSeenAssociationID != "" {
 			return nil, errors.New("unsupported LastSeenAssociationID param for count operation")
 		}
@@ -566,7 +565,7 @@ func (fes *APIServer) _constructUserAssociationQueriesFromParams(
 	}
 
 	// Validate SortDescending.
-	if queryType == AssociationQueryTypeCount && requestData.SortDescending {
+	if (queryType == AssociationQueryTypeCount || queryType == AssociationQueryTypeCountByValue) && requestData.SortDescending {
 		return nil, errors.New("unsupported SortDescending param for count operation")
 	}
 
@@ -585,7 +584,7 @@ func (fes *APIServer) _constructUserAssociationQueriesFromParams(
 	// Construct association queries.
 	var associationQueries []*lib.UserAssociationQuery
 	if len(requestData.AssociationValues) > 0 {
-		if err = _isValidUserAssociationValuesParam(requestData); err != nil {
+		if err = _isValidUserAssociationValuesParam(requestData, queryType); err != nil {
 			return nil, err
 		}
 		for _, associationValue := range requestData.AssociationValues {
@@ -914,10 +913,6 @@ func (fes *APIServer) CountPostAssociations(ww http.ResponseWriter, req *http.Re
 		_AddBadRequestError(ww, fmt.Sprintf("CountPostAssociations: %v", err))
 		return
 	}
-	if len(associationQueries) > 1 {
-		_AddBadRequestError(ww, "CountPostAssociations: unsupported AssociationValues param provided")
-		return
-	}
 
 	// Count association entries.
 	count, err := utxoView.CountPostAssociationsByAttributes(associationQueries[0])
@@ -943,7 +938,9 @@ func (fes *APIServer) CountPostAssociationsByValue(ww http.ResponseWriter, req *
 	}
 
 	// Construct association queries.
-	associationQueries, err := fes._constructPostAssociationQueriesFromParams(utxoView, req.Body, AssociationQueryTypeCount)
+	associationQueries, err := fes._constructPostAssociationQueriesFromParams(
+		utxoView, req.Body, AssociationQueryTypeCountByValue,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CountPostAssociationsByValue: %v", err))
 		return
@@ -1006,7 +1003,7 @@ func (fes *APIServer) _constructPostAssociationQueriesFromParams(
 		if requestData.Limit == 0 {
 			requestData.Limit = MaxAssociationsPerQueryLimit
 		}
-	case AssociationQueryTypeCount:
+	case AssociationQueryTypeCount, AssociationQueryTypeCountByValue:
 		if requestData.Limit != 0 {
 			return nil, errors.New("unsupported Limit param for count operation")
 		}
@@ -1025,7 +1022,7 @@ func (fes *APIServer) _constructPostAssociationQueriesFromParams(
 			}
 			lastSeenAssociationID = lib.NewBlockHash(lastSeenAssociationIdBytes)
 		}
-	case AssociationQueryTypeCount:
+	case AssociationQueryTypeCount, AssociationQueryTypeCountByValue:
 		if requestData.LastSeenAssociationID != "" {
 			return nil, errors.New("unsupported Limit param for count operation")
 		}
@@ -1034,7 +1031,7 @@ func (fes *APIServer) _constructPostAssociationQueriesFromParams(
 	}
 
 	// Validate SortDescending.
-	if queryType == AssociationQueryTypeCount && requestData.SortDescending {
+	if (queryType == AssociationQueryTypeCount || queryType == AssociationQueryTypeCountByValue) && requestData.SortDescending {
 		return nil, errors.New("unsupported SortDescending param for count operation")
 	}
 
@@ -1053,7 +1050,7 @@ func (fes *APIServer) _constructPostAssociationQueriesFromParams(
 	// Construct association queries.
 	var associationQueries []*lib.PostAssociationQuery
 	if len(requestData.AssociationValues) > 0 {
-		if err = _isValidPostAssociationValuesParam(requestData); err != nil {
+		if err = _isValidPostAssociationValuesParam(requestData, queryType); err != nil {
 			return nil, err
 		}
 		for _, associationValue := range requestData.AssociationValues {
@@ -1132,12 +1129,20 @@ func (fes *APIServer) _parseAssociationQueryParams(
 	return transactorPKID, targetUserPKID, postHash, appPKID, nil
 }
 
-func _isValidUserAssociationValuesParam(requestData UserAssociationQuery) error {
-	if len(requestData.AssociationValues) == 0 {
-		return nil
-	}
-	if len(requestData.AssociationValues) == 1 {
-		return errors.New("only one AssociationValues value provided; use AssociationValue instead")
+func _isValidUserAssociationValuesParam(requestData UserAssociationQuery, queryType AssociationQueryType) error {
+	switch queryType {
+	case AssociationQueryTypeQuery:
+		if len(requestData.AssociationValues) == 0 {
+			return nil
+		}
+	case AssociationQueryTypeCount:
+		if len(requestData.AssociationValues) > 0 {
+			return errors.New("unsupported AssociationValues param provided")
+		}
+	case AssociationQueryTypeCountByValue:
+		if len(requestData.AssociationValues) == 0 {
+			return errors.New("no AssociationValues provided")
+		}
 	}
 	if len(requestData.AssociationValues) > MaxAssociationValuesPerQueryLimit {
 		return errors.New("too many AssociationValues values provided")
@@ -1158,12 +1163,20 @@ func _isValidUserAssociationValuesParam(requestData UserAssociationQuery) error 
 	return nil
 }
 
-func _isValidPostAssociationValuesParam(requestData PostAssociationQuery) error {
-	if len(requestData.AssociationValues) == 0 {
-		return nil
-	}
-	if len(requestData.AssociationValues) == 1 {
-		return errors.New("only one AssociationValues value provided; use AssociationValue instead")
+func _isValidPostAssociationValuesParam(requestData PostAssociationQuery, queryType AssociationQueryType) error {
+	switch queryType {
+	case AssociationQueryTypeQuery:
+		if len(requestData.AssociationValues) == 0 {
+			return nil
+		}
+	case AssociationQueryTypeCount:
+		if len(requestData.AssociationValues) > 0 {
+			return errors.New("unsupported AssociationValues param provided")
+		}
+	case AssociationQueryTypeCountByValue:
+		if len(requestData.AssociationValues) == 0 {
+			return errors.New("no AssociationValues provided")
+		}
 	}
 	if len(requestData.AssociationValues) > MaxAssociationValuesPerQueryLimit {
 		return errors.New("too many AssociationValues values provided")
