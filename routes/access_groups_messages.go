@@ -65,6 +65,13 @@ func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check, accessGroupKeyNam
 	return publicKeyBytes, accessGroupKeyNameBytes, nil
 }
 
+// Helper function to encode a public key to Base58 Checksum format.
+func Base58EncodePublickey(publickeyBytes []byte) (Base58EncodedPublickey string) {
+	// 3 byte public key prefix as per the base58 checksum format.
+	Base58CheckPrefix := [3]byte{0xcd, 0x14, 0x0}
+	return lib.Base58CheckEncodeWithPrefix(publickeyBytes, Base58CheckPrefix)
+}
+
 // Helper function to fetch just the latest message from the given Dm thread.
 // StartTimestamp is set to current unix time to fetch the latest message.
 // DmThread key consists of the sender and recipient public key and access group key names to fetch the direct messages
@@ -167,6 +174,8 @@ func (fes *APIServer) fetchLatestMessageFromGroupChatThread(accessGroupId *lib.A
 // where the public key and access group key name in accessGroupId is a member.
 // accessGroupId (type  *lib.AccessGroupId) consists of a member public key and the access key name to be used to fetch the group chats.
 func (fes *APIServer) fetchMaxMessagesFromGroupChatThread(accessGroupId *lib.AccessGroupId, startTimestamp uint64, MaxMessagesToFetch int) ([]*lib.NewMessageEntry, error) {
+	// Universal view gives the endpoint a "union" of the "state" between what's in the mempool and what's in the blocks.
+	// Basically gives you access to both the transactions in mined blocks, and not yet mined transaction data in the mempool.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf("getGroupOwnerAccessIdsForPublicKey: Error generating "+
@@ -203,14 +212,15 @@ func (fes *APIServer) fetchLatestMessageFromGroupChatThreads(groupChatThreads []
 // Helper function retrieve group chat threads for a given public key.
 // Returns the Access group Ids of all the group chats where publicKeyBase58DecodedBytes is participating.
 func (fes *APIServer) getAllGroupChatThreadsForPublicKey(publicKeyBase58DecodedBytes []byte) (groupChatThreads []*lib.AccessGroupId, err error) {
-
+	// Universal view gives the endpoint a "union" of the "state" between what's in the mempool and what's in the blocks.
+	// Basically gives you access to both the transactions in mined blocks, and not yet mined transaction data in the mempool.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf("getGroupOwnerAccessIdsForPublicKey: Error generating "+
 			"utxo view: %v", err), "")
 	}
 
-	// call the core library and fetch group IDs owned by the public key.
+	// call the core library and fetch group chats where the user(publicKeyBase58DecodedBytes) is participating.
 	groupChatThreads, err = utxoView.GetAllUserGroupChatThreads(*lib.NewPublicKey(publicKeyBase58DecodedBytes))
 	if err != nil {
 		return nil, errors.Wrapf(err, "getGroupOwnerAccessIdsForPublicKey: Problem getting access group ids for member")
@@ -329,7 +339,7 @@ func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// extra is relevant for certain type of requests. Refer to documentation for any requirement of adding extra data.
+	// extra data is relevant for certain type of requests. Refer to documentation for any requirement of adding extra data.
 	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem encoding ExtraData: %v", err))
@@ -377,17 +387,26 @@ func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
 
 }
 
+// API to compose transaction to send a GroupChat Message.
+// This API only helps you compose a group chat message transaction, it doesn't execute it.
+// To execute the transaction, you need to collect the response from this API, sign it and then submit the transaction for on-chain execution.
+// Read more about the three step transaction submission process here https://docs.deso.org/for-developers/backend/transactions.
+// Since the transaction execution doesn't happen here, deeper validations like whether the user is the owner of access group key name
+// are performed after submitting the transaction.
+// Only basic validations on the input data are performed here.
 func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Request) {
-
+	// Deserialize the request data.
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := SendDmMessageRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem parsing request body: %v", err))
 		return
 	}
+
+	// Basic validation of the sender public key and access group name.
 	senderGroupOwnerPkBytes, senderGroupKeyNameBytes, err :=
 		ValidateAccessGroupPublicKeyAndName(requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName)
-	// Decode the access group owner public key.
+		// Abruptly end the request processing on error and return.
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem validating sender public key and access group name"+
 			"base58 public key %s: %s %v",
@@ -395,9 +414,10 @@ func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
+	// Basic validation of the recipient public key and access group name.
 	recipientGroupOwnerPkBytes, recipientGroupKeyNameBytes, err :=
 		ValidateAccessGroupPublicKeyAndName(requestData.RecipientAccessGroupOwnerPublicKeyBase58Check, requestData.RecipientAccessGroupKeyName)
-	// Decode the access group owner public key.
+		// Abruptly end the request processing on error and return.
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem validating sender public key and access group name"+
 			"base58 public key %s: %s %v",
@@ -405,7 +425,9 @@ func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
+	// sender and the recipient public keys cannot be the same.
 	if bytes.Equal(senderGroupOwnerPkBytes, recipientGroupOwnerPkBytes) {
+		// Abruptly end the request processing on error and return.
 		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Dm sender and recipient "+
 			"cannot be the same %s: %s",
 			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
@@ -413,6 +435,7 @@ func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Req
 
 	}
 
+	// Validate the sender access group public key.
 	senderAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem validating sender "+
@@ -420,6 +443,7 @@ func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
+	// Validate the recipient access group public key.
 	recipientAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem validating recipient "+
@@ -434,6 +458,7 @@ func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
+	// extra data is relevant for certain type of requests. Refer to documentation for any requirement of adding extra data.
 	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem encoding ExtraData: %v", err))
@@ -442,7 +467,8 @@ func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Req
 
 	tstamp := uint64(time.Now().UnixNano())
 
-	// Core from the core lib to construct the transaction to create an access group.
+	// Call CreateNewMessageTxn the core lib to construct the transaction to send a group chat message.
+	// The message type must be lib.NewMessageTypeGroupChat, and operation type is lib.NewMessageOperationCreate.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNewMessageTxn(
 		senderGroupOwnerPkBytes, *lib.NewPublicKey(senderGroupOwnerPkBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes), *lib.NewPublicKey(senderAccessGroupPkbytes),
 		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes), *lib.NewPublicKey(recipientAccessGroupPkbytes),
@@ -479,6 +505,8 @@ func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Req
 
 }
 
+// Types to store the chat messages.
+
 type AccessGroupInfo struct {
 	OwnerPublicKeyBase58Check       string `safeForLogging:"true"`
 	AccessGroupPublicKeyBase58Check string `safeForLogging:"true"`
@@ -490,22 +518,33 @@ type DmMessageInfo struct {
 	TimestampNanos uint64
 }
 
-type DmThread struct {
+// Represents a direct message thread with sender, recipient information
+// and the latest message.
+// Dm Thread + LatestMessage.
+type DmThreadWithLatestMessage struct {
 	SenderInfo    AccessGroupInfo
 	RecipientInfo AccessGroupInfo
 	MessageInfo   DmMessageInfo
 }
 
+// Type to deserialize the request to fetch user dm threads.
 type GetUserDmThreadsRequest struct {
 	// PublicKeyBase58Check is the public key whose group IDs needs to be queried.
 	UserPublicKeyBase58Check string `safeForLogging:"true"`
 }
 
-type GetUserDmResponse struct {
-	DmThreads []DmThread
+// Type to serialize the response containing direct message threads.
+type GetUserDmThreadsResponse struct {
+	DmThreads []DmThreadWithLatestMessage
 }
 
+// This endpoint should returns all dm threads for a user.
+// Calls the GetAllUserDmThreads function from the core library.
+// Should return the direct message threads of the user along with the latest message sent for each of them.
+// This API just doesn't write any data, hence it doesn't create a new transaction.
+// It's a public API, hence anyone with a valid public key can query the system to fetch their Direct message threads.
 func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter, req *http.Request) {
+	// Deserialize the request data.
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetUserDmThreadsRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
@@ -513,8 +552,8 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 		return
 	}
 
-	// Decode the access group owner public key.
-	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.UserPublicKeyBase58Check)
+	// Decode and validate the access group owner public key.
+	accessGroupOwnerPkBytes, err := Base58DecodeAndValidatePublickey(requestData.UserPublicKeyBase58Check)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem decoding owner"+
 			"base58 public key %s: %v", requestData.UserPublicKeyBase58Check, err))
@@ -528,7 +567,10 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 			"public key %s: %v", requestData.UserPublicKeyBase58Check, err))
 		return
 	}
-	// get all the thread keys along with the latest dm message for each of them.
+
+	// TODO: Right now we iterate over each dmthread and perform `n` calls to fetch latest dm message for each of them
+	// This can be optimized in future by caching the latest Dm.
+	// get the latest dm message for each of the Dmthread them.
 	latestMessagesForThreadKeys, err := fes.fetchLatestMessageFromDmThreads(dmThreads)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem getting access group IDs of"+
@@ -536,23 +578,32 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 		return
 	}
 
+	// Sort based on timestamp of the latest message of the Dm thread.
+	// The most recent conversation should come first.
 	sort.Slice(latestMessagesForThreadKeys, func(i, j int) bool {
 		return latestMessagesForThreadKeys[i].TimestampNanos > latestMessagesForThreadKeys[j].TimestampNanos
 	})
-
-	dmMessageThreads := []DmThread{}
+	// Dm threads with each represented by DmThreadWithLatestMessage.
+	// Each entry consists of the sender account, recipient account info and the latest message.
+	// Though the publickey of the user who initiated the request is known earlier (is part of the request data),
+	// its duplicated in the api response for consistency.
+	dmMessageThreads := []DmThreadWithLatestMessage{}
 	for _, threadMsg := range latestMessagesForThreadKeys {
-		msgThread := DmThread{
+		msgThread := DmThreadWithLatestMessage{
+			// public key, access group public key, and access group key name of the sender of the DM.
 			SenderInfo: AccessGroupInfo{
 				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
 				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
 				AccessGroupKeyName:              hex.EncodeToString(threadMsg.SenderAccessGroupKeyName.ToBytes()),
 			},
+			// public key, access group public key, and access group key name of the recipient of the DM.
 			RecipientInfo: AccessGroupInfo{
 				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes()),
 				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.RecipientAccessGroupPublicKey.ToBytes()),
-				AccessGroupKeyName:              hex.EncodeToString((threadMsg.RecipientAccessGroupKeyName.ToBytes())),
+				// access group key name is hex encoded.
+				AccessGroupKeyName: hex.EncodeToString((threadMsg.RecipientAccessGroupKeyName.ToBytes())),
 			},
+			// Direct message encrypted text and timestamp.
 			MessageInfo: DmMessageInfo{
 				EncryptedText:  threadMsg.EncryptedText,
 				TimestampNanos: threadMsg.TimestampNanos,
@@ -563,7 +614,7 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 	}
 
 	// response containing the list of access groups.
-	res := GetUserDmResponse{
+	res := GetUserDmThreadsResponse{
 		DmThreads: dmMessageThreads,
 	}
 
@@ -573,27 +624,40 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 	}
 }
 
-func Base58EncodePublickey(publickeyBytes []byte) (Base58EncodedPublickey string) {
-	Base58CheckPrefix := [3]byte{0xcd, 0x14, 0x0}
-	return lib.Base58CheckEncodeWithPrefix(publickeyBytes, Base58CheckPrefix)
-}
-
+// type to deserialize the http request to fetch message from a specific direct message thread (dmThread).
 type GetPaginatedMessagesForDmThreadRequest struct {
-	UserGroupOwnerPublicKeyBase58Check  string
-	UserGroupKeyName                    string
+	//  A Direct message thread is a conversation between two parties.
+	// The first party is represented by the prefix "User".
+	UserGroupOwnerPublicKeyBase58Check string
+	UserGroupKeyName                   string
+	// The second party is represented by prefix "party"
 	PartyGroupOwnerPublicKeyBase58Check string
 	PartyGroupKeyName                   string
-	StartTimeStamp                      uint64
-	MaxMessagesToFetch                  int
+	// Filter to fetch direct messages who time stamp is less than StartTimeStamp.
+	// So you need to set this to current time and MaxMessagesToFetch to 10, to fetch
+	//  the latest 10 messages.
+	StartTimeStamp     uint64
+	MaxMessagesToFetch int
 }
 
+// type to serialize the response containing the direct messages between two parties.
 type GetPaginatedMessagesForDmResponse struct {
-	SenderInfo    AccessGroupInfo
+	// First party info.
+	SenderInfo AccessGroupInfo
+	// Second party info.
 	RecipientInfo AccessGroupInfo
-	MessageInfo   []DmMessageInfo
+	// Messages between them.
+	MessageInfo []DmMessageInfo
 }
 
+// API is used to fetch the direct messages between two parties in a paginated way.
+// This is useful for applications to fetch only N number of direct messages between two parties at once.
+// Timestamp in the request data can be altered to fetch subsequent N messages in each call to fetch the direct messages.
+
+// This API just doesn't write any data, hence it doesn't create a new transaction.
+// It's a public API, hence anyone with a valid input data can query the system to fetch their Direct messages.
 func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, req *http.Request) {
+	// Deserialize the request data.
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetPaginatedMessagesForDmThreadRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
@@ -601,11 +665,13 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		return
 	}
 
+	// Why fetch if there's less than one message to fetch!!!!!
 	if requestData.MaxMessagesToFetch < 1 {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: MaxMessagesToFetch cannot be less than 1: %v", requestData.MaxMessagesToFetch))
 		return
 	}
 
+	// Basic validation of the sender public key and access group name.
 	senderGroupOwnerPkBytes, senderGroupKeyNameBytes, err :=
 		ValidateAccessGroupPublicKeyAndName(requestData.UserGroupOwnerPublicKeyBase58Check, requestData.UserGroupKeyName)
 	if err != nil {
@@ -625,6 +691,7 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		return
 	}
 
+	// sender and the recipient public keys cannot be the same.
 	if bytes.Equal(senderGroupOwnerPkBytes, recipientGroupOwnerPkBytes) {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Dm sender and recipient "+
 			"cannot be the same %s: %s",
@@ -633,6 +700,7 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 
 	}
 
+	// The information of the two parties involved in Dm has to encoded in lib.DmThreadKey.
 	dmThreadKey := lib.MakeDmThreadKey(*lib.NewPublicKey(senderGroupKeyNameBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes),
 		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes))
 
@@ -644,6 +712,7 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		return
 	}
 
+	// Since the two parties in the conversation in same in all the message if added this info upfront.
 	dms := GetPaginatedMessagesForDmResponse{
 		SenderInfo: AccessGroupInfo{
 			OwnerPublicKeyBase58Check: Base58EncodePublickey(senderGroupKeyNameBytes),
@@ -656,6 +725,7 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		MessageInfo: []DmMessageInfo{},
 	}
 
+	// Now append each of their Direct message (Dm) conversations.
 	for _, threadMsg := range latestMessages {
 		dms.MessageInfo = append(dms.MessageInfo,
 			DmMessageInfo{
@@ -675,12 +745,7 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 
 }
 
-type GroupChatThread struct {
-	SenderInfo    AccessGroupInfo
-	RecipientInfo AccessGroupInfo
-	MessageInfo   DmMessageInfo
-}
-
+// type and APIs to operate with Group chat feature.
 type GetUserGroupChatRequest struct {
 	// PublicKeyBase58Check is the public key whose group IDs needs to be queried.
 	UserPublicKeyBase58Check string `safeForLogging:"true"`
@@ -688,6 +753,12 @@ type GetUserGroupChatRequest struct {
 
 type GetUserGroupChatResponse struct {
 	GroupChatThreads []GroupChatThread
+}
+
+type GroupChatThread struct {
+	SenderInfo    AccessGroupInfo
+	RecipientInfo AccessGroupInfo
+	MessageInfo   DmMessageInfo
 }
 
 func (fes *APIServer) GetUserGroupChatThreadsOrderedByTimestamp(ww http.ResponseWriter, req *http.Request) {
