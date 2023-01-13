@@ -514,13 +514,6 @@ func (fes *APIServer) _constructUserAssociationQueriesFromParams(
 		return nil, errors.New("problem parsing request body")
 	}
 
-	// Validate AssociationValues.
-	if ((requestData.AssociationValue != "" || requestData.AssociationValuePrefix != "") && len(requestData.AssociationValues) > 0) ||
-		len(requestData.AssociationValues) == 1 ||
-		len(requestData.AssociationValues) > MaxAssociationValuesPerQueryLimit {
-		return nil, errors.New("invalid AssociationValues provided")
-	}
-
 	// Parse Limit.
 	switch queryType {
 	case AssociationQueryTypeQuery:
@@ -577,17 +570,17 @@ func (fes *APIServer) _constructUserAssociationQueriesFromParams(
 	// Construct association queries.
 	var associationQueries []*lib.UserAssociationQuery
 	if len(requestData.AssociationValues) > 0 {
+		if err = _isValidUserAssociationValuesParam(requestData); err != nil {
+			return nil, err
+		}
 		for _, associationValue := range requestData.AssociationValues {
 			associationQuery := &lib.UserAssociationQuery{
-				TransactorPKID:        transactorPKID,
-				TargetUserPKID:        targetUserPKID,
-				AppPKID:               appPKID,
-				AssociationType:       []byte(requestData.AssociationType),
-				AssociationTypePrefix: []byte(requestData.AssociationTypePrefix),
-				AssociationValue:      []byte(associationValue),
-				Limit:                 requestData.Limit,
-				LastSeenAssociationID: lastSeenAssociationID,
-				SortDescending:        requestData.SortDescending,
+				TransactorPKID:   transactorPKID,
+				TargetUserPKID:   targetUserPKID,
+				AppPKID:          appPKID,
+				AssociationType:  []byte(requestData.AssociationType),
+				AssociationValue: []byte(associationValue),
+				Limit:            requestData.Limit,
 			}
 			associationQueries = append(associationQueries, associationQuery)
 		}
@@ -974,13 +967,6 @@ func (fes *APIServer) _constructPostAssociationQueriesFromParams(
 		return nil, errors.New("problem parsing request body")
 	}
 
-	// Validate AssociationValues.
-	if ((requestData.AssociationValue != "" || requestData.AssociationValuePrefix != "") && len(requestData.AssociationValues) > 0) ||
-		len(requestData.AssociationValues) == 1 ||
-		len(requestData.AssociationValues) > MaxAssociationValuesPerQueryLimit {
-		return nil, errors.New("invalid AssociationValues provided")
-	}
-
 	// Parse Limit.
 	switch queryType {
 	case AssociationQueryTypeQuery:
@@ -1037,17 +1023,17 @@ func (fes *APIServer) _constructPostAssociationQueriesFromParams(
 	// Construct association queries.
 	var associationQueries []*lib.PostAssociationQuery
 	if len(requestData.AssociationValues) > 0 {
+		if err = _isValidPostAssociationValuesParam(requestData); err != nil {
+			return nil, err
+		}
 		for _, associationValue := range requestData.AssociationValues {
 			associationQuery := &lib.PostAssociationQuery{
-				TransactorPKID:        transactorPKID,
-				PostHash:              postHash,
-				AppPKID:               appPKID,
-				AssociationType:       []byte(requestData.AssociationType),
-				AssociationTypePrefix: []byte(requestData.AssociationTypePrefix),
-				AssociationValue:      []byte(associationValue),
-				Limit:                 requestData.Limit,
-				LastSeenAssociationID: lastSeenAssociationID,
-				SortDescending:        requestData.SortDescending,
+				TransactorPKID:   transactorPKID,
+				PostHash:         postHash,
+				AppPKID:          appPKID,
+				AssociationType:  []byte(requestData.AssociationType),
+				AssociationValue: []byte(associationValue),
+				Limit:            requestData.Limit,
 			}
 			associationQueries = append(associationQueries, associationQuery)
 		}
@@ -1114,4 +1100,44 @@ func (fes *APIServer) _parseAssociationQueryParams(
 		}
 	}
 	return transactorPKID, targetUserPKID, postHash, appPKID, nil
+}
+
+func _isValidUserAssociationValuesParam(requestData UserAssociationQuery) error {
+	if len(requestData.AssociationValues) == 0 {
+		return nil
+	}
+	if requestData.SortDescending {
+		return errors.New("cannot provide both SortDescending and AssociationValues")
+	}
+	for _, param := range []string{
+		requestData.AssociationTypePrefix,
+		requestData.AssociationValue,
+		requestData.AssociationValuePrefix,
+		requestData.LastSeenAssociationID,
+	} {
+		if param != "" {
+			return fmt.Errorf("cannot provide both %s and AssociationValues", param)
+		}
+	}
+	return nil
+}
+
+func _isValidPostAssociationValuesParam(requestData PostAssociationQuery) error {
+	if len(requestData.AssociationValues) == 0 {
+		return nil
+	}
+	if requestData.SortDescending {
+		return errors.New("cannot provide both SortDescending and AssociationValues")
+	}
+	for _, param := range []string{
+		requestData.AssociationTypePrefix,
+		requestData.AssociationValue,
+		requestData.AssociationValuePrefix,
+		requestData.LastSeenAssociationID,
+	} {
+		if param != "" {
+			return fmt.Errorf("cannot provide both %s and AssociationValues", param)
+		}
+	}
+	return nil
 }
