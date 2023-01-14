@@ -738,13 +738,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetSingleProfilePicture,
 			PublicAccess,
 		},
-		{
-			"GetPostsForPublicKey",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetPostsForPublicKey,
-			fes.GetPostsForPublicKey,
-			PublicAccess,
-		},
+		// {
+		// 	"GetPostsForPublicKey",
+		// 	[]string{"POST", "OPTIONS"},
+		// 	RoutePathGetPostsForPublicKey,
+		// 	fes.GetPostsForPublicKey,
+		// 	PublicAccess,
+		// },
 		{
 			"GetDiamondsForPublicKey",
 			[]string{"POST", "OPTIONS"},
@@ -871,13 +871,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetNFTEntriesForPostHash,
 			PublicAccess,
 		},
-		{
-			"GetNFTsCreatedByPublicKey",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetNFTsCreatedByPublicKey,
-			fes.GetNFTsCreatedByPublicKey,
-			PublicAccess,
-		},
+		// {
+		// 	"GetNFTsCreatedByPublicKey",
+		// 	[]string{"POST", "OPTIONS"},
+		// 	RoutePathGetNFTsCreatedByPublicKey,
+		// 	fes.GetNFTsCreatedByPublicKey,
+		// 	PublicAccess,
+		// },
 		{
 			"GetHodlersForPublicKey",
 			[]string{"POST", "OPTIONS"},
@@ -1561,13 +1561,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.AdminDownloadReferralCSV,
 			SuperAdminAccess,
 		},
-		{
-			"AdminDownloadReferralCSV",
-			[]string{"POST", "OPTIONS"},
-			RoutePathAdminDownloadRefereeCSV,
-			fes.AdminDownloadRefereeCSV,
-			SuperAdminAccess,
-		},
+		// {
+		// 	"AdminDownloadReferralCSV",
+		// 	[]string{"POST", "OPTIONS"},
+		// 	RoutePathAdminDownloadRefereeCSV,
+		// 	fes.AdminDownloadRefereeCSV,
+		// 	SuperAdminAccess,
+		// },
 		{
 			"AdminUpdateTutorialCreators",
 			[]string{"POST", "OPTIONS"},
@@ -2010,6 +2010,18 @@ var publicRoutes = map[string]interface{}{
 	RoutePathSubmitTransaction:              nil,
 	RoutePathGetTxn:                         nil,
 	RoutePathUpdateProfile:                  nil,
+
+	RoutePathCreateAccessGroup:                         nil,
+	RoutePathAddAccessGroupMembers:                     nil,
+	RoutePathGetAllUserAccessGroups:                    nil,
+	RoutePathGetAllUserAccessGroupsOwned:               nil,
+	RoutePathGetAllUserAccessGroupsMemberOnly:          nil,
+	RoutePathSendDmMessage:                             nil,
+	RoutePathGetUserDmThreadsOrderedByTimeStamp:        nil,
+	RoutePathGetPaginatedMessagesForDmThread:           nil,
+	RoutePathGetUserGroupChatThreadsOrderedByTimestamp: nil,
+	RoutePathGetPaginatedMessagesForGroupChatThread:    nil,
+	RoutePathGetAllUserMessageThreads:                  nil,
 }
 
 // AddHeaders ...
@@ -2440,6 +2452,7 @@ func (fes *APIServer) StartGlobalStateMonitoring() {
 }
 
 func (fes *APIServer) SetGlobalStateCache() {
+	fmt.Printf("here----------------------%v------", fes.backendServer)
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		glog.Errorf("SetGlobalStateCache: problem with GetAugmentedUniversalView: %v", err)

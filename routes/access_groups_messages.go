@@ -709,7 +709,7 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 	latestMessages, err := fes.fetchMaxMessagesFromDmThread(&dmThreadKey, requestData.StartTimeStamp, requestData.MaxMessagesToFetch)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated messages for "+
-			"Request Data: %s: %v", requestData, err))
+			"Request Data: %v: %v", requestData, err))
 		return
 	}
 
@@ -902,7 +902,7 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 	groupChatMessages, err := fes.fetchMaxMessagesFromGroupChatThread(&accessGroupId, requestData.StartTimeStamp, requestData.MaxMessagesToFetch)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForGroupChatThread: Problem getting paginated messages for "+
-			"Request Data: %s: %v", requestData, err))
+			"Request Data: %v: %v", requestData, err))
 		return
 	}
 
@@ -974,18 +974,18 @@ type GetAllUserMessageThreadsResponse struct {
 
 // This API just doesn't write any data, hence it doesn't create a new transaction.
 // It's a public API, hence anyone with a valid public key can query the system to fetch their Direct message threads.
-func (fes *APIServer) GetAllUserMessageThreadsRequest(ww http.ResponseWriter, req *http.Request) {
+func (fes *APIServer) GetAllUserMessageThreads(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetAllUserMessageThreadsRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForGroupChatThread: Problem parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserMessageThreads: Problem parsing request body: %v", err))
 		return
 	}
 
 	// Decode the access group owner public key.
 	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.UserPublicKeyBase58Check)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserMessageThreadsRequest: Problem decoding owner"+
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserMessageThreads: Problem decoding owner"+
 			"base58 public key %s: %v", requestData.UserPublicKeyBase58Check, err))
 		return
 	}
@@ -993,7 +993,7 @@ func (fes *APIServer) GetAllUserMessageThreadsRequest(ww http.ResponseWriter, re
 	// get all the direct message threads associated with the public key.
 	dmThreads, err := fes.getAllDmThreadsForPublicKey(accessGroupOwnerPkBytes)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserMessageThreadsRequest: Problem getting access group IDs of"+
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserMessageThreads: Problem getting access group IDs of"+
 			"public key %s: %v", requestData.UserPublicKeyBase58Check, err))
 		return
 	}
@@ -1001,7 +1001,7 @@ func (fes *APIServer) GetAllUserMessageThreadsRequest(ww http.ResponseWriter, re
 	// fetch the latest message for each of the dmThread.
 	latestMessagesForThreadKeys, err := fes.fetchLatestMessageFromDmThreads(dmThreads)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserMessageThreadsRequest: Problem getting access group IDs of"+
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserMessageThreads: Problem getting access group IDs of"+
 			"public key %s: %v", requestData.UserPublicKeyBase58Check, err))
 		return
 	}
@@ -1009,14 +1009,14 @@ func (fes *APIServer) GetAllUserMessageThreadsRequest(ww http.ResponseWriter, re
 	// get all the group chat threads for the public key.
 	groupChatThreads, err := fes.getAllGroupChatThreadsForPublicKey(accessGroupOwnerPkBytes)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserMessageThreadsRequest: Problem getting access group IDs of"+
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserMessageThreads: Problem getting access group IDs of"+
 			"public key %s: %v", requestData.UserPublicKeyBase58Check, err))
 		return
 	}
 	// get the latest message for each group chat thread.
 	latestMessagesForGroupChats, err := fes.fetchLatestMessageFromGroupChatThreads(groupChatThreads)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserMessageThreadsRequest: Problem getting access group IDs of"+
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserMessageThreads: Problem getting access group IDs of"+
 			"public key %s: %v", requestData.UserPublicKeyBase58Check, err))
 		return
 	}
@@ -1078,7 +1078,7 @@ func (fes *APIServer) GetAllUserMessageThreadsRequest(ww http.ResponseWriter, re
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserMessageThreadsRequest: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserMessageThreads: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
