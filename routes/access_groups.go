@@ -20,7 +20,8 @@ type CreateAccessGroupRequest struct {
 	// AccessGroupPublicKeyBase58Check is the Public key required to participate in the access groups.
 	AccessGroupPublicKeyBase58Check string `safeForLogging:"true"`
 	// Name of the access group to be created.
-	AccessGroupKeyName string `safeForLogging:"true"`
+	// Value needs to encoded in Hex.
+	AccessGroupKeyNameHexEncoded string `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 	// No need to specify ProfileEntryResponse in each TransactionFee
@@ -83,20 +84,30 @@ func (fes *APIServer) CreateAccessGroup(ww http.ResponseWriter, req *http.Reques
 			"base58 public key %s: %v", requestData.AccessGroupOwnerPublicKeyBase58Check, err))
 		return
 	}
+
+	// Hex decoding the access group name.
+	// The client should hex encode the group name while calling the API.
+	accessGroupKeyNameBytes, err := hex.DecodeString(requestData.AccessGroupKeyNameHexEncoded)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem hex decoding "+
+			"access group key name %v %v", requestData.AccessGroupKeyNameHexEncoded, err))
+		return
+	}
+
 	// get the byte array of the access group key name.
-	accessGroupKeyNameBytes := []byte(requestData.AccessGroupKeyName)
+
 	// Validates whether the accessGroupOwner key is a valid public key and
 	// some basic checks on access group key name like Min and Max characters.
 	if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupOwnerPkBytes, accessGroupKeyNameBytes); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem validating access group owner "+
-			"public key and access group key name %s: %v", requestData.AccessGroupKeyName, err))
+			"public key and access group key name %s: %v", requestData.AccessGroupKeyNameHexEncoded, err))
 		return
 	}
 
 	// Access group name key cannot be equal to base name key (equal to all zeros).
 	if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"CreateAccessGroup: Access Group key cannot be same as base key (all zeros)."+"access group key name %s", requestData.AccessGroupKeyName))
+			"CreateAccessGroup: Access Group key cannot be same as base key (all zeros)."+"access group key name %s", requestData.AccessGroupKeyNameHexEncoded))
 		return
 	}
 	// Decode the access group public key.

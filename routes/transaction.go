@@ -6,13 +6,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/holiman/uint256"
 	"io"
 	"math/big"
 	"net/http"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/holiman/uint256"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
@@ -104,6 +105,7 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	fmt.Printf("--------inside submit----: %v", txn.Signature.Sign)
 	if err = fes.backendServer.VerifyAndBroadcastTransaction(txn); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitTransaction: Problem processing transaction: %v", err))
 		return
