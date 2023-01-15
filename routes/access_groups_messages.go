@@ -66,9 +66,11 @@ func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check, accessGroupKeyNam
 }
 
 // Helper function to encode a public key to Base58 Checksum format.
-func Base58EncodePublickey(publickeyBytes []byte) (Base58EncodedPublickey string) {
+func Base58CheckEncodePublickey(publickeyBytes []byte) (Base58EncodedPublickey string) {
+	//fmt.Println("In core....")
+	//fmt.Printf("%v", publickeyBytes)
 	// 3 byte public key prefix as per the base58 checksum format.
-	Base58CheckPrefix := [3]byte{0xcd, 0x14, 0x0}
+	Base58CheckPrefix := [3]byte{0x11, 0xc2, 0x0}
 	return lib.Base58CheckEncodeWithPrefix(publickeyBytes, Base58CheckPrefix)
 }
 
@@ -139,14 +141,14 @@ func (fes *APIServer) getAllDmThreadsForPublicKey(publicKeyBase58DecodedBytes []
 	// Basically gives you access to both the transactions in mined blocks, and not yet mined transaction data in the mempool.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf("getGroupOwnerAccessIdsForPublicKey: Error generating "+
+		return nil, errors.Wrap(fmt.Errorf("Error generating "+
 			"utxo view: %v", err), "")
 	}
 
 	// call the core library function to fetch the direct message threads (dmThreads) of the user.
 	dmThreads, err = utxoView.GetAllUserDmThreads(*lib.NewPublicKey(publicKeyBase58DecodedBytes))
 	if err != nil {
-		return nil, errors.Wrapf(err, "Problem getting direct message threads for user %s", Base58EncodePublickey(publicKeyBase58DecodedBytes))
+		return nil, errors.Wrapf(err, "Problem getting direct message threads for user %s", Base58CheckEncodePublickey(publicKeyBase58DecodedBytes))
 	}
 
 	return dmThreads, nil
@@ -178,7 +180,7 @@ func (fes *APIServer) fetchMaxMessagesFromGroupChatThread(accessGroupId *lib.Acc
 	// Basically gives you access to both the transactions in mined blocks, and not yet mined transaction data in the mempool.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf("getGroupOwnerAccessIdsForPublicKey: Error generating "+
+		return nil, errors.Wrap(fmt.Errorf("Error generating "+
 			"utxo view: %v", err), "")
 	}
 	latestMessageEntries, err := utxoView.GetPaginatedMessageEntriesForGroupChatThread(*accessGroupId, startTimestamp, uint64(MaxMessagesToFetch))
@@ -216,14 +218,14 @@ func (fes *APIServer) getAllGroupChatThreadsForPublicKey(publicKeyBase58DecodedB
 	// Basically gives you access to both the transactions in mined blocks, and not yet mined transaction data in the mempool.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf("getGroupOwnerAccessIdsForPublicKey: Error generating "+
+		return nil, errors.Wrap(fmt.Errorf("Error generating "+
 			"utxo view: %v", err), "")
 	}
 
 	// call the core library and fetch group chats where the user(publicKeyBase58DecodedBytes) is participating.
 	groupChatThreads, err = utxoView.GetAllUserGroupChatThreads(*lib.NewPublicKey(publicKeyBase58DecodedBytes))
 	if err != nil {
-		return nil, errors.Wrapf(err, "getGroupOwnerAccessIdsForPublicKey: Problem getting access group ids for member")
+		return nil, errors.Wrapf(err, "Problem getting access group ids for member")
 	}
 
 	return groupChatThreads, nil
@@ -592,14 +594,14 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 		msgThread := DmThreadWithLatestMessage{
 			// public key, access group public key, and access group key name of the sender of the DM.
 			SenderInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
+				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
+				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
 				AccessGroupKeyName:              hex.EncodeToString(threadMsg.SenderAccessGroupKeyName.ToBytes()),
 			},
 			// public key, access group public key, and access group key name of the recipient of the DM.
 			RecipientInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.RecipientAccessGroupPublicKey.ToBytes()),
+				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes()),
+				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupPublicKey.ToBytes()),
 				// access group key name is hex encoded.
 				AccessGroupKeyName: hex.EncodeToString((threadMsg.RecipientAccessGroupKeyName.ToBytes())),
 			},
@@ -716,11 +718,11 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 	// Since the two parties in the conversation in same in all the message if added this info upfront.
 	dms := GetPaginatedMessagesForDmResponse{
 		SenderInfo: AccessGroupInfo{
-			OwnerPublicKeyBase58Check: Base58EncodePublickey(senderGroupKeyNameBytes),
+			OwnerPublicKeyBase58Check: Base58CheckEncodePublickey(senderGroupKeyNameBytes),
 			AccessGroupKeyName:        hex.EncodeToString(senderGroupKeyNameBytes),
 		},
 		RecipientInfo: AccessGroupInfo{
-			OwnerPublicKeyBase58Check: Base58EncodePublickey(recipientGroupOwnerPkBytes),
+			OwnerPublicKeyBase58Check: Base58CheckEncodePublickey(recipientGroupOwnerPkBytes),
 			AccessGroupKeyName:        hex.EncodeToString(recipientGroupKeyNameBytes),
 		},
 		MessageInfo: []DmMessageInfo{},
@@ -815,14 +817,14 @@ func (fes *APIServer) GetUserGroupChatThreadsOrderedByTimestamp(ww http.Response
 		groupChat := GroupChatThread{
 			// public key, access group public key, and access group key name of the sender of the group chat.
 			SenderInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
+				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
+				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
 				AccessGroupKeyName:              hex.EncodeToString(threadMsg.SenderAccessGroupKeyName.ToBytes()),
 			},
 			// public key, access group public key, and access group key name of the recipient of the group chat.
 			RecipientInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.RecipientAccessGroupPublicKey.ToBytes()),
+				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes()),
+				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupPublicKey.ToBytes()),
 				AccessGroupKeyName:              hex.EncodeToString((threadMsg.RecipientAccessGroupKeyName.ToBytes())),
 			},
 			// group chat message and its timestamp.
@@ -914,14 +916,14 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 		message := GroupChatThread{
 			// public key, access group public key, and access group key name of the sender of the group chat.
 			SenderInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
+				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
+				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
 				AccessGroupKeyName:              hex.EncodeToString(threadMsg.SenderAccessGroupKeyName.ToBytes()),
 			},
 			// public key, access group public key, and access group key name of the recipient of the group chat.
 			RecipientInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.RecipientAccessGroupPublicKey.ToBytes()),
+				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes()),
+				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupPublicKey.ToBytes()),
 				AccessGroupKeyName:              hex.EncodeToString((threadMsg.RecipientAccessGroupKeyName.ToBytes())),
 			},
 			// group chat message and its timestamp.
@@ -1028,13 +1030,13 @@ func (fes *APIServer) GetAllUserMessageThreads(ww http.ResponseWriter, req *http
 		msgThread := UserThread{
 			ChatType: chatTypeGroupChat,
 			SenderInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
+				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
+				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
 				AccessGroupKeyName:              hex.EncodeToString(threadMsg.SenderAccessGroupKeyName.ToBytes()),
 			},
 			RecipientInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.RecipientAccessGroupPublicKey.ToBytes()),
+				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes()),
+				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupPublicKey.ToBytes()),
 				AccessGroupKeyName:              hex.EncodeToString((threadMsg.RecipientAccessGroupKeyName.ToBytes())),
 			},
 			MessageInfo: DmMessageInfo{
@@ -1050,13 +1052,13 @@ func (fes *APIServer) GetAllUserMessageThreads(ww http.ResponseWriter, req *http
 		msgThread := UserThread{
 			ChatType: chatTypeDm,
 			SenderInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
+				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
+				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
 				AccessGroupKeyName:              hex.EncodeToString(threadMsg.SenderAccessGroupKeyName.ToBytes()),
 			},
 			RecipientInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58EncodePublickey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58EncodePublickey(threadMsg.RecipientAccessGroupPublicKey.ToBytes()),
+				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes()),
+				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupPublicKey.ToBytes()),
 				AccessGroupKeyName:              hex.EncodeToString((threadMsg.RecipientAccessGroupKeyName.ToBytes())),
 			},
 			MessageInfo: DmMessageInfo{
