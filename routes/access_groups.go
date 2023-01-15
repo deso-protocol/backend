@@ -388,14 +388,20 @@ type GetAccessGroupIDsResponse struct {
 	AccessGroupIds *AccessGroupIds `safeForLogging:"true"`
 }
 
+// represents access group owner/member along with the name of the Access group name encoded in hex.
+type AccessGroupIdEncoded struct {
+	UserPublicKeyBase58Check string
+	AccessGroupKeyNameHex    string
+}
+
 // PublicKeyBase58Check is the public key whose group IDs needs to be queried.
 // struct to construct the response to create an access group.
 type AccessGroupIds struct {
 	// access group Ids of groups owned by a given public Key.
 	// using omitempty tag so that the filed is omitted if empty during serialization.
-	AccessGroupIdsOwned []*lib.AccessGroupId `json:",omitempty" safeForLogging:"true"`
+	AccessGroupIdsOwned []*AccessGroupIdEncoded `json:",omitempty" safeForLogging:"true"`
 	// access group Ids of groups where a given public key account is just a member.
-	AccessGroupIdsMember []*lib.AccessGroupId `json:",omitempty" safeForLogging:"true"`
+	AccessGroupIdsMember []*AccessGroupIdEncoded `json:",omitempty" safeForLogging:"true"`
 }
 
 // Helper function retrieve access groups of the given public keys.
@@ -403,12 +409,14 @@ type AccessGroupIds struct {
 func (fes *APIServer) getAllAccessIdsForPublicKey(publicKeyBase58DecodedBytes []byte) (groupIds *AccessGroupIds, err error) {
 
 	// Fetch group IDs owned by the public key.
+	// Return value is type  []*lib.AccessGroupId from core library.
 	accessGroupIdsOwned, err := fes.getGroupOwnerAccessIdsForPublicKey(publicKeyBase58DecodedBytes)
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf("getAllAccessIdsForPublicKey: %v", err), "")
 	}
 
 	// Fetch group IDs where the public key is a member.
+	// Return value is type  []*lib.AccessGroupId from core library.
 	accessGroupIdsMember, err := fes.getMemberOnlyAccessIdsForPublicKey(publicKeyBase58DecodedBytes)
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf("getAllAccessIdsForPublicKey: %v", err), "")
@@ -423,7 +431,7 @@ func (fes *APIServer) getAllAccessIdsForPublicKey(publicKeyBase58DecodedBytes []
 }
 
 // returns only the access groups owned by the public key.
-func (fes *APIServer) getGroupOwnerAccessIdsForPublicKey(publicKeyBase58DecodedBytes []byte) (accessGroupIdsOwned []*lib.AccessGroupId, err error) {
+func (fes *APIServer) getGroupOwnerAccessIdsForPublicKey(publicKeyBase58DecodedBytes []byte) ([]*AccessGroupIdEncoded, error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf("getGroupOwnerAccessIdsForPublicKey: Error generating "+
@@ -431,16 +439,28 @@ func (fes *APIServer) getGroupOwnerAccessIdsForPublicKey(publicKeyBase58DecodedB
 	}
 
 	// call the core library and fetch group IDs owned by the public key.
-	accessGroupIdsOwned, err = utxoView.GetAccessGroupIdsForOwner(publicKeyBase58DecodedBytes)
+	accessGroupIdsOwned, err := utxoView.GetAccessGroupIdsForOwner(publicKeyBase58DecodedBytes)
 	if err != nil {
 		return nil, errors.Wrapf(err, "getGroupOwnerAccessIdsForPublicKey: Problem getting access group ids for member")
 	}
+	//  []*lib.AccessGroupId type doesn't encoded the publickey of the user is base 58 check format.
+	// Also the access group key name is not in hex encoded format.
+	// Hence, encoded the user publickey in Base58 checksum format and the access group key name in the hex encoded string format.
+	accessGroupIdsOwnedEncoded := []*AccessGroupIdEncoded{}
 
-	return accessGroupIdsOwned, nil
+	for _, accessGroupID := range accessGroupIdsOwned {
+		accessGroupIdEncoded := &AccessGroupIdEncoded{
+			UserPublicKeyBase58Check: Base58CheckEncodePublickey(accessGroupID.AccessGroupOwnerPublicKey.ToBytes()),
+			AccessGroupKeyNameHex:    hex.EncodeToString(accessGroupID.AccessGroupKeyName.ToBytes()),
+		}
+
+		accessGroupIdsOwnedEncoded = append(accessGroupIdsOwnedEncoded, accessGroupIdEncoded)
+	}
+	return accessGroupIdsOwnedEncoded, nil
 }
 
 // returns the access groups where the given public key is only a member.
-func (fes *APIServer) getMemberOnlyAccessIdsForPublicKey(publicKeyBase58DecodedBytes []byte) (accessGroupIdsMember []*lib.AccessGroupId, err error) {
+func (fes *APIServer) getMemberOnlyAccessIdsForPublicKey(publicKeyBase58DecodedBytes []byte) ([]*AccessGroupIdEncoded, error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf("getMemberOnlyAccessIdsForPublicKey: Error generating "+
@@ -448,12 +468,26 @@ func (fes *APIServer) getMemberOnlyAccessIdsForPublicKey(publicKeyBase58DecodedB
 	}
 
 	// call the core library and fetch group IDs where the public key is a member.
-	accessGroupIdsMember, err = utxoView.GetAccessGroupIdsForMember(publicKeyBase58DecodedBytes)
+	accessGroupIdsMember, err := utxoView.GetAccessGroupIdsForMember(publicKeyBase58DecodedBytes)
 	if err != nil {
 		return nil, errors.Wrapf(err, "getMemberOnlyAccessIdsForPublicKey: Problem getting access group ids for member")
 	}
 
-	return accessGroupIdsMember, nil
+	// []*lib.AccessGroupId type doesn't encoded the publickey of the user is base 58 check format.
+	// Also the access group key name is not in hex encoded format.
+	// Hence, encoded the user publickey in Base58 checksum format and the access group key name in the hex encoded string format.
+	accessGroupIdsMemberEncoded := []*AccessGroupIdEncoded{}
+
+	for _, accessGroupID := range accessGroupIdsMember {
+		accessGroupIdEncoded := &AccessGroupIdEncoded{
+			UserPublicKeyBase58Check: Base58CheckEncodePublickey(accessGroupID.AccessGroupOwnerPublicKey.ToBytes()),
+			AccessGroupKeyNameHex:    hex.EncodeToString(accessGroupID.AccessGroupKeyName.ToBytes()),
+		}
+
+		accessGroupIdsMemberEncoded = append(accessGroupIdsMemberEncoded, accessGroupIdEncoded)
+	}
+
+	return accessGroupIdsMemberEncoded, nil
 }
 
 // API to get all access groups of a given public key.
