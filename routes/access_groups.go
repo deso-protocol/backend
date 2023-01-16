@@ -470,6 +470,7 @@ func (fes *APIServer) getGroupOwnerAccessIdsForPublicKey(publicKeyBase58DecodedB
 	if err != nil {
 		return nil, errors.Wrapf(err, "getGroupOwnerAccessIdsForPublicKey: Problem getting access group ids for member")
 	}
+
 	//  []*lib.AccessGroupId type doesn't encoded the publickey of the user is base 58 check format.
 	// Also the access group key name is not in hex encoded format.
 	// Hence, encoded the user publickey in Base58 checksum format and the access group key name in the hex encoded string format.
