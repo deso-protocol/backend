@@ -163,6 +163,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	_, _ = assert, require
 
 	chain, params, _ := NewLowDifficultyBlockchain()
+	params.ForkHeights.DeSoAccessGroupsBlockHeight = uint32(0)
 	txIndexDb, _ := GetTestBadgerDb()
 	txIndex, _ := lib.NewTXIndex(chain, params, txIndexDb.Opts().Dir)
 	mempool, miner := NewTestMiner(t, chain, params, true /*isSender*/)

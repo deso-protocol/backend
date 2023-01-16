@@ -131,7 +131,7 @@ func SignAndSubmitTransaction(t *testing.T, privateKeyBase58Check string, txn *l
 }
 
 // Tests the creation of new access group.
-func TestAPICreateAccessGroup(t *testing.T) {
+func TestAPIAcessGroupDmGroupChat(t *testing.T) {
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -172,39 +172,9 @@ func TestAPICreateAccessGroup(t *testing.T) {
 	}
 
 	txn := unmarshalResponse.Transaction
-	signTransaction(t, txn)
-	t.Logf("sign: %v\n ", txn.Signature.Sign)
-	txnBytes, err := txn.ToBytes(false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	hexTxnBytes := hex.EncodeToString(txnBytes)
-
-	// Compare the expected
-	//assert.Equal(&expectedResponse, unmarshalResponse)
-	submitReq := &SubmitTransactionRequest{
-		TransactionHex: hexTxnBytes,
-	}
-	requestbody, err = json.Marshal(submitReq)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	request, _ = http.NewRequest("POST", RoutePathSubmitTransaction, bytes.NewBuffer(requestbody))
-	request.Header.Set("Content-Type", "application/json")
-	response = httptest.NewRecorder()
-	apiServer.router.ServeHTTP(response, request)
-	// assert the response status.
-	assert.Equal(200, response.Code, "OK response is expected")
-
-	// Deserialize the response.
-	unmarshalResponses := &SubmitTransactionResponse{}
-	err = json.Unmarshal(response.Body.Bytes(), unmarshalResponses)
-	if err != nil {
-		t.Fatal("Unable to Base58 Check decode the result")
-	}
-	t.Logf("%v", unmarshalResponse)
+	// Now sign and submit transaction.
+	// The test function fails if the submit transaction fails.
+	SignAndSubmitTransaction(t, senderPrivString, txn, apiServer)
 
 	// If we are here then we've successfully created a new access group
 	// for public key senderPkString, and access group key name "groupName1"
