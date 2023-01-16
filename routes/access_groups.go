@@ -184,7 +184,8 @@ type AccessGroupMember struct {
 	//  4. Can't add the owner of the group as a member of the group using the same group key name.
 	//     In other words, if the owner of a access group are adding themselves, the AccessGroupMemberKeyName in the member list i
 	//     cannot be same as the access group key name of the same group.
-	AccessGroupMemberKeyName string `safeForLogging:"true"`
+	//  5. The client need to hex encode the key name while calling the API.
+	AccessGroupMemberKeyNameHexEncoded string `safeForLogging:"true"`
 	//  1. Stores the main group's access public key encrypted to the member group's access public key.
 	//  2. This is used to allow the member to decrypt the main group's access public key
 	//     using their individual access groups' secrets.
@@ -200,7 +201,7 @@ type AddAccessGroupMembersRequest struct {
 	// This needs to match your public key used for signing the transaction since only the group owner can add a member.
 	AccessGroupOwnerPublicKeyBase58Check string `safeForLogging:"true"`
 	// Access group identifier
-	AccessGroupKeyName string `safeForLogging:"true"`
+	AccessGroupKeyNameHexEncoded string `safeForLogging:"true"`
 	// The details of the members to add are contained in the accessGroupMemberList array.
 	// Each entry in the accessGroupMemberList represents one user to add to the access group.
 	// Invalid to add multiple entry of the same public key in the list.
@@ -252,15 +253,21 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 		return
 	}
 
-	// get the byte array of the access group key name.
-	accessGroupKeyNameBytes := []byte(requestData.AccessGroupKeyName)
+	// Hex decoding the access group name.
+	// The client should hex encode the group name while calling the API.
+	accessGroupKeyNameBytes, err := hex.DecodeString(requestData.AccessGroupKeyNameHexEncoded)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: Problem hex decoding "+
+			"access group key name %v %v", requestData.AccessGroupKeyNameHexEncoded, err))
+		return
+	}
 
 	// Access group name key cannot be equal to base name key  (equal to all zeros).
 	// Base access group key is reserved and by default all users belong to an access group with base group key.
 	if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"AddAccessGroupMembers: Access Group key cannot be same as base key (all zeros). "+
-				"access group key name %s", requestData.AccessGroupKeyName))
+				"access group key name %s", requestData.AccessGroupKeyNameHexEncoded))
 		return
 	}
 
@@ -268,7 +275,7 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 	// some basic checks on access group key name like Min and Max characters are performed.
 	if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupOwnerPkBytes, accessGroupKeyNameBytes); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: Problem validating access group owner "+
-			"public key and access group key name %s: %v", requestData.AccessGroupKeyName, err))
+			"public key and access group key name %s: %v", requestData.AccessGroupKeyNameHexEncoded, err))
 		return
 	}
 
@@ -291,13 +298,20 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 				"base58 public key %s: %v", member.AccessGroupMemberPublicKeyBase58Check, err))
 			return
 		}
-
+		// Hex decoding the access group name.
+		// The client should hex encode the group name while calling the API.
+		accessGroupKeyNameBytes, err := hex.DecodeString(member.AccessGroupMemberKeyNameHexEncoded)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: Problem hex decoding "+
+				"access group key name %v %v", member.AccessGroupMemberKeyNameHexEncoded, err))
+			return
+		}
 		// Checks whether the accessGroupMember key is a valid public key and
 		// some basic checks on access group key name like Min and Max characters are done.
 		if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupMemberPkBytes,
-			[]byte(member.AccessGroupMemberKeyName)); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem validating access group owner "+
-				"public key and access group key name %s: %v", requestData.AccessGroupKeyName, err))
+			accessGroupKeyNameBytes); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: Problem validating access group owner "+
+				"public key and access group key name %s %s: %v", requestData.AccessGroupKeyNameHexEncoded, err))
 			return
 		}
 
@@ -306,9 +320,9 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 		// same as the key of the access group being added.
 		if bytes.Equal(accessGroupOwnerPkBytes, accessGroupMemberPkBytes) &&
 			bytes.Equal(lib.NewGroupKeyName(accessGroupKeyNameBytes).ToBytes(),
-				lib.NewGroupKeyName([]byte(member.AccessGroupMemberKeyName)).ToBytes()) {
+				lib.NewGroupKeyName(accessGroupKeyNameBytes).ToBytes()) {
 
-			_AddBadRequestError(ww, fmt.Sprintf("Can't add the owner of the group as a member of the "+
+			_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: Can't add the owner of the group as a member of the "+
 				"group using the same group key name."))
 			return
 
@@ -333,7 +347,7 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 		// Assembling the information inside an array of &lib.AccessGroupMember as expected by the core library.
 		accessGroupMember := &lib.AccessGroupMember{
 			AccessGroupMemberPublicKey: accessGroupMemberPkBytes,
-			AccessGroupMemberKeyName:   []byte(member.AccessGroupMemberKeyName),
+			AccessGroupMemberKeyName:   accessGroupKeyNameBytes,
 			EncryptedKey:               member.EncryptedKey,
 			ExtraData:                  member.ExtraData,
 		}
