@@ -414,10 +414,11 @@ type GetAccessGroupIDsResponse struct {
 	AccessGroupIds *AccessGroupIds `safeForLogging:"true"`
 }
 
-// represents access group owner/member along with the name of the Access group name encoded in hex.
+// represents access group owner along with the name of the Access group name encoded in hex.
 type AccessGroupIdEncoded struct {
-	UserPublicKeyBase58Check string
-	AccessGroupKeyNameHex    string
+	// public key of the access group owner.
+	AccessGroupOwnerPublicKeyBase58Check string
+	AccessGroupKeyNameHex                string
 }
 
 // PublicKeyBase58Check is the public key whose group IDs needs to be queried.
@@ -476,8 +477,8 @@ func (fes *APIServer) getGroupOwnerAccessIdsForPublicKey(publicKeyBase58DecodedB
 
 	for _, accessGroupID := range accessGroupIdsOwned {
 		accessGroupIdEncoded := &AccessGroupIdEncoded{
-			UserPublicKeyBase58Check: Base58CheckEncodePublickey(accessGroupID.AccessGroupOwnerPublicKey.ToBytes()),
-			AccessGroupKeyNameHex:    hex.EncodeToString(accessGroupID.AccessGroupKeyName.ToBytes()),
+			AccessGroupOwnerPublicKeyBase58Check: Base58CheckEncodePublickey(accessGroupID.AccessGroupOwnerPublicKey.ToBytes()),
+			AccessGroupKeyNameHex:                hex.EncodeToString(accessGroupID.AccessGroupKeyName.ToBytes()),
 		}
 
 		accessGroupIdsOwnedEncoded = append(accessGroupIdsOwnedEncoded, accessGroupIdEncoded)
@@ -506,8 +507,8 @@ func (fes *APIServer) getMemberOnlyAccessIdsForPublicKey(publicKeyBase58DecodedB
 
 	for _, accessGroupID := range accessGroupIdsMember {
 		accessGroupIdEncoded := &AccessGroupIdEncoded{
-			UserPublicKeyBase58Check: Base58CheckEncodePublickey(accessGroupID.AccessGroupOwnerPublicKey.ToBytes()),
-			AccessGroupKeyNameHex:    hex.EncodeToString(accessGroupID.AccessGroupKeyName.ToBytes()),
+			AccessGroupOwnerPublicKeyBase58Check: Base58CheckEncodePublickey(accessGroupID.AccessGroupOwnerPublicKey.ToBytes()),
+			AccessGroupKeyNameHex:                hex.EncodeToString(accessGroupID.AccessGroupKeyName.ToBytes()),
 		}
 
 		accessGroupIdsMemberEncoded = append(accessGroupIdsMemberEncoded, accessGroupIdEncoded)

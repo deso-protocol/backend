@@ -110,8 +110,8 @@ func TestAPIAccessGroupBaseGroupMemberShip(t *testing.T) {
 			AccessGroupIdsOwned: []*AccessGroupIdEncoded{
 				// The user should be the owner of the default base group().
 				{
-					UserPublicKeyBase58Check: senderPkString,
-					AccessGroupKeyNameHex:    hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
+					AccessGroupOwnerPublicKeyBase58Check: senderPkString,
+					AccessGroupKeyNameHex:                hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
 				},
 			},
 		},
@@ -199,31 +199,35 @@ func TestAPIAcessGroupDmGroupChat(t *testing.T) {
 	// Fetch all the access groups for sender Pk String
 	actualGroupIDsres := fetchAccessGroupID(t, apiServer, senderPkString)
 	// Expected response for the call to fetch Access group ID.
+	// Sender Public key (senderPkString) should now own two access groups.
+	// One is the default access group, the other is the access group we with key "groupName1".
 	expectedResponse := GetAccessGroupIDsResponse{
 		AccessGroupIds: &AccessGroupIds{
 			AccessGroupIdsOwned: []*AccessGroupIdEncoded{
 				// The user should be the owner of the default base group().
 				// The group name is expected to be hex encoded.
 				{
-					UserPublicKeyBase58Check: senderPkString,
-					AccessGroupKeyNameHex:    hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
+					AccessGroupOwnerPublicKeyBase58Check: senderPkString,
+					AccessGroupKeyNameHex:                hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
 				},
 				// We expect the newly created access group in the expected result.
 				{
-					UserPublicKeyBase58Check: senderPkString,
-					AccessGroupKeyNameHex:    hex.EncodeToString(lib.NewGroupKeyName(groupName1).ToBytes()),
+					AccessGroupOwnerPublicKeyBase58Check: senderPkString,
+					AccessGroupKeyNameHex:                hex.EncodeToString(lib.NewGroupKeyName(groupName1).ToBytes()),
 				},
 			},
 		},
 	}
+	// Assert if the expected response and the actual response are the same.
 	assert.Equal(&expectedResponse, actualGroupIDsres)
 
+	// Add member1 as a new member of groupName1.
 	accesGroupMember1 := AccessGroupMember{
 		AccessGroupMemberPublicKeyBase58Check: Base58CheckEncodePublickey(member1),
 		AccessGroupMemberKeyNameHexEncoded:    hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
 		EncryptedKey:                          []byte{1, 2, 3},
 	}
-	// Add a member.
+	// Call the API to construct the transaction to add the member.
 	memberAdd := &AddAccessGroupMembersRequest{
 		AccessGroupOwnerPublicKeyBase58Check: senderPkString,
 		AccessGroupKeyNameHexEncoded:         hex.EncodeToString(lib.NewGroupKeyName(groupName1).ToBytes()),
@@ -237,8 +241,7 @@ func TestAPIAcessGroupDmGroupChat(t *testing.T) {
 	responseBytes = ExecuteRequest(t, apiServer, RoutePathAddAccessGroupMembers, requestbody)
 
 	// Deserialize the response.
-	// Tests the response structure.
-	// We validate whether the access group creation was successful by fetching the access groups later.
+	// Validate the response type upon successful deserialization.
 	addMemberResponse := &AddAccessGroupMembersResponse{}
 	err = json.Unmarshal(responseBytes, addMemberResponse)
 	require.NoError(err)
@@ -250,36 +253,35 @@ func TestAPIAcessGroupDmGroupChat(t *testing.T) {
 	txMeta := txn.TxnMeta.(*lib.AccessGroupMembersMetadata)
 	t.Logf("Txn type: %v", txMeta)
 
-	// Now sign and submit transaction.
 	// The test function fails if the submit transaction fails.
 	SignAndSubmitTransaction(t, senderPrivString, txn, apiServer)
 
 	// Now that the transaction is submitted, fetch the AccessGroup IDs and
-	// check if the new access group exists.
-	// for public key senderPkString, and access group key name "groupName1"
-	// Fetch all the access groups for sender Pk String
+	// check if the new member is add to the access group.
+	// Fetch all the access groups for member1.
 	actualGroupIDsres = fetchAccessGroupID(t, apiServer, Base58CheckEncodePublickey(member1))
 	// Expected response for the call to fetch Access group ID.
 	expectedResponse = GetAccessGroupIDsResponse{
 		AccessGroupIds: &AccessGroupIds{
 			AccessGroupIdsOwned: []*AccessGroupIdEncoded{
-				// The user should be the owner of the default base group().
+				// Every user by default should be the owner of the default base group().
 				// The group name is expected to be hex encoded.
 				{
-					UserPublicKeyBase58Check: Base58CheckEncodePublickey(member1),
-					AccessGroupKeyNameHex:    hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
+					AccessGroupOwnerPublicKeyBase58Check: Base58CheckEncodePublickey(member1),
+					AccessGroupKeyNameHex:                hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
 				},
 			},
+			// member1 is a member of groupName1. The public key should match senderPkString,
+			// since senderPkString is the owner of the group.
 			AccessGroupIdsMember: []*AccessGroupIdEncoded{
-
-				// We expect the newly created access group in the expected result.
 				{
-					UserPublicKeyBase58Check: Base58CheckEncodePublickey(member1),
-					AccessGroupKeyNameHex:    hex.EncodeToString(lib.NewGroupKeyName(groupName1).ToBytes()),
+					AccessGroupOwnerPublicKeyBase58Check: senderPkString,
+					AccessGroupKeyNameHex:                hex.EncodeToString(lib.NewGroupKeyName(groupName1).ToBytes()),
 				},
 			},
 		},
 	}
+	// validate the actual response with the expected response
 	assert.Equal(&expectedResponse, actualGroupIDsres)
 
 }
