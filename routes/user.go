@@ -2856,6 +2856,12 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 	} else if txnMeta.TxnType == lib.TxnTypeBasicTransfer.String() {
 		// Someone paid you
 		return true
+	} else if txnMeta.CreateUserAssociationTxindexMetadata != nil {
+		// Someone created an association referring to you
+		return true
+	} else if txnMeta.CreatePostAssociationTxindexMetadata != nil {
+		// Some created an association referring to one of your posts
+		return true
 	}
 	return false
 }
