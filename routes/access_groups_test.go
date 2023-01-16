@@ -218,19 +218,18 @@ func TestAPIAcessGroupDmGroupChat(t *testing.T) {
 	}
 	assert.Equal(&expectedResponse, actualGroupIDsres)
 
+	accesGroupMember1 := AccessGroupMember{
+		AccessGroupMemberPublicKeyBase58Check: Base58CheckEncodePublickey(member1),
+		AccessGroupMemberKeyNameHexEncoded:    hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
+		EncryptedKey:                          []byte{1, 2, 3},
+	}
 	// Add a member.
 	memberAdd := &AddAccessGroupMembersRequest{
 		AccessGroupOwnerPublicKeyBase58Check: senderPkString,
 		AccessGroupKeyNameHexEncoded:         hex.EncodeToString(lib.NewGroupKeyName(groupName1).ToBytes()),
-		accessGroupMemberList: []AccessGroupMember{
-			AccessGroupMember{
-				AccessGroupMemberPublicKeyBase58Check: Base58CheckEncodePublickey(member1),
-				AccessGroupMemberKeyName:              hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
-				EncryptedKey:                          []byte{1, 2, 3},
-			},
-		},
-		MinFeeRateNanosPerKB: 10,
-		TransactionFees:      nil,
+		AccessGroupMemberList:                []AccessGroupMember{accesGroupMember1},
+		MinFeeRateNanosPerKB:                 10,
+		TransactionFees:                      nil,
 	}
 
 	requestbody, err = json.Marshal(memberAdd)
@@ -247,7 +246,10 @@ func TestAPIAcessGroupDmGroupChat(t *testing.T) {
 	// The previous step was just transaction construction phase.
 	// Now, sign and submit the transaction, to execute the transaction.
 	// First, fetch the transaction from the response of the transaction construction API.
-	txn = unmarshalResponse.Transaction
+	txn = addMemberResponse.Transaction
+	txMeta := txn.TxnMeta.(*lib.AccessGroupMembersMetadata)
+	t.Logf("Txn type: %v", txMeta)
+
 	// Now sign and submit transaction.
 	// The test function fails if the submit transaction fails.
 	SignAndSubmitTransaction(t, senderPrivString, txn, apiServer)

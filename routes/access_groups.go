@@ -205,7 +205,7 @@ type AddAccessGroupMembersRequest struct {
 	// The details of the members to add are contained in the accessGroupMemberList array.
 	// Each entry in the accessGroupMemberList represents one user to add to the access group.
 	// Invalid to add multiple entry of the same public key in the list.
-	accessGroupMemberList []AccessGroupMember `safeForLogging:"true"`
+	AccessGroupMemberList []AccessGroupMember `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 	// No need to specify ProfileEntryResponse in each TransactionFee
@@ -286,9 +286,9 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 	accessGroupMemberPublicKeys := make(map[lib.PublicKey]struct{})
 
 	// Iterate through the member list.
-	for i := 0; i < len(requestData.accessGroupMemberList); i++ {
+	for i := 0; i < len(requestData.AccessGroupMemberList); i++ {
 
-		member := requestData.accessGroupMemberList[i]
+		member := requestData.AccessGroupMemberList[i]
 
 		// Decode the member public key.
 		// As usual any public key is expected to be wired in Base58 Checksum format.
@@ -311,7 +311,8 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 		if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupMemberPkBytes,
 			accessGroupKeyNameBytes); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: Problem validating access group owner "+
-				"public key and access group key name %s %s: %v", requestData.AccessGroupKeyNameHexEncoded, err))
+				"public key and access group key name %s %s: %v",
+				member.AccessGroupMemberPublicKeyBase58Check, member.AccessGroupMemberKeyNameHexEncoded, err))
 			return
 		}
 
