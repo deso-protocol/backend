@@ -301,7 +301,7 @@ const (
 	// Routes for access groups based DM and group chat messaging.
 	RoutePathSendGroupChatMessage = "/api/v0/send-group-chat-message"
 
-	RoutePathGetUserDmThreadsOrderedByTimeStamp = "get-user-dm-threads-ordered-by-timestamp"
+	RoutePathGetUserDmThreadsOrderedByTimeStamp = "/api/v0/get-user-dm-threads-ordered-by-timestamp"
 
 	RoutePathGetPaginatedMessagesForDmThread = "/api/v0/get-paginated-messages-for-dm-thread"
 
