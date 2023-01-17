@@ -2,7 +2,6 @@ package routes
 
 import (
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
 	"sort"
 
@@ -17,6 +16,14 @@ import (
 	"testing"
 )
 
+// Helper function to encode a public key to Base58 Checksum format.
+func Base58CheckEncodePublickey(t *testing.T, publickeyBytes []byte) (Base58EncodedPublickey string) {
+	t.Helper()
+	// 3 byte public key prefix as per the base58 checksum format.
+	Base58CheckPrefix := [3]byte{0x11, 0xc2, 0x0}
+	return lib.Base58CheckEncodeWithPrefix(publickeyBytes, Base58CheckPrefix)
+
+}
 func signTransaction(t *testing.T, txn *lib.MsgDeSoTxn) {
 	privKeyBytes, _, err := lib.Base58CheckDecode(senderPrivString)
 	require.NoError(t, err)
@@ -34,7 +41,7 @@ func SignAndSubmitTransaction(t *testing.T, privateKeyBase58Check string, txn *l
 	if err != nil {
 		t.Fatal(err)
 	}
-	hexTxnBytes := hex.EncodeToString(txnBytes)
+	hexTxnBytes := string(txnBytes)
 
 	// Compare the expected
 	//assert.Equal(&expectedResponse, unmarshalResponse)
@@ -108,11 +115,11 @@ func TestAPIAccessGroupBaseGroupMembership(t *testing.T) {
 	// Expense response for the call to fetch Access group ID.
 	expectedResponse := GetAccessGroupIDsResponse{
 		AccessGroupIds: &AccessGroupIds{
-			AccessGroupIdsOwned: []*AccessGroupIdEncoded{
+			AccessGroupIdsOwned: []*AccessGroupId{
 				// The user should be the owner of the default base group().
 				{
 					AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-					AccessGroupKeyNameHex:                hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
+					AccessGroupKeyName:                   string(lib.BaseGroupKeyName().ToBytes()),
 				},
 			},
 		},
@@ -174,8 +181,8 @@ func TestAPIAcessGroups(t *testing.T) {
 	// Create a request to create an access group.
 	values := CreateAccessGroupRequest{
 		AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-		AccessGroupPublicKeyBase58Check:      Base58CheckEncodePublickey(groupPk1),
-		AccessGroupKeyNameHexEncoded:         hex.EncodeToString(groupName1),
+		AccessGroupPublicKeyBase58Check:      Base58CheckEncodePublickey(t, groupPk1),
+		AccessGroupKeyName:                   string(groupName1),
 		MinFeeRateNanosPerKB:                 10,
 		TransactionFees:                      nil,
 	}
@@ -210,18 +217,18 @@ func TestAPIAcessGroups(t *testing.T) {
 	// One is the default access group, the other is the access group we with key "groupName1".
 	expectedResponse := GetAccessGroupIDsResponse{
 		AccessGroupIds: &AccessGroupIds{
-			AccessGroupIdsOwned: []*AccessGroupIdEncoded{
+			AccessGroupIdsOwned: []*AccessGroupId{
 
 				// We expect the newly created access group in the expected result.
 				{
 					AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-					AccessGroupKeyNameHex:                hex.EncodeToString(lib.NewGroupKeyName(groupName1).ToBytes()),
+					AccessGroupKeyName:                   string(lib.NewGroupKeyName(groupName1).ToBytes()),
 				},
 				// The user should be the owner of the default base group().
 				// The group name is expected to be hex encoded.
 				{
 					AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-					AccessGroupKeyNameHex:                hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
+					AccessGroupKeyName:                   string(lib.BaseGroupKeyName().ToBytes()),
 				},
 			},
 		},
@@ -229,7 +236,7 @@ func TestAPIAcessGroups(t *testing.T) {
 
 	// // sorting the result to get a predictable order of the result.
 	sort.Slice(actualGroupIDsres.AccessGroupIds.AccessGroupIdsOwned, func(i, j int) bool {
-		return actualGroupIDsres.AccessGroupIds.AccessGroupIdsOwned[i].AccessGroupKeyNameHex > actualGroupIDsres.AccessGroupIds.AccessGroupIdsOwned[j].AccessGroupKeyNameHex
+		return actualGroupIDsres.AccessGroupIds.AccessGroupIdsOwned[i].AccessGroupKeyName > actualGroupIDsres.AccessGroupIds.AccessGroupIdsOwned[j].AccessGroupKeyName
 	})
 
 	// Assert if the expected response and the actual response are the same.
@@ -237,14 +244,14 @@ func TestAPIAcessGroups(t *testing.T) {
 
 	// Add member1 as a new member of groupName1.
 	accesGroupMember1 := AccessGroupMember{
-		AccessGroupMemberPublicKeyBase58Check: Base58CheckEncodePublickey(member1),
-		AccessGroupMemberKeyNameHexEncoded:    hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
-		EncryptedKey:                          []byte{1, 2, 3},
+		AccessGroupMemberPublicKeyBase58Check: Base58CheckEncodePublickey(t, member1),
+		AccessGroupMemberKeyName:              string(lib.BaseGroupKeyName().ToBytes()),
+		EncryptedKey:                          string([]byte{1, 2, 3}),
 	}
 	// Call the API to construct the transaction to add the member.
 	memberAdd := &AddAccessGroupMembersRequest{
 		AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-		AccessGroupKeyNameHexEncoded:         hex.EncodeToString(lib.NewGroupKeyName(groupName1).ToBytes()),
+		AccessGroupKeyName:                   string(lib.NewGroupKeyName(groupName1).ToBytes()),
 		AccessGroupMemberList:                []AccessGroupMember{accesGroupMember1},
 		MinFeeRateNanosPerKB:                 10,
 		TransactionFees:                      nil,
@@ -271,24 +278,24 @@ func TestAPIAcessGroups(t *testing.T) {
 	// Now that the transaction is submitted, fetch the AccessGroup IDs and
 	// check if the new member is add to the access group.
 	// Fetch all the access groups for member1.
-	actualGroupIDsres = fetchAccessGroupID(t, apiServer, Base58CheckEncodePublickey(member1))
+	actualGroupIDsres = fetchAccessGroupID(t, apiServer, Base58CheckEncodePublickey(t, member1))
 	// Expected response for the call to fetch Access group ID.
 	expectedResponse = GetAccessGroupIDsResponse{
 		AccessGroupIds: &AccessGroupIds{
-			AccessGroupIdsOwned: []*AccessGroupIdEncoded{
+			AccessGroupIdsOwned: []*AccessGroupId{
 				// Every user by default should be the owner of the default base group().
 				// The group name is expected to be hex encoded.
 				{
-					AccessGroupOwnerPublicKeyBase58Check: Base58CheckEncodePublickey(member1),
-					AccessGroupKeyNameHex:                hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
+					AccessGroupOwnerPublicKeyBase58Check: Base58CheckEncodePublickey(t, member1),
+					AccessGroupKeyName:                   string(lib.BaseGroupKeyName().ToBytes()),
 				},
 			},
 			// member1 is a member of groupName1. The public key should match senderPkString,
 			// since senderPkString is the owner of the group.
-			AccessGroupIdsMember: []*AccessGroupIdEncoded{
+			AccessGroupIdsMember: []*AccessGroupId{
 				{
 					AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-					AccessGroupKeyNameHex:                hex.EncodeToString(lib.NewGroupKeyName(groupName1).ToBytes()),
+					AccessGroupKeyName:                   string(lib.NewGroupKeyName(groupName1).ToBytes()),
 				},
 			},
 		},
@@ -307,32 +314,32 @@ func TestAPIAcessGroups(t *testing.T) {
 	require.NoError(err)
 	expectedResponse = GetAccessGroupIDsResponse{
 		AccessGroupIds: &AccessGroupIds{
-			AccessGroupIdsOwned: []*AccessGroupIdEncoded{
+			AccessGroupIdsOwned: []*AccessGroupId{
 
 				// We expect the newly created access group in the expected result.
 				{
 					AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-					AccessGroupKeyNameHex:                hex.EncodeToString(lib.NewGroupKeyName(groupName1).ToBytes()),
+					AccessGroupKeyName:                   string(lib.NewGroupKeyName(groupName1).ToBytes()),
 				},
 				// The user should be the owner of the default base group().
 				// The group name is expected to be hex encoded.
 				{
 					AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-					AccessGroupKeyNameHex:                hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
+					AccessGroupKeyName:                   string(lib.BaseGroupKeyName().ToBytes()),
 				},
 			},
 		},
 	}
 	// // sorting the result to get a predictable order of the result.
 	sort.Slice(actualOwnerOnlyResponse.AccessGroupIds.AccessGroupIdsOwned, func(i, j int) bool {
-		return actualOwnerOnlyResponse.AccessGroupIds.AccessGroupIdsOwned[i].AccessGroupKeyNameHex > actualOwnerOnlyResponse.AccessGroupIds.AccessGroupIdsOwned[j].AccessGroupKeyNameHex
+		return actualOwnerOnlyResponse.AccessGroupIds.AccessGroupIdsOwned[i].AccessGroupKeyName > actualOwnerOnlyResponse.AccessGroupIds.AccessGroupIdsOwned[j].AccessGroupKeyName
 	})
 
 	// validate the actual response with the expected response
 	assert.Equal(&expectedResponse, actualOwnerOnlyResponse)
 
 	// Test Api to fetch member only access groups.
-	memberOnlyValues := GetAccessGroupIDsRequest{PublicKeyBase58Check: Base58CheckEncodePublickey(member1)}
+	memberOnlyValues := GetAccessGroupIDsRequest{PublicKeyBase58Check: Base58CheckEncodePublickey(t, member1)}
 
 	requestbody, err = json.Marshal(memberOnlyValues)
 	require.NoError(err)
@@ -345,10 +352,10 @@ func TestAPIAcessGroups(t *testing.T) {
 		AccessGroupIds: &AccessGroupIds{
 			// member1 is a member of groupName1. The public key should match senderPkString,
 			// since senderPkString is the owner of the group.
-			AccessGroupIdsMember: []*AccessGroupIdEncoded{
+			AccessGroupIdsMember: []*AccessGroupId{
 				{
 					AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-					AccessGroupKeyNameHex:                hex.EncodeToString(lib.NewGroupKeyName(groupName1).ToBytes()),
+					AccessGroupKeyName:                   string(lib.NewGroupKeyName(groupName1).ToBytes()),
 				},
 			},
 		},
