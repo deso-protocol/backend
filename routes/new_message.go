@@ -309,6 +309,11 @@ func (fes *APIServer) sendMessageHandler(ww http.ResponseWriter, req *http.Reque
 	//		requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
 	//}
 
+	hexDecodedEncryptedMessageBytes, err := hex.DecodeString(requestData.EncryptedMessageText)
+	if err != nil {
+		return errors.Wrapf(err, "Problem decoding encrypted message text hex")
+	}
+
 	// Validate the sender access group public key.
 	senderAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
 	if err != nil {
@@ -317,7 +322,7 @@ func (fes *APIServer) sendMessageHandler(ww http.ResponseWriter, req *http.Reque
 	}
 
 	// Validate the recipient access group public key.
-	recipientAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
+	recipientAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.RecipientAccessGroupPublicKeyBase58Check)
 	if err != nil {
 		return errors.Wrapf(err, fmt.Sprintf("Problem validating recipient "+
 			"base58 public key %s: ", requestData.SenderAccessGroupPublicKeyBase58Check))
@@ -342,7 +347,7 @@ func (fes *APIServer) sendMessageHandler(ww http.ResponseWriter, req *http.Reque
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNewMessageTxn(
 		senderGroupOwnerPkBytes, *lib.NewPublicKey(senderGroupOwnerPkBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes), *lib.NewPublicKey(senderAccessGroupPkbytes),
 		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes), *lib.NewPublicKey(recipientAccessGroupPkbytes),
-		[]byte(requestData.EncryptedMessageText), tstamp,
+		hexDecodedEncryptedMessageBytes, tstamp,
 		newMessageType, lib.NewMessageOperationCreate,
 		extraData, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
@@ -410,7 +415,7 @@ func (fes *APIServer) NewMessageEntryToResponse(newMessageEntry *lib.NewMessageE
 			newMessageEntry.RecipientAccessGroupPublicKey,
 			newMessageEntry.RecipientAccessGroupKeyName),
 		MessageInfo: MessageInfo{
-			EncryptedText:  string(newMessageEntry.EncryptedText),
+			EncryptedText:  hex.EncodeToString(newMessageEntry.EncryptedText),
 			TimestampNanos: newMessageEntry.TimestampNanos,
 			ExtraData:      DecodeExtraDataMap(fes.Params, utxoView, newMessageEntry.ExtraData),
 		},
@@ -508,7 +513,7 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 	}
 
 	// The information of the two parties involved in Dm has to encoded in lib.DmThreadKey.
-	dmThreadKey := lib.MakeDmThreadKey(*lib.NewPublicKey(senderGroupKeyNameBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes),
+	dmThreadKey := lib.MakeDmThreadKey(*lib.NewPublicKey(senderGroupOwnerPkBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes),
 		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes))
 
 	// Fetch the max messages between the sender and the party.
