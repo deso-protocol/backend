@@ -62,17 +62,17 @@ func SignAndSubmitTransaction(t *testing.T, privateKeyBase58Check string, txn *l
 }
 
 // Function to fetch the access group ID.
-func fetchAccessGroupID(t *testing.T, apiServer *APIServer, publicKeyBase58Check string) *GetAccessGroupIDsResponse {
+func fetchAccessGroupID(t *testing.T, apiServer *APIServer, publicKeyBase58Check string) *GetAccessGroupsRequest {
 	t.Helper()
 	// form the request for RoutePathGetAllUserAccessGroups
-	values := GetAccessGroupIDsRequest{PublicKeyBase58Check: publicKeyBase58Check}
+	values := GetAccessGroupsRequest{PublicKeyBase58Check: publicKeyBase58Check}
 	requestbody, err := json.Marshal(values)
 
 	routePath := RoutePathGetAllUserAccessGroups
 	require.NoError(t, err)
 	responseBody := ExecuteRequest(t, apiServer, routePath, requestbody)
 	// Deserialize the response.
-	unmarshalResponse := &GetAccessGroupIDsResponse{}
+	unmarshalResponse := &GetAccessGroupsRequest{}
 	err = json.Unmarshal(responseBody, unmarshalResponse)
 	require.NoError(t, err)
 	return unmarshalResponse
@@ -106,14 +106,12 @@ func TestAPIAccessGroupBaseGroupMembership(t *testing.T) {
 
 	require.NoError(t, err)
 	// Expense response for the call to fetch Access group ID.
-	expectedResponse := GetAccessGroupIDsResponse{
-		AccessGroupIds: &AccessGroupIds{
-			AccessGroupIdsOwned: []*AccessGroupIdEncoded{
+	expectedResponse := GetAccessGroupsResponse{
+		AccessGroupsOwned: []AccessGroupEntryResponse{
+			{
 				// The user should be the owner of the default base group().
-				{
-					AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-					AccessGroupKeyNameHex:                hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
-				},
+				AccessGroupOwnerPublicKeyBase58Check: senderPkString,
+				AccessGroupKeyName:                   hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
 			},
 		},
 	}
@@ -128,7 +126,7 @@ func TestAPIAccessGroupBaseGroupMembership(t *testing.T) {
 	assert.Equal(200, response.Code, "OK response is expected")
 
 	// Deserialize the response.
-	unmarshalResponse := &GetAccessGroupIDsResponse{}
+	unmarshalResponse := &GetAccessGroupsRequest{}
 	err = json.Unmarshal(response.Body.Bytes(), unmarshalResponse)
 	if err != nil {
 		t.Fatal("Unable to Base58 Check decode the result")
@@ -175,7 +173,7 @@ func TestAPIAcessGroups(t *testing.T) {
 	values := CreateAccessGroupRequest{
 		AccessGroupOwnerPublicKeyBase58Check: senderPkString,
 		AccessGroupPublicKeyBase58Check:      Base58CheckEncodePublickey(groupPk1),
-		AccessGroupKeyNameHexEncoded:         hex.EncodeToString(groupName1),
+		AccessGroupKeyName:                   hex.EncodeToString(groupName1),
 		MinFeeRateNanosPerKB:                 10,
 		TransactionFees:                      nil,
 	}
@@ -208,7 +206,7 @@ func TestAPIAcessGroups(t *testing.T) {
 	// Expected response for the call to fetch Access group ID.
 	// Sender Public key (senderPkString) should now own two access groups.
 	// One is the default access group, the other is the access group we with key "groupName1".
-	expectedResponse := GetAccessGroupIDsResponse{
+	expectedResponse := GetAccessGroupsRequest{
 		AccessGroupIds: &AccessGroupIds{
 			AccessGroupIdsOwned: []*AccessGroupIdEncoded{
 
@@ -238,13 +236,13 @@ func TestAPIAcessGroups(t *testing.T) {
 	// Add member1 as a new member of groupName1.
 	accesGroupMember1 := AccessGroupMember{
 		AccessGroupMemberPublicKeyBase58Check: Base58CheckEncodePublickey(member1),
-		AccessGroupMemberKeyNameHexEncoded:    hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
+		AccessGroupMemberKeyName:              string(lib.BaseGroupKeyName().ToBytes()),
 		EncryptedKey:                          []byte{1, 2, 3},
 	}
 	// Call the API to construct the transaction to add the member.
 	memberAdd := &AddAccessGroupMembersRequest{
 		AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-		AccessGroupKeyNameHexEncoded:         hex.EncodeToString(lib.NewGroupKeyName(groupName1).ToBytes()),
+		AccessGroupKeyName:                   string(lib.NewGroupKeyName(groupName1).ToBytes()),
 		AccessGroupMemberList:                []AccessGroupMember{accesGroupMember1},
 		MinFeeRateNanosPerKB:                 10,
 		TransactionFees:                      nil,
@@ -273,7 +271,7 @@ func TestAPIAcessGroups(t *testing.T) {
 	// Fetch all the access groups for member1.
 	actualGroupIDsres = fetchAccessGroupID(t, apiServer, Base58CheckEncodePublickey(member1))
 	// Expected response for the call to fetch Access group ID.
-	expectedResponse = GetAccessGroupIDsResponse{
+	expectedResponse = GetAccessGroupsRequest{
 		AccessGroupIds: &AccessGroupIds{
 			AccessGroupIdsOwned: []*AccessGroupIdEncoded{
 				// Every user by default should be the owner of the default base group().
@@ -302,10 +300,10 @@ func TestAPIAcessGroups(t *testing.T) {
 	requestbody, err = json.Marshal(ownerOnlyValues)
 	require.NoError(err)
 	responseBytes = ExecuteRequest(t, apiServer, RoutePathGetAllUserAccessGroupsOwned, requestbody)
-	actualOwnerOnlyResponse := &GetAccessGroupIDsResponse{}
+	actualOwnerOnlyResponse := &GetAccessGroupsRequest{}
 	err = json.Unmarshal(responseBytes, actualOwnerOnlyResponse)
 	require.NoError(err)
-	expectedResponse = GetAccessGroupIDsResponse{
+	expectedResponse = GetAccessGroupsRequest{
 		AccessGroupIds: &AccessGroupIds{
 			AccessGroupIdsOwned: []*AccessGroupIdEncoded{
 
@@ -337,11 +335,11 @@ func TestAPIAcessGroups(t *testing.T) {
 	requestbody, err = json.Marshal(memberOnlyValues)
 	require.NoError(err)
 	responseBytes = ExecuteRequest(t, apiServer, RoutePathGetAllUserAccessGroupsMemberOnly, requestbody)
-	actualMemberOnlyResponse := &GetAccessGroupIDsResponse{}
+	actualMemberOnlyResponse := &GetAccessGroupsRequest{}
 	err = json.Unmarshal(responseBytes, actualMemberOnlyResponse)
 	require.NoError(err)
 
-	expectedResponse = GetAccessGroupIDsResponse{
+	expectedResponse = GetAccessGroupsRequest{
 		AccessGroupIds: &AccessGroupIds{
 			// member1 is a member of groupName1. The public key should match senderPkString,
 			// since senderPkString is the owner of the group.
