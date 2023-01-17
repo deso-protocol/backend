@@ -828,3 +828,118 @@ func (fes *APIServer) GetAccessGroupMemberInfo(ww http.ResponseWriter, req *http
 		return
 	}
 }
+
+// Type and API to get access group information.
+// API is available at "RoutePathGetPaginatedAccessGroupMembersRequest".
+// API returns the list of public keys of the members.
+// To fetch complete details of a member make a call to GetAccessGroupMemberInfo.
+type GetPaginatedAccessGroupMembersRequest struct {
+	// AccessGroupOwnerPublicKeyBase58Check is the public key of the access group owner.
+	AccessGroupOwnerPublicKeyBase58Check string `safeForLogging:"true"`
+	// Access group identifier
+	AccessGroupKeyName string `safeForLogging:"true"`
+	// Since the results are paginated, this public key is the starting point for max results with subsequent pagination calls.
+	// Set it to empty in the first call to fetch results from the beginning.
+	StartingAccessGroupMemberPublicKeyBase58Check string `safeForLogging:"true"`
+	MaxMembersToFetch                             int
+}
+
+// The API returns the list of public key of the members of the group.
+type GetPaginatedAccessGroupMembersResponse struct {
+	AccessGroupMembersBase58Check []string
+}
+
+func (fes *APIServer) GetPaginatedAccessGroupMembers(ww http.ResponseWriter, req *http.Request) {
+
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetPaginatedAccessGroupMembersRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedAccessGroupMembers: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Why fetch if there's less than one message to fetch!!!!!
+	if requestData.MaxMembersToFetch < 1 {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedAccessGroupMembers: "+
+			"MaxMembersToFetch cannot be less than 1: %v", requestData.MaxMembersToFetch))
+		return
+	}
+
+	// Decode the access group owner public key.
+	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.AccessGroupOwnerPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedAccessGroupMembers: Problem decoding owner"+
+			"base58 public key %s: %v", requestData.AccessGroupOwnerPublicKeyBase58Check, err))
+		return
+	}
+
+	accessGroupKeyNameBytes := []byte(requestData.AccessGroupKeyName)
+
+	// get the byte array of the access group key name.
+
+	// Validates whether the accessGroupOwner key is a valid public key and
+	// some basic checks on access group key name like Min and Max characters.
+	if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupOwnerPkBytes, accessGroupKeyNameBytes); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedAccessGroupMembers: Problem validating access group owner "+
+			"public key and access group key name %s: %s: %v",
+			requestData.AccessGroupOwnerPublicKeyBase58Check, requestData.AccessGroupKeyName, err))
+		return
+	}
+
+	// Decode the access group public key.
+	startingPkBytes, _, err := lib.Base58CheckDecode(requestData.StartingAccessGroupMemberPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedAccessGroupMembers: Problem decoding pagination "+
+			"starting point base58 public key %s: %v", requestData.StartingAccessGroupMemberPublicKeyBase58Check, err))
+		return
+	}
+	// validate whether the access group public key is a valid public key.
+	if err = lib.IsByteArrayValidPublicKey(startingPkBytes); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedAccessGroupMembers: Problem validating access group "+
+			"starting point base58 public key: Not a valid public key: %s: %v",
+			requestData.StartingAccessGroupMemberPublicKeyBase58Check, err))
+		return
+	}
+	// Fetch the max messages between the sender and the party.
+	accessGroupMembers, err := fes.fetchMaxMembersFromAccessGroup(accessGroupOwnerPkBytes, accessGroupKeyNameBytes,
+		startingPkBytes, requestData.MaxMembersToFetch)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedAccessGroupMembers: Problem getting paginated members for "+
+			"Request Data: %v: %v", requestData, err))
+		return
+	}
+
+	res := GetPaginatedAccessGroupMembersResponse{
+		AccessGroupMembersBase58Check: accessGroupMembers,
+	}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedAccessGroupMembers: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+// Fetches max number of members from the access group.
+func (fes *APIServer) fetchMaxMembersFromAccessGroup(groupOwnerPublicKeyBytes []byte, groupKeyNameBytes []byte,
+	startingAccessGroupMemberPublicKeyBytes []byte, maxMembersToFetch int) ([]string, error) {
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return nil, errors.Wrap(fmt.Errorf("fetchMaxMembersFromAccessGroup: Error generating "+
+			"utxo view: %v", err), "")
+	}
+
+	// call the core library to fetch info about the access group.
+	accessGroupMembers, err := utxoView.GetPaginatedAccessGroupMembersEnumerationEntries(lib.NewPublicKey(groupOwnerPublicKeyBytes),
+		lib.NewGroupKeyName(groupKeyNameBytes), startingAccessGroupMemberPublicKeyBytes, uint32(maxMembersToFetch))
+	if err != nil {
+		return nil, errors.Wrapf(err, "fetchMaxMembersFromAccessGroup: Problem getting access group member entry")
+	}
+
+	accessGroupMembersBase58Check := []string{}
+	for _, accessGroupMember := range accessGroupMembers {
+		accessGroupMemberBase58Check := lib.PkToString(accessGroupMember.ToBytes(), fes.Params)
+		accessGroupMembersBase58Check = append(accessGroupMembersBase58Check, accessGroupMemberBase58Check)
+	}
+
+	return accessGroupMembersBase58Check, nil
+}
