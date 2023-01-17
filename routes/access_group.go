@@ -390,17 +390,17 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 
 type AccessGroupEntryResponse struct {
 	AccessGroupOwnerPublicKeyBase58Check string
-	AccessGroupKeyName string
-	AccessGroupPublicKeyBase58Check string
-	ExtraData map[string]string
+	AccessGroupKeyName                   string
+	AccessGroupPublicKeyBase58Check      string
+	ExtraData                            map[string]string
 }
 
 func (fes *APIServer) AccessGroupEntryToResponse(accessGroupEntry *lib.AccessGroupEntry, utxoView *lib.UtxoView) AccessGroupEntryResponse {
 	return AccessGroupEntryResponse{
 		AccessGroupOwnerPublicKeyBase58Check: lib.PkToString(accessGroupEntry.AccessGroupOwnerPublicKey.ToBytes(), fes.Params),
-		AccessGroupPublicKeyBase58Check: lib.PkToString(accessGroupEntry.AccessGroupPublicKey.ToBytes(), fes.Params),
-		AccessGroupKeyName: string(lib.MessagingKeyNameDecode(accessGroupEntry.AccessGroupKeyName)),
-		ExtraData: DecodeExtraDataMap(fes.Params, utxoView, accessGroupEntry.ExtraData),
+		AccessGroupPublicKeyBase58Check:      lib.PkToString(accessGroupEntry.AccessGroupPublicKey.ToBytes(), fes.Params),
+		AccessGroupKeyName:                   string(lib.MessagingKeyNameDecode(accessGroupEntry.AccessGroupKeyName)),
+		ExtraData:                            DecodeExtraDataMap(fes.Params, utxoView, accessGroupEntry.ExtraData),
 	}
 }
 
@@ -411,7 +411,7 @@ type GetAccessGroupsRequest struct {
 
 type GetAccessGroupsResponse struct {
 	// Access Group Entry Responses.
-	AccessGroupsOwned []AccessGroupEntryResponse `json:",omitempty" safeForLogging:"true"`
+	AccessGroupsOwned  []AccessGroupEntryResponse `json:",omitempty" safeForLogging:"true"`
 	AccessGroupsMember []AccessGroupEntryResponse `json:",omitempty" safeForLogging:"true"`
 }
 
@@ -530,15 +530,15 @@ type CheckPartyAccessGroupsRequest struct {
 }
 
 type CheckPartyAccessGroupsResponse struct {
-	SenderPublicKeyBase58Check string
+	SenderPublicKeyBase58Check            string
 	SenderAccessGroupPublicKeyBase58Check string
-	SenderAccessGroupKeyName string
-	IsSenderAccessGroupKey bool
+	SenderAccessGroupKeyName              string
+	IsSenderAccessGroupKey                bool
 
-	RecipientPublicKeyBase58Check string
+	RecipientPublicKeyBase58Check            string
 	RecipientAccessGroupPublicKeyBase58Check string
-	RecipientAccessGroupKeyName string
-	IsRecipientAccessGroupKey bool
+	RecipientAccessGroupKeyName              string
+	IsRecipientAccessGroupKey                bool
 }
 
 func (fes *APIServer) CheckPartyAccessGroups(ww http.ResponseWriter, req *http.Request) {
@@ -601,12 +601,12 @@ func (fes *APIServer) CreateCheckPartyAccessGroupKeysResponse(
 	recipientAccessGroupKeyName *lib.GroupKeyName) (
 	*CheckPartyAccessGroupsResponse, error) {
 	response := &CheckPartyAccessGroupsResponse{
-		SenderPublicKeyBase58Check: lib.PkToString(senderPublicKey.ToBytes(), fes.Params),
-		IsSenderAccessGroupKey: false,
-		SenderAccessGroupKeyName: "",
+		SenderPublicKeyBase58Check:    lib.PkToString(senderPublicKey.ToBytes(), fes.Params),
+		IsSenderAccessGroupKey:        false,
+		SenderAccessGroupKeyName:      "",
 		RecipientPublicKeyBase58Check: lib.PkToString(recipientPublicKey.ToBytes(), fes.Params),
-		IsRecipientAccessGroupKey: false,
-		RecipientAccessGroupKeyName: "",
+		IsRecipientAccessGroupKey:     false,
+		RecipientAccessGroupKeyName:   "",
 	}
 
 	// Get the augmented UtxoView.
@@ -638,4 +638,110 @@ func (fes *APIServer) CreateCheckPartyAccessGroupKeysResponse(
 	}
 
 	return response, nil
+}
+
+// Type and API to get access group information.
+// API is available at "RoutePathGetAccessGroupInfo".
+type GetAccessGroupInfoRequest struct {
+	// AccessGroupOwnerPublicKeyBase58Check is the public key of the access group owner.
+	// This needs to match your public key used for signing the transaction since only the group owner can add a member.
+	AccessGroupOwnerPublicKeyBase58Check string `safeForLogging:"true"`
+	// Access group identifier
+	AccessGroupKeyName string `safeForLogging:"true"`
+}
+
+type GetAccessGroupInfoResponse struct {
+	// Public key of the access group owner.
+	AccessGroupOwnerPublicKeyBase58Check string `safeForLogging:"true"`
+	// Access group identifier
+	AccessGroupKeyName string `safeForLogging:"true"`
+	// public key of the access group.
+	AccessGroupPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// ExtraData is an arbitrary key value map with extra values if any.
+	ExtraData map[string][]byte
+}
+
+// returns information about the access group.
+func (fes *APIServer) getAccessGroupInfo(publicKeyBase58DecodedBytes []byte, accessGroupKeyNameBytes []byte) (*AccessGroupInfo, map[string][]byte, error) {
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return nil, nil, errors.Wrap(fmt.Errorf("getAccessGroupInfo: Error generating "+
+			"utxo view: %v", err), "")
+	}
+
+	// call the core library to fetch info about the access group.
+	accessGroupInfoCore, err := utxoView.GetAccessGroupEntry(lib.NewPublicKey(publicKeyBase58DecodedBytes),
+		lib.NewGroupKeyName(accessGroupKeyNameBytes))
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "getAccessGroupInfo: Problem getting access group ids for member")
+	}
+
+	accessGroupInfo := fes.makeAccessGroupInfo(accessGroupInfoCore.AccessGroupOwnerPublicKey,
+		accessGroupInfoCore.AccessGroupPublicKey, accessGroupInfoCore.AccessGroupKeyName)
+
+	return &accessGroupInfo, accessGroupInfoCore.ExtraData, nil
+}
+
+func (fes *APIServer) GetAccessGroupInfo(ww http.ResponseWriter, req *http.Request) {
+	// Parse the request body.
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetAccessGroupInfoRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAccessGroupInfo: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Decode the access group owner public key.
+	// Public key should be sent encoded in Base58 with Checksum format.
+	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.AccessGroupOwnerPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAccessGroupInfo: Problem decoding owner"+
+			"base58 public key %s: %v", requestData.AccessGroupOwnerPublicKeyBase58Check, err))
+		return
+	}
+
+	accessGroupKeyNameBytes := []byte(requestData.AccessGroupKeyName)
+
+	// Validate whether the accessGroupOwner key is a valid public key and
+	// some basic checks on access group key name like Min and Max characters are performed.
+	if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupOwnerPkBytes, accessGroupKeyNameBytes); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAccessGroupInfo: Problem validating access group owner "+
+			"public key and access group key name %s: %v", requestData.AccessGroupKeyName, err))
+		return
+	}
+
+	// Base access group key is reserved and by default all users belong to an access group with base group key.
+	if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
+		res := &GetAccessGroupInfoResponse{
+			AccessGroupOwnerPublicKeyBase58Check: requestData.AccessGroupOwnerPublicKeyBase58Check,
+			AccessGroupKeyName:                   string(lib.BaseGroupKeyName().ToBytes()),
+			AccessGroupPublicKeyBase58Check:      requestData.AccessGroupOwnerPublicKeyBase58Check,
+		}
+
+		if err := json.NewEncoder(ww).Encode(res); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetAccessGroupInfo: Problem encoding response as JSON: %v", err))
+		}
+		return
+	}
+	// get all the access groups associated with the public key.
+	accessGroupInfo, extraData, err := fes.getAccessGroupInfo(accessGroupOwnerPkBytes, accessGroupKeyNameBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAccessGroupInfo: Problem getting access group of"+
+			"public key, access group key name %s: %s: %v",
+			requestData.AccessGroupOwnerPublicKeyBase58Check, requestData.AccessGroupKeyName, err))
+		return
+	}
+
+	res := GetAccessGroupInfoResponse{
+		AccessGroupOwnerPublicKeyBase58Check: accessGroupInfo.OwnerPublicKeyBase58Check,
+		AccessGroupPublicKeyBase58Check:      accessGroupInfo.AccessGroupPublicKeyBase58Check,
+		AccessGroupKeyName:                   accessGroupInfo.AccessGroupKeyName,
+		ExtraData:                            extraData,
+	}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAccessGroupInfo: Problem encoding response as JSON: %v", err))
+		return
+	}
 }
