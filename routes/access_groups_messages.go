@@ -516,6 +516,30 @@ type AccessGroupInfo struct {
 	AccessGroupKeyName              string `safeForLogging:"true"`
 }
 
+type ThreadMessage struct {
+	SenderInfo AccessGroupInfo
+	RecipientInfo AccessGroupInfo
+	MessageInfo DmMessageInfo
+}
+
+func (fes *APIServer) NewMessageEntryToThreadMessageResponse(newMessageEntry *lib.NewMessageEntry, utxoView *lib.UtxoView) ThreadMessage {
+	return ThreadMessage{
+		SenderInfo: fes.makeAccessGroupInfo(
+			newMessageEntry.SenderAccessGroupOwnerPublicKey,
+			newMessageEntry.SenderAccessGroupPublicKey,
+			newMessageEntry.SenderAccessGroupKeyName),
+		RecipientInfo: fes.makeAccessGroupInfo(
+			newMessageEntry.RecipientAccessGroupOwnerPublicKey,
+			newMessageEntry.RecipientAccessGroupPublicKey,
+			newMessageEntry.RecipientAccessGroupKeyName),
+		MessageInfo: DmMessageInfo{
+			EncryptedText: string(newMessageEntry.EncryptedText),
+			TimestampNanos: newMessageEntry.TimestampNanos,
+			ExtraData: DecodeExtraDataMap(fes.Params, utxoView, newMessageEntry.ExtraData),
+		},
+	}
+}
+
 type DmMessageInfo struct {
 	EncryptedText  string
 	TimestampNanos uint64
@@ -526,6 +550,7 @@ type DmMessageInfo struct {
 // and the latest message.
 // Dm Thread + LatestMessage.
 type DmThreadWithLatestMessage struct {
+	ThreadMessage ThreadMessage
 	SenderInfo    AccessGroupInfo
 	RecipientInfo AccessGroupInfo
 	MessageInfo   DmMessageInfo
@@ -603,6 +628,7 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 	for _, threadMsg := range latestMessagesForThreadKeys {
 		msgExtradata := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
 		msgThread := DmThreadWithLatestMessage{
+			ThreadMessage: fes.NewMessageEntryToThreadMessageResponse(threadMsg, utxoView),
 			// public key, access group public key, and access group key name of the sender of the DM.
 			SenderInfo: fes.makeAccessGroupInfo(
 				threadMsg.SenderAccessGroupOwnerPublicKey,
@@ -653,12 +679,8 @@ type GetPaginatedMessagesForDmThreadRequest struct {
 
 // type to serialize the response containing the direct messages between two parties.
 type GetPaginatedMessagesForDmResponse struct {
-	// First party info.
-	SenderInfo AccessGroupInfo
-	// Second party info.
-	RecipientInfo AccessGroupInfo
-	// Messages between them.
-	MessageInfo []DmMessageInfo
+
+	ThreadMessages []UserThread
 }
 
 // API is used to fetch the direct messages between two parties in a paginated way.
@@ -726,15 +748,7 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 
 	// Since the two parties in the conversation in same in all the message if added this info upfront.
 	dms := GetPaginatedMessagesForDmResponse{
-		SenderInfo: AccessGroupInfo{
-			OwnerPublicKeyBase58Check: lib.Base58CheckEncode(senderGroupOwnerPkBytes, false, fes.Params),
-			AccessGroupKeyName:        string(senderGroupKeyNameBytes),
-		},
-		RecipientInfo: AccessGroupInfo{
-			OwnerPublicKeyBase58Check: lib.Base58CheckEncode(recipientGroupOwnerPkBytes, false, fes.Params),
-			AccessGroupKeyName:        string(recipientGroupKeyNameBytes),
-		},
-		MessageInfo: []DmMessageInfo{},
+		ThreadMessages: []UserThread{},
 	}
 
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
@@ -746,12 +760,10 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 
 	// Now append each of their Direct message (Dm) conversations.
 	for _, threadMsg := range latestMessages {
-		msgExtraData := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
-		dms.MessageInfo = append(dms.MessageInfo,
-			DmMessageInfo{
-				EncryptedText:  string(threadMsg.EncryptedText),
-				TimestampNanos: threadMsg.TimestampNanos,
-				ExtraData:      msgExtraData,
+		dms.ThreadMessages = append(dms.ThreadMessages,
+			UserThread{
+			ChatType: chatTypeDm,
+			ThreadMessage: fes.NewMessageEntryToThreadMessageResponse(threadMsg, utxoView),
 			},
 		)
 	}
@@ -773,7 +785,7 @@ type GetUserGroupChatRequest struct {
 }
 
 type GetUserGroupChatResponse struct {
-	GroupChatThreads []GroupChatThread
+	GroupChatThreads []UserThread
 }
 
 type GroupChatThread struct {
@@ -836,11 +848,13 @@ func (fes *APIServer) GetUserGroupChatThreadsOrderedByTimestamp(ww http.Response
 
 	// group chat threads with each group chat represented by GroupChatThread.
 	// Each entry consists of the sender account, recipient account info and the latest message.
-	groupChats := []GroupChatThread{}
+	groupChats := []UserThread{}
 
 	for _, threadMsg := range latestMessagesForGroupChats {
 		msgExtraData := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
-		groupChat := GroupChatThread{
+		groupChat := UserThread{
+			ChatType: chatTypeGroupChat,
+			ThreadMessage: fes.NewMessageEntryToThreadMessageResponse(threadMsg, utxoView),
 			// public key, access group public key, and access group key name of the sender of the group chat.
 			SenderInfo: fes.makeAccessGroupInfo(
 				threadMsg.SenderAccessGroupOwnerPublicKey,
@@ -886,7 +900,7 @@ type GetPaginatedMessagesForGroupChatThreadRequest struct {
 }
 
 type GetPaginatedMessagesForGroupChatThreadResponse struct {
-	GroupChatMessages []GroupChatThread
+	GroupChatMessages []UserThread
 }
 
 // Similar to GetPaginatedMessagesForDmThread API, but fetches messages from a group chat instead.
@@ -942,11 +956,13 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 
 	// group chat threads with each group chat represented by GroupChatThread.
 	// Each entry consists of the sender account, recipient account info and the latest message.
-	messages := []GroupChatThread{}
+	messages := []UserThread{}
 
 	for _, threadMsg := range groupChatMessages {
 		msgExtraData := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
-		message := GroupChatThread{
+		message := UserThread{
+			ChatType: chatTypeGroupChat,
+			ThreadMessage: fes.NewMessageEntryToThreadMessageResponse(threadMsg, utxoView),
 			// public key, access group public key, and access group key name of the sender of the group chat.
 			SenderInfo: fes.makeAccessGroupInfo(
 				threadMsg.SenderAccessGroupOwnerPublicKey,
@@ -991,6 +1007,8 @@ type UserThread struct {
 	// Used to mark whether the message is a dm or a group chat.
 	ChatType int
 
+	//
+	ThreadMessage ThreadMessage
 	SenderInfo    AccessGroupInfo
 	RecipientInfo AccessGroupInfo
 	MessageInfo   DmMessageInfo
@@ -1069,6 +1087,7 @@ func (fes *APIServer) GetAllUserMessageThreads(ww http.ResponseWriter, req *http
 		msgExtraData := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
 		msgThread := UserThread{
 			ChatType: chatTypeGroupChat,
+			ThreadMessage: fes.NewMessageEntryToThreadMessageResponse(threadMsg, utxoView),
 			SenderInfo: fes.makeAccessGroupInfo(
 				threadMsg.SenderAccessGroupOwnerPublicKey,
 				threadMsg.SenderAccessGroupPublicKey,
@@ -1091,7 +1110,8 @@ func (fes *APIServer) GetAllUserMessageThreads(ww http.ResponseWriter, req *http
 		msgExtraData := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
 		msgThread := UserThread{
 			ChatType: chatTypeDm,
-		    SenderInfo: fes.makeAccessGroupInfo(                    
+			ThreadMessage: fes.NewMessageEntryToThreadMessageResponse(threadMsg, utxoView),
+			SenderInfo: fes.makeAccessGroupInfo(
 				threadMsg.SenderAccessGroupOwnerPublicKey,
 				threadMsg.SenderAccessGroupPublicKey,
 				threadMsg.SenderAccessGroupKeyName),
