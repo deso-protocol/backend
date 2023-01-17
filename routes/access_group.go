@@ -317,8 +317,8 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 		// Checking for duplicate entry in the member list.
 		memberPublicKey := *lib.NewPublicKey(accessGroupMemberPkBytes)
 		if accessGroupMemberPublicKeys.Includes(memberPublicKey) {
-			_AddBadRequestError(ww, fmt.Sprintf("EncryptedKey for access member (%v)"+
-				"cannot be empty.", member))
+			_AddBadRequestError(ww, fmt.Sprintf("Duplicate member entry in the member list for (%v)"+
+				"cannot be empty.", memberPublicKey))
 			return
 		}
 		accessGroupMemberPublicKeys.Add(memberPublicKey)
@@ -740,39 +740,33 @@ type GetAccessGroupMemberRequest struct {
 	AccessGroupKeyName string `safeForLogging:"true"`
 }
 
-type GetAccessGroupMemberResponse struct {
-	// Public key of the access group owner.
-
-	// Public key of the access group owner.
-	AccessGroupOwnerPublicKeyBase58Check string `safeForLogging:"true"`
-	// Access group identifier
-	AccessGroupKeyName string `safeForLogging:"true"`
-	// public key of the access group.
-	AccessGroupPublicKeyBase58Check string `safeForLogging:"true"`
-
-	// ExtraData is an arbitrary key value map with extra values if any.
-	ExtraData map[string][]byte
+func (fes *APIServer) AccessGroupMemberCoreToBackend(accessGroupMemberEntry *lib.AccessGroupMemberEntry, utxoView *lib.UtxoView) AccessGroupMember {
+	return AccessGroupMember{
+		AccessGroupMemberPublicKeyBase58Check: lib.PkToString(accessGroupMemberEntry.AccessGroupMemberPublicKey.ToBytes(), fes.Params),
+		AccessGroupMemberKeyName:              string(lib.MessagingKeyNameDecode(accessGroupMemberEntry.AccessGroupMemberKeyName)),
+		EncryptedKey:                          string(accessGroupMemberEntry.EncryptedKey),
+		ExtraData:                             DecodeExtraDataMap(fes.Params, utxoView, accessGroupMemberEntry.ExtraData),
+	}
 }
 
 // returns information about the access group.
-func (fes *APIServer) getAccessGroupMemberInfo(memberPkBase58DecodedBytes []byte, ownerPkBase58DecodedBytes []byte, accessGroupKeyNameBytes []byte) (*AccessGroupInfo, map[string][]byte, error) {
+func (fes *APIServer) getAccessGroupMemberInfo(memberPkBase58DecodedBytes []byte, ownerPkBase58DecodedBytes []byte, accessGroupKeyNameBytes []byte) (*AccessGroupMember, error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		return nil, nil, errors.Wrap(fmt.Errorf("getAccessGroupMemberInfo: Error generating "+
+		return nil, errors.Wrap(fmt.Errorf("getAccessGroupMemberInfo: Error generating "+
 			"utxo view: %v", err), "")
 	}
 
 	// call the core library to fetch info about the access group.
-	accessGroupMemberInfoCore, err := utxoView.GetAccessGroupMemberEntry(lib.NewPublicKey(memberPkBase58DecodedBytes),
+	accessGroupMemberInfo, err := utxoView.GetAccessGroupMemberEntry(lib.NewPublicKey(memberPkBase58DecodedBytes),
 		lib.NewPublicKey(ownerPkBase58DecodedBytes), lib.NewGroupKeyName(accessGroupKeyNameBytes))
 	if err != nil {
-		return nil, nil, errors.Wrapf(err, "getAccessGroupMemberInfo: Problem getting access group ids for member")
+		return nil, errors.Wrapf(err, "getAccessGroupMemberInfo: Problem getting access group member entry")
 	}
 
-	accessGroupInfo := fes.makeAccessGroupInfo(accessGroupInfoCore.AccessGroupOwnerPublicKey,
-		accessGroupInfoCore.AccessGroupPublicKey, accessGroupInfoCore.AccessGroupKeyName)
+	accessGroupMember := fes.AccessGroupMemberCoreToBackend(accessGroupMemberInfo, utxoView)
 
-	return &accessGroupInfo, accessGroupInfoCore.ExtraData, nil
+	return &accessGroupMember, nil
 }
 
 func (fes *APIServer) GetAccessGroupMemberInfo(ww http.ResponseWriter, req *http.Request) {
@@ -818,21 +812,16 @@ func (fes *APIServer) GetAccessGroupMemberInfo(ww http.ResponseWriter, req *http
 	}
 
 	// get all the access groups associated with the public key.
-	accessGroupInfo, extraData, err := fes.getAccessGroupMemberInfo(accessGroupOwnerPkBytes, accessGroupKeyNameBytes)
+	accessGroupMember, err := fes.getAccessGroupMemberInfo(accessGroupMemberPkBytes, accessGroupOwnerPkBytes, accessGroupKeyNameBytes)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAccessGroupInfo: Problem getting access group member info of"+
+		_AddBadRequestError(ww, fmt.Sprintf("GetAccessGroupMemberInfo: Problem getting access group member info of"+
 			"member publickey, owner publickey, access group key name %s: %s: %s: %v",
 			requestData.AccessGroupMemberPublicKeyBase58Check, requestData.AccessGroupOwnerPublicKeyBase58Check,
 			requestData.AccessGroupKeyName, err))
 		return
 	}
 
-	res := GetAccessGroupInfoResponse{
-		AccessGroupOwnerPublicKeyBase58Check: accessGroupInfo.OwnerPublicKeyBase58Check,
-		AccessGroupPublicKeyBase58Check:      accessGroupInfo.AccessGroupPublicKeyBase58Check,
-		AccessGroupKeyName:                   accessGroupInfo.AccessGroupKeyName,
-		ExtraData:                            extraData,
-	}
+	res := accessGroupMember
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetAccessGroupInfo: Problem encoding response as JSON: %v", err))
