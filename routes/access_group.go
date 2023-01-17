@@ -390,17 +390,17 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 
 type AccessGroupEntryResponse struct {
 	AccessGroupOwnerPublicKeyBase58Check string
-	AccessGroupKeyName string
-	AccessGroupPublicKeyBase58Check string
-	ExtraData map[string]string
+	AccessGroupKeyName                   string
+	AccessGroupPublicKeyBase58Check      string
+	ExtraData                            map[string]string
 }
 
 func (fes *APIServer) AccessGroupEntryToResponse(accessGroupEntry *lib.AccessGroupEntry, utxoView *lib.UtxoView) AccessGroupEntryResponse {
 	return AccessGroupEntryResponse{
 		AccessGroupOwnerPublicKeyBase58Check: lib.PkToString(accessGroupEntry.AccessGroupOwnerPublicKey.ToBytes(), fes.Params),
-		AccessGroupPublicKeyBase58Check: lib.PkToString(accessGroupEntry.AccessGroupPublicKey.ToBytes(), fes.Params),
-		AccessGroupKeyName: string(lib.MessagingKeyNameDecode(accessGroupEntry.AccessGroupKeyName)),
-		ExtraData: DecodeExtraDataMap(fes.Params, utxoView, accessGroupEntry.ExtraData),
+		AccessGroupPublicKeyBase58Check:      lib.PkToString(accessGroupEntry.AccessGroupPublicKey.ToBytes(), fes.Params),
+		AccessGroupKeyName:                   string(lib.MessagingKeyNameDecode(accessGroupEntry.AccessGroupKeyName)),
+		ExtraData:                            DecodeExtraDataMap(fes.Params, utxoView, accessGroupEntry.ExtraData),
 	}
 }
 
@@ -411,7 +411,7 @@ type GetAccessGroupsRequest struct {
 
 type GetAccessGroupsResponse struct {
 	// Access Group Entry Responses.
-	AccessGroupsOwned []AccessGroupEntryResponse `json:",omitempty" safeForLogging:"true"`
+	AccessGroupsOwned  []AccessGroupEntryResponse `json:",omitempty" safeForLogging:"true"`
 	AccessGroupsMember []AccessGroupEntryResponse `json:",omitempty" safeForLogging:"true"`
 }
 
@@ -530,15 +530,15 @@ type CheckPartyAccessGroupsRequest struct {
 }
 
 type CheckPartyAccessGroupsResponse struct {
-	SenderPublicKeyBase58Check string
+	SenderPublicKeyBase58Check            string
 	SenderAccessGroupPublicKeyBase58Check string
-	SenderAccessGroupKeyName string
-	IsSenderAccessGroupKey bool
+	SenderAccessGroupKeyName              string
+	IsSenderAccessGroupKey                bool
 
-	RecipientPublicKeyBase58Check string
+	RecipientPublicKeyBase58Check            string
 	RecipientAccessGroupPublicKeyBase58Check string
-	RecipientAccessGroupKeyName string
-	IsRecipientAccessGroupKey bool
+	RecipientAccessGroupKeyName              string
+	IsRecipientAccessGroupKey                bool
 }
 
 func (fes *APIServer) CheckPartyAccessGroups(ww http.ResponseWriter, req *http.Request) {
@@ -601,12 +601,12 @@ func (fes *APIServer) CreateCheckPartyAccessGroupKeysResponse(
 	recipientAccessGroupKeyName *lib.GroupKeyName) (
 	*CheckPartyAccessGroupsResponse, error) {
 	response := &CheckPartyAccessGroupsResponse{
-		SenderPublicKeyBase58Check: lib.PkToString(senderPublicKey.ToBytes(), fes.Params),
-		IsSenderAccessGroupKey: false,
-		SenderAccessGroupKeyName: "",
+		SenderPublicKeyBase58Check:    lib.PkToString(senderPublicKey.ToBytes(), fes.Params),
+		IsSenderAccessGroupKey:        false,
+		SenderAccessGroupKeyName:      "",
 		RecipientPublicKeyBase58Check: lib.PkToString(recipientPublicKey.ToBytes(), fes.Params),
-		IsRecipientAccessGroupKey: false,
-		RecipientAccessGroupKeyName: "",
+		IsRecipientAccessGroupKey:     false,
+		RecipientAccessGroupKeyName:   "",
 	}
 
 	// Get the augmented UtxoView.
