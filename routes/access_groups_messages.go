@@ -519,6 +519,7 @@ type AccessGroupInfo struct {
 type DmMessageInfo struct {
 	EncryptedText  string
 	TimestampNanos uint64
+	ExtraData      map[string]string
 }
 
 // Represents a direct message thread with sender, recipient information
@@ -586,12 +587,21 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 	sort.Slice(latestMessagesForThreadKeys, func(i, j int) bool {
 		return latestMessagesForThreadKeys[i].TimestampNanos > latestMessagesForThreadKeys[j].TimestampNanos
 	})
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Error generating "+
+			"utxo view: %v", err))
+		return
+	}
+
 	// Dm threads with each dm represented by DmThreadWithLatestMessage.
 	// Each entry consists of the sender account, recipient account info and the latest message.
 	// Though the publickey of the user who initiated the request is known earlier (is part of the request data),
 	// its duplicated in the api response for consistency.
 	dmMessageThreads := []DmThreadWithLatestMessage{}
 	for _, threadMsg := range latestMessagesForThreadKeys {
+		msgExtradata := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
 		msgThread := DmThreadWithLatestMessage{
 			// public key, access group public key, and access group key name of the sender of the DM.
 			SenderInfo: fes.makeAccessGroupInfo(
@@ -607,6 +617,7 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 			MessageInfo: DmMessageInfo{
 				EncryptedText:  string(threadMsg.EncryptedText),
 				TimestampNanos: threadMsg.TimestampNanos,
+				ExtraData: msgExtradata,
 			},
 		}
 
@@ -726,12 +737,21 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		MessageInfo: []DmMessageInfo{},
 	}
 
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Error generating "+
+			"utxo view: %v", err))
+		return
+	}
+
 	// Now append each of their Direct message (Dm) conversations.
 	for _, threadMsg := range latestMessages {
+		msgExtraData := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
 		dms.MessageInfo = append(dms.MessageInfo,
 			DmMessageInfo{
 				EncryptedText:  string(threadMsg.EncryptedText),
 				TimestampNanos: threadMsg.TimestampNanos,
+				ExtraData:      msgExtraData,
 			},
 		)
 	}
@@ -807,11 +827,19 @@ func (fes *APIServer) GetUserGroupChatThreadsOrderedByTimestamp(ww http.Response
 		return latestMessagesForGroupChats[i].TimestampNanos > latestMessagesForGroupChats[j].TimestampNanos
 	})
 
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserGroupChatThreadsOrderedByTimestamp: Error generating "+
+			"utxo view: %v", err))
+		return
+	}
+
 	// group chat threads with each group chat represented by GroupChatThread.
 	// Each entry consists of the sender account, recipient account info and the latest message.
 	groupChats := []GroupChatThread{}
 
 	for _, threadMsg := range latestMessagesForGroupChats {
+		msgExtraData := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
 		groupChat := GroupChatThread{
 			// public key, access group public key, and access group key name of the sender of the group chat.
 			SenderInfo: fes.makeAccessGroupInfo(
@@ -827,6 +855,7 @@ func (fes *APIServer) GetUserGroupChatThreadsOrderedByTimestamp(ww http.Response
 			MessageInfo: DmMessageInfo{
 				EncryptedText:  string(threadMsg.EncryptedText),
 				TimestampNanos: threadMsg.TimestampNanos,
+				ExtraData:      msgExtraData,
 			},
 		}
 
@@ -904,11 +933,19 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 		return
 	}
 
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForGroupChatThread: Error generating "+
+			"utxo view: %v", err))
+		return
+	}
+
 	// group chat threads with each group chat represented by GroupChatThread.
 	// Each entry consists of the sender account, recipient account info and the latest message.
 	messages := []GroupChatThread{}
 
 	for _, threadMsg := range groupChatMessages {
+		msgExtraData := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
 		message := GroupChatThread{
 			// public key, access group public key, and access group key name of the sender of the group chat.
 			SenderInfo: fes.makeAccessGroupInfo(
@@ -924,6 +961,7 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 			MessageInfo: DmMessageInfo{
 				EncryptedText:  string(threadMsg.EncryptedText),
 				TimestampNanos: threadMsg.TimestampNanos,
+				ExtraData:      msgExtraData,
 			},
 		}
 
@@ -1017,10 +1055,18 @@ func (fes *APIServer) GetAllUserMessageThreads(ww http.ResponseWriter, req *http
 		return
 	}
 
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserMessageThreads: Error generating "+
+			"utxo view: %v", err))
+		return
+	}
+
 	// Add the group chat messages into UserThread type.
 	userThreads := []UserThread{}
 
 	for _, threadMsg := range latestMessagesForGroupChats {
+		msgExtraData := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
 		msgThread := UserThread{
 			ChatType: chatTypeGroupChat,
 			SenderInfo: fes.makeAccessGroupInfo(
@@ -1034,6 +1080,7 @@ func (fes *APIServer) GetAllUserMessageThreads(ww http.ResponseWriter, req *http
 			MessageInfo: DmMessageInfo{
 				EncryptedText:  string(threadMsg.EncryptedText),
 				TimestampNanos: threadMsg.TimestampNanos,
+				ExtraData:      msgExtraData,
 			},
 		}
 		userThreads = append(userThreads, msgThread)
@@ -1041,6 +1088,7 @@ func (fes *APIServer) GetAllUserMessageThreads(ww http.ResponseWriter, req *http
 
 	// Add direct messages into UserThread type.
 	for _, threadMsg := range latestMessagesForThreadKeys {
+		msgExtraData := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
 		msgThread := UserThread{
 			ChatType: chatTypeDm,
 		    SenderInfo: fes.makeAccessGroupInfo(                    
@@ -1054,6 +1102,7 @@ func (fes *APIServer) GetAllUserMessageThreads(ww http.ResponseWriter, req *http
 			MessageInfo: DmMessageInfo{
 				EncryptedText:  string(threadMsg.EncryptedText),
 				TimestampNanos: threadMsg.TimestampNanos,
+				ExtraData:      msgExtraData,
 			},
 		}
 		userThreads = append(userThreads, msgThread)
