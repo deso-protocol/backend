@@ -76,7 +76,7 @@ func (fes *APIServer) makeAccessGroupInfo(
 	}
 	var accessGroupKeyName string
 	if groupKeyName != nil {
-		accessGroupKeyName = string(groupKeyName.ToBytes())
+		accessGroupKeyName = string(lib.MessagingKeyNameDecode(groupKeyName))
 	}
 	return AccessGroupInfo{
 		OwnerPublicKeyBase58Check:       ownerPublicKeyBase58Check,
@@ -139,7 +139,7 @@ func (fes *APIServer) fetchLatestMessageFromDmThreads(
 	// *lib.NewMessageEntry is data structure used in core library for each direct message or a message in a group chat.
 	var latestMessageEntries []*lib.NewMessageEntry
 	// Using current unix time as a time stamp since we're fetching the latest message.
-	currentUnixTime := time.Now().Unix()
+	currentUnixTime := time.Now().UnixNano()
 	// Iterate over DmThreads and Fetch latest message for each of them.
 	for _, dmThread := range dmThreads {
 		latestMessageEntry, err := fes.fetchLatestMessageFromSingleDmThread(dmThread, uint64(currentUnixTime), utxoView)
@@ -399,6 +399,7 @@ type MessageInfo struct {
 
 func (fes *APIServer) NewMessageEntryToResponse(newMessageEntry *lib.NewMessageEntry, chatType ChatType, utxoView *lib.UtxoView) NewMessageEntryResponse {
 	return NewMessageEntryResponse{
+		ChatType: chatType,
 		SenderInfo: fes.makeAccessGroupInfo(
 			newMessageEntry.SenderAccessGroupOwnerPublicKey,
 			newMessageEntry.SenderAccessGroupPublicKey,

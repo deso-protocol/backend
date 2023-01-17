@@ -399,7 +399,7 @@ func (fes *APIServer) AccessGroupEntryToResponse(accessGroupEntry *lib.AccessGro
 	return AccessGroupEntryResponse{
 		AccessGroupOwnerPublicKeyBase58Check: lib.PkToString(accessGroupEntry.AccessGroupOwnerPublicKey.ToBytes(), fes.Params),
 		AccessGroupPublicKeyBase58Check: lib.PkToString(accessGroupEntry.AccessGroupPublicKey.ToBytes(), fes.Params),
-		AccessGroupKeyName: string(accessGroupEntry.AccessGroupKeyName.ToBytes()),
+		AccessGroupKeyName: string(lib.MessagingKeyNameDecode(accessGroupEntry.AccessGroupKeyName)),
 		ExtraData: DecodeExtraDataMap(fes.Params, utxoView, accessGroupEntry.ExtraData),
 	}
 }
@@ -623,7 +623,7 @@ func (fes *APIServer) CreateCheckPartyAccessGroupKeysResponse(
 	if senderAccessGroupEntry != nil && !senderAccessGroupEntry.IsDeleted() {
 		response.SenderAccessGroupPublicKeyBase58Check = lib.PkToString(senderAccessGroupEntry.AccessGroupPublicKey.ToBytes(), fes.Params)
 		response.IsSenderAccessGroupKey = true
-		response.SenderAccessGroupKeyName = string(senderAccessGroupEntry.AccessGroupKeyName.ToBytes())
+		response.SenderAccessGroupKeyName = string(lib.MessagingKeyNameDecode(senderAccessGroupEntry.AccessGroupKeyName))
 	}
 
 	recipientAccessGroupId := lib.NewAccessGroupId(recipientPublicKey, recipientAccessGroupKeyName.ToBytes())
@@ -634,7 +634,7 @@ func (fes *APIServer) CreateCheckPartyAccessGroupKeysResponse(
 	if recipientAccessGroupEntry != nil && !recipientAccessGroupEntry.IsDeleted() {
 		response.RecipientAccessGroupPublicKeyBase58Check = lib.PkToString(recipientAccessGroupEntry.AccessGroupPublicKey.ToBytes(), fes.Params)
 		response.IsRecipientAccessGroupKey = true
-		response.RecipientAccessGroupKeyName = string(recipientAccessGroupEntry.AccessGroupKeyName.ToBytes())
+		response.RecipientAccessGroupKeyName = string(lib.MessagingKeyNameDecode(recipientAccessGroupEntry.AccessGroupKeyName))
 	}
 
 	return response, nil
