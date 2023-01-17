@@ -15,9 +15,9 @@ import (
 )
 
 // Base58 decodes a public key string and verifies if it is in a valid public key format.
-func Base58DecodeAndValidatePublickey(publicKeyBase58Check string) (publicKeyBytes []byte, err error) {
+func Base58DecodeAndValidatePublickey(publicKeyBase58Check string) ([]byte, error) {
 	// Decode in Base58 Checksum format.
-	publicKeyBytes, _, err = lib.Base58CheckDecode(publicKeyBase58Check)
+	publicKeyBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("Base58DecodeAndValidatePublickey: Problem decoding "+
 			"base58 public key %s: %v", publicKeyBase58Check, err))
@@ -36,15 +36,15 @@ func Base58DecodeAndValidatePublickey(publicKeyBase58Check string) (publicKeyByt
 }
 
 // Basic validations on public key and access Group Keu name.
-func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check, accessGroupKeyName string) (publicKeyBytes []byte, accessGroupKeyNameBytes []byte, err error) {
-	publicKeyBytes, err = Base58DecodeAndValidatePublickey(publicKeyBase58Check)
+func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check, accessGroupKeyName string) ([]byte, []byte, error) {
+	publicKeyBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
 	if err != nil {
 		return nil, nil, errors.New(fmt.Sprintf("ValidateAccessGroupPublicKeyAndName: Problem decoding "+
 			"base58 public key %s: %v", publicKeyBase58Check, err))
 
 	}
 	// get the byte array of the access group key name.
-	accessGroupKeyNameBytes = []byte(accessGroupKeyName)
+	accessGroupKeyNameBytes := []byte(accessGroupKeyName)
 	// Validates whether the accessGroupOwner key is a valid public key and
 	// some basic checks on access group key name like Min and Max characters.
 	if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupKeyNameBytes, accessGroupKeyNameBytes); err != nil {
@@ -56,20 +56,23 @@ func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check, accessGroupKeyNam
 	// Access group name key cannot be equal to base group name key (equal to all zeros).
 	// By default all users belong to the access group with the base name key, hence it is reserved.
 	if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
-		errors.New(fmt.Sprintf(
+		return nil, nil, errors.New(fmt.Sprintf(
 			"ValidateAccessGroupPublicKeyAndName: Access Group key cannot be same as base key (all zeros)."+
 				"Access group key name %s", accessGroupKeyName))
-		return
 	}
 
 	return publicKeyBytes, accessGroupKeyNameBytes, nil
 }
 
-// Helper function to encode a public key to Base58 Checksum format.
-func Base58CheckEncodePublickey(publickeyBytes []byte) (Base58EncodedPublickey string) {
-	// 3 byte public key prefix as per the base58 checksum format.
-	Base58CheckPrefix := [3]byte{0x11, 0xc2, 0x0}
-	return lib.Base58CheckEncodeWithPrefix(publickeyBytes, Base58CheckPrefix)
+func (fes *APIServer) makeAccessGroupInfo(
+	groupOwnerPublicKey *lib.PublicKey,
+	publicKey *lib.PublicKey,
+	groupKeyName *lib.GroupKeyName) AccessGroupInfo {
+	return AccessGroupInfo{
+		OwnerPublicKeyBase58Check:       lib.Base58CheckEncode(groupOwnerPublicKey.ToBytes(), false, fes.Params),
+		AccessGroupPublicKeyBase58Check: lib.Base58CheckEncode(publicKey.ToBytes(), false, fes.Params),
+		AccessGroupKeyName:              string(groupKeyName.ToBytes()),
+	}
 }
 
 // Helper function to fetch just the latest message from the given Dm thread.
@@ -146,7 +149,7 @@ func (fes *APIServer) getAllDmThreadsForPublicKey(publicKeyBase58DecodedBytes []
 	// call the core library function to fetch the direct message threads (dmThreads) of the user.
 	dmThreads, err = utxoView.GetAllUserDmThreads(*lib.NewPublicKey(publicKeyBase58DecodedBytes))
 	if err != nil {
-		return nil, errors.Wrapf(err, "Problem getting direct message threads for user %s", Base58CheckEncodePublickey(publicKeyBase58DecodedBytes))
+		return nil, errors.Wrapf(err, "Problem getting direct message threads for user %s", lib.Base58CheckEncode(publicKeyBase58DecodedBytes, false, fes.Params))
 	}
 
 	return dmThreads, nil
@@ -247,7 +250,7 @@ type SendDmMessageRequest struct {
 
 	// EncryptedMessageText is the intended message content. It is recommended to pass actual encrypted message here,
 	// although unencrypted message can be passed as well.
-	EncryptedMessageText []byte
+	EncryptedMessageText string 
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 	// No need to specify ProfileEntryResponse in each TransactionFee
@@ -353,7 +356,7 @@ func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNewMessageTxn(
 		senderGroupOwnerPkBytes, *lib.NewPublicKey(senderGroupOwnerPkBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes), *lib.NewPublicKey(senderAccessGroupPkbytes),
 		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes), *lib.NewPublicKey(recipientAccessGroupPkbytes),
-		requestData.EncryptedMessageText, tstamp,
+		[]byte(requestData.EncryptedMessageText), tstamp,
 		lib.NewMessageTypeDm, lib.NewMessageOperationCreate,
 		extraData, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
@@ -472,7 +475,7 @@ func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Req
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNewMessageTxn(
 		senderGroupOwnerPkBytes, *lib.NewPublicKey(senderGroupOwnerPkBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes), *lib.NewPublicKey(senderAccessGroupPkbytes),
 		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes), *lib.NewPublicKey(recipientAccessGroupPkbytes),
-		requestData.EncryptedMessageText, tstamp,
+		[]byte(requestData.EncryptedMessageText), tstamp,
 		lib.NewMessageTypeGroupChat, lib.NewMessageOperationCreate,
 		extraData, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
@@ -514,8 +517,9 @@ type AccessGroupInfo struct {
 }
 
 type DmMessageInfo struct {
-	EncryptedText  []byte
+	EncryptedText  string
 	TimestampNanos uint64
+	ExtraData      map[string]string
 }
 
 // Represents a direct message thread with sender, recipient information
@@ -583,30 +587,37 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 	sort.Slice(latestMessagesForThreadKeys, func(i, j int) bool {
 		return latestMessagesForThreadKeys[i].TimestampNanos > latestMessagesForThreadKeys[j].TimestampNanos
 	})
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Error generating "+
+			"utxo view: %v", err))
+		return
+	}
+
 	// Dm threads with each dm represented by DmThreadWithLatestMessage.
 	// Each entry consists of the sender account, recipient account info and the latest message.
 	// Though the publickey of the user who initiated the request is known earlier (is part of the request data),
 	// its duplicated in the api response for consistency.
 	dmMessageThreads := []DmThreadWithLatestMessage{}
 	for _, threadMsg := range latestMessagesForThreadKeys {
+		msgExtradata := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
 		msgThread := DmThreadWithLatestMessage{
 			// public key, access group public key, and access group key name of the sender of the DM.
-			SenderInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
-				AccessGroupKeyName:              hex.EncodeToString(threadMsg.SenderAccessGroupKeyName.ToBytes()),
-			},
+			SenderInfo: fes.makeAccessGroupInfo(
+				threadMsg.SenderAccessGroupOwnerPublicKey,
+				threadMsg.SenderAccessGroupPublicKey,
+				threadMsg.SenderAccessGroupKeyName),
 			// public key, access group public key, and access group key name of the recipient of the DM.
-			RecipientInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupPublicKey.ToBytes()),
-				// access group key name is hex encoded.
-				AccessGroupKeyName: hex.EncodeToString((threadMsg.RecipientAccessGroupKeyName.ToBytes())),
-			},
+			RecipientInfo: fes.makeAccessGroupInfo(
+				threadMsg.RecipientAccessGroupOwnerPublicKey,
+				threadMsg.RecipientAccessGroupPublicKey,
+				threadMsg.RecipientAccessGroupKeyName),
 			// Direct message encrypted text and timestamp.
 			MessageInfo: DmMessageInfo{
-				EncryptedText:  threadMsg.EncryptedText,
+				EncryptedText:  string(threadMsg.EncryptedText),
 				TimestampNanos: threadMsg.TimestampNanos,
+				ExtraData: msgExtradata,
 			},
 		}
 
@@ -716,22 +727,31 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 	// Since the two parties in the conversation in same in all the message if added this info upfront.
 	dms := GetPaginatedMessagesForDmResponse{
 		SenderInfo: AccessGroupInfo{
-			OwnerPublicKeyBase58Check: Base58CheckEncodePublickey(senderGroupKeyNameBytes),
-			AccessGroupKeyName:        hex.EncodeToString(senderGroupKeyNameBytes),
+			OwnerPublicKeyBase58Check: lib.Base58CheckEncode(senderGroupOwnerPkBytes, false, fes.Params),
+			AccessGroupKeyName:        string(senderGroupKeyNameBytes),
 		},
 		RecipientInfo: AccessGroupInfo{
-			OwnerPublicKeyBase58Check: Base58CheckEncodePublickey(recipientGroupOwnerPkBytes),
-			AccessGroupKeyName:        hex.EncodeToString(recipientGroupKeyNameBytes),
+			OwnerPublicKeyBase58Check: lib.Base58CheckEncode(recipientGroupOwnerPkBytes, false, fes.Params),
+			AccessGroupKeyName:        string(recipientGroupKeyNameBytes),
 		},
 		MessageInfo: []DmMessageInfo{},
 	}
 
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Error generating "+
+			"utxo view: %v", err))
+		return
+	}
+
 	// Now append each of their Direct message (Dm) conversations.
 	for _, threadMsg := range latestMessages {
+		msgExtraData := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
 		dms.MessageInfo = append(dms.MessageInfo,
 			DmMessageInfo{
-				EncryptedText:  threadMsg.EncryptedText,
+				EncryptedText:  string(threadMsg.EncryptedText),
 				TimestampNanos: threadMsg.TimestampNanos,
+				ExtraData:      msgExtraData,
 			},
 		)
 	}
@@ -807,28 +827,35 @@ func (fes *APIServer) GetUserGroupChatThreadsOrderedByTimestamp(ww http.Response
 		return latestMessagesForGroupChats[i].TimestampNanos > latestMessagesForGroupChats[j].TimestampNanos
 	})
 
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserGroupChatThreadsOrderedByTimestamp: Error generating "+
+			"utxo view: %v", err))
+		return
+	}
+
 	// group chat threads with each group chat represented by GroupChatThread.
 	// Each entry consists of the sender account, recipient account info and the latest message.
 	groupChats := []GroupChatThread{}
 
 	for _, threadMsg := range latestMessagesForGroupChats {
+		msgExtraData := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
 		groupChat := GroupChatThread{
 			// public key, access group public key, and access group key name of the sender of the group chat.
-			SenderInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
-				AccessGroupKeyName:              hex.EncodeToString(threadMsg.SenderAccessGroupKeyName.ToBytes()),
-			},
+			SenderInfo: fes.makeAccessGroupInfo(
+				threadMsg.SenderAccessGroupOwnerPublicKey,
+				threadMsg.SenderAccessGroupPublicKey,
+				threadMsg.SenderAccessGroupKeyName),
 			// public key, access group public key, and access group key name of the recipient of the group chat.
-			RecipientInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupPublicKey.ToBytes()),
-				AccessGroupKeyName:              hex.EncodeToString((threadMsg.RecipientAccessGroupKeyName.ToBytes())),
-			},
+			RecipientInfo: fes.makeAccessGroupInfo(
+				threadMsg.SenderAccessGroupOwnerPublicKey,
+				threadMsg.SenderAccessGroupPublicKey,
+				threadMsg.SenderAccessGroupKeyName),
 			// group chat message and its timestamp.
 			MessageInfo: DmMessageInfo{
-				EncryptedText:  threadMsg.EncryptedText,
+				EncryptedText:  string(threadMsg.EncryptedText),
 				TimestampNanos: threadMsg.TimestampNanos,
+				ExtraData:      msgExtraData,
 			},
 		}
 
@@ -906,28 +933,35 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 		return
 	}
 
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForGroupChatThread: Error generating "+
+			"utxo view: %v", err))
+		return
+	}
+
 	// group chat threads with each group chat represented by GroupChatThread.
 	// Each entry consists of the sender account, recipient account info and the latest message.
 	messages := []GroupChatThread{}
 
 	for _, threadMsg := range groupChatMessages {
+		msgExtraData := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
 		message := GroupChatThread{
 			// public key, access group public key, and access group key name of the sender of the group chat.
-			SenderInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
-				AccessGroupKeyName:              hex.EncodeToString(threadMsg.SenderAccessGroupKeyName.ToBytes()),
-			},
+			SenderInfo: fes.makeAccessGroupInfo(
+				threadMsg.SenderAccessGroupOwnerPublicKey,
+				threadMsg.SenderAccessGroupPublicKey,
+				threadMsg.SenderAccessGroupKeyName),
 			// public key, access group public key, and access group key name of the recipient of the group chat.
-			RecipientInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupPublicKey.ToBytes()),
-				AccessGroupKeyName:              hex.EncodeToString((threadMsg.RecipientAccessGroupKeyName.ToBytes())),
-			},
+			RecipientInfo: fes.makeAccessGroupInfo(
+				threadMsg.RecipientAccessGroupOwnerPublicKey,
+				threadMsg.RecipientAccessGroupPublicKey,
+				threadMsg.RecipientAccessGroupKeyName),
 			// group chat message and its timestamp.
 			MessageInfo: DmMessageInfo{
-				EncryptedText:  threadMsg.EncryptedText,
+				EncryptedText:  string(threadMsg.EncryptedText),
 				TimestampNanos: threadMsg.TimestampNanos,
+				ExtraData:      msgExtraData,
 			},
 		}
 
@@ -1021,25 +1055,32 @@ func (fes *APIServer) GetAllUserMessageThreads(ww http.ResponseWriter, req *http
 		return
 	}
 
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserMessageThreads: Error generating "+
+			"utxo view: %v", err))
+		return
+	}
+
 	// Add the group chat messages into UserThread type.
 	userThreads := []UserThread{}
 
 	for _, threadMsg := range latestMessagesForGroupChats {
+		msgExtraData := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
 		msgThread := UserThread{
 			ChatType: chatTypeGroupChat,
-			SenderInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
-				AccessGroupKeyName:              hex.EncodeToString(threadMsg.SenderAccessGroupKeyName.ToBytes()),
-			},
-			RecipientInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupPublicKey.ToBytes()),
-				AccessGroupKeyName:              hex.EncodeToString((threadMsg.RecipientAccessGroupKeyName.ToBytes())),
-			},
+			SenderInfo: fes.makeAccessGroupInfo(
+				threadMsg.SenderAccessGroupOwnerPublicKey,
+				threadMsg.SenderAccessGroupPublicKey,
+				threadMsg.SenderAccessGroupKeyName),
+			RecipientInfo: fes.makeAccessGroupInfo(
+				threadMsg.RecipientAccessGroupOwnerPublicKey,
+				threadMsg.RecipientAccessGroupPublicKey,
+				threadMsg.RecipientAccessGroupKeyName),
 			MessageInfo: DmMessageInfo{
-				EncryptedText:  threadMsg.EncryptedText,
+				EncryptedText:  string(threadMsg.EncryptedText),
 				TimestampNanos: threadMsg.TimestampNanos,
+				ExtraData:      msgExtraData,
 			},
 		}
 		userThreads = append(userThreads, msgThread)
@@ -1047,21 +1088,21 @@ func (fes *APIServer) GetAllUserMessageThreads(ww http.ResponseWriter, req *http
 
 	// Add direct messages into UserThread type.
 	for _, threadMsg := range latestMessagesForThreadKeys {
+		msgExtraData := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
 		msgThread := UserThread{
 			ChatType: chatTypeDm,
-			SenderInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.SenderAccessGroupPublicKey.ToBytes()),
-				AccessGroupKeyName:              hex.EncodeToString(threadMsg.SenderAccessGroupKeyName.ToBytes()),
-			},
-			RecipientInfo: AccessGroupInfo{
-				OwnerPublicKeyBase58Check:       Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes()),
-				AccessGroupPublicKeyBase58Check: Base58CheckEncodePublickey(threadMsg.RecipientAccessGroupPublicKey.ToBytes()),
-				AccessGroupKeyName:              hex.EncodeToString((threadMsg.RecipientAccessGroupKeyName.ToBytes())),
-			},
+		    SenderInfo: fes.makeAccessGroupInfo(                    
+				threadMsg.SenderAccessGroupOwnerPublicKey,
+				threadMsg.SenderAccessGroupPublicKey,
+				threadMsg.SenderAccessGroupKeyName),
+			RecipientInfo: fes.makeAccessGroupInfo(
+				threadMsg.RecipientAccessGroupOwnerPublicKey,
+				threadMsg.RecipientAccessGroupPublicKey,
+				threadMsg.RecipientAccessGroupKeyName),
 			MessageInfo: DmMessageInfo{
-				EncryptedText:  threadMsg.EncryptedText,
+				EncryptedText:  string(threadMsg.EncryptedText),
 				TimestampNanos: threadMsg.TimestampNanos,
+				ExtraData:      msgExtraData,
 			},
 		}
 		userThreads = append(userThreads, msgThread)

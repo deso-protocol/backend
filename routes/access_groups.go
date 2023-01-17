@@ -20,8 +20,7 @@ type CreateAccessGroupRequest struct {
 	// AccessGroupPublicKeyBase58Check is the Public key required to participate in the access groups.
 	AccessGroupPublicKeyBase58Check string `safeForLogging:"true"`
 	// Name of the access group to be created.
-	// Value needs to encoded in Hex.
-	AccessGroupKeyNameHexEncoded string `safeForLogging:"true"`
+	AccessGroupKeyName string `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 	// No need to specify ProfileEntryResponse in each TransactionFee
@@ -85,14 +84,7 @@ func (fes *APIServer) CreateAccessGroup(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	// Hex decoding the access group name.
-	// The client should hex encode the group name while calling the API.
-	accessGroupKeyNameBytes, err := hex.DecodeString(requestData.AccessGroupKeyNameHexEncoded)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem hex decoding "+
-			"access group key name %v %v", requestData.AccessGroupKeyNameHexEncoded, err))
-		return
-	}
+	accessGroupKeyNameBytes := []byte(requestData.AccessGroupKeyName)
 
 	// get the byte array of the access group key name.
 
@@ -100,14 +92,14 @@ func (fes *APIServer) CreateAccessGroup(ww http.ResponseWriter, req *http.Reques
 	// some basic checks on access group key name like Min and Max characters.
 	if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupOwnerPkBytes, accessGroupKeyNameBytes); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem validating access group owner "+
-			"public key and access group key name %s: %v", requestData.AccessGroupKeyNameHexEncoded, err))
+			"public key and access group key name %s: %v", requestData.AccessGroupKeyName, err))
 		return
 	}
 
 	// Access group name key cannot be equal to base name key (equal to all zeros).
 	if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"CreateAccessGroup: Access Group key cannot be same as base key (all zeros)."+"access group key name %s", requestData.AccessGroupKeyNameHexEncoded))
+			"CreateAccessGroup: Access Group key cannot be same as base key (all zeros)."+"access group key name %s", requestData.AccessGroupKeyName))
 		return
 	}
 	// Decode the access group public key.
@@ -182,18 +174,17 @@ type AccessGroupMember struct {
 	//  3. The access group owner can add themselves as a member using lib.BaseGroup() as AccessGroupMemberKeyName.
 	//     This is possible because every user by default belongs to the BaseGroup()
 	//  4. Can't add the owner of the group as a member of the group using the same group key name.
-	//     In other words, if the owner of a access group are adding themselves, the AccessGroupMemberKeyName in the member list i
+	//     In other words, if the owner of a access group are adding themselves, the AccessGroupMemberKeyName in the member list
 	//     cannot be same as the access group key name of the same group.
-	//  5. The client need to hex encode the key name while calling the API.
-	AccessGroupMemberKeyNameHexEncoded string `safeForLogging:"true"`
+	AccessGroupMemberKeyName string `safeForLogging:"true"`
 	//  1. Stores the main group's access public key encrypted to the member group's access public key.
 	//  2. This is used to allow the member to decrypt the main group's access public key
 	//     using their individual access groups' secrets.
 	//  3. This value cannot be empty.
 
-	EncryptedKey []byte
+	EncryptedKey string
 
-	ExtraData map[string][]byte
+	ExtraData map[string]string
 }
 
 type AddAccessGroupMembersRequest struct {
@@ -201,7 +192,7 @@ type AddAccessGroupMembersRequest struct {
 	// This needs to match your public key used for signing the transaction since only the group owner can add a member.
 	AccessGroupOwnerPublicKeyBase58Check string `safeForLogging:"true"`
 	// Access group identifier
-	AccessGroupKeyNameHexEncoded string `safeForLogging:"true"`
+	AccessGroupKeyName string `safeForLogging:"true"`
 	// The details of the members to add are contained in the accessGroupMemberList array.
 	// Each entry in the accessGroupMemberList represents one user to add to the access group.
 	// Invalid to add multiple entry of the same public key in the list.
@@ -253,21 +244,14 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 		return
 	}
 
-	// Hex decoding the access group name.
-	// The client should hex encode the group name while calling the API.
-	accessGroupKeyNameBytes, err := hex.DecodeString(requestData.AccessGroupKeyNameHexEncoded)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: Problem hex decoding "+
-			"access group key name %v %v", requestData.AccessGroupKeyNameHexEncoded, err))
-		return
-	}
+	accessGroupKeyNameBytes := []byte(requestData.AccessGroupKeyName)
 
 	// Access group name key cannot be equal to base name key  (equal to all zeros).
 	// Base access group key is reserved and by default all users belong to an access group with base group key.
 	if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"AddAccessGroupMembers: Access Group key cannot be same as base key (all zeros). "+
-				"access group key name %s", requestData.AccessGroupKeyNameHexEncoded))
+				"access group key name %s", requestData.AccessGroupKeyName))
 		return
 	}
 
@@ -275,7 +259,7 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 	// some basic checks on access group key name like Min and Max characters are performed.
 	if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupOwnerPkBytes, accessGroupKeyNameBytes); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: Problem validating access group owner "+
-			"public key and access group key name %s: %v", requestData.AccessGroupKeyNameHexEncoded, err))
+			"public key and access group key name %s: %v", requestData.AccessGroupKeyName, err))
 		return
 	}
 
@@ -298,21 +282,15 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 				"base58 public key %s: %v", member.AccessGroupMemberPublicKeyBase58Check, err))
 			return
 		}
-		// Hex decoding the access group name.
-		// The client should hex encode the group name while calling the API.
-		accessGroupKeyNameBytes, err := hex.DecodeString(member.AccessGroupMemberKeyNameHexEncoded)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: Problem hex decoding "+
-				"access group key name %v %v", member.AccessGroupMemberKeyNameHexEncoded, err))
-			return
-		}
+
+		memberAccessGroupKeyNameBytes := []byte(requestData.AccessGroupKeyName)
 		// Checks whether the accessGroupMember key is a valid public key and
 		// some basic checks on access group key name like Min and Max characters are done.
 		if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupMemberPkBytes,
-			accessGroupKeyNameBytes); err != nil {
+			memberAccessGroupKeyNameBytes); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: Problem validating access group owner "+
 				"public key and access group key name %s %s: %v",
-				member.AccessGroupMemberPublicKeyBase58Check, member.AccessGroupMemberKeyNameHexEncoded, err))
+				member.AccessGroupMemberPublicKeyBase58Check, member.AccessGroupMemberKeyName, err))
 			return
 		}
 
@@ -321,7 +299,7 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 		// same as the key of the access group being added.
 		if bytes.Equal(accessGroupOwnerPkBytes, accessGroupMemberPkBytes) &&
 			bytes.Equal(lib.NewGroupKeyName(accessGroupKeyNameBytes).ToBytes(),
-				lib.NewGroupKeyName(accessGroupKeyNameBytes).ToBytes()) {
+				lib.NewGroupKeyName(memberAccessGroupKeyNameBytes).ToBytes()) {
 
 			_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: Can't add the owner of the group as a member of the "+
 				"group using the same group key name."))
@@ -345,12 +323,18 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 		}
 		accessGroupMemberPublicKeys[memberPublicKey] = struct{}{}
 
+		extraData, err := EncodeExtraDataMap(member.ExtraData)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: error encoding extra data for member: %v", err))
+			return
+		}
+
 		// Assembling the information inside an array of &lib.AccessGroupMember as expected by the core library.
 		accessGroupMember := &lib.AccessGroupMember{
 			AccessGroupMemberPublicKey: accessGroupMemberPkBytes,
-			AccessGroupMemberKeyName:   accessGroupKeyNameBytes,
-			EncryptedKey:               member.EncryptedKey,
-			ExtraData:                  member.ExtraData,
+			AccessGroupMemberKeyName:   memberAccessGroupKeyNameBytes,
+			EncryptedKey:               []byte(member.EncryptedKey),
+			ExtraData:                  extraData,
 		}
 		accessGroupMembers = append(accessGroupMembers, accessGroupMember)
 
@@ -414,11 +398,11 @@ type GetAccessGroupIDsResponse struct {
 	AccessGroupIds *AccessGroupIds `safeForLogging:"true"`
 }
 
-// represents access group owner along with the name of the Access group name encoded in hex.
-type AccessGroupIdEncoded struct {
+// represents access group owner along with the name of the Access group.
+type AccessGroupId struct {
 	// public key of the access group owner.
 	AccessGroupOwnerPublicKeyBase58Check string
-	AccessGroupKeyNameHex                string
+	AccessGroupKeyName                   string
 }
 
 // PublicKeyBase58Check is the public key whose group IDs needs to be queried.
@@ -426,9 +410,16 @@ type AccessGroupIdEncoded struct {
 type AccessGroupIds struct {
 	// access group Ids of groups owned by a given public Key.
 	// using omitempty tag so that the filed is omitted if empty during serialization.
-	AccessGroupIdsOwned []*AccessGroupIdEncoded `json:",omitempty" safeForLogging:"true"`
+	AccessGroupIdsOwned []*AccessGroupId `json:",omitempty" safeForLogging:"true"`
 	// access group Ids of groups where a given public key account is just a member.
-	AccessGroupIdsMember []*AccessGroupIdEncoded `json:",omitempty" safeForLogging:"true"`
+	AccessGroupIdsMember []*AccessGroupId `json:",omitempty" safeForLogging:"true"`
+}
+
+func (fes *APIServer) makeAccessGroupId(publicKey lib.PublicKey, groupKeyName lib.GroupKeyName) AccessGroupId {
+	return AccessGroupId{
+		AccessGroupOwnerPublicKeyBase58Check: lib.Base58CheckEncode(publicKey.ToBytes(), false, fes.Params),
+		AccessGroupKeyName: string(groupKeyName.ToBytes()),
+	}
 }
 
 // Helper function retrieve access groups of the given public keys.
@@ -458,7 +449,7 @@ func (fes *APIServer) getAllAccessIdsForPublicKey(publicKeyBase58DecodedBytes []
 }
 
 // returns only the access groups owned by the public key.
-func (fes *APIServer) getGroupOwnerAccessIdsForPublicKey(publicKeyBase58DecodedBytes []byte) ([]*AccessGroupIdEncoded, error) {
+func (fes *APIServer) getGroupOwnerAccessIdsForPublicKey(publicKeyBase58DecodedBytes []byte) ([]*AccessGroupId, error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf("getGroupOwnerAccessIdsForPublicKey: Error generating "+
@@ -472,23 +463,20 @@ func (fes *APIServer) getGroupOwnerAccessIdsForPublicKey(publicKeyBase58DecodedB
 	}
 
 	//  []*lib.AccessGroupId type doesn't encoded the publickey of the user is base 58 check format.
-	// Also the access group key name is not in hex encoded format.
-	// Hence, encoded the user publickey in Base58 checksum format and the access group key name in the hex encoded string format.
-	accessGroupIdsOwnedEncoded := []*AccessGroupIdEncoded{}
+	// Hence, encoded the user publickey in Base58 checksum format and the access group key name is cast to a string.
+	accessGroupIdsOwnedEncoded := []*AccessGroupId{}
 
 	for _, accessGroupID := range accessGroupIdsOwned {
-		accessGroupIdEncoded := &AccessGroupIdEncoded{
-			AccessGroupOwnerPublicKeyBase58Check: Base58CheckEncodePublickey(accessGroupID.AccessGroupOwnerPublicKey.ToBytes()),
-			AccessGroupKeyNameHex:                hex.EncodeToString(accessGroupID.AccessGroupKeyName.ToBytes()),
-		}
-
-		accessGroupIdsOwnedEncoded = append(accessGroupIdsOwnedEncoded, accessGroupIdEncoded)
+		accessGroupIdEncoded := fes.makeAccessGroupId(
+			accessGroupID.AccessGroupOwnerPublicKey,
+			accessGroupID.AccessGroupKeyName)
+		accessGroupIdsOwnedEncoded = append(accessGroupIdsOwnedEncoded, &accessGroupIdEncoded)
 	}
 	return accessGroupIdsOwnedEncoded, nil
 }
 
 // returns the access groups where the given public key is only a member.
-func (fes *APIServer) getMemberOnlyAccessIdsForPublicKey(publicKeyBase58DecodedBytes []byte) ([]*AccessGroupIdEncoded, error) {
+func (fes *APIServer) getMemberOnlyAccessIdsForPublicKey(publicKeyBase58DecodedBytes []byte) ([]*AccessGroupId, error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf("getMemberOnlyAccessIdsForPublicKey: Error generating "+
@@ -502,17 +490,15 @@ func (fes *APIServer) getMemberOnlyAccessIdsForPublicKey(publicKeyBase58DecodedB
 	}
 
 	// []*lib.AccessGroupId type doesn't encoded the publickey of the user is base 58 check format.
-	// Also the access group key name is not in hex encoded format.
-	// Hence, encoded the user publickey in Base58 checksum format and the access group key name in the hex encoded string format.
-	accessGroupIdsMemberEncoded := []*AccessGroupIdEncoded{}
+	// Hence, encoded the user publickey in Base58 checksum format and the access group key name is cast to bytes.
+	accessGroupIdsMemberEncoded := []*AccessGroupId{}
 
 	for _, accessGroupID := range accessGroupIdsMember {
-		accessGroupIdEncoded := &AccessGroupIdEncoded{
-			AccessGroupOwnerPublicKeyBase58Check: Base58CheckEncodePublickey(accessGroupID.AccessGroupOwnerPublicKey.ToBytes()),
-			AccessGroupKeyNameHex:                hex.EncodeToString(accessGroupID.AccessGroupKeyName.ToBytes()),
-		}
+		accessGroupIdEncoded := fes.makeAccessGroupId(
+			accessGroupID.AccessGroupOwnerPublicKey,
+			accessGroupID.AccessGroupKeyName)
 
-		accessGroupIdsMemberEncoded = append(accessGroupIdsMemberEncoded, accessGroupIdEncoded)
+		accessGroupIdsMemberEncoded = append(accessGroupIdsMemberEncoded, &accessGroupIdEncoded)
 	}
 
 	return accessGroupIdsMemberEncoded, nil
