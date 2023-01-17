@@ -232,7 +232,7 @@ func (fes *APIServer) getAllGroupChatThreadsForPublicKey(publicKeyBase58DecodedB
 	return groupChatThreads, nil
 }
 
-type SendDmMessageRequest struct {
+type SendNewMessageRequest struct {
 	// Public key of the direct message sender.
 	// This needs to match your public key used for signing the transaction.
 	SenderAccessGroupOwnerPublicKeyBase58Check string `safeForLogging:"true"`
@@ -250,7 +250,7 @@ type SendDmMessageRequest struct {
 
 	// EncryptedMessageText is the intended message content. It is recommended to pass actual encrypted message here,
 	// although unencrypted message can be passed as well.
-	EncryptedMessageText string 
+	EncryptedMessageText string
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 	// No need to specify ProfileEntryResponse in each TransactionFee
@@ -281,7 +281,7 @@ type SendDmResponse struct {
 func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
 	// Deserialize the request data.
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := SendDmMessageRequest{}
+	requestData := SendNewMessageRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: Problem parsing request body: %v", err))
 		return
@@ -400,7 +400,7 @@ func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
 func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Request) {
 	// Deserialize the request data.
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := SendDmMessageRequest{}
+	requestData := SendNewMessageRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: Problem parsing request body: %v", err))
 		return
@@ -547,19 +547,19 @@ type GetUserDmThreadsResponse struct {
 // Should return the direct message threads of the user along with the latest message sent for each of them.
 // This API just doesn't write any data, hence it doesn't create a new transaction.
 // It's a public API, hence anyone with a valid public key can query the system to fetch their Direct message threads.
-func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter, req *http.Request) {
+func (fes *APIServer) GetUserDmThreadsOrderedByTimestamp(ww http.ResponseWriter, req *http.Request) {
 	// Deserialize the request data.
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetUserDmThreadsRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimestamp: Problem parsing request body: %v", err))
 		return
 	}
 
 	// Decode and validate the access group owner public key.
 	accessGroupOwnerPkBytes, err := Base58DecodeAndValidatePublickey(requestData.UserPublicKeyBase58Check)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem decoding owner"+
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimestamp: Problem decoding owner"+
 			"base58 public key %s: %v", requestData.UserPublicKeyBase58Check, err))
 		return
 	}
@@ -567,7 +567,7 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 	// get all the access groups associated with the public key.
 	dmThreads, err := fes.getAllDmThreadsForPublicKey(accessGroupOwnerPkBytes)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem getting access group IDs of"+
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimestamp: Problem getting access group IDs of"+
 			"public key %s: %v", requestData.UserPublicKeyBase58Check, err))
 		return
 	}
@@ -577,7 +577,7 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 	// get the latest dm message for each of the Dmthread them.
 	latestMessagesForThreadKeys, err := fes.fetchLatestMessageFromDmThreads(dmThreads)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem getting access group IDs of"+
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimestamp: Problem getting access group IDs of"+
 			"public key %s: %v", requestData.UserPublicKeyBase58Check, err))
 		return
 	}
@@ -590,7 +590,7 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Error generating "+
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimestamp: Error generating "+
 			"utxo view: %v", err))
 		return
 	}
@@ -617,7 +617,7 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 			MessageInfo: DmMessageInfo{
 				EncryptedText:  string(threadMsg.EncryptedText),
 				TimestampNanos: threadMsg.TimestampNanos,
-				ExtraData: msgExtradata,
+				ExtraData:      msgExtradata,
 			},
 		}
 
@@ -630,7 +630,7 @@ func (fes *APIServer) GetUserDmThreadsOrderedByTimeStamp(ww http.ResponseWriter,
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimeStamp: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetUserDmThreadsOrderedByTimestamp: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
@@ -644,10 +644,10 @@ type GetPaginatedMessagesForDmThreadRequest struct {
 	// The second party is represented by prefix "party"
 	PartyGroupOwnerPublicKeyBase58Check string
 	PartyGroupKeyName                   string
-	// Filter to fetch direct messages who time stamp is less than StartTimeStamp.
+	// Filter to fetch direct messages who time stamp is less than StartTimestamp.
 	// So you need to set this to current time and MaxMessagesToFetch to 10, to fetch
 	//  the latest 10 messages.
-	StartTimeStamp     uint64
+	StartTimestamp     uint64
 	MaxMessagesToFetch int
 }
 
@@ -717,7 +717,7 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes))
 
 	// Fetch the max messages between the sender and the party.
-	latestMessages, err := fes.fetchMaxMessagesFromDmThread(&dmThreadKey, requestData.StartTimeStamp, requestData.MaxMessagesToFetch)
+	latestMessages, err := fes.fetchMaxMessagesFromDmThread(&dmThreadKey, requestData.StartTimestamp, requestData.MaxMessagesToFetch)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated messages for "+
 			"Request Data: %v: %v", requestData, err))
@@ -782,7 +782,7 @@ type GroupChatThread struct {
 	MessageInfo   DmMessageInfo
 }
 
-// Similar to GetUserDmThreadsOrderedByTimeStamp, expect that it fetches the group chat threads instead of direct messages.
+// Similar to GetUserDmThreadsOrderedByTimestamp, expect that it fetches the group chat threads instead of direct messages.
 // Need to call lib.GetAllUserGroupChatThreads from the core library.
 // Just need the public key of the user in the request data.
 // Returns the group chat threads along with their latest messages.
@@ -881,7 +881,7 @@ type GetPaginatedMessagesForGroupChatThreadRequest struct {
 	UserPublicKeyBase58Check string
 	AccessGroupKeyName       string
 
-	StartTimeStamp     uint64
+	StartTimestamp     uint64
 	MaxMessagesToFetch int
 }
 
@@ -926,7 +926,7 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 	}
 
 	// Fetch the max group chat messages from the access group.
-	groupChatMessages, err := fes.fetchMaxMessagesFromGroupChatThread(&accessGroupId, requestData.StartTimeStamp, requestData.MaxMessagesToFetch)
+	groupChatMessages, err := fes.fetchMaxMessagesFromGroupChatThread(&accessGroupId, requestData.StartTimestamp, requestData.MaxMessagesToFetch)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForGroupChatThread: Problem getting paginated messages for "+
 			"Request Data: %v: %v", requestData, err))
@@ -987,7 +987,7 @@ const (
 	chatTypeGroupChat
 )
 
-type UserThread struct {
+type MessageThread struct {
 	// Used to mark whether the message is a dm or a group chat.
 	ChatType int
 
@@ -1003,7 +1003,7 @@ type GetAllUserMessageThreadsRequest struct {
 }
 
 type GetAllUserMessageThreadsResponse struct {
-	DmThreads []UserThread
+	MessageThreads []MessageThread
 }
 
 // This API just doesn't write any data, hence it doesn't create a new transaction.
@@ -1062,12 +1062,12 @@ func (fes *APIServer) GetAllUserMessageThreads(ww http.ResponseWriter, req *http
 		return
 	}
 
-	// Add the group chat messages into UserThread type.
-	userThreads := []UserThread{}
+	// Add the group chat messages into MessageThread type.
+	messageThread := []MessageThread{}
 
 	for _, threadMsg := range latestMessagesForGroupChats {
 		msgExtraData := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
-		msgThread := UserThread{
+		msgThread := MessageThread{
 			ChatType: chatTypeGroupChat,
 			SenderInfo: fes.makeAccessGroupInfo(
 				threadMsg.SenderAccessGroupOwnerPublicKey,
@@ -1083,15 +1083,15 @@ func (fes *APIServer) GetAllUserMessageThreads(ww http.ResponseWriter, req *http
 				ExtraData:      msgExtraData,
 			},
 		}
-		userThreads = append(userThreads, msgThread)
+		messageThread = append(messageThread, msgThread)
 	}
 
-	// Add direct messages into UserThread type.
+	// Add direct messages into MessageThread type.
 	for _, threadMsg := range latestMessagesForThreadKeys {
 		msgExtraData := DecodeExtraDataMap(fes.Params, utxoView, threadMsg.ExtraData)
-		msgThread := UserThread{
+		msgThread := MessageThread{
 			ChatType: chatTypeDm,
-		    SenderInfo: fes.makeAccessGroupInfo(                    
+			SenderInfo: fes.makeAccessGroupInfo(
 				threadMsg.SenderAccessGroupOwnerPublicKey,
 				threadMsg.SenderAccessGroupPublicKey,
 				threadMsg.SenderAccessGroupKeyName),
@@ -1105,17 +1105,17 @@ func (fes *APIServer) GetAllUserMessageThreads(ww http.ResponseWriter, req *http
 				ExtraData:      msgExtraData,
 			},
 		}
-		userThreads = append(userThreads, msgThread)
+		messageThread = append(messageThread, msgThread)
 	}
 
 	// Sorting Group chats and Dms by timestamp of their latest messages.
-	sort.Slice(userThreads, func(i, j int) bool {
-		return userThreads[i].MessageInfo.TimestampNanos > userThreads[j].MessageInfo.TimestampNanos
+	sort.Slice(messageThread, func(i, j int) bool {
+		return messageThread[i].MessageInfo.TimestampNanos > messageThread[j].MessageInfo.TimestampNanos
 	})
 
 	// response containing all user chats.
 	res := GetAllUserMessageThreadsResponse{
-		DmThreads: userThreads,
+		MessageThreads: messageThread,
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
