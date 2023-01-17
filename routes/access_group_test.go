@@ -95,7 +95,7 @@ func ExecuteRequest(t *testing.T, apiServer *APIServer, routePath string, reques
 }
 
 // This access group key name is reserved since every user by default belongs to them.
-func TestAPIAccessGroupBaseGroupMemberShip(t *testing.T) {
+func TestAPIAccessGroupBaseGroupMembership(t *testing.T) {
 	assert := assert.New(t)
 
 	apiServer, _, _ := newTestAPIServer(t, "" /*globalStateRemoteNode*/)

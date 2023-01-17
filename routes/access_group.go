@@ -267,7 +267,7 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 	accessGroupMembers := []*lib.AccessGroupMember{}
 	// Map is used to identify Duplicate entries in the access member list.
 	// More than one entry of a public key in the member list in invalid.
-	accessGroupMemberPublicKeys := make(map[lib.PublicKey]struct{})
+	accessGroupMemberPublicKeys := lib.NewSet([]lib.PublicKey{})
 
 	// Iterate through the member list.
 	for i := 0; i < len(requestData.AccessGroupMemberList); i++ {
@@ -316,12 +316,12 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 
 		// Checking for duplicate entry in the member list.
 		memberPublicKey := *lib.NewPublicKey(accessGroupMemberPkBytes)
-		if _, exists := accessGroupMemberPublicKeys[memberPublicKey]; exists {
+		if accessGroupMemberPublicKeys.Includes(memberPublicKey) {
 			_AddBadRequestError(ww, fmt.Sprintf("EncryptedKey for access member (%v)"+
 				"cannot be empty.", member))
 			return
 		}
-		accessGroupMemberPublicKeys[memberPublicKey] = struct{}{}
+		accessGroupMemberPublicKeys.Add(memberPublicKey)
 
 		extraData, err := EncodeExtraDataMap(member.ExtraData)
 		if err != nil {
@@ -388,228 +388,254 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 	}
 }
 
-type GetAccessGroupIDsRequest struct {
+type AccessGroupEntryResponse struct {
+	AccessGroupOwnerPublicKeyBase58Check string
+	AccessGroupKeyName string
+	AccessGroupPublicKeyBase58Check string
+	ExtraData map[string]string
+}
+
+func (fes *APIServer) AccessGroupEntryToResponse(accessGroupEntry *lib.AccessGroupEntry, utxoView *lib.UtxoView) AccessGroupEntryResponse {
+	return AccessGroupEntryResponse{
+		AccessGroupOwnerPublicKeyBase58Check: lib.PkToString(accessGroupEntry.AccessGroupOwnerPublicKey.ToBytes(), fes.Params),
+		AccessGroupPublicKeyBase58Check: lib.PkToString(accessGroupEntry.AccessGroupPublicKey.ToBytes(), fes.Params),
+		AccessGroupKeyName: string(accessGroupEntry.AccessGroupKeyName.ToBytes()),
+		ExtraData: DecodeExtraDataMap(fes.Params, utxoView, accessGroupEntry.ExtraData),
+	}
+}
+
+type GetAccessGroupsRequest struct {
 	// PublicKeyBase58Check is the public key whose group IDs needs to be queried.
 	PublicKeyBase58Check string `safeForLogging:"true"`
 }
 
-type GetAccessGroupIDsResponse struct {
-	// Access Groups IDs.
-	AccessGroupIds *AccessGroupIds `safeForLogging:"true"`
+type GetAccessGroupsResponse struct {
+	// Access Group Entry Responses.
+	AccessGroupsOwned []AccessGroupEntryResponse `json:",omitempty" safeForLogging:"true"`
+	AccessGroupsMember []AccessGroupEntryResponse `json:",omitempty" safeForLogging:"true"`
 }
 
-// represents access group owner along with the name of the Access group.
-type AccessGroupId struct {
-	// public key of the access group owner.
-	AccessGroupOwnerPublicKeyBase58Check string
-	AccessGroupKeyName                   string
-}
-
-// PublicKeyBase58Check is the public key whose group IDs needs to be queried.
-// struct to construct the response to create an access group.
-type AccessGroupIds struct {
-	// access group Ids of groups owned by a given public Key.
-	// using omitempty tag so that the filed is omitted if empty during serialization.
-	AccessGroupIdsOwned []*AccessGroupId `json:",omitempty" safeForLogging:"true"`
-	// access group Ids of groups where a given public key account is just a member.
-	AccessGroupIdsMember []*AccessGroupId `json:",omitempty" safeForLogging:"true"`
-}
-
-func (fes *APIServer) makeAccessGroupId(publicKey lib.PublicKey, groupKeyName lib.GroupKeyName) AccessGroupId {
-	return AccessGroupId{
-		AccessGroupOwnerPublicKeyBase58Check: lib.Base58CheckEncode(publicKey.ToBytes(), false, fes.Params),
-		AccessGroupKeyName: string(groupKeyName.ToBytes()),
+func (fes *APIServer) getAccessEntryResponsesForAccessIds(accessGroupIds []*lib.AccessGroupId, utxoView *lib.UtxoView) (
+	[]AccessGroupEntryResponse, error) {
+	var accessGroupEntryResponses []AccessGroupEntryResponse
+	for _, accessGroupId := range accessGroupIds {
+		accessGroupEntry, err := utxoView.GetAccessGroupEntryWithAccessGroupId(accessGroupId)
+		if err != nil {
+			return nil, err
+		}
+		accessGroupEntryResponses = append(
+			accessGroupEntryResponses,
+			fes.AccessGroupEntryToResponse(accessGroupEntry, utxoView),
+		)
 	}
-}
-
-// Helper function retrieve access groups of the given public keys.
-// Returns both the accessGroupIdsOwned , accessGroupIdsMember by the public key.
-func (fes *APIServer) getAllAccessIdsForPublicKey(publicKeyBase58DecodedBytes []byte) (groupIds *AccessGroupIds, err error) {
-
-	// Fetch group IDs owned by the public key.
-	// Return value is type  []*lib.AccessGroupId from core library.
-	accessGroupIdsOwned, err := fes.getGroupOwnerAccessIdsForPublicKey(publicKeyBase58DecodedBytes)
-	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf("getAllAccessIdsForPublicKey: %v", err), "")
-	}
-
-	// Fetch group IDs where the public key is a member.
-	// Return value is type  []*lib.AccessGroupId from core library.
-	accessGroupIdsMember, err := fes.getMemberOnlyAccessIdsForPublicKey(publicKeyBase58DecodedBytes)
-	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf("getAllAccessIdsForPublicKey: %v", err), "")
-	}
-
-	groupIds = &AccessGroupIds{
-		AccessGroupIdsOwned:  accessGroupIdsOwned,
-		AccessGroupIdsMember: accessGroupIdsMember,
-	}
-
-	return groupIds, nil
+	return accessGroupEntryResponses, nil
 }
 
 // returns only the access groups owned by the public key.
-func (fes *APIServer) getGroupOwnerAccessIdsForPublicKey(publicKeyBase58DecodedBytes []byte) ([]*AccessGroupId, error) {
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf("getGroupOwnerAccessIdsForPublicKey: Error generating "+
-			"utxo view: %v", err), "")
-	}
-
+func (fes *APIServer) getGroupOwnerAccessEntriesForPublicKey(pkBytes []byte, utxoView *lib.UtxoView) ([]AccessGroupEntryResponse, error) {
 	// call the core library and fetch group IDs owned by the public key.
-	accessGroupIdsOwned, err := utxoView.GetAccessGroupIdsForOwner(publicKeyBase58DecodedBytes)
+	accessGroupIdsOwned, err := utxoView.GetAccessGroupIdsForOwner(pkBytes)
 	if err != nil {
 		return nil, errors.Wrapf(err, "getGroupOwnerAccessIdsForPublicKey: Problem getting access group ids for member")
 	}
 
-	//  []*lib.AccessGroupId type doesn't encoded the publickey of the user is base 58 check format.
-	// Hence, encoded the user publickey in Base58 checksum format and the access group key name is cast to a string.
-	accessGroupIdsOwnedEncoded := []*AccessGroupId{}
-
-	for _, accessGroupID := range accessGroupIdsOwned {
-		accessGroupIdEncoded := fes.makeAccessGroupId(
-			accessGroupID.AccessGroupOwnerPublicKey,
-			accessGroupID.AccessGroupKeyName)
-		accessGroupIdsOwnedEncoded = append(accessGroupIdsOwnedEncoded, &accessGroupIdEncoded)
-	}
-	return accessGroupIdsOwnedEncoded, nil
+	return fes.getAccessEntryResponsesForAccessIds(accessGroupIdsOwned, utxoView)
 }
 
 // returns the access groups where the given public key is only a member.
-func (fes *APIServer) getMemberOnlyAccessIdsForPublicKey(publicKeyBase58DecodedBytes []byte) ([]*AccessGroupId, error) {
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf("getMemberOnlyAccessIdsForPublicKey: Error generating "+
-			"utxo view: %v", err), "")
-	}
-
+func (fes *APIServer) getMemberOnlyAccessEntriesForPublicKey(pkBytes []byte, utxoView *lib.UtxoView) ([]AccessGroupEntryResponse, error) {
 	// call the core library and fetch group IDs where the public key is a member.
-	accessGroupIdsMember, err := utxoView.GetAccessGroupIdsForMember(publicKeyBase58DecodedBytes)
+	accessGroupIdsMember, err := utxoView.GetAccessGroupIdsForMember(pkBytes)
 	if err != nil {
 		return nil, errors.Wrapf(err, "getMemberOnlyAccessIdsForPublicKey: Problem getting access group ids for member")
 	}
-
-	// []*lib.AccessGroupId type doesn't encoded the publickey of the user is base 58 check format.
-	// Hence, encoded the user publickey in Base58 checksum format and the access group key name is cast to bytes.
-	accessGroupIdsMemberEncoded := []*AccessGroupId{}
-
-	for _, accessGroupID := range accessGroupIdsMember {
-		accessGroupIdEncoded := fes.makeAccessGroupId(
-			accessGroupID.AccessGroupOwnerPublicKey,
-			accessGroupID.AccessGroupKeyName)
-
-		accessGroupIdsMemberEncoded = append(accessGroupIdsMemberEncoded, &accessGroupIdEncoded)
-	}
-
-	return accessGroupIdsMemberEncoded, nil
+	return fes.getAccessEntryResponsesForAccessIds(accessGroupIdsMember, utxoView)
 }
 
 // API to get all access groups of a given public key.
 // Returns groups where the public key is a owner and a member.
 func (fes *APIServer) GetAllUserAccessGroups(ww http.ResponseWriter, req *http.Request) {
-
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := GetAccessGroupIDsRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllAccessGroups: Problem parsing request body: %v", err))
-		return
-	}
-
-	// Decode the access group owner public key.
-	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllAccessGroups: Problem decoding owner"+
-			"base58 public key %s: %v", requestData.PublicKeyBase58Check, err))
-		return
-	}
-
-	// get all the access groups associated with the public key.
-	groupIds, err := fes.getAllAccessIdsForPublicKey(accessGroupOwnerPkBytes)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroups: Problem getting access group IDs of"+
-			"public key %s: %v", requestData.PublicKeyBase58Check, err))
-		return
-	}
-
-	// response containing the list of access groups.
-	res := GetAccessGroupIDsResponse{
-		AccessGroupIds: groupIds,
-	}
-
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroups: Problem encoding response as JSON: %v", err))
+	if err := fes.getUserAccessGroupsHandler(ww, req, true, true); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroups: %v", err))
 		return
 	}
 }
 
 // API to fetch access groups where the given public key is an owner.
 func (fes *APIServer) GetAllUserAccessGroupsOwned(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := GetAccessGroupIDsRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroupsOwned: Problem parsing request body: %v", err))
-		return
-	}
-
-	// Decode the access group owner public key.
-	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroupsOwned: Problem decoding owner"+
-			"base58 public key %s: %v", requestData.PublicKeyBase58Check, err))
-		return
-	}
-
-	// get owner only access groups associated with the public key.
-	groupIds, err := fes.getGroupOwnerAccessIdsForPublicKey(accessGroupOwnerPkBytes)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroupsOwned: Problem getting access group IDs of"+
-			"public key %s: %v", requestData.PublicKeyBase58Check, err))
-		return
-	}
-
-	// response containing the list of access groups.
-	res := GetAccessGroupIDsResponse{
-		AccessGroupIds: &AccessGroupIds{AccessGroupIdsOwned: groupIds},
-	}
-
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroupsOwned: Problem encoding response as JSON: %v", err))
+	if err := fes.getUserAccessGroupsHandler(ww, req, true, false); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroupsOwned: %v", err))
 		return
 	}
 }
 
 // API to fetch access groups where the given public key is a member.
 func (fes *APIServer) GetAllUserAccessGroupsMemberOnly(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := GetAccessGroupIDsRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroupsMemberOnly: Problem parsing request body: %v", err))
+	if err := fes.getUserAccessGroupsHandler(ww, req, false, true); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroupsMemberOnly: %v", err))
 		return
+	}
+}
+
+func (fes *APIServer) getUserAccessGroupsHandler(ww http.ResponseWriter, req *http.Request, getOwned bool, getMember bool) error {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetAccessGroupsRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		return errors.Wrapf(err, "Problem parsing request body: ")
 	}
 
 	// Decode the access group owner public key.
 	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroupsMemberOnly: Problem decoding owner"+
-			"base58 public key %s: %v", requestData.PublicKeyBase58Check, err))
-		return
+		return errors.Wrapf(err, fmt.Sprintf(
+			"Problem decoding ownerbase58 public key %s: ",
+			requestData.PublicKeyBase58Check,
+		))
 	}
 
-	// get member only access Ids for the public key.
-	groupIds, err := fes.getMemberOnlyAccessIdsForPublicKey(accessGroupOwnerPkBytes)
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroupsMemberOnly: Problem getting access group IDs of"+
-			"public key %s: %v", requestData.PublicKeyBase58Check, err))
-		return
+		return errors.Wrapf(err, "Error generating utxo view: ")
 	}
 
-	// response containing the list of access groups.
-	res := GetAccessGroupIDsResponse{
-		AccessGroupIds: &AccessGroupIds{AccessGroupIdsMember: groupIds},
+	res := GetAccessGroupsResponse{}
+
+	if getOwned {
+		res.AccessGroupsOwned, err = fes.getGroupOwnerAccessEntriesForPublicKey(accessGroupOwnerPkBytes, utxoView)
+		if err != nil {
+			return errors.Wrapf(err, "Problem getting owned access groups: ")
+		}
+	}
+
+	if getMember {
+		res.AccessGroupsMember, err = fes.getMemberOnlyAccessEntriesForPublicKey(accessGroupOwnerPkBytes, utxoView)
+		if err != nil {
+			return errors.Wrapf(err, "Problem getting owned access groups")
+		}
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetAllUserAccessGroupsMemberOnly: Problem encoding response as JSON: %v", err))
+		return errors.Wrapf(err, "Problem encoding response as JSON: %v")
+	}
+
+	return nil
+}
+
+type CheckPartyAccessGroupsRequest struct {
+	SenderPublicKeyBase58Check string
+	SenderAccessGroupKeyName   string
+
+	RecipientPublicKeyBase58Check string
+	RecipientAccessGroupKeyName   string
+}
+
+type CheckPartyAccessGroupsResponse struct {
+	SenderPublicKeyBase58Check string
+	SenderAccessGroupPublicKeyBase58Check string
+	SenderAccessGroupKeyName string
+	IsSenderAccessGroupKey bool
+
+	RecipientPublicKeyBase58Check string
+	RecipientAccessGroupPublicKeyBase58Check string
+	RecipientAccessGroupKeyName string
+	IsRecipientAccessGroupKey bool
+}
+
+func (fes *APIServer) CheckPartyAccessGroups(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := CheckPartyAccessGroupsRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyAccessGroups: Problem parsing request body: %v", err))
 		return
 	}
+
+	// Decode the sender public key.
+	senderPublicKey, _, err := lib.Base58CheckDecode(requestData.SenderPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyAccessGroups: Problem decoding sender public key: %v", err))
+		return
+	}
+	// Parse the sender's messaging key name from string to a byte array.
+	senderKeyName := lib.NewGroupKeyName([]byte(requestData.SenderAccessGroupKeyName))
+	// Validate that the sender's public key and key name have the correct format.
+	if err = lib.ValidateGroupPublicKeyAndName(senderPublicKey, senderKeyName[:]); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyAccessGroups: Problem validating sender public key and key name: %v", err))
+		return
+	}
+
+	// Decode the recipient public key.
+	recipientPublicKey, _, err := lib.Base58CheckDecode(requestData.RecipientPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyAccessGroups: Problem decoding recipient public key: %v", err))
+		return
+	}
+	// Parse the recipient's messaging key name from string to a byte array.
+	recipientKeyName := lib.NewGroupKeyName([]byte(requestData.RecipientAccessGroupKeyName))
+	// Validate that the recipient's public key and key name have the correct format.
+	if err = lib.ValidateGroupPublicKeyAndName(recipientPublicKey, recipientKeyName[:]); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyAccessGroups: Problem validating recipient public key and key name: %v", err))
+		return
+	}
+
+	res, err := fes.CreateCheckPartyAccessGroupKeysResponse(
+		lib.NewPublicKey(senderPublicKey),
+		senderKeyName,
+		lib.NewPublicKey(recipientPublicKey),
+		recipientKeyName)
+
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyAccessGroups: %v", err))
+		return
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CheckPartyAccessGroups: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) CreateCheckPartyAccessGroupKeysResponse(
+	senderPublicKey *lib.PublicKey,
+	senderAccessGroupKeyName *lib.GroupKeyName,
+	recipientPublicKey *lib.PublicKey,
+	recipientAccessGroupKeyName *lib.GroupKeyName) (
+	*CheckPartyAccessGroupsResponse, error) {
+	response := &CheckPartyAccessGroupsResponse{
+		SenderPublicKeyBase58Check: lib.PkToString(senderPublicKey.ToBytes(), fes.Params),
+		IsSenderAccessGroupKey: false,
+		SenderAccessGroupKeyName: "",
+		RecipientPublicKeyBase58Check: lib.PkToString(recipientPublicKey.ToBytes(), fes.Params),
+		IsRecipientAccessGroupKey: false,
+		RecipientAccessGroupKeyName: "",
+	}
+
+	// Get the augmented UtxoView.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return nil, err
+	}
+
+	senderAccessGroupId := lib.NewAccessGroupId(senderPublicKey, senderAccessGroupKeyName.ToBytes())
+	senderAccessGroupEntry, err := utxoView.GetAccessGroupEntryWithAccessGroupId(senderAccessGroupId)
+	if err != nil {
+		return nil, err
+	}
+	if senderAccessGroupEntry != nil && !senderAccessGroupEntry.IsDeleted() {
+		response.SenderAccessGroupPublicKeyBase58Check = lib.PkToString(senderAccessGroupEntry.AccessGroupPublicKey.ToBytes(), fes.Params)
+		response.IsSenderAccessGroupKey = true
+		response.SenderAccessGroupKeyName = string(senderAccessGroupEntry.AccessGroupKeyName.ToBytes())
+	}
+
+	recipientAccessGroupId := lib.NewAccessGroupId(recipientPublicKey, recipientAccessGroupKeyName.ToBytes())
+	recipientAccessGroupEntry, err := utxoView.GetAccessGroupEntryWithAccessGroupId(recipientAccessGroupId)
+	if err != nil {
+		return nil, err
+	}
+	if recipientAccessGroupEntry != nil && !recipientAccessGroupEntry.IsDeleted() {
+		response.RecipientAccessGroupPublicKeyBase58Check = lib.PkToString(recipientAccessGroupEntry.AccessGroupPublicKey.ToBytes(), fes.Params)
+		response.IsRecipientAccessGroupKey = true
+		response.RecipientAccessGroupKeyName = string(recipientAccessGroupEntry.AccessGroupKeyName.ToBytes())
+	}
+
+	return response, nil
 }
