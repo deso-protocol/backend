@@ -740,13 +740,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetSingleProfilePicture,
 			PublicAccess,
 		},
-		// {
-		// 	"GetPostsForPublicKey",
-		// 	[]string{"POST", "OPTIONS"},
-		// 	RoutePathGetPostsForPublicKey,
-		// 	fes.GetPostsForPublicKey,
-		// 	PublicAccess,
-		// },
+		{
+			"GetPostsForPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPostsForPublicKey,
+			fes.GetPostsForPublicKey,
+			PublicAccess,
+		},
 		{
 			"GetDiamondsForPublicKey",
 			[]string{"POST", "OPTIONS"},
@@ -873,13 +873,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetNFTEntriesForPostHash,
 			PublicAccess,
 		},
-		// {
-		// 	"GetNFTsCreatedByPublicKey",
-		// 	[]string{"POST", "OPTIONS"},
-		// 	RoutePathGetNFTsCreatedByPublicKey,
-		// 	fes.GetNFTsCreatedByPublicKey,
-		// 	PublicAccess,
-		// },
+		{
+			"GetNFTsCreatedByPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetNFTsCreatedByPublicKey,
+			fes.GetNFTsCreatedByPublicKey,
+			PublicAccess,
+		},
 		{
 			"GetHodlersForPublicKey",
 			[]string{"POST", "OPTIONS"},
@@ -1563,13 +1563,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.AdminDownloadReferralCSV,
 			SuperAdminAccess,
 		},
-		// {
-		// 	"AdminDownloadReferralCSV",
-		// 	[]string{"POST", "OPTIONS"},
-		// 	RoutePathAdminDownloadRefereeCSV,
-		// 	fes.AdminDownloadRefereeCSV,
-		// 	SuperAdminAccess,
-		// },
+		{
+			"AdminDownloadReferralCSV",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminDownloadRefereeCSV,
+			fes.AdminDownloadRefereeCSV,
+			SuperAdminAccess,
+		},
 		{
 			"AdminUpdateTutorialCreators",
 			[]string{"POST", "OPTIONS"},
