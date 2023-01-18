@@ -297,6 +297,8 @@ const (
 
 	RoutePathCheckPartyAccessGroups = "/api/v0/check-party-access-groups"
 
+	RoutePathGetBulkAccessGroupEntries = "/api/v0/get-bulk-access-group-entries"
+
 	// Routes for access groups based DM and group chat messaging.
 	RoutePathSendDmMessage = "/api/v0/send-dm-message"
 
@@ -1881,7 +1883,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.CheckPartyAccessGroups,
 			PublicAccess,
 		},
-
+		{
+			"GetBulkAccessGroupEntries",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetBulkAccessGroupEntries,
+			fes.GetBulkAccessGroupEntries,
+			PublicAccess,
+		},
 		// access group message APIs.
 		{
 			"SendDmMessage",

@@ -45,6 +45,10 @@ func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check string, accessGrou
 	}
 	// get the byte array of the access group key name.
 	accessGroupKeyNameBytes := []byte(accessGroupKeyName)
+	// If it's the base key, we're fine with it and just let it rip.
+	if len(accessGroupKeyNameBytes) == 0 {
+		return publicKeyBytes, accessGroupKeyNameBytes, nil
+	}
 	// Validates whether the accessGroupOwner key is a valid public key and
 	// some basic checks on access group key name like Min and Max characters.
 	if err = lib.ValidateAccessGroupPublicKeyAndName(publicKeyBytes, accessGroupKeyNameBytes); err != nil {
@@ -52,13 +56,14 @@ func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check string, accessGrou
 			"public key and access group key name %s %s: %v", publicKeyBase58Check, accessGroupKeyName, err))
 	}
 
+	// We're okay with the base key
 	// Access group name key cannot be equal to base group name key (equal to all zeros).
 	// By default all users belong to the access group with the base name key, hence it is reserved.
-	if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
-		return nil, nil, errors.New(fmt.Sprintf(
-			"ValidateAccessGroupPublicKeyAndName: Access Group key cannot be same as base key (all zeros)."+
-				"Access group key name %s", accessGroupKeyName))
-	}
+	//if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
+	//	return nil, nil, errors.New(fmt.Sprintf(
+	//		"ValidateAccessGroupPublicKeyAndName: Access Group key cannot be same as base key (all zeros)."+
+	//			"Access group key name %s", accessGroupKeyName))
+	//}
 	return publicKeyBytes, accessGroupKeyNameBytes, nil
 }
 
@@ -192,7 +197,7 @@ func (fes *APIServer) fetchLatestMessageFromGroupChatThreads(groupChatThreads []
 
 	var latestMessageEntries []*lib.NewMessageEntry
 	// Use current unix time stamp since we're fetching only the latest message.
-	currTime := time.Now().Unix()
+	currTime := time.Now().UnixNano()
 	// Iterate through each group chat thread and fetch their latest message.
 	for _, dmThread := range groupChatThreads {
 		latestMessageEntry, err := fes.fetchLatestMessageFromGroupChatThread(dmThread, uint64(currTime), utxoView)
