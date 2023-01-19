@@ -3174,7 +3174,7 @@ type AssociationLimitMapItem struct {
 type AccessGroupLimitMapItem struct {
 	AccessGroupOwnerPublicKeyBase58Check string
 	ScopeType                            lib.AccessGroupScopeString
-	AccessGroupKeyName                   lib.GroupKeyName
+	AccessGroupKeyName                   string
 	OperationType                        lib.AccessGroupOperationString
 	OpCount                              uint64
 }
@@ -3182,7 +3182,7 @@ type AccessGroupLimitMapItem struct {
 type AccessGroupMemberLimitMapItem struct {
 	AccessGroupOwnerPublicKeyBase58Check string
 	ScopeType                            lib.AccessGroupScopeString
-	AccessGroupKeyName                   lib.GroupKeyName
+	AccessGroupKeyName                   string
 	OperationType                        lib.AccessGroupMemberOperationString
 	OpCount                              uint64
 }
@@ -3540,7 +3540,7 @@ func TransactionSpendingLimitToResponse(
 				AccessGroupLimitMapItem{
 					AccessGroupOwnerPublicKeyBase58Check: accessGroupOwnerPublicKeyBase58Check,
 					ScopeType:                            accessGroupLimitKey.AccessGroupScopeType.ToAccessGroupScopeString(),
-					AccessGroupKeyName:                   accessGroupLimitKey.AccessGroupKeyName,
+					AccessGroupKeyName:                   string(lib.AccessKeyNameDecode(&accessGroupLimitKey.AccessGroupKeyName)),
 					OperationType:                        accessGroupLimitKey.OperationType.ToAccessGroupOperationString(),
 					OpCount:                              opCount,
 				},
@@ -3559,7 +3559,7 @@ func TransactionSpendingLimitToResponse(
 				AccessGroupMemberLimitMapItem{
 					AccessGroupOwnerPublicKeyBase58Check: accessGroupOwnerPublicKeyBase58Check,
 					ScopeType:                            accessGroupMemberLimitKey.AccessGroupScopeType.ToAccessGroupScopeString(),
-					AccessGroupKeyName:                   accessGroupMemberLimitKey.AccessGroupKeyName,
+					AccessGroupKeyName:                   string(lib.AccessKeyNameDecode(&accessGroupMemberLimitKey.AccessGroupKeyName)),
 					OperationType:                        accessGroupMemberLimitKey.OperationType.ToAccessGroupMemberOperationString(),
 					OpCount:                              opCount,
 				},
@@ -3706,7 +3706,7 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 			accessGroupLimitKey := lib.MakeAccessGroupLimitKey(
 				*lib.NewPublicKey(accessGroupOwnerPublicKey),
 				accessGroupLimitMapItem.ScopeType.ToAccessGroupScopeType(),
-				accessGroupLimitMapItem.AccessGroupKeyName,
+				*lib.NewGroupKeyName([]byte(accessGroupLimitMapItem.AccessGroupKeyName)),
 				accessGroupLimitMapItem.OperationType.ToAccessGroupOperationType(),
 			)
 			transactionSpendingLimit.AccessGroupMap[accessGroupLimitKey] = accessGroupLimitMapItem.OpCount
@@ -3723,7 +3723,7 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 			accessGroupMemberLimitKey := lib.MakeAccessGroupMemberLimitKey(
 				*lib.NewPublicKey(accessGroupOwnerPublicKey),
 				accessGroupMemberLimitMapItem.ScopeType.ToAccessGroupScopeType(),
-				accessGroupMemberLimitMapItem.AccessGroupKeyName,
+				*lib.NewGroupKeyName([]byte(accessGroupMemberLimitMapItem.AccessGroupKeyName)),
 				accessGroupMemberLimitMapItem.OperationType.ToAccessGroupMemberOperation(),
 			)
 			transactionSpendingLimit.AccessGroupMemberMap[accessGroupMemberLimitKey] = accessGroupMemberLimitMapItem.OpCount
