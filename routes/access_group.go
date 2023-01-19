@@ -689,7 +689,7 @@ func (fes *APIServer) getAccessGroupInfo(publicKeyBase58DecodedBytes []byte, acc
 		return nil, errors.Wrapf(err, "getAccessGroupInfo: Problem getting access group ids for member")
 	}
 
-	accessGroupInfo := fes.AccessGroupEntryToResponse(accessGroupInfoCore, utxoView)
+	accessGroupInfo := fes.AccessGroupEntryToResponse(accessGroupInfoCore, utxoView, nil)
 
 	return &accessGroupInfo, nil
 }
