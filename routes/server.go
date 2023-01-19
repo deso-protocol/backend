@@ -319,6 +319,10 @@ const (
 	RoutePathGetPaginatedMessagesForGroupChatThread = "/api/v0/get-paginated-messages-for-group-chat-thread"
 
 	RoutePathGetAllUserMessageThreads = "/api/v0/get-all-user-message-threads"
+
+	// associations.go
+	RoutePathUserAssociations = "/api/v0/user-associations"
+	RoutePathPostAssociations = "/api/v0/post-associations"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -1179,6 +1183,90 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetTransactorDaoCoinLimitOrders,
 			fes.GetTransactorDAOCoinLimitOrders,
+			PublicAccess,
+		},
+		{
+			"CreateUserAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/create",
+			fes.CreateUserAssociation,
+			PublicAccess,
+		},
+		{
+			"DeleteUserAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/delete",
+			fes.DeleteUserAssociation,
+			PublicAccess,
+		},
+		{
+			"GetUserAssociationByID",
+			[]string{"GET"},
+			RoutePathUserAssociations + "/{associationID:[a-fA-F0-9]+$}",
+			fes.GetUserAssociationByID,
+			PublicAccess,
+		},
+		{
+			"GetUserAssociations",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/query",
+			fes.GetUserAssociations,
+			PublicAccess,
+		},
+		{
+			"CountUserAssociations",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/count",
+			fes.CountUserAssociations,
+			PublicAccess,
+		},
+		{
+			"CountUserAssociationsByValue",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/counts",
+			fes.CountUserAssociationsByValue,
+			PublicAccess,
+		},
+		{
+			"CreatePostAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/create",
+			fes.CreatePostAssociation,
+			PublicAccess,
+		},
+		{
+			"DeletePostAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/delete",
+			fes.DeletePostAssociation,
+			PublicAccess,
+		},
+		{
+			"GetPostAssociationByID",
+			[]string{"GET"},
+			RoutePathPostAssociations + "/{associationID:[a-fA-F0-9]+$}",
+			fes.GetPostAssociationByID,
+			PublicAccess,
+		},
+		{
+			"GetPostAssociations",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/query",
+			fes.GetPostAssociations,
+			PublicAccess,
+		},
+		{
+			"CountPostAssociations",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/count",
+			fes.CountPostAssociations,
+			PublicAccess,
+		},
+		{
+			"CountPostAssociationsByValue",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/counts",
+			fes.CountPostAssociationsByValue,
 			PublicAccess,
 		},
 		// Jumio Routes
