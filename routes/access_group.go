@@ -764,17 +764,8 @@ type GetAccessGroupMemberRequest struct {
 	AccessGroupKeyName string `safeForLogging:"true"`
 }
 
-func (fes *APIServer) AccessGroupMemberCoreToBackend(accessGroupMemberEntry *lib.AccessGroupMemberEntry, utxoView *lib.UtxoView) AccessGroupMember {
-	return AccessGroupMember{
-		AccessGroupMemberPublicKeyBase58Check: lib.PkToString(accessGroupMemberEntry.AccessGroupMemberPublicKey.ToBytes(), fes.Params),
-		AccessGroupMemberKeyName:              string(lib.MessagingKeyNameDecode(accessGroupMemberEntry.AccessGroupMemberKeyName)),
-		EncryptedKey:                          string(accessGroupMemberEntry.EncryptedKey),
-		ExtraData:                             DecodeExtraDataMap(fes.Params, utxoView, accessGroupMemberEntry.ExtraData),
-	}
-}
-
 // returns information about the access group.
-func (fes *APIServer) getAccessGroupMemberInfo(memberPkBase58DecodedBytes []byte, ownerPkBase58DecodedBytes []byte, accessGroupKeyNameBytes []byte) (*AccessGroupMember, error) {
+func (fes *APIServer) getAccessGroupMemberInfo(memberPkBase58DecodedBytes []byte, ownerPkBase58DecodedBytes []byte, accessGroupKeyNameBytes []byte) (*AccessGroupMemberEntryResponse, error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf("getAccessGroupMemberInfo: Error generating "+
@@ -788,9 +779,7 @@ func (fes *APIServer) getAccessGroupMemberInfo(memberPkBase58DecodedBytes []byte
 		return nil, errors.Wrapf(err, "getAccessGroupMemberInfo: Problem getting access group member entry")
 	}
 
-	accessGroupMember := fes.AccessGroupMemberCoreToBackend(accessGroupMemberInfo, utxoView)
-
-	return &accessGroupMember, nil
+	return fes.AccessGroupMemberEntryToResponse(accessGroupMemberInfo, utxoView), nil
 }
 
 func (fes *APIServer) GetAccessGroupMemberInfo(ww http.ResponseWriter, req *http.Request) {
@@ -870,7 +859,7 @@ type GetPaginatedAccessGroupMembersRequest struct {
 
 // The API returns the list of public key of the members of the group.
 type GetPaginatedAccessGroupMembersResponse struct {
-	AccessGroupMembersBase58Check []string
+	AccessGroupMembersBase58Check []string // We should probably return ProfileEntryResponses
 }
 
 func (fes *APIServer) GetPaginatedAccessGroupMembers(ww http.ResponseWriter, req *http.Request) {
@@ -959,10 +948,9 @@ func (fes *APIServer) fetchMaxMembersFromAccessGroup(groupOwnerPublicKeyBytes []
 		return nil, errors.Wrapf(err, "fetchMaxMembersFromAccessGroup: Problem getting access group member entry")
 	}
 
-	accessGroupMembersBase58Check := []string{}
+	var accessGroupMembersBase58Check []string
 	for _, accessGroupMember := range accessGroupMembers {
-		accessGroupMemberBase58Check := lib.PkToString(accessGroupMember.ToBytes(), fes.Params)
-		accessGroupMembersBase58Check = append(accessGroupMembersBase58Check, accessGroupMemberBase58Check)
+		accessGroupMembersBase58Check = append(accessGroupMembersBase58Check, lib.PkToString(accessGroupMember.ToBytes(), fes.Params))
 	}
 
 	return accessGroupMembersBase58Check, nil

@@ -302,7 +302,7 @@ const (
 	RoutePathGetAccessGroupMemberInfo = "/api/v0/get-access-group-member-info"
 
 	RoutePathGetPaginatedAccessGroupMembers = "/api/v0/get-paginated-access-group-members"
-	RoutePathGetBulkAccessGroupEntries = "/api/v0/get-bulk-access-group-entries"
+	RoutePathGetBulkAccessGroupEntries      = "/api/v0/get-bulk-access-group-entries"
 
 	// Routes for access groups based DM and group chat messaging.
 	RoutePathSendDmMessage = "/api/v0/send-dm-message"
@@ -1998,7 +1998,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
-      "GetBulkAccessGroupEntries",
+			"GetBulkAccessGroupEntries",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetBulkAccessGroupEntries,
 			fes.GetBulkAccessGroupEntries,
@@ -2141,21 +2141,6 @@ var publicRoutes = map[string]interface{}{
 	RoutePathSubmitTransaction:              nil,
 	RoutePathGetTxn:                         nil,
 	RoutePathUpdateProfile:                  nil,
-
-	RoutePathCreateAccessGroup:                         nil,
-	RoutePathAddAccessGroupMembers:                     nil,
-	RoutePathGetAllUserAccessGroups:                    nil,
-	RoutePathGetAllUserAccessGroupsOwned:               nil,
-	RoutePathGetAllUserAccessGroupsMemberOnly:          nil,
-	RoutePathGetAccessGroupInfo:                        nil,
-	RoutePathGetAccessGroupMemberInfo:                  nil,
-	RoutePathGetPaginatedAccessGroupMembers:            nil,
-	RoutePathSendDmMessage:                             nil,
-	RoutePathGetUserDmThreadsOrderedByTimestamp:        nil,
-	RoutePathGetPaginatedMessagesForDmThread:           nil,
-	RoutePathGetUserGroupChatThreadsOrderedByTimestamp: nil,
-	RoutePathGetPaginatedMessagesForGroupChatThread:    nil,
-	RoutePathGetAllUserMessageThreads:                  nil,
 }
 
 // AddHeaders ...
