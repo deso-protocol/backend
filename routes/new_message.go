@@ -45,6 +45,10 @@ func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check string, accessGrou
 	}
 	// get the byte array of the access group key name.
 	accessGroupKeyNameBytes := []byte(accessGroupKeyName)
+	// If it's the base key, we're fine with it and just let it rip.
+	if len(accessGroupKeyNameBytes) == 0 {
+		return publicKeyBytes, accessGroupKeyNameBytes, nil
+	}
 	// Validates whether the accessGroupOwner key is a valid public key and
 	// some basic checks on access group key name like Min and Max characters.
 	if err = lib.ValidateAccessGroupPublicKeyAndName(publicKeyBytes, accessGroupKeyNameBytes); err != nil {
@@ -52,13 +56,14 @@ func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check string, accessGrou
 			"public key and access group key name %s %s: %v", publicKeyBase58Check, accessGroupKeyName, err))
 	}
 
+	// We're okay with the base key
 	// Access group name key cannot be equal to base group name key (equal to all zeros).
 	// By default all users belong to the access group with the base name key, hence it is reserved.
-	if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
-		return nil, nil, errors.New(fmt.Sprintf(
-			"ValidateAccessGroupPublicKeyAndName: Access Group key cannot be same as base key (all zeros)."+
-				"Access group key name %s", accessGroupKeyName))
-	}
+	//if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
+	//	return nil, nil, errors.New(fmt.Sprintf(
+	//		"ValidateAccessGroupPublicKeyAndName: Access Group key cannot be same as base key (all zeros)."+
+	//			"Access group key name %s", accessGroupKeyName))
+	//}
 	return publicKeyBytes, accessGroupKeyNameBytes, nil
 }
 
@@ -103,7 +108,7 @@ func (fes *APIServer) fetchLatestMessageFromSingleDmThread(
 	dmThreadKey *lib.DmThreadKey,
 	startTimestamp uint64,
 	utxoView *lib.UtxoView,
-	) (*lib.NewMessageEntry, error) {
+) (*lib.NewMessageEntry, error) {
 	// Fetch just one message.
 	latestMessageEntries, err := fes.fetchMaxMessagesFromDmThread(dmThreadKey, startTimestamp, 1, utxoView)
 	if err != nil {
@@ -119,7 +124,7 @@ func (fes *APIServer) fetchMaxMessagesFromDmThread(
 	startTimestamp uint64,
 	MaxMessagesToFetch int,
 	utxoView *lib.UtxoView,
-	) ([]*lib.NewMessageEntry, error) {
+) ([]*lib.NewMessageEntry, error) {
 	// Fetch MaxMessagesToFetch with message time stamp starting from startTimestamp.
 	latestMessageEntries, err := utxoView.GetPaginatedMessageEntriesForDmThread(*dmThreadKey, startTimestamp, uint64(MaxMessagesToFetch))
 	if err != nil {
@@ -135,7 +140,7 @@ func (fes *APIServer) fetchMaxMessagesFromDmThread(
 func (fes *APIServer) fetchLatestMessageFromDmThreads(
 	dmThreads []*lib.DmThreadKey,
 	utxoView *lib.UtxoView,
-	) ([]*lib.NewMessageEntry, error) {
+) ([]*lib.NewMessageEntry, error) {
 	// *lib.NewMessageEntry is data structure used in core library for each direct message or a message in a group chat.
 	var latestMessageEntries []*lib.NewMessageEntry
 	// Using current unix time as a time stamp since we're fetching the latest message.
@@ -159,7 +164,7 @@ func (fes *APIServer) fetchLatestMessageFromGroupChatThread(
 	accessGroupId *lib.AccessGroupId,
 	startTimestamp uint64,
 	utxoView *lib.UtxoView,
-	) (*lib.NewMessageEntry, error) {
+) (*lib.NewMessageEntry, error) {
 	// Just fetch the latest message from the group chat represented by accessGroupId.
 	latestMessageEntries, err := fes.fetchMaxMessagesFromGroupChatThread(accessGroupId, startTimestamp, 1, utxoView)
 	if err != nil {
@@ -176,7 +181,7 @@ func (fes *APIServer) fetchMaxMessagesFromGroupChatThread(
 	startTimestamp uint64,
 	MaxMessagesToFetch int,
 	utxoView *lib.UtxoView,
-	) ([]*lib.NewMessageEntry, error) {
+) ([]*lib.NewMessageEntry, error) {
 	latestMessageEntries, err := utxoView.GetPaginatedMessageEntriesForGroupChatThread(*accessGroupId, startTimestamp, uint64(MaxMessagesToFetch))
 	if err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("Error fetching messages for access group ID, "+
@@ -192,7 +197,7 @@ func (fes *APIServer) fetchLatestMessageFromGroupChatThreads(groupChatThreads []
 
 	var latestMessageEntries []*lib.NewMessageEntry
 	// Use current unix time stamp since we're fetching only the latest message.
-	currTime := time.Now().Unix()
+	currTime := time.Now().UnixNano()
 	// Iterate through each group chat thread and fetch their latest message.
 	for _, dmThread := range groupChatThreads {
 		latestMessageEntry, err := fes.fetchLatestMessageFromGroupChatThread(dmThread, uint64(currTime), utxoView)
@@ -309,6 +314,11 @@ func (fes *APIServer) sendMessageHandler(ww http.ResponseWriter, req *http.Reque
 	//		requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
 	//}
 
+	hexDecodedEncryptedMessageBytes, err := hex.DecodeString(requestData.EncryptedMessageText)
+	if err != nil {
+		return errors.Wrapf(err, "Problem decoding encrypted message text hex")
+	}
+
 	// Validate the sender access group public key.
 	senderAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
 	if err != nil {
@@ -317,7 +327,7 @@ func (fes *APIServer) sendMessageHandler(ww http.ResponseWriter, req *http.Reque
 	}
 
 	// Validate the recipient access group public key.
-	recipientAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
+	recipientAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.RecipientAccessGroupPublicKeyBase58Check)
 	if err != nil {
 		return errors.Wrapf(err, fmt.Sprintf("Problem validating recipient "+
 			"base58 public key %s: ", requestData.SenderAccessGroupPublicKeyBase58Check))
@@ -342,7 +352,7 @@ func (fes *APIServer) sendMessageHandler(ww http.ResponseWriter, req *http.Reque
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNewMessageTxn(
 		senderGroupOwnerPkBytes, *lib.NewPublicKey(senderGroupOwnerPkBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes), *lib.NewPublicKey(senderAccessGroupPkbytes),
 		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes), *lib.NewPublicKey(recipientAccessGroupPkbytes),
-		[]byte(requestData.EncryptedMessageText), tstamp,
+		hexDecodedEncryptedMessageBytes, tstamp,
 		newMessageType, lib.NewMessageOperationCreate,
 		extraData, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
@@ -373,16 +383,17 @@ func (fes *APIServer) sendMessageHandler(ww http.ResponseWriter, req *http.Reque
 }
 
 type ChatType string
+
 const (
-	ChatTypeDM = "DM"
+	ChatTypeDM        = "DM"
 	ChatTypeGroupChat = "GroupChat"
 )
 
 type NewMessageEntryResponse struct {
-	ChatType ChatType
-	SenderInfo AccessGroupInfo
+	ChatType      ChatType
+	SenderInfo    AccessGroupInfo
 	RecipientInfo AccessGroupInfo
-	MessageInfo MessageInfo
+	MessageInfo   MessageInfo
 }
 
 // Types to store the chat messages.
@@ -409,9 +420,9 @@ func (fes *APIServer) NewMessageEntryToResponse(newMessageEntry *lib.NewMessageE
 			newMessageEntry.RecipientAccessGroupPublicKey,
 			newMessageEntry.RecipientAccessGroupKeyName),
 		MessageInfo: MessageInfo{
-			EncryptedText: string(newMessageEntry.EncryptedText),
+			EncryptedText:  hex.EncodeToString(newMessageEntry.EncryptedText),
 			TimestampNanos: newMessageEntry.TimestampNanos,
-			ExtraData: DecodeExtraDataMap(fes.Params, utxoView, newMessageEntry.ExtraData),
+			ExtraData:      DecodeExtraDataMap(fes.Params, utxoView, newMessageEntry.ExtraData),
 		},
 	}
 }
@@ -507,7 +518,7 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 	}
 
 	// The information of the two parties involved in Dm has to encoded in lib.DmThreadKey.
-	dmThreadKey := lib.MakeDmThreadKey(*lib.NewPublicKey(senderGroupKeyNameBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes),
+	dmThreadKey := lib.MakeDmThreadKey(*lib.NewPublicKey(senderGroupOwnerPkBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes),
 		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes))
 
 	// Fetch the max messages between the sender and the party.
