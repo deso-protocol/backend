@@ -30,3 +30,27 @@ func (fes *APIServer) GetSnapshotEpochMetadata(ww http.ResponseWriter, req *http
 		return
 	}
 }
+
+type GetStateChecksumResponse struct {
+	StateChecksumHex string `safeForLogging:"true"`
+}
+
+func (fes *APIServer) GetStateChecksum(ww http.ResponseWriter, req *http.Request) {
+	if fes.blockchain.Snapshot() == nil || fes.blockchain.Snapshot().CurrentEpochSnapshotMetadata == nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetStateChecksum: Node doesn't compute snapshots"))
+		return
+	}
+
+	checksumBytes, err := fes.blockchain.Snapshot().Checksum.ToBytes()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetStateChecksum: Problem encoding checksum to bytes: %v", err))
+		return
+	}
+	response := GetStateChecksumResponse{
+		StateChecksumHex: hex.EncodeToString(checksumBytes),
+	}
+	if err := json.NewEncoder(ww).Encode(response); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetStateChecksum: Problem encoding response as JSON: %v", err))
+		return
+	}
+}

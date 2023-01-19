@@ -324,6 +324,7 @@ const (
 
 	// snapshot.go
 	RoutePathGetSnapshotEpochMetadata = "/api/v0/get-snapshot-epoch-metadata"
+	RoutePathGetStateChecksum         = "/api/v0/get-state-checksum"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -1829,6 +1830,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetSnapshotEpochMetadata,
 			fes.GetSnapshotEpochMetadata,
+			PublicAccess,
+		},
+		{
+			"GetStateChecksum",
+			[]string{"GET"},
+			RoutePathGetStateChecksum,
+			fes.GetStateChecksum,
 			PublicAccess,
 		},
 
