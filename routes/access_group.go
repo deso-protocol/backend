@@ -283,7 +283,7 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 			return
 		}
 
-		memberAccessGroupKeyNameBytes := []byte(requestData.AccessGroupKeyName)
+		memberAccessGroupKeyNameBytes := []byte(member.AccessGroupMemberKeyName)
 		// Checks whether the accessGroupMember key is a valid public key and
 		// some basic checks on access group key name like Min and Max characters are done.
 		if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupMemberPkBytes,
