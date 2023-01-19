@@ -95,9 +95,7 @@ func getFirstMessage(latestMessageEntries []*lib.NewMessageEntry) *lib.NewMessag
 	if len(latestMessageEntries) > 0 {
 		return latestMessageEntries[0]
 	}
-	// Don't return an error if there are zero entries, return empty value.
-	// client might be dependent on empty value to implement the fetching logic.
-	return &lib.NewMessageEntry{}
+	return nil
 }
 
 // Helper function to fetch just the latest message from the given Dm thread.
@@ -150,6 +148,9 @@ func (fes *APIServer) fetchLatestMessageFromDmThreads(
 		latestMessageEntry, err := fes.fetchLatestMessageFromSingleDmThread(dmThread, uint64(currentUnixTime), utxoView)
 		if err != nil {
 			return nil, err
+		}
+		if latestMessageEntry == nil {
+			continue
 		}
 		latestMessageEntries = append(latestMessageEntries, latestMessageEntry)
 	}
@@ -204,7 +205,9 @@ func (fes *APIServer) fetchLatestMessageFromGroupChatThreads(groupChatThreads []
 		if err != nil {
 			return nil, errors.Wrap(err, "")
 		}
-
+		if latestMessageEntry == nil {
+			continue
+		}
 		latestMessageEntries = append(latestMessageEntries, latestMessageEntry)
 	}
 	return latestMessageEntries, nil
