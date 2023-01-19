@@ -900,19 +900,23 @@ func (fes *APIServer) GetPaginatedAccessGroupMembers(ww http.ResponseWriter, req
 	}
 
 	// Decode the access group public key.
-	startingPkBytes, _, err := lib.Base58CheckDecode(requestData.StartingAccessGroupMemberPublicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedAccessGroupMembers: Problem decoding pagination "+
-			"starting point base58 public key %s: %v", requestData.StartingAccessGroupMemberPublicKeyBase58Check, err))
-		return
+	var startingPkBytes []byte
+	if requestData.StartingAccessGroupMemberPublicKeyBase58Check != "" {
+		startingPkBytes, _, err = lib.Base58CheckDecode(requestData.StartingAccessGroupMemberPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedAccessGroupMembers: Problem decoding pagination "+
+				"starting point base58 public key %s: %v", requestData.StartingAccessGroupMemberPublicKeyBase58Check, err))
+			return
+		}
+		// validate whether the access group public key is a valid public key.
+		if err = lib.IsByteArrayValidPublicKey(startingPkBytes); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedAccessGroupMembers: Problem validating access group "+
+				"starting point base58 public key: Not a valid public key: %s: %v",
+				requestData.StartingAccessGroupMemberPublicKeyBase58Check, err))
+			return
+		}
 	}
-	// validate whether the access group public key is a valid public key.
-	if err = lib.IsByteArrayValidPublicKey(startingPkBytes); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedAccessGroupMembers: Problem validating access group "+
-			"starting point base58 public key: Not a valid public key: %s: %v",
-			requestData.StartingAccessGroupMemberPublicKeyBase58Check, err))
-		return
-	}
+
 	// Fetch the max messages between the sender and the party.
 	accessGroupMembers, err := fes.fetchMaxMembersFromAccessGroup(accessGroupOwnerPkBytes, accessGroupKeyNameBytes,
 		startingPkBytes, requestData.MaxMembersToFetch)
