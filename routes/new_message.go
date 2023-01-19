@@ -52,13 +52,6 @@ func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check string, accessGrou
 			"public key and access group key name %s %s: %v", publicKeyBase58Check, accessGroupKeyName, err))
 	}
 
-	// Access group name key cannot be equal to base group name key (equal to all zeros).
-	// By default all users belong to the access group with the base name key, hence it is reserved.
-	if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
-		return nil, nil, errors.New(fmt.Sprintf(
-			"ValidateAccessGroupPublicKeyAndName: Access Group key cannot be same as base key (all zeros)."+
-				"Access group key name %s", accessGroupKeyName))
-	}
 	return publicKeyBytes, accessGroupKeyNameBytes, nil
 }
 
@@ -103,7 +96,7 @@ func (fes *APIServer) fetchLatestMessageFromSingleDmThread(
 	dmThreadKey *lib.DmThreadKey,
 	startTimestamp uint64,
 	utxoView *lib.UtxoView,
-	) (*lib.NewMessageEntry, error) {
+) (*lib.NewMessageEntry, error) {
 	// Fetch just one message.
 	latestMessageEntries, err := fes.fetchMaxMessagesFromDmThread(dmThreadKey, startTimestamp, 1, utxoView)
 	if err != nil {
@@ -119,7 +112,7 @@ func (fes *APIServer) fetchMaxMessagesFromDmThread(
 	startTimestamp uint64,
 	MaxMessagesToFetch int,
 	utxoView *lib.UtxoView,
-	) ([]*lib.NewMessageEntry, error) {
+) ([]*lib.NewMessageEntry, error) {
 	// Fetch MaxMessagesToFetch with message time stamp starting from startTimestamp.
 	latestMessageEntries, err := utxoView.GetPaginatedMessageEntriesForDmThread(*dmThreadKey, startTimestamp, uint64(MaxMessagesToFetch))
 	if err != nil {
@@ -135,7 +128,7 @@ func (fes *APIServer) fetchMaxMessagesFromDmThread(
 func (fes *APIServer) fetchLatestMessageFromDmThreads(
 	dmThreads []*lib.DmThreadKey,
 	utxoView *lib.UtxoView,
-	) ([]*lib.NewMessageEntry, error) {
+) ([]*lib.NewMessageEntry, error) {
 	// *lib.NewMessageEntry is data structure used in core library for each direct message or a message in a group chat.
 	var latestMessageEntries []*lib.NewMessageEntry
 	// Using current unix time as a time stamp since we're fetching the latest message.
@@ -159,7 +152,7 @@ func (fes *APIServer) fetchLatestMessageFromGroupChatThread(
 	accessGroupId *lib.AccessGroupId,
 	startTimestamp uint64,
 	utxoView *lib.UtxoView,
-	) (*lib.NewMessageEntry, error) {
+) (*lib.NewMessageEntry, error) {
 	// Just fetch the latest message from the group chat represented by accessGroupId.
 	latestMessageEntries, err := fes.fetchMaxMessagesFromGroupChatThread(accessGroupId, startTimestamp, 1, utxoView)
 	if err != nil {
@@ -176,7 +169,7 @@ func (fes *APIServer) fetchMaxMessagesFromGroupChatThread(
 	startTimestamp uint64,
 	MaxMessagesToFetch int,
 	utxoView *lib.UtxoView,
-	) ([]*lib.NewMessageEntry, error) {
+) ([]*lib.NewMessageEntry, error) {
 	latestMessageEntries, err := utxoView.GetPaginatedMessageEntriesForGroupChatThread(*accessGroupId, startTimestamp, uint64(MaxMessagesToFetch))
 	if err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("Error fetching messages for access group ID, "+
@@ -373,16 +366,17 @@ func (fes *APIServer) sendMessageHandler(ww http.ResponseWriter, req *http.Reque
 }
 
 type ChatType string
+
 const (
-	ChatTypeDM = "DM"
+	ChatTypeDM        = "DM"
 	ChatTypeGroupChat = "GroupChat"
 )
 
 type NewMessageEntryResponse struct {
-	ChatType ChatType
-	SenderInfo AccessGroupInfo
+	ChatType      ChatType
+	SenderInfo    AccessGroupInfo
 	RecipientInfo AccessGroupInfo
-	MessageInfo MessageInfo
+	MessageInfo   MessageInfo
 }
 
 // Types to store the chat messages.
@@ -409,9 +403,9 @@ func (fes *APIServer) NewMessageEntryToResponse(newMessageEntry *lib.NewMessageE
 			newMessageEntry.RecipientAccessGroupPublicKey,
 			newMessageEntry.RecipientAccessGroupKeyName),
 		MessageInfo: MessageInfo{
-			EncryptedText: string(newMessageEntry.EncryptedText),
+			EncryptedText:  string(newMessageEntry.EncryptedText),
 			TimestampNanos: newMessageEntry.TimestampNanos,
-			ExtraData: DecodeExtraDataMap(fes.Params, utxoView, newMessageEntry.ExtraData),
+			ExtraData:      DecodeExtraDataMap(fes.Params, utxoView, newMessageEntry.ExtraData),
 		},
 	}
 }
