@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/deso-protocol/core/lib"
@@ -406,9 +407,10 @@ type AccessGroupInfo struct {
 	AccessGroupKeyName              string `safeForLogging:"true"`
 }
 type MessageInfo struct {
-	EncryptedText  string
-	TimestampNanos uint64
-	ExtraData      map[string]string
+	EncryptedText        string
+	TimestampNanos       uint64
+	TimestampNanosString string
+	ExtraData            map[string]string
 }
 
 func (fes *APIServer) NewMessageEntryToResponse(newMessageEntry *lib.NewMessageEntry, chatType ChatType, utxoView *lib.UtxoView) NewMessageEntryResponse {
@@ -423,9 +425,10 @@ func (fes *APIServer) NewMessageEntryToResponse(newMessageEntry *lib.NewMessageE
 			newMessageEntry.RecipientAccessGroupPublicKey,
 			newMessageEntry.RecipientAccessGroupKeyName),
 		MessageInfo: MessageInfo{
-			EncryptedText:  hex.EncodeToString(newMessageEntry.EncryptedText),
-			TimestampNanos: newMessageEntry.TimestampNanos,
-			ExtraData:      DecodeExtraDataMap(fes.Params, utxoView, newMessageEntry.ExtraData),
+			EncryptedText:        hex.EncodeToString(newMessageEntry.EncryptedText),
+			TimestampNanos:       newMessageEntry.TimestampNanos,
+			TimestampNanosString: strconv.FormatUint(newMessageEntry.TimestampNanos, 10),
+			ExtraData:            DecodeExtraDataMap(fes.Params, utxoView, newMessageEntry.ExtraData),
 		},
 	}
 }
@@ -453,9 +456,11 @@ type GetPaginatedMessagesForDmThreadRequest struct {
 	PartyGroupKeyName                   string
 	// Filter to fetch direct messages who time stamp is less than StartTimestamp.
 	// So you need to set this to current time and MaxMessagesToFetch to 10, to fetch
-	//  the latest 10 messages.
-	StartTimestamp     uint64
-	MaxMessagesToFetch int
+	//  the latest 10 messages. We support passing start timestamp as string and uint64.
+	// uint64 can lose precision when being JSON decoded, so we prefer StartTimestampString.
+	StartTimestamp       uint64
+	StartTimestampString string
+	MaxMessagesToFetch   int
 }
 
 // type to serialize the response containing the direct messages between two parties.
@@ -513,6 +518,17 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		return
 	}
 
+
+	startTimestamp := requestData.StartTimestamp
+	if requestData.StartTimestampString != "" {
+		startTimestamp, err = strconv.ParseUint(requestData.StartTimestampString, 10, 64)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Error parsing "+
+				"StartTimestampString: %v", err))
+			return
+		}
+	}
+
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Error generating "+
@@ -525,7 +541,7 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes))
 
 	// Fetch the max messages between the sender and the party.
-	latestMessages, err := fes.fetchMaxMessagesFromDmThread(&dmThreadKey, requestData.StartTimestamp, requestData.MaxMessagesToFetch, utxoView)
+	latestMessages, err := fes.fetchMaxMessagesFromDmThread(&dmThreadKey, startTimestamp, requestData.MaxMessagesToFetch, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated messages for "+
 			"Request Data: %v: %v", requestData, err))
@@ -545,7 +561,7 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		)
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem encoding response as JSON: %v", err))
 		return
 	}
@@ -574,8 +590,11 @@ type GetPaginatedMessagesForGroupChatThreadRequest struct {
 	UserPublicKeyBase58Check string
 	AccessGroupKeyName       string
 
-	StartTimestamp     uint64
-	MaxMessagesToFetch int
+	// We support passing start timestamp as string and uint64.
+	// uint64 can lose precision when being JSON decoded, so we prefer StartTimestampString.
+	StartTimestamp       uint64
+	StartTimestampString string
+	MaxMessagesToFetch   int
 }
 
 type GetPaginatedMessagesForGroupChatThreadResponse struct {
@@ -611,6 +630,16 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 		return
 	}
 
+	startTimestamp := requestData.StartTimestamp
+	if requestData.StartTimestampString != "" {
+		startTimestamp, err = strconv.ParseUint(requestData.StartTimestampString, 10, 64)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Error parsing "+
+				"StartTimestampString: %v", err))
+			return
+		}
+	}
+
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForGroupChatThread: Error generating "+
@@ -626,7 +655,7 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 	}
 
 	// Fetch the max group chat messages from the access group.
-	groupChatMessages, err := fes.fetchMaxMessagesFromGroupChatThread(&accessGroupId, requestData.StartTimestamp, requestData.MaxMessagesToFetch, utxoView)
+	groupChatMessages, err := fes.fetchMaxMessagesFromGroupChatThread(&accessGroupId, startTimestamp, requestData.MaxMessagesToFetch, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForGroupChatThread: Problem getting paginated messages for "+
 			"Request Data: %v: %v", requestData, err))
