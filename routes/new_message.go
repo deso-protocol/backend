@@ -525,7 +525,7 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes))
 
 	// Fetch the max messages between the sender and the party.
-	latestMessages, err := fes.fetchMaxMessagesFromDmThread(&dmThreadKey, requestData.StartTimestamp-1, requestData.MaxMessagesToFetch, utxoView)
+	latestMessages, err := fes.fetchMaxMessagesFromDmThread(&dmThreadKey, requestData.StartTimestamp, requestData.MaxMessagesToFetch, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated messages for "+
 			"Request Data: %v: %v", requestData, err))
@@ -626,7 +626,7 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 	}
 
 	// Fetch the max group chat messages from the access group.
-	groupChatMessages, err := fes.fetchMaxMessagesFromGroupChatThread(&accessGroupId, requestData.StartTimestamp-1, requestData.MaxMessagesToFetch, utxoView)
+	groupChatMessages, err := fes.fetchMaxMessagesFromGroupChatThread(&accessGroupId, requestData.StartTimestamp, requestData.MaxMessagesToFetch, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForGroupChatThread: Problem getting paginated messages for "+
 			"Request Data: %v: %v", requestData, err))
