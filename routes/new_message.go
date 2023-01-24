@@ -536,9 +536,12 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		return
 	}
 
+	senderPublicKey := *lib.NewPublicKey(senderGroupOwnerPkBytes)
+	senderGroupKeyName := *lib.NewGroupKeyName(senderGroupKeyNameBytes)
+	recipientPublicKey := *lib.NewPublicKey(recipientGroupOwnerPkBytes)
+	recipientGroupKeyName := *lib.NewGroupKeyName(recipientGroupKeyNameBytes)
 	// The information of the two parties involved in Dm has to encoded in lib.DmThreadKey.
-	dmThreadKey := lib.MakeDmThreadKey(*lib.NewPublicKey(senderGroupOwnerPkBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes),
-		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes))
+	dmThreadKey := lib.MakeDmThreadKey(senderPublicKey, senderGroupKeyName, recipientPublicKey, recipientGroupKeyName)
 
 	// Fetch the max messages between the sender and the party.
 	latestMessages, err := fes.fetchMaxMessagesFromDmThread(&dmThreadKey, startTimestamp, requestData.MaxMessagesToFetch, utxoView)
@@ -546,6 +549,54 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated messages for "+
 			"Request Data: %v: %v", requestData, err))
 		return
+	}
+
+	// Special case: If we're getting the DM thread for the default-key for
+	// both parties, then we also fetch base key DMs.
+	if senderGroupKeyName == *lib.DefaultGroupKeyName() &&
+		recipientGroupKeyName == *lib.DefaultGroupKeyName() {
+		baseKey := *lib.BaseGroupKeyName()
+		baseKeyBaseKeyThreadKey := lib.MakeDmThreadKey(senderPublicKey, baseKey, recipientPublicKey, baseKey)
+		baseKeyBaseKeyLatestMessages, err := fes.fetchMaxMessagesFromDmThread(
+			&baseKeyBaseKeyThreadKey, startTimestamp, requestData.MaxMessagesToFetch, utxoView)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated " +
+				"messages for base key - base key - Request Data: %v: %v", requestData, err))
+			return
+		}
+		latestMessages = append(latestMessages, baseKeyBaseKeyLatestMessages...)
+
+		baseKeyDefaultKeyThreadKey := lib.MakeDmThreadKey(senderPublicKey, baseKey, recipientPublicKey, recipientGroupKeyName)
+		baseKeyDefaultKeyLatestMessages, err := fes.fetchMaxMessagesFromDmThread(
+			&baseKeyDefaultKeyThreadKey, startTimestamp, requestData.MaxMessagesToFetch, utxoView)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated " +
+				"messages for base key - default key - Request Data: %v: %v", requestData, err))
+			return
+		}
+		latestMessages = append(latestMessages, baseKeyDefaultKeyLatestMessages...)
+
+
+		defaultKeyBaseKeyThreadKey := lib.MakeDmThreadKey(senderPublicKey, senderGroupKeyName, recipientPublicKey, baseKey)
+		defaultKeyBaseKeyLatestMessages, err := fes.fetchMaxMessagesFromDmThread(
+			&defaultKeyBaseKeyThreadKey, startTimestamp, requestData.MaxMessagesToFetch, utxoView)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated " +
+				"messages for default key - base key - Request Data: %v: %v", requestData, err))
+			return
+		}
+		latestMessages = append(latestMessages, defaultKeyBaseKeyLatestMessages...)
+
+		// Now we sort them and take the first MaxMessagesToFetch
+		sort.Slice(latestMessages, func (ii, jj int) bool {
+			return latestMessages[ii].TimestampNanos > latestMessages[jj].TimestampNanos
+		})
+
+		lastIndex := requestData.MaxMessagesToFetch
+		if lastIndex > len(latestMessages) {
+			lastIndex = len(latestMessages)
+		}
+		latestMessages = latestMessages[:lastIndex]
 	}
 
 	// Since the two parties in the conversation in same in all the message if added this info upfront.
