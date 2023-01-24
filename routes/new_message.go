@@ -518,7 +518,6 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		return
 	}
 
-
 	startTimestamp := requestData.StartTimestamp
 	if requestData.StartTimestampString != "" {
 		startTimestamp, err = strconv.ParseUint(requestData.StartTimestampString, 10, 64)
@@ -560,7 +559,7 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		baseKeyBaseKeyLatestMessages, err := fes.fetchMaxMessagesFromDmThread(
 			&baseKeyBaseKeyThreadKey, startTimestamp, requestData.MaxMessagesToFetch, utxoView)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated " +
+			_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated "+
 				"messages for base key - base key - Request Data: %v: %v", requestData, err))
 			return
 		}
@@ -570,25 +569,24 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		baseKeyDefaultKeyLatestMessages, err := fes.fetchMaxMessagesFromDmThread(
 			&baseKeyDefaultKeyThreadKey, startTimestamp, requestData.MaxMessagesToFetch, utxoView)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated " +
+			_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated "+
 				"messages for base key - default key - Request Data: %v: %v", requestData, err))
 			return
 		}
 		latestMessages = append(latestMessages, baseKeyDefaultKeyLatestMessages...)
 
-
 		defaultKeyBaseKeyThreadKey := lib.MakeDmThreadKey(senderPublicKey, senderGroupKeyName, recipientPublicKey, baseKey)
 		defaultKeyBaseKeyLatestMessages, err := fes.fetchMaxMessagesFromDmThread(
 			&defaultKeyBaseKeyThreadKey, startTimestamp, requestData.MaxMessagesToFetch, utxoView)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated " +
+			_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated "+
 				"messages for default key - base key - Request Data: %v: %v", requestData, err))
 			return
 		}
 		latestMessages = append(latestMessages, defaultKeyBaseKeyLatestMessages...)
 
 		// Now we sort them and take the first MaxMessagesToFetch
-		sort.Slice(latestMessages, func (ii, jj int) bool {
+		sort.Slice(latestMessages, func(ii, jj int) bool {
 			return latestMessages[ii].TimestampNanos > latestMessages[jj].TimestampNanos
 		})
 
