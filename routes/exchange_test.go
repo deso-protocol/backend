@@ -16,6 +16,10 @@ import (
 	"testing"
 	"time"
 
+	chainlib "github.com/btcsuite/btcd/blockchain"
+	"github.com/deso-protocol/backend/config"
+	"github.com/deso-protocol/core/lib"
+
 	"github.com/dgraph-io/badger/v3"
 
 	"github.com/stretchr/testify/assert"
@@ -163,6 +167,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	_, _ = assert, require
 
 	chain, params, _ := NewLowDifficultyBlockchain()
+	params.ForkHeights.DeSoAccessGroupsBlockHeight = uint32(0)
 	txIndexDb, _ := GetTestBadgerDb()
 	txIndex, _ := lib.NewTXIndex(chain, params, txIndexDb.Opts().Dir)
 	mempool, miner := NewTestMiner(t, chain, params, true /*isSender*/)
@@ -183,8 +188,11 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 		GlobalStateRemoteNode:   globalStateRemoteNode,
 		GlobalStateRemoteSecret: globalStateSharedSecret,
 	}
+
+	coreServer := lib.NewTestServer(chain, mempool)
+
 	publicApiServer, err := NewAPIServer(
-		nil, mempool, chain, miner.BlockProducer, txIndex, params, publicConfig,
+		coreServer, mempool, chain, miner.BlockProducer, txIndex, params, publicConfig,
 		2000, globalStateDB, nil, "")
 	require.NoError(err)
 
@@ -194,7 +202,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	privateConfig := publicConfig
 	privateConfig.AdminPublicKeys = []string{"adminpublickey"}
 	privateApiServer, err := NewAPIServer(
-		nil, mempool, chain, miner.BlockProducer, txIndex, params, privateConfig,
+		coreServer, mempool, chain, miner.BlockProducer, txIndex, params, privateConfig,
 		2000, globalStateDB, nil, "")
 	require.NoError(err)
 
@@ -213,6 +221,7 @@ func TestAPI(t *testing.T) {
 
 	{
 		request, _ := http.NewRequest("GET", RoutePathAPIBase, nil)
+		t.Logf("Req: %s %s\n", request.Host, request.URL.Path)
 		response := httptest.NewRecorder()
 		apiServer.router.ServeHTTP(response, request)
 		assert.Equal(200, response.Code, "OK response is expected")

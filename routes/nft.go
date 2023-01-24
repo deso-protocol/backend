@@ -4,12 +4,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/gorilla/mux"
 	"io"
 	"net/http"
 	"reflect"
 	"sort"
 	"time"
+
+	"github.com/gorilla/mux"
 
 	"github.com/deso-protocol/core/lib"
 )
