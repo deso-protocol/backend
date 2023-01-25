@@ -3,7 +3,7 @@
 # About DeSo
 
 DeSo is a blockchain built from the ground up to support a fully-featured
-social network. Its architecture is similar to Bitcoin, only it supports complex
+social network. Its architecture is similar to Bitcoin, but it also supports complex
 social network data like profiles, posts, follows, creator coin transactions, and
 more.
 
