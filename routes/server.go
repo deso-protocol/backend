@@ -132,10 +132,11 @@ const (
 	RoutePathGetAcceptedBidHistory     = "/api/v0/accepted-bid-history"
 
 	// media.go
-	RoutePathUploadImage      = "/api/v0/upload-image"
-	RoutePathGetFullTikTokURL = "/api/v0/get-full-tiktok-url"
-	RoutePathUploadVideo      = "/api/v0/upload-video"
-	RoutePathGetVideoStatus   = "/api/v0/get-video-status"
+	RoutePathUploadImage        = "/api/v0/upload-image"
+	RoutePathGetFullTikTokURL   = "/api/v0/get-full-tiktok-url"
+	RoutePathUploadVideo        = "/api/v0/upload-video"
+	RoutePathGetVideoStatus     = "/api/v0/get-video-status"
+	RoutePathGetVideoDimensions = "/api/v0/get-video-dimensions"
 
 	// message.go
 	RoutePathSendMessageStateless       = "/api/v0/send-message-stateless"
@@ -1849,6 +1850,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetVideoStatus + "/{videoId:[0-9a-z]{25,35}}",
 			fes.GetVideoStatus,
+			PublicAccess,
+		},
+		{
+			"GetVideoDimensions",
+			[]string{"GET"},
+			RoutePathGetVideoDimensions + "/{videoId:[0-9a-z]{25,35}}",
+			fes.GetVideoDimensions,
 			PublicAccess,
 		},
 		// Paths for wyre
