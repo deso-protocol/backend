@@ -411,6 +411,64 @@ func (fes *APIServer) GetVideoStatus(ww http.ResponseWriter, req *http.Request) 
 	}
 }
 
+type EnableVideoDownloadResponse struct {
+	Default map[string]interface{}
+}
+
+// Cloudflare does NOT allow uploaded videos to be downloaded (just streamed)
+// Cloudflare allows adding download support on a per-video basis
+// EnableVideoDownload enables download support for an already uploaded video
+// See Cloudflare documentation here: https://developers.cloudflare.com/stream/viewing-videos/download-videos/
+func (fes *APIServer) EnableVideoDownload(ww http.ResponseWriter, req *http.Request) {
+	if fes.Config.CloudflareStreamToken == "" || fes.Config.CloudflareAccountId == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("EnableVideoDownload: This node is not configured to support video uploads"))
+		return
+	}
+	vars := mux.Vars(req)
+	videoId, videoIdExists := vars["videoId"]
+	if !videoIdExists {
+		_AddBadRequestError(ww, fmt.Sprintf("EnableVideoDownload: Missing videoId"))
+		return
+	}
+	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%v/stream/%v/downloads", fes.Config.CloudflareAccountId, videoId)
+	client := &http.Client{}
+
+	// This is a POST request because:
+	// - If video downloading is not enabled for the video, the POST request will enable it and return the video URL
+	// - If video downloading is already enabled for the video, the POST request will just return the video URL
+	request, err := http.NewRequest("POST", url, nil)
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %v", fes.Config.CloudflareStreamToken))
+	request.Header.Add("Content-Type", "application/json")
+	resp, err := client.Do(request)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"EnableVideoDownload: error performing POST request: %v", err))
+		return
+	}
+	if resp.StatusCode != 200 {
+		_AddBadRequestError(ww, fmt.Sprintf("EnableVideoDownload: POST request did not return 200 status code but instead a status code of %v", resp.StatusCode))
+		return
+	}
+	cfVideoDetailsResponse := &CFVideoDetailsResponse{}
+	if err = json.NewDecoder(resp.Body).Decode(&cfVideoDetailsResponse); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("EnableVideoDownload: failed decoding body: %v", err))
+		return
+	}
+	if err = resp.Body.Close(); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("EnableVideoDownload: failed closing body: %v", err))
+		return
+	}
+	defaultVideo, _ := cfVideoDetailsResponse.Result["default"]
+
+	res := &EnableVideoDownloadResponse{
+		Default: defaultVideo.(map[string]interface{}),
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("EnableVideoDownload: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
+
 type CFVideoOEmbedResponse struct {
 	Height uint64 `json:"height"`
 	Width  uint64 `json:"width"`

@@ -132,11 +132,12 @@ const (
 	RoutePathGetAcceptedBidHistory     = "/api/v0/accepted-bid-history"
 
 	// media.go
-	RoutePathUploadImage        = "/api/v0/upload-image"
-	RoutePathGetFullTikTokURL   = "/api/v0/get-full-tiktok-url"
-	RoutePathUploadVideo        = "/api/v0/upload-video"
-	RoutePathGetVideoStatus     = "/api/v0/get-video-status"
-	RoutePathGetVideoDimensions = "/api/v0/get-video-dimensions"
+	RoutePathUploadImage         = "/api/v0/upload-image"
+	RoutePathGetFullTikTokURL    = "/api/v0/get-full-tiktok-url"
+	RoutePathUploadVideo         = "/api/v0/upload-video"
+	RoutePathGetVideoStatus      = "/api/v0/get-video-status"
+	RoutePathGetVideoDimensions  = "/api/v0/get-video-dimensions"
+	RoutePathEnableVideoDownload = "/api/v0/enable-video-download"
 
 	// message.go
 	RoutePathSendMessageStateless       = "/api/v0/send-message-stateless"
@@ -1853,6 +1854,12 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"EnableVideoDownload",
+			[]string{"POST", "OPTIONS"},
+			RoutePathEnableVideoDownload,
+			fes.EnableVideoDownload,
+		},
+		{
 			"GetVideoDimensions",
 			[]string{"GET"},
 			RoutePathGetVideoDimensions + "/{videoId:[0-9a-z]{25,35}}",
@@ -2129,6 +2136,7 @@ func Logger(inner http.Handler, name string) http.Handler {
 var publicRoutes = map[string]interface{}{
 	RoutePathGetJumioStatusForPublicKey:     nil,
 	RoutePathUploadVideo:                    nil,
+	RoutePathEnableVideoDownload:            nil,
 	RoutePathGetReferralInfoForReferralHash: nil,
 	RoutePathGetReferralInfoForUser:         nil,
 	RoutePathGetVerifiedUsernames:           nil,
