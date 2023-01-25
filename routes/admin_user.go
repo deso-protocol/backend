@@ -6,14 +6,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/deso-protocol/core/lib"
-	"github.com/pkg/errors"
 	"io"
 	"net/http"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/deso-protocol/core/lib"
+	"github.com/pkg/errors"
 )
 
 // AdminUpdateUserGlobalMetadataRequest...
@@ -42,9 +43,6 @@ type AdminUpdateUserGlobalMetadataRequest struct {
 
 	AdminPublicKey string
 }
-
-// AdminUpdateUserGlobalMetadataResponse ...
-type AdminUpdateUserGlobalMetadataResponse struct{}
 
 // AdminUpdateUserGlobalMetadata ...
 //
@@ -76,17 +74,6 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 		}
 	}
 
-	// Check if the username provided was a actually a phone number. If it is,
-	// search for the associated public key in global state.
-	if userPublicKeyBytes == nil && requestData.Username != "" && requestData.Username[0] == '+' {
-		phoneNumberMetadata, err := fes.getPhoneNumberMetadataFromGlobalState(requestData.Username)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Error getting phone number metadata: %v", err))
-			return
-		}
-		userPublicKeyBytes = phoneNumberMetadata.PublicKey
-	}
-
 	// If we do not have a public key by this point, try and get one from the profile associated with the username.
 	if userPublicKeyBytes == nil && requestData.Username != "" {
 		utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
@@ -116,26 +103,33 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 			_AddBadRequestError(ww, "AdminUpdateUserGlobalMetadata: User does not have a phone number")
 			return
 		}
-		phoneNumberMetadata, err := fes.getPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
+		multiPhoneNumberMetadata, err := fes.getMultiPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Error getting phone number metadata: %v", err))
 			return
 		}
-		phoneNumberMetadata.PublicKey = nil
-		// We set PublicKeyDeleted to false so that this phone number can be used again for verification.
-		phoneNumberMetadata.PublicKeyDeleted = false
-		err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata)
-		if err != nil {
+		newMetadata := []*PhoneNumberMetadata{}
+		for _, phoneNumberMetadata := range multiPhoneNumberMetadata {
+			if !bytes.Equal(phoneNumberMetadata.PublicKey, userPublicKeyBytes) {
+				newMetadata = append(newMetadata, phoneNumberMetadata)
+			}
+		}
+
+		if err = fes.putPhoneNumberMetadataInGlobalState(newMetadata, userMetadata.PhoneNumber); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Error saving phone number metadata: %v", err))
 			return
 		}
 
-		// If we made it this far we were successful at removing phone metadata, return without error.
-		res := AdminUpdateUserGlobalMetadataResponse{}
-		if err := json.NewEncoder(ww).Encode(res); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem encoding response as JSON: %v", err))
+		userMetadata.PhoneNumber = ""
+		userMetadata.PhoneNumberCountryCode = ""
+
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem putting updated user metadata after deleting phone number: %v", err))
 			return
 		}
+
+		// If we made it this far we were successful at removing phone metadata, return without error.
+		// Simply return a 200 status code
 		return
 	}
 
@@ -154,45 +148,48 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 	if requestData.IsBlacklistUpdate {
 		userMetadata.RemoveEverywhere = requestData.RemoveEverywhere
 		blacklistKey := GlobalStateKeyForBlacklistedProfile(userPublicKeyBytes)
+		blacklistVal := lib.NotBlacklisted
+		blacklistAction := "removing from"
 		if userMetadata.RemoveEverywhere {
-			err = fes.GlobalState.Put(blacklistKey, IsBlacklisted)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating blacklist: %v", err))
-			}
-		} else {
-			err = fes.GlobalState.Delete(blacklistKey)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem deleting from blacklist: %v", err))
-				return
-			}
+			blacklistVal = lib.IsBlacklisted
+			blacklistAction = "adding to"
+		}
+		if err = fes.GlobalState.Put(blacklistKey, blacklistVal); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem %v blacklist: %v", blacklistAction, err))
+			return
 		}
 		// We update the logs accordingly
-		err = fes.UpdateFilterAuditLogs(string(profileEntry.Username), userPKIDEntry, Blacklist, !userMetadata.RemoveEverywhere, requestData.AdminPublicKey, utxoView)
-		if err != nil {
+		if err = fes.UpdateFilterAuditLogs(
+			string(profileEntry.Username),
+			userPKIDEntry,
+			Blacklist,
+			!userMetadata.RemoveEverywhere,
+			requestData.AdminPublicKey,
+			utxoView); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating blacklist logs: %v", err))
 			return
 		}
-		// We need to update global state's list of blacklisted users.
-
+		// We need to update global state's list of graylisted users.
 		userMetadata.RemoveFromLeaderboard = requestData.RemoveFromLeaderboard
 		graylistkey := GlobalStateKeyForGraylistedProfile(userPublicKeyBytes)
+		graylistVal := lib.NotGraylisted
+		graylistAction := "removing from"
 		if userMetadata.RemoveFromLeaderboard {
-			// We need to update global state's list of graylisted users.
-			err = fes.GlobalState.Put(graylistkey, IsGraylisted)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating graylist: %v", err))
-				return
-			}
-		} else {
-			err = fes.GlobalState.Delete(graylistkey)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem deleting from graylist: %v", err))
-				return
-			}
+			graylistVal = lib.IsGraylisted
+			graylistAction = "adding to"
+		}
+		if err = fes.GlobalState.Put(graylistkey, graylistVal); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem %v graylist: %v", graylistAction, err))
+			return
 		}
 		// We update the logs accordingly
-		err = fes.UpdateFilterAuditLogs(string(profileEntry.Username), userPKIDEntry, Graylist, !userMetadata.RemoveFromLeaderboard, requestData.AdminPublicKey, utxoView)
-		if err != nil {
+		if err = fes.UpdateFilterAuditLogs(
+			string(profileEntry.Username),
+			userPKIDEntry,
+			Graylist,
+			!userMetadata.RemoveFromLeaderboard,
+			requestData.AdminPublicKey,
+			utxoView); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating graylist logs: %v", err))
 			return
 		}
@@ -210,16 +207,29 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 	}
 
 	// Encode the updated entry and stick it in the database.
-	err = fes.putUserMetadataInGlobalState(userMetadata)
-	if err != nil {
+	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem putting updated user metadata: %v", err))
 		return
 	}
+	// Simply return with a 200 status code
+}
 
-	// If we made it this far we were successful, return without error.
-	res := AdminUpdateUserGlobalMetadataResponse{}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem encoding response as JSON: %v", err))
+type AdminResetPhoneNumberRequest struct {
+	PhoneNumber string
+}
+
+// Clears all phone number metadata for a given phone number - thus allowing it to be used again.
+func (fes *APIServer) AdminResetPhoneNumber(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminResetPhoneNumberRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminResetPhoneNumber: Problem parsing request body: %v", err))
+		return
+	}
+	if err := fes.putPhoneNumberMetadataInGlobalState([]*PhoneNumberMetadata{}, requestData.PhoneNumber); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AdminResetPhoneNumber: Problem putting empty slice in global state for phone number %v: %v",
+			requestData.PhoneNumber, err))
 		return
 	}
 }
@@ -736,16 +746,16 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 		return
 	}
 
-	// Kill the key in our map.
-	delete(verifiedMapStruct.VerifiedUsernameToPKID, strings.ToLower(usernameToRemove))
+	// We set the value for this username to an empty PKID to signify that it has been removed.
+	verifiedMapStruct.VerifiedUsernameToPKID[strings.ToLower(usernameToRemove)] = &lib.ZeroPKID
 
 	// Encode the updated entry and stick it in the database.
 	metadataDataBuf := bytes.NewBuffer([]byte{})
 	if err = gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Failed encoding new verification map: %v", err))
 	}
-	err = fes.GlobalState.Put(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
-	if err != nil {
+
+	if err = fes.GlobalState.Put(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes()); err != nil {
 		_AddBadRequestError(ww, "AdminRemoveVerificationBadge: Failed placing new verification map into the database.")
 		return
 	}

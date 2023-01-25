@@ -2,8 +2,12 @@ package config
 
 import (
 	"fmt"
+	"github.com/holiman/uint256"
+	"math/big"
 	"strconv"
 	"strings"
+
+	"github.com/deso-protocol/core/lib"
 
 	coreCmd "github.com/deso-protocol/core/cmd"
 	"github.com/spf13/viper"
@@ -14,21 +18,23 @@ type Config struct {
 	APIPort uint16
 
 	// Onboarding
-	StarterDESOSeed       string
-	StarterDESONanos      uint64
-	StarterPrefixNanosMap map[string]uint64
-	TwilioAccountSID      string
-	TwilioAuthToken       string
-	TwilioVerifyServiceID string
-	CompProfileCreation   bool
-	MinSatoshisForProfile uint64
+	StarterDESOSeed         string
+	StarterDESONanos        uint64
+	StarterPrefixNanosMap   map[string]uint64
+	TwilioAccountSID        string
+	TwilioAuthToken         string
+	TwilioVerifyServiceID   string
+	CompProfileCreation     bool
+	MinSatoshisForProfile   uint64
+	PhoneNumberUseThreshold uint64
 
 	// Global State
 	GlobalStateRemoteNode   string
 	GlobalStateRemoteSecret string
 
 	// Hot Feed
-	RunHotFeedRoutine bool
+	RunHotFeedRoutine    bool
+	HotFeedMediaRequired bool
 
 	// Web Security
 	AccessControlAllowOrigins []string
@@ -79,6 +85,14 @@ type Config struct {
 
 	// ID to tag node source
 	NodeSource uint64
+
+	// Public keys that need their balances monitored. Map of Label to Public key
+	PublicKeyBalancesToMonitor map[string][]byte
+
+	// Metamask minimal Eth in Wei required to receive an airdrop.
+	MetamaskAirdropEthMinimum *uint256.Int
+	// Amount of DESO in nanos metamask users receive as an airdrop
+	MetamaskAirdropDESONanosAmount uint64
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -110,6 +124,7 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.TwilioVerifyServiceID = viper.GetString("twilio-verify-service-id")
 	config.CompProfileCreation = viper.GetBool("comp-profile-creation")
 	config.MinSatoshisForProfile = viper.GetUint64("min-satoshis-for-profile")
+	config.PhoneNumberUseThreshold = viper.GetUint64("phone-number-use-threshold")
 
 	// Global State
 	config.GlobalStateRemoteNode = viper.GetString("global-state-remote-node")
@@ -117,6 +132,7 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 
 	// Hot Feed
 	config.RunHotFeedRoutine = viper.GetBool("run-hot-feed-routine")
+	config.HotFeedMediaRequired = viper.GetBool("hot-feed-media-required")
 
 	// Web Security
 	config.AccessControlAllowOrigins = viper.GetStringSlice("access-control-allow-origins")
@@ -174,6 +190,38 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 
 	// Node source ID
 	config.NodeSource = viper.GetUint64("node-source")
+
+	// Public keys that need their balances monitored. Map of Label to Public key
+	labelsToPublicKeys := viper.GetString("public-key-balances-to-monitor")
+	if len(labelsToPublicKeys) > 0 {
+		config.PublicKeyBalancesToMonitor = make(map[string][]byte)
+		for _, pair := range strings.Split(labelsToPublicKeys, ",") {
+			entry := strings.Split(pair, "=")
+			pubKeyBytes, _, err := lib.Base58CheckDecode(entry[1])
+			if err != nil {
+				fmt.Printf("Invalid public key: %v", entry[1])
+				continue
+			}
+			config.PublicKeyBalancesToMonitor[entry[0]] = pubKeyBytes
+		}
+	}
+
+	// Metamask minimal Eth in Wei required to receive an airdrop.
+	metamaskAirdropMinStr := viper.GetString("metamask-airdrop-eth-minimum")
+	if metamaskAirdropMinStr != "" {
+		metamaskAirdropMinBigint, ok := big.NewInt(0).SetString(metamaskAirdropMinStr, 10)
+		if !ok {
+			panic(fmt.Sprintf("Error parsing metamask-airdrop-eth-minimum into bigint: %v", metamaskAirdropMinStr))
+		}
+		var overflow bool
+		config.MetamaskAirdropEthMinimum, overflow = uint256.FromBig(metamaskAirdropMinBigint)
+		if overflow {
+			panic(fmt.Sprintf("metamask-airdrop-eth-minimum value %v overflows uint256", metamaskAirdropMinStr))
+		}
+	} else {
+		config.MetamaskAirdropEthMinimum = uint256.NewInt()
+	}
+	config.MetamaskAirdropDESONanosAmount = viper.GetUint64("metamask-airdrop-deso-nanos-amount")
 
 	return &config
 }

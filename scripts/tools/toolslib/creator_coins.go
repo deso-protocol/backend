@@ -75,7 +75,7 @@ func BuyCreator(buyerPubKey *btcec.PublicKey, buyerPrivKey *btcec.PrivateKey, cr
 	if err != nil {
 		return errors.Wrap(err, "BuyCreator() failed to sign transaction")
 	}
-	txn.Signature = signature
+	txn.Signature.SetSignature(signature)
 
 	// Submit the transaction to the node
 	err = SubmitTransactionToNode(txn, node)

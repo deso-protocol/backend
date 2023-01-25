@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/config"
 	"github.com/golang-jwt/jwt/v4"
@@ -40,9 +42,10 @@ const (
 	RoutePathGetQuoteRecloutsForPost = "/api/v0/get-quote-reclouts-for-post" // Deprecated
 
 	// base.go
-	RoutePathHealthCheck     = "/api/v0/health-check"
-	RoutePathGetExchangeRate = "/api/v0/get-exchange-rate"
-	RoutePathGetAppState     = "/api/v0/get-app-state"
+	RoutePathHealthCheck      = "/api/v0/health-check"
+	RoutePathGetExchangeRate  = "/api/v0/get-exchange-rate"
+	RoutePathGetAppState      = "/api/v0/get-app-state"
+	RoutePathGetIngressCookie = "/api/v0/get-ingress-cookie"
 
 	// transaction.go
 	RoutePathGetTxn                   = "/api/v0/get-txn"
@@ -59,6 +62,9 @@ const (
 	RoutePathAuthorizeDerivedKey      = "/api/v0/authorize-derived-key"
 	RoutePathDAOCoin                  = "/api/v0/dao-coin"
 	RoutePathTransferDAOCoin          = "/api/v0/transfer-dao-coin"
+	RoutePathCreateDAOCoinLimitOrder  = "/api/v0/create-dao-coin-limit-order"
+	RoutePathCreateDAOCoinMarketOrder = "/api/v0/create-dao-coin-market-order"
+	RoutePathCancelDAOCoinLimitOrder  = "/api/v0/cancel-dao-coin-limit-order"
 	RoutePathAppendExtraData          = "/api/v0/append-extra-data"
 	RoutePathGetTransactionSpending   = "/api/v0/get-transaction-spending"
 
@@ -68,6 +74,7 @@ const (
 	RoutePathGetSingleProfile                           = "/api/v0/get-single-profile"
 	RoutePathGetSingleProfilePicture                    = "/api/v0/get-single-profile-picture"
 	RoutePathGetHodlersForPublicKey                     = "/api/v0/get-hodlers-for-public-key"
+	RoutePathGetHodlersCountForPublicKeys               = "/api/v0/get-hodlers-count-for-public-keys"
 	RoutePathGetDiamondsForPublicKey                    = "/api/v0/get-diamonds-for-public-key"
 	RoutePathGetFollowsStateless                        = "/api/v0/get-follows-stateless"
 	RoutePathGetUserGlobalMetadata                      = "/api/v0/get-user-global-metadata"
@@ -79,14 +86,21 @@ const (
 	RoutePathIsFollowingPublicKey                       = "/api/v0/is-following-public-key"
 	RoutePathIsHodlingPublicKey                         = "/api/v0/is-hodling-public-key"
 	RoutePathGetUserDerivedKeys                         = "/api/v0/get-user-derived-keys"
+	RoutePathGetSingleDerivedKey                        = "/api/v0/get-single-derived-key"
 	RoutePathGetTransactionSpendingLimitHexString       = "/api/v0/get-transaction-spending-limit-hex-string"
+	RoutePathGetAccessBytes                             = "/api/v0/get-access-bytes"
 	RoutePathGetTransactionSpendingLimitResponseFromHex = "/api/v0/get-transaction-spending-limit-response-from-hex"
 	RoutePathDeletePII                                  = "/api/v0/delete-pii"
 	RoutePathGetUserMetadata                            = "/api/v0/get-user-metadata"
 	RoutePathGetUsernameForPublicKey                    = "/api/v0/get-user-name-for-public-key"
 	RoutePathGetPublicKeyForUsername                    = "/api/v0/get-public-key-for-user-name"
 
+	// dao_coin_exchange.go
+	RoutePathGetDaoCoinLimitOrders           = "/api/v0/get-dao-coin-limit-orders"
+	RoutePathGetTransactorDaoCoinLimitOrders = "/api/v0/get-transactor-dao-coin-limit-orders"
+
 	// post.go
+	RoutePathGetPostsHashHexList    = "/api/v0/get-posts-hashhexlist"
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
 	RoutePathGetSinglePost          = "/api/v0/get-single-post"
 	RoutePathGetLikesForPost        = "/api/v0/get-likes-for-post"
@@ -124,13 +138,14 @@ const (
 	RoutePathGetVideoStatus   = "/api/v0/get-video-status"
 
 	// message.go
-	RoutePathSendMessageStateless      = "/api/v0/send-message-stateless"
-	RoutePathGetMessagesStateless      = "/api/v0/get-messages-stateless"
-	RoutePathMarkContactMessagesRead   = "/api/v0/mark-contact-messages-read"
-	RoutePathMarkAllMessagesRead       = "/api/v0/mark-all-messages-read"
-	RoutePathRegisterMessagingGroupKey = "/api/v0/register-messaging-group-key"
-	RoutePathGetAllMessagingGroupKeys  = "/api/v0/get-all-messaging-group-keys"
-	RoutePathCheckPartyMessagingKeys   = "/api/v0/check-party-messaging-keys"
+	RoutePathSendMessageStateless       = "/api/v0/send-message-stateless"
+	RoutePathGetMessagesStateless       = "/api/v0/get-messages-stateless"
+	RoutePathMarkContactMessagesRead    = "/api/v0/mark-contact-messages-read"
+	RoutePathMarkAllMessagesRead        = "/api/v0/mark-all-messages-read"
+	RoutePathRegisterMessagingGroupKey  = "/api/v0/register-messaging-group-key"
+	RoutePathGetAllMessagingGroupKeys   = "/api/v0/get-all-messaging-group-keys"
+	RoutePathCheckPartyMessagingKeys    = "/api/v0/check-party-messaging-keys"
+	RoutePathGetBulkMessagingPublicKeys = "/api/v0/get-bulk-messaging-public-keys"
 
 	// verify.go
 	RoutePathSendPhoneNumberVerificationText   = "/api/v0/send-phone-number-verification-text"
@@ -149,6 +164,7 @@ const (
 
 	// eth.go
 	RoutePathSubmitETHTx       = "/api/v0/submit-eth-tx"
+	RoutePathMetamaskSignIn    = "/api/v0/send-starter-deso-for-metamask-account"
 	RoutePathQueryETHRPC       = "/api/v0/query-eth-rpc"
 	RoutePathAdminProcessETHTx = "/api/v0/admin/process-eth-tx"
 
@@ -192,6 +208,7 @@ const (
 	RoutePathAdminGetVerifiedUsers                 = "/api/v0/admin/get-verified-users"
 	RoutePathAdminGetUsernameVerificationAuditLogs = "/api/v0/admin/get-username-verification-audit-logs"
 	RoutePathAdminGetUserAdminData                 = "/api/v0/admin/get-user-admin-data"
+	RoutePathAdminResetPhoneNumber                 = "/api/v0/admin/reset-phone-number"
 
 	// admin_feed.go
 	RoutePathAdminUpdateGlobalFeed = "/api/v0/admin/update-global-feed"
@@ -253,6 +270,31 @@ const (
 	RoutePathGetTotalSupply       = "/api/v0/total-supply"
 	RoutePathGetRichList          = "/api/v0/rich-list"
 	RoutePathGetCountKeysWithDESO = "/api/v0/count-keys-with-deso"
+
+	// access_group.go
+	RoutePathCreateAccessGroup                = "/api/v0/create-access-group"
+	RoutePathAddAccessGroupMembers            = "/api/v0/add-access-group-members"
+	RoutePathGetAllUserAccessGroups           = "/api/v0/get-all-user-access-groups"
+	RoutePathGetAllUserAccessGroupsOwned      = "/api/v0/get-all-user-access-groups-owned"
+	RoutePathGetAllUserAccessGroupsMemberOnly = "/api/v0/get-all-user-access-groups-member-only"
+	RoutePathCheckPartyAccessGroups           = "/api/v0/check-party-access-groups"
+	RoutePathGetAccessGroupInfo               = "/api/v0/get-access-group-info"
+	RoutePathGetAccessGroupMemberInfo         = "/api/v0/get-access-group-member-info"
+	RoutePathGetPaginatedAccessGroupMembers   = "/api/v0/get-paginated-access-group-members"
+	RoutePathGetBulkAccessGroupEntries        = "/api/v0/get-bulk-access-group-entries"
+
+	// new_message.go
+	RoutePathSendDmMessage                             = "/api/v0/send-dm-message"
+	RoutePathSendGroupChatMessage                      = "/api/v0/send-group-chat-message"
+	RoutePathGetUserDmThreadsOrderedByTimestamp        = "/api/v0/get-user-dm-threads-ordered-by-timestamp"
+	RoutePathGetPaginatedMessagesForDmThread           = "/api/v0/get-paginated-messages-for-dm-thread"
+	RoutePathGetUserGroupChatThreadsOrderedByTimestamp = "/api/v0/get-user-group-chat-threads-ordered-by-timestamp"
+	RoutePathGetPaginatedMessagesForGroupChatThread    = "/api/v0/get-paginated-messages-for-group-chat-thread"
+	RoutePathGetAllUserMessageThreads                  = "/api/v0/get-all-user-message-threads"
+
+	// associations.go
+	RoutePathUserAssociations = "/api/v0/user-associations"
+	RoutePathPostAssociations = "/api/v0/post-associations"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -300,13 +342,33 @@ type APIServer struct {
 	// How far back do we consider trade prices when we set the current price of $DESO in nanoseconds
 	LastTradePriceLookback uint64
 
+	// most recent exchange prices fetched
+	MostRecentCoinbasePriceUSDCents         uint64
+	MostRecentBlockchainDotComPriceUSDCents uint64
+
 	// Base-58 prefix to check for to determine if a string could be a public key.
 	PublicKeyBase58Prefix string
 
-	// A list of posts from the last 24hrs ordered by hotness score.
+	// A list of posts from the specified look-back period ordered by hotness score.
 	HotFeedOrderedList []*HotFeedEntry
+	// A map version of HotFeedOrderedList mapping each post to its hotness score for the tag feed and post age.
+	HotFeedPostHashToTagScoreMap map[lib.BlockHash]*HotnessPostInfo
+	// An in-memory map from post hash to post tags. This is used to cache tags to prevent hot feed algorithm from
+	// continuously parsing the text body from already processed posts.
+	PostHashToPostTagsMap map[lib.BlockHash][]string
+	// An in-memory map from post tag to post hash. This allows us to
+	// quickly get all the posts for a particular group.
+	// This is represented as a map of strings to a set of post hashes. A set is used instead of an array to allow for
+	// quicker de-duplication checks.
+	PostTagToPostHashesMap map[string]map[lib.BlockHash]bool
+	// For each tag, store ordered slice of post hashes based on hot feed ranking.
+	PostTagToOrderedHotFeedEntries map[string][]*HotFeedEntry
+	// For each tag, store ordered slice of post hashes based on newness.
+	PostTagToOrderedNewestEntries map[string][]*HotFeedEntry
 	// The height of the last block evaluated by the hotness routine.
 	HotFeedBlockHeight uint32
+	// A cache to store blocks for the block feed - in order to reduce processing time.
+	HotFeedBlockCache map[lib.BlockHash]*lib.MsgDeSoBlock
 	// Map of whitelisted post hashes used for serving the hot feed.
 	// The float64 value is a multiplier than can be modified and used in scoring.
 	HotFeedApprovedPostsToMultipliers             map[lib.BlockHash]float64
@@ -317,7 +379,10 @@ type APIServer struct {
 	LastHotFeedPKIDMultiplierOpProcessedTstampNanos uint64
 	// Constants for the hotness score algorithm.
 	HotFeedInteractionCap        uint64
+	HotFeedTagInteractionCap     uint64
 	HotFeedTimeDecayBlocks       uint64
+	HotFeedTagTimeDecayBlocks    uint64
+	HotFeedTxnTypeMultiplierMap  map[lib.TxnType]uint64
 	HotFeedPostMultiplierUpdated bool
 	HotFeedPKIDMultiplierUpdated bool
 
@@ -348,8 +413,12 @@ type APIServer struct {
 	// responding to requests for this node's graylist. A JSON-encoded response is easier for any language to digest
 	// than a gob-encoded one.
 	GraylistedResponseMap map[string][]byte
-	// GlobalFeedPostHashes is a slice of BlockHashes representing the state of posts on the global feed on this node.
+	// GlobalFeedPostHashes is a slice of BlockHashes representing an ordered state of post hashes on the global feed on
+	// this node.
 	GlobalFeedPostHashes []*lib.BlockHash
+	// GlobalFeedPostEntries is a slice of PostEntries representing an ordered state of PostEntries on the global feed
+	// on this node. It is computed from the GlobalFeedPostHashes above.
+	GlobalFeedPostEntries []*lib.PostEntry
 
 	// Cache of Total Supply and Rich List
 	TotalSupplyNanos  uint64
@@ -365,6 +434,9 @@ type APIServer struct {
 	BuyDESOFeeBasisPoints             uint64
 	JumioUSDCents                     uint64
 	JumioKickbackUSDCents             uint64
+
+	// Public keys that need their balances monitored. Map of Label to Public key
+	PublicKeyBalancesToMonitor map[string]string
 
 	// Signals that the frontend server is in a stopped state
 	quit chan struct{}
@@ -608,6 +680,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"PostsHashHexList",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPostsHashHexList,
+			fes.GetPostsHashHexList,
+			PublicAccess,
+		},
+		{
 			"GetPostsStateless",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetPostsStateless,
@@ -792,6 +871,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"GetHodlersCountForPublicKeys",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetHodlersCountForPublicKeys,
+			fes.GetHodlersCountForPublicKeys,
+			PublicAccess,
+		},
+		{
 			"GetFollowsStateless",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetFollowsStateless,
@@ -855,6 +941,27 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"CreateDAOCoinLimitOrder",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateDAOCoinLimitOrder,
+			fes.CreateDAOCoinLimitOrder,
+			PublicAccess,
+		},
+		{
+			"CreateDAOCoinMarketOrder",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateDAOCoinMarketOrder,
+			fes.CreateDAOCoinMarketOrder,
+			PublicAccess,
+		},
+		{
+			"CancelDAOCoinLimitOrder",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCancelDAOCoinLimitOrder,
+			fes.CancelDAOCoinLimitOrder,
+			PublicAccess,
+		},
+		{
 			"AppendExtraData",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAppendExtraData,
@@ -894,6 +1001,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetAppState,
 			fes.GetAppState,
+			PublicAccess,
+		},
+		{
+			"GetIngressCookie",
+			[]string{"GET"},
+			RoutePathGetIngressCookie,
+			fes.GetIngressCookie,
 			PublicAccess,
 		},
 		{
@@ -974,10 +1088,24 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"GetSingleDerivedKey",
+			[]string{"GET"},
+			RoutePathGetSingleDerivedKey + "/{ownerPublicKeyBase58Check:[0-9a-zA-Z]{54,55}}/{derivedPublicKeyBase58Check:[0-9a-zA-Z]{54,55}}",
+			fes.GetSingleDerivedKey,
+			PublicAccess,
+		},
+		{
 			"GetTransactionSpendingLimitHexString",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetTransactionSpendingLimitHexString,
 			fes.GetTransactionSpendingLimitHexString,
+			PublicAccess,
+		},
+		{
+			"GetAccessBytes",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAccessBytes,
+			fes.GetAccessBytes,
 			PublicAccess,
 		},
 		{
@@ -1013,6 +1141,104 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetPublicKeyForUsername + "/{username:[a-zA-Z0-9_]{1,26}",
 			fes.GetPublicKeyForUsername,
+			PublicAccess,
+		},
+		{
+			"GetDAOCoinLimitOrders",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetDaoCoinLimitOrders,
+			fes.GetDAOCoinLimitOrders,
+			PublicAccess,
+		},
+		{
+			"GetTransactorDAOCoinLimitOrders",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetTransactorDaoCoinLimitOrders,
+			fes.GetTransactorDAOCoinLimitOrders,
+			PublicAccess,
+		},
+		{
+			"CreateUserAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/create",
+			fes.CreateUserAssociation,
+			PublicAccess,
+		},
+		{
+			"DeleteUserAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/delete",
+			fes.DeleteUserAssociation,
+			PublicAccess,
+		},
+		{
+			"GetUserAssociationByID",
+			[]string{"GET"},
+			RoutePathUserAssociations + "/{associationID:[a-fA-F0-9]+$}",
+			fes.GetUserAssociationByID,
+			PublicAccess,
+		},
+		{
+			"GetUserAssociations",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/query",
+			fes.GetUserAssociations,
+			PublicAccess,
+		},
+		{
+			"CountUserAssociations",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/count",
+			fes.CountUserAssociations,
+			PublicAccess,
+		},
+		{
+			"CountUserAssociationsByValue",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/counts",
+			fes.CountUserAssociationsByValue,
+			PublicAccess,
+		},
+		{
+			"CreatePostAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/create",
+			fes.CreatePostAssociation,
+			PublicAccess,
+		},
+		{
+			"DeletePostAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/delete",
+			fes.DeletePostAssociation,
+			PublicAccess,
+		},
+		{
+			"GetPostAssociationByID",
+			[]string{"GET"},
+			RoutePathPostAssociations + "/{associationID:[a-fA-F0-9]+$}",
+			fes.GetPostAssociationByID,
+			PublicAccess,
+		},
+		{
+			"GetPostAssociations",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/query",
+			fes.GetPostAssociations,
+			PublicAccess,
+		},
+		{
+			"CountPostAssociations",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/count",
+			fes.CountPostAssociations,
+			PublicAccess,
+		},
+		{
+			"CountPostAssociationsByValue",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/counts",
+			fes.CountPostAssociationsByValue,
 			PublicAccess,
 		},
 		// Jumio Routes
@@ -1094,6 +1320,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathQueryETHRPC,
 			fes.QueryETHRPC,
+			PublicAccess,
+		},
+		{
+			"SendStarterDesoForMetamaskAccount",
+			[]string{"POST", "OPTIONS"},
+			RoutePathMetamaskSignIn,
+			fes.MetamaskSignIn,
 			PublicAccess,
 		},
 
@@ -1446,6 +1679,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.AdminGetExemptPublicKeys,
 			SuperAdminAccess,
 		},
+		{
+			"AdminResetPhoneNumber",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminResetPhoneNumber,
+			fes.AdminResetPhoneNumber,
+			SuperAdminAccess,
+		},
 		// End all /admin routes
 		// GET endpoints for managing parameters related to Buying DeSo
 		{
@@ -1545,6 +1785,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathCheckPartyMessagingKeys,
 			fes.CheckPartyMessagingKeys,
+			PublicAccess,
+		},
+		{
+			"GetBulkMessagingPublicKeys",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetBulkMessagingPublicKeys,
+			fes.GetBulkMessagingPublicKeys,
 			PublicAccess,
 		},
 
@@ -1656,6 +1903,127 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetCountKeysWithDESO,
 			fes.GetCountKeysWithDESO,
+			PublicAccess,
+		},
+		// registering the routes related to access groups
+		{
+			"CreateAccessGroup",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateAccessGroup,
+			fes.CreateAccessGroup,
+			PublicAccess,
+		},
+		{
+			"AddAccessGroupMembers",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAddAccessGroupMembers,
+			fes.AddAccessGroupMembers,
+			PublicAccess,
+		},
+		{
+			"GetAllUserAccessGroups",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAllUserAccessGroups,
+			fes.GetAllUserAccessGroups,
+			PublicAccess,
+		},
+		{
+			"GetAllUserAccessGroupsOwned",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAllUserAccessGroupsOwned,
+			fes.GetAllUserAccessGroupsOwned,
+			PublicAccess,
+		},
+		{
+			"GetAllUserAccessGroupsMemberOnly",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAllUserAccessGroupsMemberOnly,
+			fes.GetAllUserAccessGroupsMemberOnly,
+			PublicAccess,
+		},
+		{
+			"CheckPartyAccessGroups",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCheckPartyAccessGroups,
+			fes.CheckPartyAccessGroups,
+			PublicAccess,
+		},
+		{
+			"GetAccessGroupInfo",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAccessGroupInfo,
+			fes.GetAccessGroupInfo,
+			PublicAccess,
+		},
+		{
+			"GetAccessGroupMemberInfo",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAccessGroupMemberInfo,
+			fes.GetAccessGroupMemberInfo,
+			PublicAccess,
+		},
+		{
+			"GetPaginatedAccessGroupMembers",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPaginatedAccessGroupMembers,
+			fes.GetPaginatedAccessGroupMembers,
+			PublicAccess,
+		},
+		{
+			"GetBulkAccessGroupEntries",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetBulkAccessGroupEntries,
+			fes.GetBulkAccessGroupEntries,
+			PublicAccess,
+		},
+		// access group message APIs.
+		{
+			"SendDmMessage",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSendDmMessage,
+			fes.SendDmMessage,
+			PublicAccess,
+		},
+		{
+			"SendGroupChatMessage",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSendGroupChatMessage,
+			fes.SendGroupChatMessage,
+			PublicAccess,
+		},
+		{
+			"GetUserDmThreadsOrderedByTimestamp",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetUserDmThreadsOrderedByTimestamp,
+			fes.GetUserDmThreadsOrderedByTimestamp,
+			PublicAccess,
+		},
+		{
+			"GetPaginatedMessagesForDmThread",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPaginatedMessagesForDmThread,
+			fes.GetPaginatedMessagesForDmThread,
+			PublicAccess,
+		},
+		{
+			"GetUserGroupChatThreadsOrderedByTimestamp",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetUserGroupChatThreadsOrderedByTimestamp,
+			fes.GetUserGroupChatThreadsOrderedByTimestamp,
+			PublicAccess,
+		},
+		{
+			"GetPaginatedMessagesForGroupChatThread",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPaginatedMessagesForGroupChatThread,
+			fes.GetPaginatedMessagesForGroupChatThread,
+			PublicAccess,
+		},
+		{
+			"GetAllUserMessageThreads",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAllUserMessageThreads,
+			fes.GetAllUserMessageThreads,
 			PublicAccess,
 		},
 	}
@@ -1798,17 +2166,14 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 		if (r.RequestURI == RoutePathUploadImage || r.RequestURI == RoutePathAdminUploadReferralCSV) &&
 			mediaType == "multipart/form-data" {
 			match = true
-			actualOrigin = "*"
 		} else if _, exists := publicRoutes[r.RequestURI]; exists {
 			// We set the headers for all requests to public routes.
 			// This allows third-party frontends to access this endpoint
 			match = true
-			actualOrigin = "*"
 		} else if strings.HasPrefix(r.RequestURI, RoutePathGetVideoStatus) || strings.HasPrefix(r.RequestURI, RoutePathGetUserMetadata) {
 			// We don't match the RoutePathGetVideoStatus and RoutePathGetUserMetadata paths exactly since there is a
 			// variable param. Check for the prefix instead.
 			match = true
-			actualOrigin = "*"
 		} else if r.Method == "POST" && mediaType != "application/json" && r.RequestURI != RoutePathJumioCallback {
 			invalidPostRequest = true
 		}
@@ -1931,15 +2296,17 @@ func (fes *APIServer) CheckAdminPublicKey(inner http.Handler, AccessLevel Access
 	})
 }
 
+const JwtDerivedPublicKeyClaim = "derivedPublicKeyBase58Check"
+
 func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, error) {
 	pubKeyBytes, _, err := lib.Base58CheckDecode(publicKey)
 	if err != nil {
-		return false, err
+		return false, errors.Wrapf(err, "Problem decoding public key")
 	}
 
 	pubKey, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
 	if err != nil {
-		return false, err
+		return false, errors.Wrapf(err, "Problem parsing public key")
 	}
 
 	token, err := jwt.Parse(jwtToken, func(token *jwt.Token) (interface{}, error) {
@@ -1947,11 +2314,36 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 		mapClaims := token.Claims.(jwt.MapClaims)
 		delete(mapClaims, "iat")
 
+		// We accept JWT signed by derived keys. To accommodate this, the JWT claims payload should contain the key
+		// "derivedPublicKeyBase58Check" with the derived public key in base58 as value.
+		if derivedPublicKeyBase58Check, isDerived := mapClaims[JwtDerivedPublicKeyClaim]; isDerived {
+			// Parse the derived public key.
+			derivedPublicKeyBytes, _, err := lib.Base58CheckDecode(derivedPublicKeyBase58Check.(string))
+			if err != nil {
+				return nil, errors.Wrapf(err, "Problem decoding derived public key")
+			}
+			derivedPublicKey, err := btcec.ParsePubKey(derivedPublicKeyBytes, btcec.S256())
+			if err != nil {
+				return nil, errors.Wrapf(err, "Problem parsing derived public key bytes")
+			}
+			// Validate the derived public key.
+			utxoView, err := fes.mempool.GetAugmentedUniversalView()
+			if err != nil {
+				return nil, errors.Wrapf(err, "Problem getting utxoView")
+			}
+			blockHeight := uint64(fes.blockchain.BlockTip().Height)
+			if err := utxoView.ValidateDerivedKey(pubKeyBytes, derivedPublicKeyBytes, blockHeight); err != nil {
+				return nil, errors.Wrapf(err, "Derived key is not authorize")
+			}
+
+			return derivedPublicKey.ToECDSA(), nil
+		}
+
 		return pubKey.ToECDSA(), nil
 	})
 
 	if err != nil {
-		return false, err
+		return false, errors.Wrapf(err, "Problem verifying JWT token")
 	}
 
 	return token.Valid, nil
@@ -2071,6 +2463,9 @@ func (fes *APIServer) StartSeedBalancesMonitoring() {
 				tags := []string{}
 				fes.logBalanceForSeed(fes.Config.StarterDESOSeed, "STARTER_DESO", tags)
 				fes.logBalanceForSeed(fes.Config.BuyDESOSeed, "BUY_DESO", tags)
+				for label, publicKey := range fes.Config.PublicKeyBalancesToMonitor {
+					fes.logBalanceForPublicKey(publicKey, label, tags)
+				}
 			case <-fes.quit:
 				break out
 			}
@@ -2092,6 +2487,21 @@ func (fes *APIServer) logBalanceForSeed(seed string, seedName string, tags []str
 	}
 }
 
+func (fes *APIServer) logBalanceForPublicKey(publicKey []byte, label string, tags []string) {
+	if len(publicKey) != btcec.PubKeyBytesLenCompressed {
+		glog.Errorf("logBalanceForPublicKey: Invalid pub key length for pub key with label %v", label)
+		return
+	}
+	balance, err := fes.getBalanceForPubKey(publicKey)
+	if err != nil {
+		glog.Errorf("logBalanceForPublicKey: Error getting balance for label %v, public key %v: %v", label, lib.PkToString(publicKey, fes.Params), err)
+		return
+	}
+	if err = fes.backendServer.GetStatsdClient().Gauge(fmt.Sprintf("%v_BALANCE", label), float64(balance), tags, 1); err != nil {
+		glog.Errorf("logBalanceForPublicKey: Error logging balance to datadog for label %v, public key %v: %v", label, lib.PkToString(publicKey, fes.Params), err)
+	}
+}
+
 func (fes *APIServer) getBalanceForSeed(seedPhrase string) (uint64, error) {
 	seedBytes, err := bip39.NewSeedWithErrorChecking(seedPhrase, "")
 	if err != nil {
@@ -2102,13 +2512,17 @@ func (fes *APIServer) getBalanceForSeed(seedPhrase string) (uint64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("GetBalanceForSeed: Error computing keys from seed: %+v", err)
 	}
+	return fes.getBalanceForPubKey(pubKey.SerializeCompressed())
+}
+
+func (fes *APIServer) getBalanceForPubKey(pubKey []byte) (uint64, error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		return 0, fmt.Errorf("GetBalanceForSeed: Error getting UtxoView: %v", err)
+		return 0, fmt.Errorf("getBalanceForPubKey: Error getting UtxoView: %v", err)
 	}
-	currentBalanceNanos, err := GetBalanceForPublicKeyUsingUtxoView(pubKey.SerializeCompressed(), utxoView)
+	currentBalanceNanos, err := GetBalanceForPublicKeyUsingUtxoView(pubKey, utxoView)
 	if err != nil {
-		return 0, fmt.Errorf("GetBalanceForSeed: Error getting balance: %v", err)
+		return 0, fmt.Errorf("getBalanceForPubKey: Error getting balance: %v", err)
 	}
 	return currentBalanceNanos, nil
 }
@@ -2137,7 +2551,7 @@ func (fes *APIServer) SetGlobalStateCache() {
 	fes.SetVerifiedUsernameMap()
 	fes.SetBlacklistedPKIDMap(utxoView)
 	fes.SetGraylistedPKIDMap(utxoView)
-	fes.SetGlobalFeedPostHashes()
+	fes.SetGlobalFeedPostHashes(utxoView)
 	fes.SetAllCountrySignUpBonusMetadata()
 	fes.SetUSDCentsToDeSoReserveExchangeRateFromGlobalState()
 	fes.SetBuyDeSoFeeBasisPointsResponseFromGlobalState()
@@ -2180,12 +2594,14 @@ func (fes *APIServer) SetGraylistedPKIDMap(utxoView *lib.UtxoView) {
 	}
 }
 
-func (fes *APIServer) SetGlobalFeedPostHashes() {
-	postHashes, err := fes.GetGlobalFeedCache()
+func (fes *APIServer) SetGlobalFeedPostHashes(utxoView *lib.UtxoView) {
+	postHashes, postEntries, err := fes.GetGlobalFeedCache(utxoView)
+
 	if err != nil {
 		glog.Errorf("SetGlobalFeedPostHashes: Error getting global feed post hashes: %v", err)
 	} else {
 		fes.GlobalFeedPostHashes = postHashes
+		fes.GlobalFeedPostEntries = postEntries
 	}
 }
 

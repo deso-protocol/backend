@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/deso-protocol/backend/apis"
 	"io"
 	"io/ioutil"
 	"math/big"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/deso-protocol/backend/apis"
 
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
@@ -32,9 +33,22 @@ func (fes *APIServer) HealthCheck(ww http.ResponseWriter, rr *http.Request) {
 		return
 	}
 
-	// Check that we've received our first transaction bundle.
-	if !fes.backendServer.HasProcessedFirstTransactionBundle() {
+	// Check that we've received our first transaction bundle. We skip this check
+	// if we've disabled networking, since in that case we shouldn't expect to get
+	// any mempool messages from our peers.
+	if !fes.backendServer.HasProcessedFirstTransactionBundle() &&
+		!fes.backendServer.DisableNetworking {
 		_AddBadRequestError(ww, "Waiting on mempool to sync")
+		return
+	}
+
+	// If we have txindex configured then also do a check for that.
+	if fes.TXIndex != nil &&
+		fes.TXIndex.TXIndexChain.ChainState() != lib.SyncStateFullyCurrent {
+		txindexHeight := fes.TXIndex.TXIndexChain.BlockTip().Height
+
+		_AddBadRequestError(ww, fmt.Sprintf("Waiting for txindex to sync. "+
+			"Height: %v, SyncState: %v", txindexHeight, fes.TXIndex.TXIndexChain.ChainState()))
 		return
 	}
 
@@ -55,6 +69,8 @@ type GetExchangeRateResponse struct {
 	USDCentsPerDeSoExchangeRate        uint64
 	USDCentsPerDeSoReserveExchangeRate uint64
 	BuyDeSoFeeBasisPoints              uint64
+	USDCentsPerDeSoBlockchainDotCom    uint64
+	USDCentsPerDeSoCoinbase            uint64
 
 	SatoshisPerBitCloutExchangeRate        uint64 // Deprecated
 	USDCentsPerBitCloutExchangeRate        uint64 // Deprecated
@@ -92,6 +108,8 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 		USDCentsPerDeSoExchangeRate:        usdCentsPerDeSoExchangeRate,
 		USDCentsPerDeSoReserveExchangeRate: fes.USDCentsToDESOReserveExchangeRate,
 		BuyDeSoFeeBasisPoints:              fes.BuyDESOFeeBasisPoints,
+		USDCentsPerDeSoCoinbase:            fes.MostRecentCoinbasePriceUSDCents,
+		USDCentsPerDeSoBlockchainDotCom:    fes.MostRecentBlockchainDotComPriceUSDCents,
 
 		// Deprecated
 		SatoshisPerBitCloutExchangeRate:        satoshisPerUnit,
@@ -244,6 +262,10 @@ func (fes *APIServer) UpdateUSDCentsToDeSoExchangeRate() {
 	// Take the max
 	lastTradePrice, err := stats.Max([]float64{blockchainDotComPrice, coinbasePrice})
 
+	// store the most recent exchange prices
+	fes.MostRecentCoinbasePriceUSDCents = uint64(coinbasePrice)
+	fes.MostRecentBlockchainDotComPriceUSDCents = uint64(blockchainDotComPrice)
+
 	// Get the current timestamp and append the current last trade price to the LastTradeDeSoPriceHistory slice
 	timestamp := uint64(time.Now().UnixNano())
 	fes.LastTradeDeSoPriceHistory = append(fes.LastTradeDeSoPriceHistory, LastTradePriceHistoryItem{
@@ -328,10 +350,12 @@ type GetAppStateResponse struct {
 	HasJumioIntegration   bool
 	BuyWithETH            bool
 
-	USDCentsPerDeSoExchangeRate uint64
-	JumioDeSoNanos              uint64 // Deprecated
-	JumioUSDCents               uint64
-	JumioKickbackUSDCents       uint64
+	USDCentsPerDeSoExchangeRate     uint64
+	USDCentsPerDeSoCoinbase         uint64
+	USDCentsPerDeSoBlockchainDotCom uint64
+	JumioDeSoNanos                  uint64 // Deprecated
+	JumioUSDCents                   uint64
+	JumioKickbackUSDCents           uint64
 	// CountrySignUpBonus is the sign-up bonus configuration for the country inferred from a request's IP address.
 	CountrySignUpBonus CountryLevelSignUpBonus
 
@@ -383,6 +407,8 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		HasJumioIntegration:                 fes.IsConfiguredForJumio(),
 		BuyWithETH:                          fes.IsConfiguredForETH(),
 		USDCentsPerDeSoExchangeRate:         fes.GetExchangeDeSoPrice(),
+		USDCentsPerDeSoCoinbase:             fes.MostRecentCoinbasePriceUSDCents,
+		USDCentsPerDeSoBlockchainDotCom:     fes.MostRecentBlockchainDotComPriceUSDCents,
 		JumioDeSoNanos:                      fes.GetJumioDeSoNanos(), // Deprecated
 		JumioUSDCents:                       fes.JumioUSDCents,
 		JumioKickbackUSDCents:               fes.JumioKickbackUSDCents,
@@ -399,6 +425,25 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetNotifications: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type GetIngressCookieResponse struct {
+	CookieValue string
+}
+
+// This route allows a client to get the cookie set by nginx for session affinity.
+// This value can then be passed to a backend to ensure that all requests a user
+// is making are being handled by the same machine.
+func (fes *APIServer) GetIngressCookie(ww http.ResponseWriter, req *http.Request) {
+	cookie, err := req.Cookie("INGRESSCOOKIE")
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetIngressCookie: Error getting ingress cookie: %v", err))
+		return
+	}
+	if err = json.NewEncoder(ww).Encode(&GetIngressCookieResponse{CookieValue: cookie.Value}); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetIngressCookie: Problem encoding response as JSON: %v", err))
 		return
 	}
 }

@@ -76,6 +76,11 @@ func (fes *APIServer) GetBlockTemplate(ww http.ResponseWriter, req *http.Request
 		return
 	}
 
+	if requestData.NumHeaders > 1000000 {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBlockTemplate: Error: NumHeaders must be less than 1000000"))
+		return
+	}
+
 	// Decode the public key
 	pkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 	if err != nil {
@@ -136,6 +141,8 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitBlock: Problem parsing request body: %v", err))
 		return
 	}
+
+	glog.Infof("Currently submitting block for block ID: %v", requestData.BlockID)
 
 	// Decode the public key
 	pkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)

@@ -150,7 +150,7 @@ func (fes *APIServer) APIBase(ww http.ResponseWriter, rr *http.Request) {
 	blockNode := fes.blockchain.BlockTip()
 
 	// Take the hash computed from above and find the corresponding block.
-	blockMsg, err := lib.GetBlock(blockNode.Hash, fes.blockchain.DB())
+	blockMsg, err := lib.GetBlock(blockNode.Hash, fes.blockchain.DB(), fes.blockchain.Snapshot())
 	if err != nil {
 		APIAddError(ww, fmt.Sprintf("APIBase: Problem fetching block: %v", err))
 		return
@@ -172,7 +172,7 @@ func (fes *APIServer) APIBase(ww http.ResponseWriter, rr *http.Request) {
 
 	for _, txn := range blockMsg.Txns {
 		// Look up the metadata for each transaction.
-		txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txn.Hash())
+		txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), nil, txn.Hash())
 
 		res.Transactions = append(
 			res.Transactions, APITransactionToResponse(
@@ -526,8 +526,8 @@ func APITransactionToResponse(
 	params *lib.DeSoParams) *TransactionResponse {
 
 	signatureHex := ""
-	if txnn.Signature != nil {
-		signatureHex = hex.EncodeToString(txnn.Signature.Serialize())
+	if txnn.Signature.Sign != nil {
+		signatureHex = hex.EncodeToString(txnn.Signature.Sign.Serialize())
 	}
 
 	// Remove UtxoOps from the response because it's massive and usually useless
@@ -562,13 +562,7 @@ func APITransactionToResponse(
 			AmountNanos:          output.AmountNanos,
 		})
 	}
-	if txnn.ExtraData != nil && len(txnn.ExtraData) > 0 {
-		ret.ExtraData = make(map[string]string)
-		for extraDataKey, extraDataValue := range txnn.ExtraData {
-			var decoderFunc = GetExtraDataDecoder(txnn.TxnMeta.GetTxnType(), extraDataKey)
-			ret.ExtraData[extraDataKey] = decoderFunc(extraDataValue, params, utxoView)
-		}
-	}
+	ret.ExtraData = DecodeExtraDataMap(params, utxoView, txnn.ExtraData)
 
 	if txnMeta != nil {
 		ret.BlockHashHex = txnMeta.BlockHashHex
@@ -588,11 +582,11 @@ func APITransactionToResponse(
 // For example, if a transaction sends 10 DeSo from PubA to PubB with 5 DeSo
 // in “change” and 1 DeSo as a “miner fee,” then the transaction would look as
 // follows:
-// - Input: 16 DeSo (10 DeSo to send, 5 DeSo in change, and 1 DeSo as a fee)
-// - PubB: 10 DeSo (the amount being sent from A to B)
-// - PubA: 5 DeSo (change returned to A)
-// - Implicit 1 DeSo is paid as a fee to the miner. The miner fee is implicitly
-//   computed as (total input – total output) just like in Bitcoin.
+//   - Input: 16 DeSo (10 DeSo to send, 5 DeSo in change, and 1 DeSo as a fee)
+//   - PubB: 10 DeSo (the amount being sent from A to B)
+//   - PubA: 5 DeSo (change returned to A)
+//   - Implicit 1 DeSo is paid as a fee to the miner. The miner fee is implicitly
+//     computed as (total input – total output) just like in Bitcoin.
 //
 // TODO: This function is redundant with the APITransferDeSo function in frontend_utils
 func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) {
@@ -885,8 +879,8 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			if !lastTxSeen {
 				if reflect.DeepEqual(poolTx.Hash, lastTxHash) {
 					lastTxSeen = true
-					continue
 				}
+				continue
 			}
 
 			if transactionInfoRequest.IDsOnly {
@@ -939,7 +933,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		copy(txID[:], txIDBytes)
 
 		// Use the txID to lookup the requested transaction.
-		txn, txnMeta := lib.DbGetTxindexFullTransactionByTxID(fes.TXIndex.TXIndexChain.DB(), fes.blockchain.DB(), txID)
+		txn, txnMeta := lib.DbGetTxindexFullTransactionByTxID(fes.TXIndex.TXIndexChain.DB(), nil, fes.blockchain.DB(), txID)
 
 		if txn == nil {
 			// Try to look the transaction up in the mempool before giving up.
@@ -1019,7 +1013,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			})
 		} else {
 			// In this case we need to look up the full transaction and convert it into a proper transaction response.
-			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txID)
+			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), nil, txID)
 			blockHashBytes, err := hex.DecodeString(txnMeta.BlockHashHex)
 			if err != nil {
 				APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error parsing block: %v %v", txnMeta.BlockHashHex, err))
@@ -1031,7 +1025,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			copy(blockHash[:], blockHashBytes)
 			block := blockMap[blockHash]
 			if block == nil {
-				block, err = lib.GetBlock(blockHash, fes.blockchain.DB())
+				block, err = lib.GetBlock(blockHash, fes.blockchain.DB(), fes.blockchain.Snapshot())
 				if block == nil || err != nil {
 					fmt.Errorf("DbGetTxindexFullTransactionByTxID: Block corresponding to txn not found")
 					return
@@ -1046,10 +1040,12 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		}
 	}
 
-	lastKey := keysFound[len(keysFound)-1]
-	// The index comes after the <_Prefix, PublicKey> bytes.
-	lastKeyIndexBytes := lastKey[len(lib.DbTxindexPublicKeyPrefix(publicKeyBytes)):]
-	res.LastPublicKeyTransactionIndex = int64(lib.DecodeUint32(lastKeyIndexBytes))
+	if len(keysFound) > 0 {
+		lastKey := keysFound[len(keysFound)-1]
+		// The index comes after the <_Prefix, PublicKey> bytes.
+		lastKeyIndexBytes := lastKey[len(lib.DbTxindexPublicKeyPrefix(publicKeyBytes)):]
+		res.LastPublicKeyTransactionIndex = int64(lib.DecodeUint32(lastKeyIndexBytes))
+	}
 
 	// Start with the mempool
 	poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
@@ -1238,7 +1234,7 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 	}
 
 	// Take the hash computed from above and find the corresponding block.
-	blockMsg, err := lib.GetBlock(blockHash, fes.blockchain.DB())
+	blockMsg, err := lib.GetBlock(blockHash, fes.blockchain.DB(), fes.blockchain.Snapshot())
 	if err != nil {
 		APIAddError(ww, fmt.Sprintf("APIBlockRequest: Problem fetching block: %v", err))
 		return
@@ -1261,7 +1257,7 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 	if blockRequest.FullBlock {
 		for _, txn := range blockMsg.Txns {
 			// Look up the metadata for each transaction.
-			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txn.Hash())
+			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), nil, txn.Hash())
 
 			res.Transactions = append(
 				res.Transactions, APITransactionToResponse(
@@ -1287,7 +1283,7 @@ func (fes *APIServer) _processTransactionWithKey(
 		return fmt.Errorf("_processTransactionWithKey: Error computing "+
 			"transaction signature: %v", err)
 	}
-	txn.Signature = txnSignature
+	txn.Signature.SetSignature(txnSignature)
 
 	// Grab the block tip and use it as the height for validation.
 	blockHeight := fes.blockchain.BlockTip().Height
@@ -1424,7 +1420,7 @@ func IsRestrictedPubKey(userGraylistState []byte, userBlacklistState []byte, mod
 	}
 }
 
-//Get the map of public keys this user has blocked.  The _blockedPubKeyMap operates as a hashset to speed up look up time
+// Get the map of public keys this user has blocked.  The _blockedPubKeyMap operates as a hashset to speed up look up time
 // while value are empty structs to keep memory usage down.
 func (fes *APIServer) GetBlockedPubKeysForUser(userPubKey []byte) (_blockedPubKeyMap map[string]struct{}, _err error) {
 	/* Get public keys of users the reader has blocked */
@@ -1458,7 +1454,7 @@ func (fes *APIServer) GetProfilesByCoinValue(
 
 	var startProfile *lib.ProfileEntry
 	if startProfilePubKey != nil {
-		startProfile = lib.DBGetProfileEntryForPKID(bav.Handle, lib.DBGetPKIDEntryForPublicKey(bav.Handle, startProfilePubKey).PKID)
+		startProfile = lib.DBGetProfileEntryForPKID(bav.Handle, fes.blockchain.Snapshot(), lib.DBGetPKIDEntryForPublicKey(bav.Handle, fes.blockchain.Snapshot(), startProfilePubKey).PKID)
 	}
 
 	var startDeSoLockedNanos uint64
@@ -1476,7 +1472,7 @@ func (fes *APIServer) GetProfilesByCoinValue(
 		prevCount = len(validProfilePubKeys)
 		// Fetch some profile pub keys from the db.
 		dbProfilePubKeys, _, err := lib.DBGetPaginatedProfilesByDeSoLocked(
-			bav.Handle, startDeSoLockedNanos, nextStartKey, numToFetch, false /*fetchEntries*/)
+			bav.Handle, fes.blockchain.Snapshot(), startDeSoLockedNanos, nextStartKey, numToFetch, false /*fetchEntries*/)
 		if err != nil {
 			return nil, nil, nil, errors.Wrapf(err, "GetAllProfiles: Problem fetching ProfilePubKeys from db: ")
 		}
@@ -1530,7 +1526,7 @@ func (fes *APIServer) GetProfilesByCoinValue(
 
 			// Load all the posts
 			_, dbPostAndCommentHashes, _, err := lib.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
-				bav.Handle, profileEntry.PublicKey, false /*fetchEntries*/, 0 /*minTimestamp*/, 0, /*maxTimestamp*/
+				bav.Handle, fes.blockchain.Snapshot(), profileEntry.PublicKey, false /*fetchEntries*/, 0 /*minTimestamp*/, 0, /*maxTimestamp*/
 			)
 			if err != nil {
 				return nil, nil, nil, errors.Wrapf(
@@ -1589,10 +1585,14 @@ func (fes *APIServer) GetProfilesByCoinValue(
 	return profilesByPublicKey, postsByPublicKey, postEntryReaderStates, nil
 }
 
-func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, startAfterPostHash *lib.BlockHash, publicKey []byte, numToFetch int, skipHidden bool, mediaRequired bool) (
+func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, startAfterPostHash *lib.BlockHash, publicKey []byte, numToFetch int, skipHidden bool, mediaRequired bool, onlyNFTs bool, onlyPosts bool) (
 	_postEntries []*lib.PostEntry, _err error) {
 	// Get the people who follow publicKey
 	// Note: GetFollowEntriesForPublicKey also loads them into the view
+	if onlyNFTs && onlyPosts {
+		return nil, fmt.Errorf("GetPostsForFollowFeedForPublicKey: OnlyNFTS and OnlyPosts can not be enabled both")
+	}
+
 	followEntries, err := bav.GetFollowEntriesForPublicKey(publicKey, false /* getEntriesFollowingPublicKey */)
 
 	if err != nil {
@@ -1626,7 +1626,7 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 	for _, followedPubKey := range filteredPubKeysMap {
 
 		_, dbPostAndCommentHashes, _, err := lib.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
-			bav.Handle, followedPubKey, false /*fetchEntries*/, minTimestampNanos, 0, /*maxTimestampNanos*/
+			bav.Handle, fes.blockchain.Snapshot(), followedPubKey, false /*fetchEntries*/, minTimestampNanos, 0, /*maxTimestampNanos*/
 		)
 		if err != nil {
 			return nil, errors.Wrapf(err, "GetPostsForFollowFeedForPublicKey: Problem fetching PostEntry's from db: ")
@@ -1653,6 +1653,13 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 			continue
 		}
 
+		if onlyNFTs && !postEntry.IsNFT {
+			continue
+		}
+		if onlyPosts && postEntry.IsNFT {
+			continue
+		}
+
 		if _, isFollowedByUser := followedPubKeysMap[lib.MakePkMapKey(postEntry.PosterPublicKey)]; isFollowedByUser {
 			postEntriesForFollowFeed = append(postEntriesForFollowFeed, postEntry)
 		}
@@ -1666,12 +1673,17 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 	var startIndex = 0
 	if startAfterPostHash != nil {
 		var indexOfStartAfterPostHash int
+		startPostHashFound := false
 		// Find the index of the starting post so that we can paginate the result
 		for index, postEntry := range postEntriesForFollowFeed {
 			if *postEntry.PostHash == *startAfterPostHash {
 				indexOfStartAfterPostHash = index
+				startPostHashFound = true
 				break
 			}
+		}
+		if !startPostHashFound {
+			return nil, fmt.Errorf("GetPostsForFollowFeedForPublicKey: start post hash not found in results")
 		}
 		// the first element of our new slice should be the element AFTER startAfterPostHash
 		startIndex = indexOfStartAfterPostHash + 1
@@ -1686,12 +1698,19 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 // This is then joined with mempool and all posts are returned.  Because the mempool may contain
 // post changes, the number of posts returned in the map is not guaranteed to be numToFetch.
 func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.BlockHash, readerPK []byte,
-	numToFetch int, skipHidden bool, skipVanillaRepost bool, mediaRequired bool) (
+	numToFetch int, skipHidden bool, skipVanillaRepost bool, mediaRequired bool, onlyNFTs bool, onlyPosts bool) (
 	_corePosts []*lib.PostEntry, _commentsByPostHash map[lib.BlockHash][]*lib.PostEntry, _err error) {
+
+	if onlyNFTs && onlyPosts {
+		return nil, nil, fmt.Errorf("GetPostsByTime: OnlyNFTS and OnlyPosts can not be enabled both")
+	}
 
 	var startPost *lib.PostEntry
 	if startPostHash != nil {
 		startPost = bav.GetPostEntryForPostHash(startPostHash)
+		if startPost == nil || startPost.IsDeleted() {
+			return nil, nil, fmt.Errorf("GetPostsByTime: start post entry not found")
+		}
 	}
 
 	var startTstampNanos uint64
@@ -1705,7 +1724,7 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 	for len(allCorePosts) < numToFetch {
 		// Start by fetching the posts we have in the db.
 		dbPostHashes, _, _, err := lib.DBGetPaginatedPostsOrderedByTime(
-			bav.Handle, startTstampNanos, startPostHash, numToFetch, false /*fetchEntries*/, true)
+			bav.Handle, fes.blockchain.Snapshot(), startTstampNanos, startPostHash, numToFetch, false /*fetchEntries*/, true)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "GetAllProfiles: Problem fetching ProfileEntrys from db: ")
 		}
@@ -1739,6 +1758,13 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 				continue
 			}
 
+			if onlyNFTs && !postEntry.IsNFT {
+				continue
+			}
+			if onlyPosts && postEntry.IsNFT {
+				continue
+			}
+
 			// We make sure that the post isn't a comment.
 			if len(postEntry.ParentStakeID) == 0 {
 				postEntryPubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] = postEntry.PosterPublicKey
@@ -1762,6 +1788,13 @@ func (fes *APIServer) GetPostsByTime(bav *lib.UtxoView, startPostHash *lib.Block
 
 			// If media is required and this post does not have media, skip it.
 			if mediaRequired && !postEntry.HasMedia() {
+				continue
+			}
+
+			if onlyNFTs && !postEntry.IsNFT {
+				continue
+			}
+			if onlyPosts && postEntry.IsNFT {
 				continue
 			}
 

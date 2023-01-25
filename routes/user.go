@@ -1,11 +1,14 @@
 package routes
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
+	"math/big"
 	"net/http"
 	"reflect"
 	"sort"
@@ -27,6 +30,7 @@ import (
 type GetUsersStatelessRequest struct {
 	PublicKeysBase58Check []string `safeForLogging:"true"`
 	SkipForLeaderboard    bool     `safeForLogging:"true"`
+	IncludeBalance        bool     `safeForLogging:"true"`
 	GetUnminedBalance     bool     `safeForLogging:"true"`
 }
 
@@ -56,7 +60,7 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 	}
 
 	globalParams, err := fes.updateUsersStateless(userList, getUsersRequest.SkipForLeaderboard,
-		getUsersRequest.GetUnminedBalance)
+		getUsersRequest.GetUnminedBalance, getUsersRequest.IncludeBalance)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUsersStateless: Error fetching data for user: %v", err))
 		return
@@ -69,7 +73,9 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 	}
 
 	paramUpdaters := make(map[string]bool)
-	for kk := range fes.Params.ParamUpdaterPublicKeys {
+	for kk := range lib.GetParamUpdaterPublicKeys(
+		fes.blockchain.BlockTip().Height, fes.Params) {
+
 		paramUpdaters[lib.PkToString(kk[:], fes.Params)] = true
 	}
 
@@ -86,7 +92,8 @@ func (fes *APIServer) GetUsersStateless(ww http.ResponseWriter, rr *http.Request
 	}
 }
 
-func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard bool, getUnminedBalance bool) (
+func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard bool, getUnminedBalance bool,
+	includeBalance bool) (
 	*lib.GlobalParamsEntry, error) {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
@@ -95,7 +102,8 @@ func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard 
 	globalParams := utxoView.GlobalParamsEntry
 	for _, user := range userList {
 		// If we get an error updating the user, log it but don't stop the show.
-		if err = fes.updateUserFieldsStateless(user, utxoView, skipForLeaderboard, getUnminedBalance); err != nil {
+		if err = fes.updateUserFieldsStateless(
+			user, utxoView, skipForLeaderboard, getUnminedBalance, includeBalance); err != nil {
 			glog.Errorf(fmt.Sprintf("updateUsers: Problem updating user with pk %s: %v", user.PublicKeyBase58Check, err))
 		}
 	}
@@ -104,7 +112,7 @@ func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard 
 }
 
 func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoView, skipForLeaderboard bool,
-	getUnminedBalance bool) error {
+	getUnminedBalance bool, includeBalance bool) error {
 	// If there's no public key, then return an error. We need a public key on
 	// the user object in order to be able to update the fields.
 	if user.PublicKeyBase58Check == "" {
@@ -127,7 +135,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	}
 
 	// We do not need a user's balance for the leaderboard
-	if !skipForLeaderboard {
+	if !skipForLeaderboard || includeBalance {
 		if getUnminedBalance {
 			// Get the UtxoEntries from the augmented view
 			utxoEntries, err := fes.blockchain.GetSpendableUtxosForPublicKey(
@@ -293,7 +301,7 @@ func (fes *APIServer) GetYouHodlMap(pkid *lib.PKIDEntry, fetchProfiles bool, isD
 	//
 	// TODO: We need to screen out zero balances in the view. Right now we only screen them
 	// out from the DB query.
-	for _, balanceEntry := range utxoView.HODLerPKIDCreatorPKIDToBalanceEntry {
+	for _, balanceEntry := range utxoView.GetHODLerPKIDCreatorPKIDToBalanceEntryMap(isDAOCoin) {
 		dbBalanceEntryResponse := &BalanceEntryResponse{}
 		if reflect.DeepEqual(balanceEntry.HODLerPKID, pkid.PKID) {
 			// In this case the user is the HODLer.
@@ -337,7 +345,8 @@ func (fes *APIServer) getMapFromEntries(entries []*lib.BalanceEntry, profiles []
 }
 
 func (fes *APIServer) _balanceEntryToResponse(
-	balanceEntry *lib.BalanceEntry, dbBalanceNanos uint64, profileEntry *lib.ProfileEntry, utxoView *lib.UtxoView) *BalanceEntryResponse {
+	balanceEntry *lib.BalanceEntry, dbBalanceNanos uint64,
+	profileEntry *lib.ProfileEntry, utxoView *lib.UtxoView) *BalanceEntryResponse {
 
 	if balanceEntry == nil {
 		return nil
@@ -346,6 +355,7 @@ func (fes *APIServer) _balanceEntryToResponse(
 	// Convert the PKIDs to public keys.
 	hodlerPk := utxoView.GetPublicKeyForPKID(balanceEntry.HODLerPKID)
 	creatorPk := utxoView.GetPublicKeyForPKID(balanceEntry.CreatorPKID)
+	hodlerDesoBalance, _ := fes.ComputeUserBalance(utxoView, hodlerPk)
 
 	return &BalanceEntryResponse{
 		HODLerPublicKeyBase58Check:  lib.PkToString(hodlerPk, fes.Params),
@@ -359,6 +369,8 @@ func (fes *APIServer) _balanceEntryToResponse(
 
 		// If the profile is nil, this will be nil
 		ProfileEntryResponse: fes._profileEntryToResponse(profileEntry, utxoView),
+
+		HodlerDESOBalanceNanos: hodlerDesoBalance,
 	}
 }
 
@@ -411,7 +423,7 @@ func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, isD
 	//
 	// TODO: We need to screen out zero balances in the view. Right now we only screen them
 	// out from the DB query.
-	for _, balanceEntry := range utxoView.HODLerPKIDCreatorPKIDToBalanceEntry {
+	for _, balanceEntry := range utxoView.GetHODLerPKIDCreatorPKIDToBalanceEntryMap(isDAOCoin) {
 		dbBalanceEntryResponse := &BalanceEntryResponse{}
 		if reflect.DeepEqual(balanceEntry.CreatorPKID, pkid.PKID) {
 			// In this case the user is the one *being* HODL'ed.
@@ -607,6 +619,14 @@ type ProfileEntryResponse struct {
 
 	// ExtraData stores an arbitrary map of attributes of a ProfileEntry
 	ExtraData map[string]string
+
+	// The user's DESO balance
+	DESOBalanceNanos uint64
+
+	// The DESO to DAO coin exchange rate. Only set when there's a valid order
+	// on the limit order exchange that we can execute against to purchase this
+	// profile's DAO coin. If there's no order, then this is zero.
+	BestExchangeRateDESOPerDAOCoin float64
 }
 
 type CoinEntryResponse struct {
@@ -898,7 +918,7 @@ func (fes *APIServer) GetProfilesByUsernamePrefixAndDeSoLocked(
 	db *badger.DB, usernamePrefix string, readerPK []byte, utxoView *lib.UtxoView) (
 	_profileEntries []*lib.ProfileEntry, _err error) {
 
-	profileEntries, err := lib.DBGetProfilesByUsernamePrefixAndDeSoLocked(db, usernamePrefix, utxoView)
+	profileEntries, err := lib.DBGetProfilesByUsernamePrefixAndDeSoLocked(db, fes.blockchain.Snapshot(), usernamePrefix, utxoView)
 
 	pubKeyMap := make(map[lib.PkMapKey][]byte)
 	for _, profileEntry := range profileEntries {
@@ -921,6 +941,27 @@ func (fes *APIServer) GetProfilesByUsernamePrefixAndDeSoLocked(
 	return filteredProfileEntries, nil
 }
 
+func (fes *APIServer) ComputeUserBalance(utxoView *lib.UtxoView, pubkey []byte) (uint64, error) {
+	// If we have a UtxoView then use the function on that to do the lookup
+	if utxoView != nil {
+		return utxoView.GetDeSoBalanceNanosForPublicKey(pubkey)
+	}
+	// If we don't have a UtxoView then do a db lookup
+	if fes.blockchain.Postgres() != nil {
+		return fes.blockchain.Postgres().GetBalance(
+			lib.NewPublicKey(pubkey)), nil
+	} else {
+		return lib.DbGetDeSoBalanceNanosForPublicKey(
+			fes.blockchain.DB(), fes.blockchain.Snapshot(), pubkey)
+	}
+}
+
+func NewHighPrecFloat() *big.Float {
+	// Set ridiculously high precision to avoid any issues reading
+	// ridiculously large float strings.
+	return big.NewFloat(0.0).SetPrec(300).SetMode(big.ToNearestEven)
+}
+
 func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, utxoView *lib.UtxoView) *ProfileEntryResponse {
 	if profileEntry == nil {
 		return nil
@@ -937,6 +978,40 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 			lib.Div(lib.NewFloat().SetUint64(profileEntry.CreatorCoinEntry.DeSoLockedNanos), bigNanosPerUnit),
 			lib.Mul(lib.Div(lib.NewFloat().SetUint64(profileEntry.CreatorCoinEntry.CoinsInCirculationNanos.Uint64()), bigNanosPerUnit),
 				fes.Params.CreatorCoinReserveRatio)), lib.NewFloat().SetUint64(lib.NanosPerUnit)).Uint64()
+	}
+
+	// If anyone holds the DAO coin then try to fetch open orders to see
+	// if there's a market price for the order.
+	bestExchangeRateDESOPerDAOCoin := float64(0)
+	if utxoView != nil && profileEntry.DAOCoinEntry.NumberOfHolders > 0 {
+		// Create entry from txn metadata for the transactor.
+		profilePKID := utxoView.GetPKIDForPublicKey(profileEntry.PublicKey)
+		decimalPriceString, err := fes.GetBestAvailableExchangeRateCoinsToBuyPerCoinToSell(
+			utxoView,
+			&lib.ZeroPKID,    // buying DESO
+			profilePKID.PKID, // selling this profile's DAO coin
+		)
+
+		// This exchange rate calculation is best-effort. If we encounter an error when computing and converting
+		// the exchange rate, then we log and move on
+		if err == nil {
+			bestExchangeRateDESOPerDAOCoin, err = strconv.ParseFloat(decimalPriceString, 64)
+			if err != nil {
+				glog.Errorf(
+					"Error converting price string %s to float64 when calculating best available DESO exchange rate"+
+						" for DAO coin with public key %s: %v",
+					decimalPriceString,
+					lib.Base58CheckEncode(profileEntry.PublicKey, false, fes.Params),
+					err,
+				)
+			}
+		} else {
+			glog.Errorf(
+				"Error computing best available DESO exchange rate for DAO coin with public key %s: %v",
+				lib.Base58CheckEncode(profileEntry.PublicKey, false, fes.Params),
+				err,
+			)
+		}
 	}
 
 	// TODO: Delete this and use global state for verifications once we move all usernames
@@ -960,6 +1035,12 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		}
 	}
 
+	// Populate the balance
+	desoBalance, err := fes.ComputeUserBalance(utxoView, profileEntry.PublicKey)
+	if err != nil {
+		glog.Errorf("Error computing user balance: %v", err)
+	}
+
 	// Generate profile entry response
 	profResponse := &ProfileEntryResponse{
 		PublicKeyBase58Check: lib.PkToString(profileEntry.PublicKey, fes.Params),
@@ -980,12 +1061,14 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 			TransferRestrictionStatus: getTransferRestrictionStatusStringFromTransferRestrictionStatus(
 				profileEntry.DAOCoinEntry.TransferRestrictionStatus),
 		},
-		CoinPriceDeSoNanos:     coinPriceDeSoNanos,
-		CoinPriceBitCloutNanos: coinPriceDeSoNanos,
-		IsHidden:               profileEntry.IsHidden,
-		IsReserved:             isReserved,
-		IsVerified:             isVerified,
-		ExtraData:              extraDataToResponse(profileEntry.ExtraData),
+		CoinPriceDeSoNanos:             coinPriceDeSoNanos,
+		CoinPriceBitCloutNanos:         coinPriceDeSoNanos,
+		IsHidden:                       profileEntry.IsHidden,
+		IsReserved:                     isReserved,
+		IsVerified:                     isVerified,
+		ExtraData:                      DecodeExtraDataMap(fes.Params, utxoView, profileEntry.ExtraData),
+		DESOBalanceNanos:               desoBalance,
+		BestExchangeRateDESOPerDAOCoin: bestExchangeRateDESOPerDAOCoin,
 	}
 
 	return profResponse
@@ -1156,7 +1239,7 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 	}
 
 	// Return an error if we failed to find a profile entry
-	if profileEntry == nil {
+	if profileEntry == nil || profileEntry.IsDeleted() {
 		if !requestData.NoErrorOnMissing {
 			_AddNotFoundError(ww, fmt.Sprintf("GetSingleProfile: could not find profile for username or public key: %v, %v", requestData.Username, requestData.PublicKeyBase58Check))
 		}
@@ -1175,19 +1258,27 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 
 	var userMetadata *UserMetadata
 	userMetadata, err = fes.getUserMetadataFromGlobalState(publicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetSingleProfile: error getting usermetadata for public key: %v", err))
-		return
+	if userMetadata != nil {
+		res.Profile.IsFeaturedTutorialUpAndComingCreator = userMetadata.IsFeaturedTutorialUpAndComingCreator
+		res.Profile.IsFeaturedTutorialWellKnownCreator = userMetadata.IsFeaturedTutorialWellKnownCreator
 	}
-
-	res.Profile.IsFeaturedTutorialUpAndComingCreator = userMetadata.IsFeaturedTutorialUpAndComingCreator
-	res.Profile.IsFeaturedTutorialWellKnownCreator = userMetadata.IsFeaturedTutorialWellKnownCreator
+	if err != nil {
+		glog.Errorf("GetSingleProfile: error getting usermetadata for public key: %v", err)
+	}
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetSingleProfile: Problem serializing object to JSON: %v", err))
 		return
 	}
 }
+
+type TopHodlerSortType string
+
+const (
+	TopHodlerSortTypeNone        TopHodlerSortType = ""
+	TopHodlerSortTypeCoinBalance TopHodlerSortType = "coin_balance"
+	TopHodlerSortTypeWealth      TopHodlerSortType = "wealth"
+)
 
 type GetHodlersForPublicKeyRequest struct {
 	// Either PublicKeyBase58Check or Username can be set by the client to specify
@@ -1207,6 +1298,10 @@ type GetHodlersForPublicKeyRequest struct {
 	// If true, fetch balance entries for your hodlings instead of balance entries for hodler's of your coin
 	FetchHodlings bool
 
+	// The sorting method to use when returning profiles. Defaults to
+	// "coin_balance" when unset.
+	SortType TopHodlerSortType
+
 	// If true, fetch all hodlers/hodlings -- supercedes NumToFetch
 	FetchAll bool
 }
@@ -1223,6 +1318,22 @@ func getHodlerOrHodlingPublicKey(balanceEntryResponse *BalanceEntryResponse, fet
 	} else {
 		return balanceEntryResponse.HODLerPublicKeyBase58Check
 	}
+}
+
+func (fes *APIServer) ComputeWealth(
+	balanceEntryRes *BalanceEntryResponse, utxoView *lib.UtxoView) uint64 {
+
+	iiPubkey, _, _ := lib.Base58CheckDecode(balanceEntryRes.HODLerPublicKeyBase58Check)
+	iiDesoBalance, err := fes.ComputeUserBalance(utxoView, iiPubkey)
+	if err != nil {
+		glog.Errorf("Error computing user balance: %v", err)
+		return uint64(0)
+	}
+	iiDesoLocked := uint64(0)
+	if balanceEntryRes.ProfileEntryResponse != nil {
+		iiDesoLocked = balanceEntryRes.ProfileEntryResponse.CoinEntry.DeSoLockedNanos
+	}
+	return iiDesoBalance + iiDesoLocked
 }
 
 // GetHodlersForPublicKey... Get BalanceEntryResponses for hodlings.
@@ -1284,6 +1395,16 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 	for _, balanceEntryResponse := range hodlMap {
 		hodlList = append(hodlList, balanceEntryResponse)
 	}
+
+	// Validate the sort type
+	if requestData.SortType != TopHodlerSortTypeNone &&
+		requestData.SortType != TopHodlerSortTypeCoinBalance &&
+		requestData.SortType != TopHodlerSortTypeWealth {
+
+		_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Unrecognized "+
+			"sort type: %v", requestData.SortType))
+		return
+	}
 	sort.Slice(hodlList, func(ii, jj int) bool {
 		if hodlList[ii].CreatorPublicKeyBase58Check == hodlList[ii].HODLerPublicKeyBase58Check {
 			return true
@@ -1291,7 +1412,26 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 		if hodlList[jj].CreatorPublicKeyBase58Check == hodlList[jj].HODLerPublicKeyBase58Check {
 			return false
 		}
-		return hodlList[ii].BalanceNanos > hodlList[jj].BalanceNanos
+
+		if requestData.SortType == TopHodlerSortTypeNone ||
+			requestData.SortType == TopHodlerSortTypeCoinBalance {
+
+			if requestData.IsDAOCoin {
+				return hodlList[ii].BalanceNanosUint256.Gt(&hodlList[jj].BalanceNanosUint256)
+			}
+			return hodlList[ii].BalanceNanos > hodlList[jj].BalanceNanos
+		} else if requestData.SortType == TopHodlerSortTypeWealth {
+			// Compute the wealth of each person
+			// TODO: Should we just ignore the error here?
+			iiWealth := fes.ComputeWealth(hodlList[ii], utxoView)
+			jjWealth := fes.ComputeWealth(hodlList[jj], utxoView)
+			return iiWealth > jjWealth
+		} else {
+			_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Unrecognized "+
+				"sort type: %v", requestData.SortType))
+			// TODO: We can't break the execution here but we should
+			return false
+		}
 	})
 	if !requestData.FetchAll {
 		numToFetch := int(requestData.NumToFetch)
@@ -1334,6 +1474,55 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetHodlersForPublicKey: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type GetHolderCountForPublicKeysRequest struct {
+	PublicKeysBase58Check []string
+	IsDAOCoin             bool
+}
+
+func (fes *APIServer) GetHodlersCountForPublicKeys(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetHolderCountForPublicKeysRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetHolderCountForPublicKeys: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Get a view
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetHodlersForPublicKey: Error getting utxoView: %v", err))
+		return
+	}
+	res := make(map[string]int)
+	for _, publicKey := range requestData.PublicKeysBase58Check {
+		// Convert pub key to bytes
+		pkBytes, _, err := lib.Base58CheckDecode(publicKey)
+		if err != nil {
+			_AddBadRequestError(
+				ww,
+				fmt.Sprintf("GetHolderCountForPublicKeys: unable to decode public key - %v: %v", publicKey, err))
+			return
+		}
+		// Get PKID and then get holders for PKID
+		pkid := utxoView.GetPKIDForPublicKey(pkBytes)
+		balanceEntries, _, err := utxoView.GetHolders(pkid.PKID, false, requestData.IsDAOCoin)
+		if err != nil {
+			_AddInternalServerError(
+				ww,
+				fmt.Sprintf("GetHolderCountForPublicKeys: error get holders for public key %v: %v", publicKey, err))
+			return
+		}
+		// set value in map
+		res[publicKey] = len(balanceEntries)
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetHolderCountForPublicKeys: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
@@ -1672,7 +1861,7 @@ func (fes *APIServer) GetFollowsStateless(ww http.ResponseWriter, rr *http.Reque
 		getFollowsRequest.GetEntriesFollowingUsername,
 		utxoView,
 		lastPublicKeySeenBytes,
-		getFollowsRequest.NumToFetch, true, false)
+		getFollowsRequest.NumToFetch, getFollowsRequest.NumToFetch != 0, false)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetFollowsStateless: Problem fetching and decrypting follows: %v", err))
 		return
@@ -1926,7 +2115,8 @@ type GetNotificationsRequest struct {
 	NumToFetch           int64
 	// This defines notifications that should be filtered OUT of the response
 	// If a field is missing from this struct, it should be included in the response
-	// Accepted values are like, diamond, follow, transfer, nft, post
+	// Accepted values are "like", "diamond", "follow", "transfer", "nft", "post",
+	// and "dao coin"
 	FilteredOutNotificationCategories map[string]bool
 }
 
@@ -2241,7 +2431,7 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 
 			// In this case we need to look up the full transaction and convert
 			// it into a proper transaction response.
-			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), txID)
+			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), nil, txID)
 			if txnMeta == nil {
 				// We should never be missing a transaction for a given txid, but
 				// just continue in this case.
@@ -2322,7 +2512,7 @@ func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest,
 	// Get the NextIndex from the db. This will be used to determine whether
 	// or not it's appropriate to fetch txns from the mempool. It will also be
 	// used to assign consistent index values to memppool txns.
-	NextIndexVal := lib.DbGetTxindexNextIndexForPublicKey(fes.TXIndex.TXIndexChain.DB(), pkBytes)
+	NextIndexVal := lib.DbGetTxindexNextIndexForPublicKey(fes.TXIndex.TXIndexChain.DB(), nil, pkBytes)
 	if NextIndexVal == nil {
 		return nil, fmt.Errorf("Unable to get next index for public key: %v", request.PublicKeyBase58Check)
 	}
@@ -2573,7 +2763,9 @@ func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredO
 		txnMeta.TxnType == lib.TxnTypeNFTTransfer.String() || txnMeta.TxnType == lib.TxnTypeCreateNFT.String() ||
 		txnMeta.TxnType == lib.TxnTypeUpdateNFT.String() {
 		return !filteredOutCategories["nft"]
-	} else if txnMeta.TxnType == lib.TxnTypeDAOCoin.String() || txnMeta.TxnType == lib.TxnTypeDAOCoinTransfer.String() {
+	} else if txnMeta.TxnType == lib.TxnTypeDAOCoin.String() ||
+		txnMeta.TxnType == lib.TxnTypeDAOCoinTransfer.String() ||
+		txnMeta.TxnType == lib.TxnTypeDAOCoinLimitOrder.String() {
 		return !filteredOutCategories["dao coin"]
 	}
 	// If the transaction type doesn't fall into any of the previous steps, we don't want it
@@ -2581,6 +2773,10 @@ func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredO
 }
 
 func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Check string, utxoView *lib.UtxoView) bool {
+	if txnMeta.DAOCoinLimitOrderTxindexMetadata != nil {
+		return txnMeta.DAOCoinLimitOrderTxindexMetadata.FilledDAOCoinLimitOrdersMetadata != nil
+	}
+
 	// Transactions initiated by the passed-in public key should not
 	// trigger notifications.
 	if txnMeta.TransactorPublicKeyBase58Check == publicKeyBase58Check {
@@ -2660,6 +2856,12 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 		return true
 	} else if txnMeta.TxnType == lib.TxnTypeBasicTransfer.String() {
 		// Someone paid you
+		return true
+	} else if txnMeta.CreateUserAssociationTxindexMetadata != nil {
+		// Someone created an association referring to you
+		return true
+	} else if txnMeta.CreatePostAssociationTxindexMetadata != nil {
+		// Some created an association referring to one of your posts
 		return true
 	}
 	return false
@@ -2881,8 +3083,9 @@ func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Reque
 	hodlBalanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(
 		userPublicKeyBytes, isHodlingPublicKeyBytes, requestData.IsDAOCoin)
 	if hodlBalanceEntry != nil {
+		hodlingProfileEntry := utxoView.GetProfileEntryForPublicKey(isHodlingPublicKeyBytes)
 		BalanceEntry = fes._balanceEntryToResponse(
-			hodlBalanceEntry, hodlBalanceEntry.BalanceNanos.Uint64(), nil, utxoView)
+			hodlBalanceEntry, hodlBalanceEntry.BalanceNanos.Uint64(), hodlingProfileEntry, utxoView)
 		IsHodling = true
 	}
 
@@ -2926,7 +3129,7 @@ func (fes *APIServer) GetUsernameForPublicKey(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	if err = json.NewEncoder(ww).Encode(profileEntry.Username); err != nil {
+	if err = json.NewEncoder(ww).Encode(string(profileEntry.Username)); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUsernameForPublicKey: Error encoding response: %v", err))
 		return
 	}
@@ -2983,7 +3186,7 @@ type UserDerivedKey struct {
 	// ExtraData is an arbitrary key value map
 	ExtraData map[string]string `safeForLogging:"true"`
 
-  // TransactionSpendingLimit represents the current state of the TransactionSpendingLimitTracker
+	// TransactionSpendingLimit represents the current state of the TransactionSpendingLimitTracker
 	TransactionSpendingLimit *TransactionSpendingLimitResponse `safeForLogging:"true"`
 
 	// Memo is a string that describes the Derived Key
@@ -3032,29 +3235,15 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 
 	// Derived keys are not automatically expired in the DB when we reach the expiration block height.
 	// They should be manually checked against the current block height to verify their validity.
-	blockTip := fes.backendServer.GetBlockchain().BlockTip()
+	blockHeight := fes.backendServer.GetBlockchain().BlockTip().Height
 
 	// Create the derivedKeys map, indexed by derivedPublicKeys in base58Check.
 	// We use the UserDerivedKey struct instead of the lib.DerivedKeyEntry type
 	// so that we can return public keys in base58Check.
 	derivedKeys := make(map[string]*UserDerivedKey)
 	for _, entry := range derivedKeyMappings {
-		// isValid is initialized to true if the derived key entry is marked as valid in the DB.
-		isValid := entry.OperationType == lib.AuthorizeDerivedKeyOperationValid
-		// Check if the key has expired, if so then we will invalidate the key in the response.
-		if entry.ExpirationBlock <= uint64(blockTip.Height) {
-			isValid = false
-		}
-		derivedPublicKey := lib.PkToString(entry.DerivedPublicKey[:], fes.Params)
-		derivedKeys[derivedPublicKey] = &UserDerivedKey{
-			OwnerPublicKeyBase58Check:   lib.PkToString(entry.OwnerPublicKey[:], fes.Params),
-			DerivedPublicKeyBase58Check: lib.PkToString(entry.DerivedPublicKey[:], fes.Params),
-			ExpirationBlock:             entry.ExpirationBlock,
-			IsValid:                     isValid,
-			ExtraData:                   extraDataToResponse(entry.ExtraData),
-			TransactionSpendingLimit:    TransactionSpendingLimitToResponse(entry.TransactionSpendingLimitTracker, utxoView, fes.Params),
-			Memo:                        hex.EncodeToString(entry.Memo),
-		}
+		derivedKey := fes.DerivedKeyEntryToUserDerivedKey(entry, blockHeight, utxoView)
+		derivedKeys[derivedKey.DerivedPublicKeyBase58Check] = derivedKey
 	}
 
 	res := GetUserDerivedKeysResponse{
@@ -3064,6 +3253,81 @@ func (fes *APIServer) GetUserDerivedKeys(ww http.ResponseWriter, req *http.Reque
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetUserDerivedKeys: Problem serializing object to JSON: %v", err))
 		return
+	}
+}
+
+type GetSingleDerivedKeyResponse struct {
+	DerivedKey *UserDerivedKey
+}
+
+func (fes *APIServer) GetSingleDerivedKey(ww http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+
+	ownerPublicKeyBase58Check, ownerPublicKeyExists := vars["ownerPublicKeyBase58Check"]
+	if !ownerPublicKeyExists {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleDerivedKey: ownerPublicKeyBase58Check required"))
+		return
+	}
+
+	derivedPublicKeyBase58Check, derivedPublicKeyExists := vars["derivedPublicKeyBase58Check"]
+	if !derivedPublicKeyExists {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleDerivedKey: derivedPublicKeyBase58Check required"))
+		return
+	}
+
+	ownerPublicKeyBytes, _, err := lib.Base58CheckDecode(ownerPublicKeyBase58Check)
+	if err != nil || len(ownerPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetSingleDerivedKey: Problem decoding owner public key %s: %v",
+			ownerPublicKeyBase58Check, err))
+		return
+	}
+
+	derivedPublicKeyBytes, _, err := lib.Base58CheckDecode(derivedPublicKeyBase58Check)
+	if err != nil || len(derivedPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetSingleDerivedKey: Problem decoding derived public key %s: %v",
+			derivedPublicKeyBase58Check, err))
+		return
+	}
+
+	// Get augmented utxoView.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetSingleDerivedKey: Problem getting augmented utxoView: %v", err))
+		return
+	}
+	derivedKeyEntry := utxoView.GetDerivedKeyMappingForOwner(ownerPublicKeyBytes, derivedPublicKeyBytes)
+	if derivedKeyEntry == nil || derivedKeyEntry.IsDeleted() {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSingleDerivedKey: DerivedKey was not found"))
+		return
+	}
+
+	res := GetSingleDerivedKeyResponse{
+		DerivedKey: fes.DerivedKeyEntryToUserDerivedKey(derivedKeyEntry, fes.backendServer.GetBlockchain().BlockTip().Height, utxoView),
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetSingleDerivedKey: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) DerivedKeyEntryToUserDerivedKey(entry *lib.DerivedKeyEntry, blockHeight uint32, utxoView *lib.UtxoView) *UserDerivedKey {
+	// isValid is initialized to true if the derived key entry is marked as valid in the DB.
+	isValid := entry.OperationType == lib.AuthorizeDerivedKeyOperationValid
+	// Check if the key has expired, if so then we will invalidate the key in the response.
+	if entry.ExpirationBlock <= uint64(blockHeight) {
+		isValid = false
+	}
+	return &UserDerivedKey{
+		OwnerPublicKeyBase58Check:   lib.PkToString(entry.OwnerPublicKey[:], fes.Params),
+		DerivedPublicKeyBase58Check: lib.PkToString(entry.DerivedPublicKey[:], fes.Params),
+		ExpirationBlock:             entry.ExpirationBlock,
+		IsValid:                     isValid,
+		ExtraData:                   DecodeExtraDataMap(fes.Params, utxoView, entry.ExtraData),
+		TransactionSpendingLimit:    TransactionSpendingLimitToResponse(entry.TransactionSpendingLimitTracker, utxoView, fes.Params),
+		Memo:                        hex.EncodeToString(entry.Memo),
 	}
 }
 
@@ -3088,7 +3352,8 @@ func (fes *APIServer) GetTransactionSpendingLimitHexString(ww http.ResponseWrite
 			"spending limit from response: %v", err))
 		return
 	}
-	tslBytes, err := transactionSpendingLimit.ToBytes()
+	blockHeight := uint64(fes.blockchain.BlockTip().Height)
+	tslBytes, err := transactionSpendingLimit.ToBytes(blockHeight)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpendingLimitHexString: Error in ToBytes: %v", err))
 		return
@@ -3103,9 +3368,59 @@ func (fes *APIServer) GetTransactionSpendingLimitHexString(ww http.ResponseWrite
 	}
 }
 
+type GetAccessBytesRequest struct {
+	DerivedPublicKeyBase58Check string
+	ExpirationBlock             uint64
+	TransactionSpendingLimit    TransactionSpendingLimitResponse
+}
+
+type GetAccessBytesResponse struct {
+	TransactionSpendingLimitHex string
+	AccessBytesHex              string
+}
+
+func (fes *APIServer) GetAccessBytes(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetAccessBytesRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAccessBytes: Error parsing request body: %v", err))
+		return
+	}
+	derivedPublicKey, _, err := lib.Base58CheckDecode(requestData.DerivedPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAccessBytes: Problem decoding derived public key: %v", err))
+		return
+	}
+
+	transactionSpendingLimit, err := fes.TransactionSpendingLimitFromResponse(requestData.TransactionSpendingLimit)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAccessBytes: Error parsing transaction "+
+			"spending limit from response: %v", err))
+		return
+	}
+	// Sanity check: Try encoding transactionSpendingLimit just in case.
+	blockHeight := uint64(fes.blockchain.BlockTip().Height)
+	transactionSpendingBytes, err := transactionSpendingLimit.ToBytes(blockHeight)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAccessBytes: Error in ToBytes: %v", err))
+		return
+	}
+
+	accessBytes := lib.AssembleAccessBytesWithMetamaskStrings(derivedPublicKey, requestData.ExpirationBlock,
+		transactionSpendingLimit, fes.Params)
+	res := &GetAccessBytesResponse{
+		TransactionSpendingLimitHex: hex.EncodeToString(transactionSpendingBytes),
+		AccessBytesHex:              hex.EncodeToString(accessBytes),
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetAccessBytes: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
+
 func (fes *APIServer) GetTransactionSpendingLimitResponseFromHex(ww http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
-
+	query := req.URL.Query()
 	transactionSpendingLimitHex, transactionSpendingLimitHexExists := vars["transactionSpendingLimitHex"]
 	if !transactionSpendingLimitHexExists {
 		_AddBadRequestError(ww, fmt.Sprintf(
@@ -3121,7 +3436,23 @@ func (fes *APIServer) GetTransactionSpendingLimitResponseFromHex(ww http.Respons
 	}
 
 	var transactionSpendingLimit lib.TransactionSpendingLimit
-	if err = transactionSpendingLimit.FromBytes(tslBytes); err != nil {
+	blockHeight := uint64(fes.blockchain.BlockTip().Height)
+	if blockHeightString, ok := query["blockHeight"]; ok {
+		if len(blockHeightString) > 0 {
+			blockHeightInt, err := strconv.ParseInt(blockHeightString[0], 10, 64)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpendingLimitResponseFromHex: Error parsing blockHeight query param: %v", err))
+				return
+			}
+			if blockHeightInt < 0 || blockHeightInt > math.MaxUint64 {
+				_AddBadRequestError(ww, fmt.Sprint("GetTransactionSpendingLimitResponseFromHex: blockHeight query param must be uint64"))
+				return
+			}
+			blockHeight = uint64(blockHeightInt)
+		}
+	}
+	rr := bytes.NewReader(tslBytes)
+	if err = transactionSpendingLimit.FromBytes(blockHeight, rr); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetTransactionSpendingLimitResponseFromHex: Error constructing TransactionSpendingLimit from bytes"))
 		return
@@ -3192,20 +3523,25 @@ func (fes *APIServer) DeletePII(ww http.ResponseWriter, rr *http.Request) {
 
 	// If user metadata has a phone number, get the phone number metadata and delete relevant fields.
 	if userMetadata.PhoneNumber != "" {
-		var phoneNumberMetadata *PhoneNumberMetadata
-		phoneNumberMetadata, err = fes.getPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
+		var multiPhoneNumberMetadata []*PhoneNumberMetadata
+		multiPhoneNumberMetadata, err = fes.getMultiPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("DeletePII: Error fetching phone number metadata from global state: %v", err))
 			return
 		}
-		// Unset the public key so the history of this phone number can't be tracked back to a public key
-		phoneNumberMetadata.PublicKey = nil
-		// We explicity set should comp profile creation to false since we can't associate this phone number to a public key anymore.
-		phoneNumberMetadata.ShouldCompProfileCreation = false
+		newMultiPhoneNumberMetadata := []*PhoneNumberMetadata{}
+		for _, phoneNumberMetadata := range multiPhoneNumberMetadata {
+			if bytes.Equal(phoneNumberMetadata.PublicKey, publicKeyBytes) {
+				// Unset the public key so the history of this phone number can't be tracked back to a public key
+				phoneNumberMetadata.PublicKey = nil
+				// We explicity set should comp profile creation to false since we can't associate this phone number to a public key anymore.
+				phoneNumberMetadata.ShouldCompProfileCreation = false
+				phoneNumberMetadata.PublicKeyDeleted = true
+			}
+			newMultiPhoneNumberMetadata = append(newMultiPhoneNumberMetadata, phoneNumberMetadata)
+		}
 
-		phoneNumberMetadata.PublicKeyDeleted = true
-
-		if err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata); err != nil {
+		if err = fes.putPhoneNumberMetadataInGlobalState(newMultiPhoneNumberMetadata, userMetadata.PhoneNumber); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("DeletePII: Error putting updated phone number metadata in global state: %v", err))
 			return
 		}
@@ -3244,7 +3580,7 @@ func (fes *APIServer) GetBlacklistState(pkid *lib.PKID) []byte {
 	return fes.BlacklistedPKIDMap[*pkid]
 }
 
-func (fes *APIServer) GetPubKeAndProfileEntryForUsernameOrPublicKeyBase58Check(
+func (fes *APIServer) GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
 	pubKeyOrUsername string, utxoView *lib.UtxoView) (_pubKeyBytes []byte, _profileEntry *lib.ProfileEntry, _err error) {
 	var pubKeyBytes []byte
 	var profileEntry *lib.ProfileEntry

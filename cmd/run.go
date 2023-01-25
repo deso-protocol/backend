@@ -1,17 +1,12 @@
 package cmd
 
 import (
-	"os"
-	"os/signal"
-	"syscall"
-
 	"github.com/deso-protocol/backend/config"
 	coreCmd "github.com/deso-protocol/core/cmd"
+	"github.com/golang/glog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-
-	"github.com/golang/glog"
 )
 
 // runCmd represents the run command
@@ -23,24 +18,27 @@ var runCmd = &cobra.Command{
 }
 
 func Run(cmd *cobra.Command, args []string) {
+	shutdownListener := make(chan struct{})
+
 	// Start the core node
 	coreConfig := coreCmd.LoadConfig()
 	coreNode := coreCmd.NewNode(coreConfig)
-	coreNode.Start()
+	coreNode.Start(&shutdownListener)
 
 	// Start the backend node
 	nodeConfig := config.LoadConfig(coreConfig)
 	node := NewNode(nodeConfig, coreNode)
 	node.Start()
 
-	shutdownListener := make(chan os.Signal)
-	signal.Notify(shutdownListener, syscall.SIGINT, syscall.SIGTERM)
 	defer func() {
+		coreNode.Stop()
 		node.Stop()
 		glog.Info("Shutdown complete")
 	}()
 
-	<-shutdownListener
+	if shutdownListener != nil {
+		<-shutdownListener
+	}
 }
 
 func init() {
@@ -76,6 +74,10 @@ func init() {
 	runCmd.PersistentFlags().Uint64("min-satoshis-for-profile", 50000,
 		"Users won't be able to create a profile unless they buy this "+
 			"amount of satoshis or provide a phone number.")
+	// How many times can a phone number be used to receive starter DESO.
+	runCmd.PersistentFlags().Uint64("phone-number-use-threshold", 10, "A phone number will "+
+		"be allowed to be used this many times to receive starter DESO. Set this to a higher value "+
+		"if you want users to be able to create multiple accounts more easily.")
 
 	// Global State
 	runCmd.PersistentFlags().String("global-state-remote-node", "",
@@ -91,6 +93,8 @@ func init() {
 	runCmd.PersistentFlags().Bool("run-hot-feed-routine", false,
 		"If set, runs a go routine that accumulates 'hotness' scores for posts  in the "+
 			"last 24hrs.  This can be used to serve a 'hot' feed.")
+	runCmd.PersistentFlags().Bool("hot-feed-media-required", false,
+		"If set, hot feed excludes posts without media.")
 
 	// Web Security
 	runCmd.PersistentFlags().StringSlice("access-control-allow-origins", []string{"*"},
@@ -163,6 +167,15 @@ func init() {
 	// Tag transaction with node source
 	runCmd.PersistentFlags().Uint64("node-source", 0, "Node ID to tag transaction with. Maps to ../core/lib/nodes.go")
 
+	// Public keys that need their balances monitored. Map of Label to Public key
+	runCmd.PersistentFlags().String("public-key-balances-to-monitor", "",
+		"Comma-separated string of 'label=publicKey'. These balances of the public key provided will be logged in DataDog with the label provided.")
+
+	// Metamask minimal Eth in Wei required to receive an airdrop.
+	// The default 100000000000000 is equal to .0001 Eth.
+	runCmd.PersistentFlags().String("metamask-airdrop-eth-minimum", "100000000000000",
+		"In Wei, amount of Eth required to receive an airdrop during Metamask signup.")
+	runCmd.PersistentFlags().Uint64("metamask-airdrop-deso-nanos-amount", 0, "Amount of DESO in nanos to send to metamask users as an airdrop")
 	runCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
 		viper.BindPFlag(flag.Name, flag)
 	})
