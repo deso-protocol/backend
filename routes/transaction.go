@@ -6,13 +6,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/holiman/uint256"
 	"io"
 	"math/big"
 	"net/http"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/holiman/uint256"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
@@ -3162,6 +3163,31 @@ func (fes *APIServer) getTransactionFee(txnType lib.TxnType, transactorPublicKey
 	return newOutputs, nil
 }
 
+type AssociationLimitMapItem struct {
+	AssociationClass        lib.AssociationClassString
+	AssociationType         string
+	AppScopeType            lib.AssociationAppScopeTypeString
+	AppPublicKeyBase58Check string
+	AssociationOperation    lib.AssociationOperationString
+	OpCount                 uint64
+}
+
+type AccessGroupLimitMapItem struct {
+	AccessGroupOwnerPublicKeyBase58Check string
+	ScopeType                            lib.AccessGroupScopeString
+	AccessGroupKeyName                   string
+	OperationType                        lib.AccessGroupOperationString
+	OpCount                              uint64
+}
+
+type AccessGroupMemberLimitMapItem struct {
+	AccessGroupOwnerPublicKeyBase58Check string
+	ScopeType                            lib.AccessGroupScopeString
+	AccessGroupKeyName                   string
+	OperationType                        lib.AccessGroupMemberOperationString
+	OpCount                              uint64
+}
+
 // TransactionSpendingLimitResponse is a backend struct used to describe the TransactionSpendingLimit for a Derived key
 // in a way that can be JSON encoded/decoded.
 type TransactionSpendingLimitResponse struct {
@@ -3186,6 +3212,13 @@ type TransactionSpendingLimitResponse struct {
 	// of SellingCoinPublicKey mapped to the number of DAO Coin Limit Order transactions with
 	// this Buying and Selling coin pair that the derived key is authorized to perform.
 	DAOCoinLimitOrderLimitMap map[string]map[string]uint64
+	// AssociationLimitMap is a slice of AssociationLimitMapItems. Because there are so many attributes to define
+	// the key for AssociationLimits, we represent it as a slice instead of a deeply nested map.
+	AssociationLimitMap []AssociationLimitMapItem
+	// AccessGroupLimitMap is a slice of AccessGroupLimitMapItems.
+	AccessGroupLimitMap []AccessGroupLimitMapItem
+	// AccessGroupMemberLimitMap is a slice of AccessGroupMemberLimitMapItems.
+	AccessGroupMemberLimitMap []AccessGroupMemberLimitMapItem
 
 	// ===== ENCODER MIGRATION lib.UnlimitedDerivedKeysMigration =====
 	// IsUnlimited determines whether this derived key is unlimited. An unlimited derived key can perform all transactions
@@ -3471,6 +3504,70 @@ func TransactionSpendingLimitToResponse(
 			transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap[buyingPublicKey][sellingPublicKey] = opCount
 		}
 	}
+
+	// Iterate over the AssociationLimitMap - convert association limit key and op count to AssociationLimitMapItem
+	// structs.
+	if len(transactionSpendingLimit.AssociationLimitMap) > 0 {
+		for associationLimitKey, opCount := range transactionSpendingLimit.AssociationLimitMap {
+			associationClassString := associationLimitKey.AssociationClass.ToAssociationClassString()
+			associationType := associationLimitKey.AssociationType
+			associationAppScopeTypeString := associationLimitKey.AppScopeType.ToAssociationAppScopeTypeString()
+			associationOperationString := associationLimitKey.Operation.ToAssociationOperationString()
+			var appPublicKey string
+			if !associationLimitKey.AppPKID.IsZeroPKID() {
+				appPkBytes := utxoView.GetPublicKeyForPKID(&associationLimitKey.AppPKID)
+				appPublicKey = lib.PkToString(appPkBytes, params)
+			}
+			transactionSpendingLimitResponse.AssociationLimitMap = append(transactionSpendingLimitResponse.AssociationLimitMap,
+				AssociationLimitMapItem{
+					AssociationClass:        associationClassString,
+					AssociationType:         associationType,
+					AppScopeType:            associationAppScopeTypeString,
+					AppPublicKeyBase58Check: appPublicKey,
+					AssociationOperation:    associationOperationString,
+					OpCount:                 opCount,
+				})
+		}
+	}
+
+	// Iterate over the AccessGroupLimitMap.
+	if len(transactionSpendingLimit.AccessGroupMap) > 0 {
+		for accessGroupLimitKey, opCount := range transactionSpendingLimit.AccessGroupMap {
+			accessGroupOwnerPublicKeyBase58Check := lib.Base58CheckEncode(
+				accessGroupLimitKey.AccessGroupOwnerPublicKey.ToBytes(), false, params,
+			)
+			transactionSpendingLimitResponse.AccessGroupLimitMap = append(
+				transactionSpendingLimitResponse.AccessGroupLimitMap,
+				AccessGroupLimitMapItem{
+					AccessGroupOwnerPublicKeyBase58Check: accessGroupOwnerPublicKeyBase58Check,
+					ScopeType:                            accessGroupLimitKey.AccessGroupScopeType.ToAccessGroupScopeString(),
+					AccessGroupKeyName:                   string(lib.AccessKeyNameDecode(&accessGroupLimitKey.AccessGroupKeyName)),
+					OperationType:                        accessGroupLimitKey.OperationType.ToAccessGroupOperationString(),
+					OpCount:                              opCount,
+				},
+			)
+		}
+	}
+
+	// Iterate over the AccessGroupMemberLimitMap.
+	if len(transactionSpendingLimit.AccessGroupMemberMap) > 0 {
+		for accessGroupMemberLimitKey, opCount := range transactionSpendingLimit.AccessGroupMemberMap {
+			accessGroupOwnerPublicKeyBase58Check := lib.Base58CheckEncode(
+				accessGroupMemberLimitKey.AccessGroupOwnerPublicKey.ToBytes(), false, params,
+			)
+			transactionSpendingLimitResponse.AccessGroupMemberLimitMap = append(
+				transactionSpendingLimitResponse.AccessGroupMemberLimitMap,
+				AccessGroupMemberLimitMapItem{
+					AccessGroupOwnerPublicKeyBase58Check: accessGroupOwnerPublicKeyBase58Check,
+					ScopeType:                            accessGroupMemberLimitKey.AccessGroupScopeType.ToAccessGroupScopeString(),
+					AccessGroupKeyName:                   string(lib.AccessKeyNameDecode(&accessGroupMemberLimitKey.AccessGroupKeyName)),
+					OperationType:                        accessGroupMemberLimitKey.OperationType.ToAccessGroupMemberOperationString(),
+					OpCount:                              opCount,
+				},
+			)
+		}
+	}
+
 	return transactionSpendingLimitResponse
 }
 
@@ -3577,6 +3674,60 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 				transactionSpendingLimit.DAOCoinLimitOrderLimitMap[lib.MakeDAOCoinLimitOrderLimitKey(
 					*buyingPKID, *sellingPKID)] = count
 			}
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.AssociationLimitMap) > 0 {
+		transactionSpendingLimit.AssociationLimitMap = make(map[lib.AssociationLimitKey]uint64)
+		for _, associationLimitMapItem := range transactionSpendingLimitResponse.AssociationLimitMap {
+			appPKID := &lib.ZeroPKID
+			if associationLimitMapItem.AppPublicKeyBase58Check != "" {
+				appPKID, err = getCreatorPKIDForBase58Check(associationLimitMapItem.AppPublicKeyBase58Check)
+				if err != nil {
+					return nil, err
+				}
+			}
+			transactionSpendingLimit.AssociationLimitMap[lib.MakeAssociationLimitKey(
+				associationLimitMapItem.AssociationClass.ToAssociationClass(),
+				[]byte(associationLimitMapItem.AssociationType),
+				*appPKID,
+				associationLimitMapItem.AppScopeType.ToAssociationAppScopeType(),
+				associationLimitMapItem.AssociationOperation.ToAssociationOperation(),
+			)] = associationLimitMapItem.OpCount
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.AccessGroupLimitMap) > 0 {
+		transactionSpendingLimit.AccessGroupMap = make(map[lib.AccessGroupLimitKey]uint64)
+		for _, accessGroupLimitMapItem := range transactionSpendingLimitResponse.AccessGroupLimitMap {
+			accessGroupOwnerPublicKey, _, err := lib.Base58CheckDecode(accessGroupLimitMapItem.AccessGroupOwnerPublicKeyBase58Check)
+			if err != nil {
+				return nil, err
+			}
+			accessGroupLimitKey := lib.MakeAccessGroupLimitKey(
+				*lib.NewPublicKey(accessGroupOwnerPublicKey),
+				accessGroupLimitMapItem.ScopeType.ToAccessGroupScopeType(),
+				*lib.NewGroupKeyName([]byte(accessGroupLimitMapItem.AccessGroupKeyName)),
+				accessGroupLimitMapItem.OperationType.ToAccessGroupOperationType(),
+			)
+			transactionSpendingLimit.AccessGroupMap[accessGroupLimitKey] = accessGroupLimitMapItem.OpCount
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.AccessGroupMemberLimitMap) > 0 {
+		transactionSpendingLimit.AccessGroupMemberMap = make(map[lib.AccessGroupMemberLimitKey]uint64)
+		for _, accessGroupMemberLimitMapItem := range transactionSpendingLimitResponse.AccessGroupMemberLimitMap {
+			accessGroupOwnerPublicKey, _, err := lib.Base58CheckDecode(accessGroupMemberLimitMapItem.AccessGroupOwnerPublicKeyBase58Check)
+			if err != nil {
+				return nil, err
+			}
+			accessGroupMemberLimitKey := lib.MakeAccessGroupMemberLimitKey(
+				*lib.NewPublicKey(accessGroupOwnerPublicKey),
+				accessGroupMemberLimitMapItem.ScopeType.ToAccessGroupScopeType(),
+				*lib.NewGroupKeyName([]byte(accessGroupMemberLimitMapItem.AccessGroupKeyName)),
+				accessGroupMemberLimitMapItem.OperationType.ToAccessGroupMemberOperation(),
+			)
+			transactionSpendingLimit.AccessGroupMemberMap[accessGroupMemberLimitKey] = accessGroupMemberLimitMapItem.OpCount
 		}
 	}
 

@@ -308,8 +308,8 @@ func (fes *APIServer) UploadVideo(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: Unable to convert Upload-Length header to int for validation: %v", err))
 		return
 	}
-	if uploadLength > 4*1024*1024*1024 {
-		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: Files must be less than 4GB"))
+	if uploadLength > 250*1024*1024 {
+		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: Files must be less than 250MB"))
 		return
 	}
 	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%v/stream?direct_user=true", fes.Config.CloudflareAccountId)
@@ -465,6 +465,48 @@ func (fes *APIServer) EnableVideoDownload(ww http.ResponseWriter, req *http.Requ
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("EnableVideoDownload: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
+
+type CFVideoOEmbedResponse struct {
+	Height uint64 `json:"height"`
+	Width  uint64 `json:"width"`
+}
+
+type GetVideoDimensionsResponse struct {
+	Height uint64 `json:"height"`
+	Width  uint64 `json:"width"`
+}
+
+func (fes *APIServer) GetVideoDimensions(ww http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	videoId, videoIdExists := vars["videoId"]
+	if !videoIdExists {
+		_AddBadRequestError(ww, fmt.Sprintf("GetVideoStatus: Missing videoId"))
+		return
+	}
+	url := fmt.Sprintf("https://iframe.videodelivery.net/oembed?url=https://iframe.videodelivery.net/%v", videoId)
+	client := &http.Client{}
+	request, err := http.NewRequest("GET", url, nil)
+	request.Header.Add("Content-Type", "application/json")
+	resp, err := client.Do(request)
+	cfVideoOEmbedResponse := &CFVideoOEmbedResponse{}
+	if err = json.NewDecoder(resp.Body).Decode(&cfVideoOEmbedResponse); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetVideoStatus: failed decoding body: %v", err))
+		return
+	}
+	if err = resp.Body.Close(); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetVideoStatus: failed closing body: %v", err))
+		return
+	}
+
+	res := &GetVideoDimensionsResponse{
+		Height: cfVideoOEmbedResponse.Height,
+		Width:  cfVideoOEmbedResponse.Width,
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetVideoStatus: Problem serializing object to JSON: %v", err))
 		return
 	}
 }

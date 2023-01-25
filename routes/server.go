@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	fmt "fmt"
-	"github.com/pkg/errors"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/config"
@@ -99,6 +100,7 @@ const (
 	RoutePathGetTransactorDaoCoinLimitOrders = "/api/v0/get-transactor-dao-coin-limit-orders"
 
 	// post.go
+	RoutePathGetPostsHashHexList    = "/api/v0/get-posts-hashhexlist"
 	RoutePathGetPostsStateless      = "/api/v0/get-posts-stateless"
 	RoutePathGetSinglePost          = "/api/v0/get-single-post"
 	RoutePathGetLikesForPost        = "/api/v0/get-likes-for-post"
@@ -134,6 +136,7 @@ const (
 	RoutePathGetFullTikTokURL    = "/api/v0/get-full-tiktok-url"
 	RoutePathUploadVideo         = "/api/v0/upload-video"
 	RoutePathGetVideoStatus      = "/api/v0/get-video-status"
+  RoutePathGetVideoDimensions  = "/api/v0/get-video-dimensions"
 	RoutePathEnableVideoDownload = "/api/v0/enable-video-download"
 
 	// message.go
@@ -269,6 +272,35 @@ const (
 	RoutePathGetTotalSupply       = "/api/v0/total-supply"
 	RoutePathGetRichList          = "/api/v0/rich-list"
 	RoutePathGetCountKeysWithDESO = "/api/v0/count-keys-with-deso"
+
+	// access_group.go
+	RoutePathCreateAccessGroup                = "/api/v0/create-access-group"
+	RoutePathAddAccessGroupMembers            = "/api/v0/add-access-group-members"
+	RoutePathGetAllUserAccessGroups           = "/api/v0/get-all-user-access-groups"
+	RoutePathGetAllUserAccessGroupsOwned      = "/api/v0/get-all-user-access-groups-owned"
+	RoutePathGetAllUserAccessGroupsMemberOnly = "/api/v0/get-all-user-access-groups-member-only"
+	RoutePathCheckPartyAccessGroups           = "/api/v0/check-party-access-groups"
+	RoutePathGetAccessGroupInfo               = "/api/v0/get-access-group-info"
+	RoutePathGetAccessGroupMemberInfo         = "/api/v0/get-access-group-member-info"
+	RoutePathGetPaginatedAccessGroupMembers   = "/api/v0/get-paginated-access-group-members"
+	RoutePathGetBulkAccessGroupEntries        = "/api/v0/get-bulk-access-group-entries"
+
+	// new_message.go
+	RoutePathSendDmMessage                             = "/api/v0/send-dm-message"
+	RoutePathSendGroupChatMessage                      = "/api/v0/send-group-chat-message"
+	RoutePathGetUserDmThreadsOrderedByTimestamp        = "/api/v0/get-user-dm-threads-ordered-by-timestamp"
+	RoutePathGetPaginatedMessagesForDmThread           = "/api/v0/get-paginated-messages-for-dm-thread"
+	RoutePathGetUserGroupChatThreadsOrderedByTimestamp = "/api/v0/get-user-group-chat-threads-ordered-by-timestamp"
+	RoutePathGetPaginatedMessagesForGroupChatThread    = "/api/v0/get-paginated-messages-for-group-chat-thread"
+	RoutePathGetAllUserMessageThreads                  = "/api/v0/get-all-user-message-threads"
+
+	// associations.go
+	RoutePathUserAssociations = "/api/v0/user-associations"
+	RoutePathPostAssociations = "/api/v0/post-associations"
+
+	// snapshot.go
+	RoutePathSnapshotEpochMetadata = "/api/v0/snapshot-epoch-metadata"
+	RoutePathStateChecksum         = "/api/v0/state-checksum"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -315,6 +347,10 @@ type APIServer struct {
 	LastTradeDeSoPriceHistory []LastTradePriceHistoryItem
 	// How far back do we consider trade prices when we set the current price of $DESO in nanoseconds
 	LastTradePriceLookback uint64
+
+	// most recent exchange prices fetched
+	MostRecentCoinbasePriceUSDCents         uint64
+	MostRecentBlockchainDotComPriceUSDCents uint64
 
 	// Base-58 prefix to check for to determine if a string could be a public key.
 	PublicKeyBase58Prefix string
@@ -647,6 +683,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathSubmitPost,
 			fes.SubmitPost,
+			PublicAccess,
+		},
+		{
+			"PostsHashHexList",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPostsHashHexList,
+			fes.GetPostsHashHexList,
 			PublicAccess,
 		},
 		{
@@ -1118,6 +1161,90 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetTransactorDaoCoinLimitOrders,
 			fes.GetTransactorDAOCoinLimitOrders,
+			PublicAccess,
+		},
+		{
+			"CreateUserAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/create",
+			fes.CreateUserAssociation,
+			PublicAccess,
+		},
+		{
+			"DeleteUserAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/delete",
+			fes.DeleteUserAssociation,
+			PublicAccess,
+		},
+		{
+			"GetUserAssociationByID",
+			[]string{"GET"},
+			RoutePathUserAssociations + "/{associationID:[a-fA-F0-9]+$}",
+			fes.GetUserAssociationByID,
+			PublicAccess,
+		},
+		{
+			"GetUserAssociations",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/query",
+			fes.GetUserAssociations,
+			PublicAccess,
+		},
+		{
+			"CountUserAssociations",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/count",
+			fes.CountUserAssociations,
+			PublicAccess,
+		},
+		{
+			"CountUserAssociationsByValue",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/counts",
+			fes.CountUserAssociationsByValue,
+			PublicAccess,
+		},
+		{
+			"CreatePostAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/create",
+			fes.CreatePostAssociation,
+			PublicAccess,
+		},
+		{
+			"DeletePostAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/delete",
+			fes.DeletePostAssociation,
+			PublicAccess,
+		},
+		{
+			"GetPostAssociationByID",
+			[]string{"GET"},
+			RoutePathPostAssociations + "/{associationID:[a-fA-F0-9]+$}",
+			fes.GetPostAssociationByID,
+			PublicAccess,
+		},
+		{
+			"GetPostAssociations",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/query",
+			fes.GetPostAssociations,
+			PublicAccess,
+		},
+		{
+			"CountPostAssociations",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/count",
+			fes.CountPostAssociations,
+			PublicAccess,
+		},
+		{
+			"CountPostAssociationsByValue",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/counts",
+			fes.CountPostAssociationsByValue,
 			PublicAccess,
 		},
 		// Jumio Routes
@@ -1673,6 +1800,21 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetBulkMessagingPublicKeys,
 			PublicAccess,
 		},
+		// Snapshot endpoints
+		{
+			"SnapshotEpochMetadata",
+			[]string{"GET"},
+			RoutePathSnapshotEpochMetadata,
+			fes.GetSnapshotEpochMetadata,
+			PublicAccess,
+		},
+		{
+			"StateChecksum",
+			[]string{"GET"},
+			RoutePathStateChecksum,
+			fes.GetStateChecksum,
+			PublicAccess,
+		},
 
 		// Paths for the mining pool
 		{
@@ -1716,6 +1858,12 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathEnableVideoDownload,
 			fes.EnableVideoDownload,
+    },
+    {
+			"GetVideoDimensions",
+			[]string{"GET"},
+			RoutePathGetVideoDimensions + "/{videoId:[0-9a-z]{25,35}}",
+			fes.GetVideoDimensions,
 			PublicAccess,
 		},
 		// Paths for wyre
@@ -1789,6 +1937,127 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetCountKeysWithDESO,
 			fes.GetCountKeysWithDESO,
+			PublicAccess,
+		},
+		// registering the routes related to access groups
+		{
+			"CreateAccessGroup",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateAccessGroup,
+			fes.CreateAccessGroup,
+			PublicAccess,
+		},
+		{
+			"AddAccessGroupMembers",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAddAccessGroupMembers,
+			fes.AddAccessGroupMembers,
+			PublicAccess,
+		},
+		{
+			"GetAllUserAccessGroups",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAllUserAccessGroups,
+			fes.GetAllUserAccessGroups,
+			PublicAccess,
+		},
+		{
+			"GetAllUserAccessGroupsOwned",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAllUserAccessGroupsOwned,
+			fes.GetAllUserAccessGroupsOwned,
+			PublicAccess,
+		},
+		{
+			"GetAllUserAccessGroupsMemberOnly",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAllUserAccessGroupsMemberOnly,
+			fes.GetAllUserAccessGroupsMemberOnly,
+			PublicAccess,
+		},
+		{
+			"CheckPartyAccessGroups",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCheckPartyAccessGroups,
+			fes.CheckPartyAccessGroups,
+			PublicAccess,
+		},
+		{
+			"GetAccessGroupInfo",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAccessGroupInfo,
+			fes.GetAccessGroupInfo,
+			PublicAccess,
+		},
+		{
+			"GetAccessGroupMemberInfo",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAccessGroupMemberInfo,
+			fes.GetAccessGroupMemberInfo,
+			PublicAccess,
+		},
+		{
+			"GetPaginatedAccessGroupMembers",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPaginatedAccessGroupMembers,
+			fes.GetPaginatedAccessGroupMembers,
+			PublicAccess,
+		},
+		{
+			"GetBulkAccessGroupEntries",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetBulkAccessGroupEntries,
+			fes.GetBulkAccessGroupEntries,
+			PublicAccess,
+		},
+		// access group message APIs.
+		{
+			"SendDmMessage",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSendDmMessage,
+			fes.SendDmMessage,
+			PublicAccess,
+		},
+		{
+			"SendGroupChatMessage",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSendGroupChatMessage,
+			fes.SendGroupChatMessage,
+			PublicAccess,
+		},
+		{
+			"GetUserDmThreadsOrderedByTimestamp",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetUserDmThreadsOrderedByTimestamp,
+			fes.GetUserDmThreadsOrderedByTimestamp,
+			PublicAccess,
+		},
+		{
+			"GetPaginatedMessagesForDmThread",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPaginatedMessagesForDmThread,
+			fes.GetPaginatedMessagesForDmThread,
+			PublicAccess,
+		},
+		{
+			"GetUserGroupChatThreadsOrderedByTimestamp",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetUserGroupChatThreadsOrderedByTimestamp,
+			fes.GetUserGroupChatThreadsOrderedByTimestamp,
+			PublicAccess,
+		},
+		{
+			"GetPaginatedMessagesForGroupChatThread",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPaginatedMessagesForGroupChatThread,
+			fes.GetPaginatedMessagesForGroupChatThread,
+			PublicAccess,
+		},
+		{
+			"GetAllUserMessageThreads",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAllUserMessageThreads,
+			fes.GetAllUserMessageThreads,
 			PublicAccess,
 		},
 	}

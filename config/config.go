@@ -208,14 +208,18 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 
 	// Metamask minimal Eth in Wei required to receive an airdrop.
 	metamaskAirdropMinStr := viper.GetString("metamask-airdrop-eth-minimum")
-	metamaskAirdropMinBigint, ok := big.NewInt(0).SetString(metamaskAirdropMinStr, 10)
-	if !ok {
-		panic(fmt.Sprintf("Error parsing metamask-airdrop-eth-minimum into bigint: %v", metamaskAirdropMinStr))
-	}
-	var overflow bool
-	config.MetamaskAirdropEthMinimum, overflow = uint256.FromBig(metamaskAirdropMinBigint)
-	if overflow {
-		panic(fmt.Sprintf("metamask-airdrop-eth-minimum value %v overflows uint256", metamaskAirdropMinStr))
+	if metamaskAirdropMinStr != "" {
+		metamaskAirdropMinBigint, ok := big.NewInt(0).SetString(metamaskAirdropMinStr, 10)
+		if !ok {
+			panic(fmt.Sprintf("Error parsing metamask-airdrop-eth-minimum into bigint: %v", metamaskAirdropMinStr))
+		}
+		var overflow bool
+		config.MetamaskAirdropEthMinimum, overflow = uint256.FromBig(metamaskAirdropMinBigint)
+		if overflow {
+			panic(fmt.Sprintf("metamask-airdrop-eth-minimum value %v overflows uint256", metamaskAirdropMinStr))
+		}
+	} else {
+		config.MetamaskAirdropEthMinimum = uint256.NewInt()
 	}
 	config.MetamaskAirdropDESONanosAmount = viper.GetUint64("metamask-airdrop-deso-nanos-amount")
 

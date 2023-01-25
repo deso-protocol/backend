@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net/http"
 	"reflect"
@@ -1238,7 +1239,7 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 	}
 
 	// Return an error if we failed to find a profile entry
-	if profileEntry == nil {
+	if profileEntry == nil || profileEntry.IsDeleted() {
 		if !requestData.NoErrorOnMissing {
 			_AddNotFoundError(ww, fmt.Sprintf("GetSingleProfile: could not find profile for username or public key: %v, %v", requestData.Username, requestData.PublicKeyBase58Check))
 		}
@@ -1860,7 +1861,7 @@ func (fes *APIServer) GetFollowsStateless(ww http.ResponseWriter, rr *http.Reque
 		getFollowsRequest.GetEntriesFollowingUsername,
 		utxoView,
 		lastPublicKeySeenBytes,
-		getFollowsRequest.NumToFetch, true, false)
+		getFollowsRequest.NumToFetch, getFollowsRequest.NumToFetch != 0, false)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetFollowsStateless: Problem fetching and decrypting follows: %v", err))
 		return
@@ -2856,6 +2857,12 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 	} else if txnMeta.TxnType == lib.TxnTypeBasicTransfer.String() {
 		// Someone paid you
 		return true
+	} else if txnMeta.CreateUserAssociationTxindexMetadata != nil {
+		// Someone created an association referring to you
+		return true
+	} else if txnMeta.CreatePostAssociationTxindexMetadata != nil {
+		// Some created an association referring to one of your posts
+		return true
 	}
 	return false
 }
@@ -3413,7 +3420,7 @@ func (fes *APIServer) GetAccessBytes(ww http.ResponseWriter, req *http.Request) 
 
 func (fes *APIServer) GetTransactionSpendingLimitResponseFromHex(ww http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
-
+	query := req.URL.Query()
 	transactionSpendingLimitHex, transactionSpendingLimitHexExists := vars["transactionSpendingLimitHex"]
 	if !transactionSpendingLimitHexExists {
 		_AddBadRequestError(ww, fmt.Sprintf(
@@ -3430,6 +3437,20 @@ func (fes *APIServer) GetTransactionSpendingLimitResponseFromHex(ww http.Respons
 
 	var transactionSpendingLimit lib.TransactionSpendingLimit
 	blockHeight := uint64(fes.blockchain.BlockTip().Height)
+	if blockHeightString, ok := query["blockHeight"]; ok {
+		if len(blockHeightString) > 0 {
+			blockHeightInt, err := strconv.ParseInt(blockHeightString[0], 10, 64)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpendingLimitResponseFromHex: Error parsing blockHeight query param: %v", err))
+				return
+			}
+			if blockHeightInt < 0 || blockHeightInt > math.MaxInt64 {
+				_AddBadRequestError(ww, fmt.Sprint("GetTransactionSpendingLimitResponseFromHex: blockHeight query param must be uint64"))
+				return
+			}
+			blockHeight = uint64(blockHeightInt)
+		}
+	}
 	rr := bytes.NewReader(tslBytes)
 	if err = transactionSpendingLimit.FromBytes(blockHeight, rr); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
