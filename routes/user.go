@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net/http"
 	"reflect"
@@ -3419,7 +3420,7 @@ func (fes *APIServer) GetAccessBytes(ww http.ResponseWriter, req *http.Request) 
 
 func (fes *APIServer) GetTransactionSpendingLimitResponseFromHex(ww http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
-
+	query := req.URL.Query()
 	transactionSpendingLimitHex, transactionSpendingLimitHexExists := vars["transactionSpendingLimitHex"]
 	if !transactionSpendingLimitHexExists {
 		_AddBadRequestError(ww, fmt.Sprintf(
@@ -3436,6 +3437,20 @@ func (fes *APIServer) GetTransactionSpendingLimitResponseFromHex(ww http.Respons
 
 	var transactionSpendingLimit lib.TransactionSpendingLimit
 	blockHeight := uint64(fes.blockchain.BlockTip().Height)
+	if blockHeightString, ok := query["blockHeight"]; ok {
+		if len(blockHeightString) > 0 {
+			blockHeightInt, err := strconv.ParseInt(blockHeightString[0], 10, 64)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpendingLimitResponseFromHex: Error parsing blockHeight query param: %v", err))
+				return
+			}
+			if blockHeightInt < 0 || blockHeightInt > math.MaxUint64 {
+				_AddBadRequestError(ww, fmt.Sprint("GetTransactionSpendingLimitResponseFromHex: blockHeight query param must be uint64"))
+				return
+			}
+			blockHeight = uint64(blockHeightInt)
+		}
+	}
 	rr := bytes.NewReader(tslBytes)
 	if err = transactionSpendingLimit.FromBytes(blockHeight, rr); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
