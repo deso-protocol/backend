@@ -3444,7 +3444,7 @@ func (fes *APIServer) GetTransactionSpendingLimitResponseFromHex(ww http.Respons
 				_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpendingLimitResponseFromHex: Error parsing blockHeight query param: %v", err))
 				return
 			}
-			if blockHeightInt < 0 || blockHeightInt > math.MaxUint64 {
+			if blockHeightInt < 0 || blockHeightInt > math.MaxInt64 {
 				_AddBadRequestError(ww, fmt.Sprint("GetTransactionSpendingLimitResponseFromHex: blockHeight query param must be uint64"))
 				return
 			}
