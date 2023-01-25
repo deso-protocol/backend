@@ -897,7 +897,7 @@ type RegisterMessagingGroupKeyRequest struct {
 	MessagingKeySignatureHex string
 
 	// MessagingGroupMembers is the list of members we intend to add to this group.
-	MessagingGroupMembers         []*MessagingGroupMemberResponse
+	MessagingGroupMembers []*MessagingGroupMemberResponse
 
 	// ExtraData is an arbitrary key value map
 	ExtraData map[string]string
@@ -981,10 +981,10 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 
 		messagingGroupMembers = append(messagingGroupMembers, &lib.MessagingGroupMember{
 			GroupMemberPublicKey: memberPublicKey,
-			GroupMemberKeyName: &groupKey.GroupKeyName,
-			EncryptedKey: encryptedKey,
+			GroupMemberKeyName:   &groupKey.GroupKeyName,
+			EncryptedKey:         encryptedKey,
 		})
-  }
+	}
 	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem encoding ExtraData: %v", err))
