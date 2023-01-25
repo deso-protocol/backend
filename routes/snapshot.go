@@ -8,10 +8,8 @@ import (
 )
 
 type GetSnapshotEpochMetadataResponse struct {
-	SnapshotBlockHeight uint64 `safeForLogging:"true"`
-
-	CurrentEpochChecksumHex string `safeForLogging:"true"`
-
+	SnapshotBlockHeight      uint64 `safeForLogging:"true"`
+	CurrentEpochChecksumHex  string `safeForLogging:"true"`
 	CurrentEpochBlockHashHex string `safeForLogging:"true"`
 }
 

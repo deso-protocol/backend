@@ -297,8 +297,8 @@ const (
 	RoutePathPostAssociations = "/api/v0/post-associations"
 
 	// snapshot.go
-	RoutePathGetSnapshotEpochMetadata = "/api/v0/get-snapshot-epoch-metadata"
-	RoutePathGetStateChecksum         = "/api/v0/get-state-checksum"
+	RoutePathSnapshotEpochMetadata = "/api/v0/snapshot-epoch-metadata"
+	RoutePathStateChecksum         = "/api/v0/state-checksum"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -1800,16 +1800,16 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		},
 		// Snapshot endpoints
 		{
-			"GetSnapshotEpochMetadata",
+			"SnapshotEpochMetadata",
 			[]string{"GET"},
-			RoutePathGetSnapshotEpochMetadata,
+			RoutePathSnapshotEpochMetadata,
 			fes.GetSnapshotEpochMetadata,
 			PublicAccess,
 		},
 		{
-			"GetStateChecksum",
+			"StateChecksum",
 			[]string{"GET"},
-			RoutePathGetStateChecksum,
+			RoutePathStateChecksum,
 			fes.GetStateChecksum,
 			PublicAccess,
 		},
@@ -2045,121 +2045,6 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetAllUserMessageThreads,
 			PublicAccess,
 		},
-		// registering the routes related to access groups
-		{
-			"CreateAccessGroup",
-			[]string{"POST", "OPTIONS"},
-			RoutePathCreateAccessGroup,
-			fes.CreateAccessGroup,
-			PublicAccess,
-		},
-		{
-			"AddAccessGroupMembers",
-			[]string{"POST", "OPTIONS"},
-			RoutePathAddAccessGroupMembers,
-			fes.AddAccessGroupMembers,
-			PublicAccess,
-		},
-		{
-			"GetAllUserAccessGroups",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetAllUserAccessGroups,
-			fes.GetAllUserAccessGroups,
-			PublicAccess,
-		},
-		{
-			"GetAllUserAccessGroupsOwned",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetAllUserAccessGroupsOwned,
-			fes.GetAllUserAccessGroupsOwned,
-			PublicAccess,
-		},
-		{
-			"GetAllUserAccessGroupsMemberOnly",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetAllUserAccessGroupsMemberOnly,
-			fes.GetAllUserAccessGroupsMemberOnly,
-			PublicAccess,
-		},
-		{
-			"CheckPartyAccessGroups",
-			[]string{"POST", "OPTIONS"},
-			RoutePathCheckPartyAccessGroups,
-			fes.CheckPartyAccessGroups,
-			PublicAccess,
-		},
-		{
-			"GetAccessGroupInfo",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetAccessGroupInfo,
-			fes.GetAccessGroupInfo,
-			PublicAccess,
-		},
-		{
-			"GetAccessGroupMemberInfo",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetAccessGroupMemberInfo,
-			fes.GetAccessGroupMemberInfo,
-			PublicAccess,
-		},
-		{
-			"GetPaginatedAccessGroupMembers",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetPaginatedAccessGroupMembers,
-			fes.GetPaginatedAccessGroupMembers,
-			PublicAccess,
-		},
-
-		// access group message APIs.
-		{
-			"SendDmMessage",
-			[]string{"POST", "OPTIONS"},
-			RoutePathSendDmMessage,
-			fes.SendDmMessage,
-			PublicAccess,
-		},
-		{
-			"SendGroupChatMessage",
-			[]string{"POST", "OPTIONS"},
-			RoutePathSendGroupChatMessage,
-			fes.SendGroupChatMessage,
-			PublicAccess,
-		},
-		{
-			"GetUserDmThreadsOrderedByTimestamp",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetUserDmThreadsOrderedByTimestamp,
-			fes.GetUserDmThreadsOrderedByTimestamp,
-			PublicAccess,
-		},
-		{
-			"GetPaginatedMessagesForDmThread",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetPaginatedMessagesForDmThread,
-			fes.GetPaginatedMessagesForDmThread,
-			PublicAccess,
-		},
-		{
-			"GetUserGroupChatThreadsOrderedByTimestamp",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetUserGroupChatThreadsOrderedByTimestamp,
-			fes.GetUserGroupChatThreadsOrderedByTimestamp,
-			PublicAccess,
-		},
-		{
-			"GetPaginatedMessagesForGroupChatThread",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetPaginatedMessagesForGroupChatThread,
-			fes.GetPaginatedMessagesForGroupChatThread,
-			PublicAccess,
-		},
-		{
-			"GetAllUserMessageThreads",
-			[]string{"POST", "OPTIONS"},
-			RoutePathGetAllUserMessageThreads,
-			fes.GetAllUserMessageThreads,
-			PublicAccess,
-		},
 	}
 
 	router := muxtrace.NewRouter().StrictSlash(true)
@@ -2247,21 +2132,6 @@ var publicRoutes = map[string]interface{}{
 	RoutePathSubmitTransaction:              nil,
 	RoutePathGetTxn:                         nil,
 	RoutePathUpdateProfile:                  nil,
-
-	RoutePathCreateAccessGroup:                         nil,
-	RoutePathAddAccessGroupMembers:                     nil,
-	RoutePathGetAllUserAccessGroups:                    nil,
-	RoutePathGetAllUserAccessGroupsOwned:               nil,
-	RoutePathGetAllUserAccessGroupsMemberOnly:          nil,
-	RoutePathGetAccessGroupInfo:                        nil,
-	RoutePathGetAccessGroupMemberInfo:                  nil,
-	RoutePathGetPaginatedAccessGroupMembers:            nil,
-	RoutePathSendDmMessage:                             nil,
-	RoutePathGetUserDmThreadsOrderedByTimestamp:        nil,
-	RoutePathGetPaginatedMessagesForDmThread:           nil,
-	RoutePathGetUserGroupChatThreadsOrderedByTimestamp: nil,
-	RoutePathGetPaginatedMessagesForGroupChatThread:    nil,
-	RoutePathGetAllUserMessageThreads:                  nil,
 }
 
 // AddHeaders ...
