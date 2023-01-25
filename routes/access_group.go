@@ -307,13 +307,6 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 
 		}
 
-		// Encrypted key filed cannot be empty.
-		if len(member.EncryptedKey) == 0 {
-			_AddBadRequestError(ww, fmt.Sprintf("EncryptedKey for access member (%v)"+
-				"cannot be empty.", member))
-			return
-		}
-
 		// Checking for duplicate entry in the member list.
 		memberPublicKey := *lib.NewPublicKey(accessGroupMemberPkBytes)
 		if accessGroupMemberPublicKeys.Includes(memberPublicKey) {

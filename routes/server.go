@@ -295,6 +295,10 @@ const (
 	// associations.go
 	RoutePathUserAssociations = "/api/v0/user-associations"
 	RoutePathPostAssociations = "/api/v0/post-associations"
+
+	// snapshot.go
+	RoutePathSnapshotEpochMetadata = "/api/v0/snapshot-epoch-metadata"
+	RoutePathStateChecksum         = "/api/v0/state-checksum"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -1792,6 +1796,21 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetBulkMessagingPublicKeys,
 			fes.GetBulkMessagingPublicKeys,
+			PublicAccess,
+		},
+		// Snapshot endpoints
+		{
+			"SnapshotEpochMetadata",
+			[]string{"GET"},
+			RoutePathSnapshotEpochMetadata,
+			fes.GetSnapshotEpochMetadata,
+			PublicAccess,
+		},
+		{
+			"StateChecksum",
+			[]string{"GET"},
+			RoutePathStateChecksum,
+			fes.GetStateChecksum,
 			PublicAccess,
 		},
 
