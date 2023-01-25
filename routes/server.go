@@ -271,54 +271,26 @@ const (
 	RoutePathGetRichList          = "/api/v0/rich-list"
 	RoutePathGetCountKeysWithDESO = "/api/v0/count-keys-with-deso"
 
-	// access-groups.go
-
-	// This endpoint should enable users to create a new access group.
-	// The endpoint should call the CreateAccessGroupTxn function from the core repo.
-	RoutePathCreateAccessGroup = "/api/v0/create-access-group"
-
-	// This endpoint should enable users to add members to an existing access group.
-	// This should call the CreateAccessGroupMembersTxn function from the core repo.
-	RoutePathAddAccessGroupMembers = "/api/v0/add-access-group-members"
-
-	// This endpoint should return all access groups owned by the user and access
-	// groups for which the user is a member.
-	// This should call the GetAllAccessGroupIdsForUser function from the core repo.
-	RoutePathGetAllUserAccessGroups = "/api/v0/get-all-user-access-groups"
-
-	// This endpoint should be very similar to the /api/v0/get-all-user-access-group endpoint,
-	//  except it only returns the owned access groups,
-	// where accessGroupOwnerPublicKey is the same as the public key in the response
-	RoutePathGetAllUserAccessGroupsOwned = "/api/v0/get-all-user-access-groups-owned"
-
-	// This endpoint should be very similar to the /api/v0/get-all-user-access-group endpoint,
-	// except it only returns access groups where user is a just a member (not an owner).
+	// access_group.go
+	RoutePathCreateAccessGroup                = "/api/v0/create-access-group"
+	RoutePathAddAccessGroupMembers            = "/api/v0/add-access-group-members"
+	RoutePathGetAllUserAccessGroups           = "/api/v0/get-all-user-access-groups"
+	RoutePathGetAllUserAccessGroupsOwned      = "/api/v0/get-all-user-access-groups-owned"
 	RoutePathGetAllUserAccessGroupsMemberOnly = "/api/v0/get-all-user-access-groups-member-only"
+	RoutePathCheckPartyAccessGroups           = "/api/v0/check-party-access-groups"
+	RoutePathGetAccessGroupInfo               = "/api/v0/get-access-group-info"
+	RoutePathGetAccessGroupMemberInfo         = "/api/v0/get-access-group-member-info"
+	RoutePathGetPaginatedAccessGroupMembers   = "/api/v0/get-paginated-access-group-members"
+	RoutePathGetBulkAccessGroupEntries        = "/api/v0/get-bulk-access-group-entries"
 
-	RoutePathCheckPartyAccessGroups = "/api/v0/check-party-access-groups"
-
-	RoutePathGetAccessGroupInfo = "/api/v0/get-access-group-info"
-
-	RoutePathGetAccessGroupMemberInfo = "/api/v0/get-access-group-member-info"
-
-	RoutePathGetPaginatedAccessGroupMembers = "/api/v0/get-paginated-access-group-members"
-	RoutePathGetBulkAccessGroupEntries      = "/api/v0/get-bulk-access-group-entries"
-
-	// Routes for access groups based DM and group chat messaging.
-	RoutePathSendDmMessage = "/api/v0/send-dm-message"
-
-	// Routes for access groups based DM and group chat messaging.
-	RoutePathSendGroupChatMessage = "/api/v0/send-group-chat-message"
-
-	RoutePathGetUserDmThreadsOrderedByTimestamp = "/api/v0/get-user-dm-threads-ordered-by-timestamp"
-
-	RoutePathGetPaginatedMessagesForDmThread = "/api/v0/get-paginated-messages-for-dm-thread"
-
+	// new_message.go
+	RoutePathSendDmMessage                             = "/api/v0/send-dm-message"
+	RoutePathSendGroupChatMessage                      = "/api/v0/send-group-chat-message"
+	RoutePathGetUserDmThreadsOrderedByTimestamp        = "/api/v0/get-user-dm-threads-ordered-by-timestamp"
+	RoutePathGetPaginatedMessagesForDmThread           = "/api/v0/get-paginated-messages-for-dm-thread"
 	RoutePathGetUserGroupChatThreadsOrderedByTimestamp = "/api/v0/get-user-group-chat-threads-ordered-by-timestamp"
-
-	RoutePathGetPaginatedMessagesForGroupChatThread = "/api/v0/get-paginated-messages-for-group-chat-thread"
-
-	RoutePathGetAllUserMessageThreads = "/api/v0/get-all-user-message-threads"
+	RoutePathGetPaginatedMessagesForGroupChatThread    = "/api/v0/get-paginated-messages-for-group-chat-thread"
+	RoutePathGetAllUserMessageThreads                  = "/api/v0/get-all-user-message-threads"
 
 	// associations.go
 	RoutePathUserAssociations = "/api/v0/user-associations"
