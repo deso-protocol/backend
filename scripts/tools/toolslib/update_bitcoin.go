@@ -3,9 +3,9 @@ package toolslib
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/bitclout/backend/routes"
-	"github.com/bitclout/core/lib"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
@@ -13,14 +13,14 @@ import (
 
 // _generateUnsignedBTCPriceUpdate...
 func _generateUnsignedBTCPriceUpdate(updaterPubKey *btcec.PublicKey, newUSDCentsPerBitcoin uint64,
-	params *lib.BitCloutParams, node string) (*routes.UpdateGlobalParamsResponse, error) {
+	params *lib.DeSoParams, node string) (*routes.UpdateGlobalParamsResponse, error) {
 	endpoint := node + routes.RoutePathUpdateGlobalParams
 
 	// Setup request
-	payload := &routes.UpdateGlobalParamsRequest {
+	payload := &routes.UpdateGlobalParamsRequest{
 		UpdaterPublicKeyBase58Check: lib.PkToString(updaterPubKey.SerializeCompressed(), params),
-		USDCentsPerBitcoin: int64(newUSDCentsPerBitcoin),
-		MinFeeRateNanosPerKB: 1000,
+		USDCentsPerBitcoin:          int64(newUSDCentsPerBitcoin),
+		MinFeeRateNanosPerKB:        1000,
 	}
 	postBody, err := json.Marshal(payload)
 	if err != nil {
@@ -35,7 +35,7 @@ func _generateUnsignedBTCPriceUpdate(updaterPubKey *btcec.PublicKey, newUSDCents
 	}
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := ioutil.ReadAll(resp.Body)
-		return nil, errors.Errorf("_generateUnsignedBTCPriceUpdate(): Received non 200 response code: " +
+		return nil, errors.Errorf("_generateUnsignedBTCPriceUpdate(): Received non 200 response code: "+
 			"Status Code: %v Body: %v", resp.StatusCode, string(bodyBytes))
 	}
 
@@ -54,7 +54,7 @@ func _generateUnsignedBTCPriceUpdate(updaterPubKey *btcec.PublicKey, newUSDCents
 
 // UpdateBitcoinUSDExchangeRate...
 func UpdateBitcoinUSDExchangeRate(updaterPubKey *btcec.PublicKey, updaterPrivKey *btcec.PrivateKey, newUSDCentsPerBitcoin uint64,
-	params *lib.BitCloutParams, node string) error {
+	params *lib.DeSoParams, node string) error {
 
 	// Request an unsigned transaction from the node
 	unsignedUpdateBitcoinUSDExchangeRate, err := _generateUnsignedBTCPriceUpdate(updaterPubKey, newUSDCentsPerBitcoin, params, node)
@@ -68,7 +68,7 @@ func UpdateBitcoinUSDExchangeRate(updaterPubKey *btcec.PublicKey, updaterPrivKey
 	if err != nil {
 		return errors.Wrap(err, "UpdateBitcoinUSDExchangeRate() failed to sign the transaction")
 	}
-	txn.Signature = signature
+	txn.Signature.SetSignature(signature)
 
 	// Submit the transaction to the node
 	err = SubmitTransactionToNode(txn, node)

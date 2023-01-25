@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"io"
 	"net/http"
@@ -72,7 +72,12 @@ func (fes *APIServer) GetBlockTemplate(ww http.ResponseWriter, req *http.Request
 	if requestData.HeaderVersion == lib.HeaderVersion0 {
 		_AddBadRequestError(ww, fmt.Sprintf("GetBlockTemplate: Error: Header version v0 not supported. "+
 			"Please upgrade your miner to request v1 headers, and to hash "+
-			"with CloutHashV1"))
+			"with DeSoHashV1"))
+		return
+	}
+
+	if requestData.NumHeaders > 1000000 {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBlockTemplate: Error: NumHeaders must be less than 1000000"))
 		return
 	}
 
@@ -137,6 +142,8 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	glog.Infof("Currently submitting block for block ID: %v", requestData.BlockID)
+
 	// Decode the public key
 	pkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 	if err != nil {
@@ -155,7 +162,7 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 	blockFound.Txns[0].TxOutputs[0].PublicKey = pkBytes
 	blockFound.Txns[0].TxnMeta.(*lib.BlockRewardMetadataa).ExtraData = lib.UintToBuf(requestData.ExtraData)
 
-	header := &lib.MsgBitCloutHeader{}
+	header := &lib.MsgDeSoHeader{}
 	if err := header.FromBytes(requestData.Header); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitBlock: Problem parsing header: %v", err))
 		return
@@ -176,7 +183,7 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 	// ChainLock, which is what Bitcoin Core does.
 	isMainChain, isOrphan, err := fes.blockchain.ProcessBlock(
 		blockFound, true /*verifySignatures*/)
-	glog.Debugf("Called ProcessBlock: isMainChain=(%v), isOrphan=(%v), err=(%v)",
+	glog.V(1).Infof("Called ProcessBlock: isMainChain=(%v), isOrphan=(%v), err=(%v)",
 		isMainChain, isOrphan, err)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("ERROR calling ProcessBlock: isMainChain=(%v), isOrphan=(%v), err=(%v)",

@@ -1,22 +1,22 @@
 package cmd
 
 import (
-	"github.com/bitclout/backend/config"
-	"github.com/bitclout/backend/routes"
-	coreCmd "github.com/bitclout/core/cmd"
-	"github.com/bitclout/core/lib"
+	"path/filepath"
+
+	"github.com/deso-protocol/backend/config"
+	"github.com/deso-protocol/backend/routes"
+	coreCmd "github.com/deso-protocol/core/cmd"
+	"github.com/deso-protocol/core/lib"
 	"github.com/dgraph-io/badger/v3"
 	"github.com/golang/glog"
 	"github.com/kevinburke/twilio-go"
-	"path/filepath"
 )
 
 type Node struct {
 	APIServer   *routes.APIServer
 	GlobalState *badger.DB
 	Config      *config.Config
-
-	CoreNode *coreCmd.Node
+	CoreNode    *coreCmd.Node
 }
 
 func NewNode(config *config.Config, coreNode *coreCmd.Node) *Node {
@@ -48,6 +48,14 @@ func (node *Node) Start() {
 	var twilioClient *twilio.Client
 	if node.Config.TwilioAccountSID != "" {
 		twilioClient = twilio.NewClient(node.Config.TwilioAccountSID, node.Config.TwilioAuthToken, nil)
+	}
+
+	if node.CoreNode.Config.HyperSync == true && node.Config.RunHotFeedRoutine == true {
+		if !lib.IsNodeArchival(node.CoreNode.Config.SyncType) {
+			node.Config.RunHotFeedRoutine = false
+			glog.Errorf(lib.CLog(lib.Red, "Hot feed is not compatible with non-archival mode. You need "+
+				"to set --archival-mode=true if you want to run hot feed with hypersync."))
+		}
 	}
 
 	node.APIServer, err = routes.NewAPIServer(

@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/bitclout/core/lib"
+	"github.com/holiman/uint256"
+
+	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
 	"github.com/tyler-smith/go-bip39"
@@ -49,30 +51,65 @@ type TransactionInfo struct {
 
 	// TODO: Not including the transaction because it causes encoding to
 	// fail due to the presence of an interface for TxnMeta.
-	//Transaction    *lib.MsgBitCloutTxn
+	//Transaction    *lib.MsgDeSoTxn
 
 	// Unix timestamp (seconds since epoch).
 	TimeAdded int64
 }
 
+// MessageEntryResponse ...
 type MessageEntryResponse struct {
-	SenderPublicKeyBase58Check    string
+	// SenderPublicKeyBase58Check is the main public key of the sender in base58check.
+	SenderPublicKeyBase58Check string
+
+	// RecipientPublicKeyBase58Check is the main public key of the recipient in base58check.
 	RecipientPublicKeyBase58Check string
 
+	// EncryptedText is the encrypted message in hex format.
 	EncryptedText string
-	TstampNanos   uint64
+	// TstampNanos is the message's timestamp.
+	TstampNanos uint64
 
 	// Whether or not the user is the sender of the message.
 	IsSender bool
 
 	// Indicate if message was encrypted using shared secret
-	V2 bool
+	V2 bool // Deprecated
+
+	// Indicate message version
+	Version uint32
+
+	// ---------------------------------------------------------
+	// DeSo V3 Messages Fields
+	// ---------------------------------------------------------
+
+	// SenderMessagingPublicKey is the sender's messaging public key that was used
+	// to encrypt the corresponding message.
+	SenderMessagingPublicKey string
+
+	// SenderMessagingGroupKeyName is the sender's group key name of SenderMessagingPublicKey
+	SenderMessagingGroupKeyName string
+
+	// RecipientMessagingPublicKey is the recipient's messaging public key that was
+	// used to encrypt the corresponding message.
+	RecipientMessagingPublicKey string
+
+	// RecipientMessagingGroupKeyName is the recipient's group key name of RecipientMessagingPublicKey
+	RecipientMessagingGroupKeyName string
+
+	// ExtraData is an arbitrary key value map
+	ExtraData map[string]string
 }
 
+// MessageContactResponse ...
 type MessageContactResponse struct {
+	// PublicKeyBase58Check is the public key in base58check format of the message contact.
 	PublicKeyBase58Check string
-	Messages             []*MessageEntryResponse
 
+	// Messages is the list of messages within this contact.
+	Messages []*MessageEntryResponse
+
+	// ProfileEntryResponse is the profile entry corresponding to the contact.
 	ProfileEntryResponse *ProfileEntryResponse
 
 	// The number of messages this user has read from this contact. This is
@@ -80,11 +117,47 @@ type MessageContactResponse struct {
 	NumMessagesRead int64
 }
 
+// MessagingGroupEntryResponse ...
+type MessagingGroupEntryResponse struct {
+	// GroupOwnerPublicKeyBase58Check is the main public key of the group owner, or, equivalently, the public key that
+	// registered the group.
+	GroupOwnerPublicKeyBase58Check string
+
+	// MessagingPublicKeyBase58Check is the group messaging public key in base58check.
+	MessagingPublicKeyBase58Check string
+
+	// MessagingGroupKeyName is the name of the group messaging key.
+	MessagingGroupKeyName string
+
+	// MessagingGroupMembers is the list of the members in the group chat.
+	MessagingGroupMembers []*MessagingGroupMemberResponse
+
+	// EncryptedKey is the hex string of the encrypted private corresponding with the MessagingPublicKeyBase58Check.
+	EncryptedKey string
+
+	// ExtraData is an arbitrary key value map
+	ExtraData map[string]string
+}
+
+type MessagingGroupMemberResponse struct {
+	// GroupMemberPublicKeyBase58Check is the main public key of the group member.
+	GroupMemberPublicKeyBase58Check string
+
+	// GroupMemberKeyName is the key name of the member that we encrypt the group messaging public key to. The group
+	// messaging public key should not be confused with the GroupMemberPublicKeyBase58Check, the former is the public
+	// key of the whole group, while the latter is the public key of the group member.
+	GroupMemberKeyName string
+
+	// EncryptedKey is the encrypted private key corresponding to the group messaging public key that's encrypted
+	// to the member's registered messaging key labeled with GroupMemberKeyName.
+	EncryptedKey string
+}
+
 // User ...
 type User struct {
 	// The public key for the user is computed from the seed using the exact
 	// parameters used to generate the BTC deposit address below. Because
-	// of this, the BitClout private and public key pair is also the key
+	// of this, the DeSo private and public key pair is also the key
 	// pair corresponding to the BTC address above. We store this same
 	// key in base58 format above for convenience in communicating with
 	// the FE.
@@ -114,9 +187,9 @@ type User struct {
 	// JumioFinishedTime = Time user completed flow in Jumio
 	JumioFinishedTime uint64
 	// JumioVerified = user was verified from Jumio flow
-	JumioVerified    bool
+	JumioVerified bool
 	// JumioReturned = jumio webhook called
-	JumioReturned    bool
+	JumioReturned bool
 
 	// Is this user an admin
 	IsAdmin bool
@@ -126,6 +199,18 @@ type User struct {
 	// Is this user blacklisted/graylisted
 	IsBlacklisted bool
 	IsGraylisted  bool
+
+	// Where is the user in the tutorial flow
+	TutorialStatus TutorialStatus
+
+	// Username of creator purchased during onboarding flow - used in case a user changes devices in the middle of the flow.
+	CreatorPurchasedInTutorialUsername *string `json:",omitempty"`
+
+	// Amount of creator coins purchased in the tutorial
+	CreatorCoinsPurchasedInTutorial uint64
+
+	// Does this user need to complete the tutorial
+	MustCompleteTutorial bool
 }
 
 type BalanceEntryResponse struct {
@@ -139,40 +224,31 @@ type BalanceEntryResponse struct {
 
 	// How much this HODLer owns of a particular creator coin.
 	BalanceNanos uint64
+
+	// For simplicity, we create a new field for the uint256 balance for DAO coins
+	BalanceNanosUint256 uint256.Int
+
 	// The net effect of transactions in the mempool on a given BalanceEntry's BalanceNanos.
 	// This is used by the frontend to convey info about mining.
 	NetBalanceInMempool int64
 
-	ProfileEntryResponse *ProfileEntryResponse
+	ProfileEntryResponse *ProfileEntryResponse `json:",omitempty"`
+
+	// We add the DESO balance of the hodler for convenience
+	HodlerDESOBalanceNanos uint64
 }
 
-func (fes *APIServer) GetBalanceForPublicKey(publicKeyBytes []byte) (
-	_balanceNanos uint64, _err error) {
-
-	// Get the UtxoEntries from the augmented view
-	utxoEntries, err := fes.blockchain.GetSpendableUtxosForPublicKey(publicKeyBytes, fes.backendServer.GetMempool(), nil)
-	if err != nil {
-		return 0, fmt.Errorf(
-			"GetBalanceForPublicKey: Problem getting utxos from view: %v", err)
-	}
-	totalBalanceNanos := uint64(0)
-	for _, utxoEntry := range utxoEntries {
-		totalBalanceNanos += utxoEntry.AmountNanos
-	}
-	return totalBalanceNanos, nil
-}
-
-// GetVerifiedUsernameToPKIDMap
+// GetVerifiedUsernameToPKIDMapFromGlobalState
 //
 // Acts as a helper function for dealing with the verified usernames map.
 // If the map does not already exist, this function will create one in global state.
 // Returns nil it encounters an error. Returning nil is not dangerous, as
 // _profileEntryToResponse() will ignore the map entirely in that case.
-func (fes *APIServer) GetVerifiedUsernameToPKIDMap() (_verificationMap map[string]*lib.PKID, _err error) {
+func (fes *APIServer) GetVerifiedUsernameToPKIDMapFromGlobalState() (_verificationMap map[string]*lib.PKID, _err error) {
 	// Pull the verified map from global state.
-	verifiedMapBytes, err := fes.GlobalStateGet(_GlobalStatePrefixForVerifiedMap)
+	verifiedMapBytes, err := fes.GlobalState.Get(_GlobalStatePrefixForVerifiedMap)
 	if err != nil {
-		return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMap: Cannot Decode Verification Map: %v", err)
+		return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMapFromGlobalState: Cannot Decode Verification Map: %v", err)
 	}
 	verifiedMapStruct := VerifiedUsernameToPKID{}
 
@@ -180,7 +256,7 @@ func (fes *APIServer) GetVerifiedUsernameToPKIDMap() (_verificationMap map[strin
 	if len(verifiedMapBytes) > 0 {
 		err = gob.NewDecoder(bytes.NewReader(verifiedMapBytes)).Decode(&verifiedMapStruct)
 		if err != nil {
-			return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMap: Cannot Decode Verification Map: %v", err)
+			return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMapFromGlobalState: Cannot Decode Verification Map: %v", err)
 		}
 	} else {
 		// Create the inital map structure
@@ -188,10 +264,12 @@ func (fes *APIServer) GetVerifiedUsernameToPKIDMap() (_verificationMap map[strin
 
 		// Encode the map and stick it in the database.
 		metadataDataBuf := bytes.NewBuffer([]byte{})
-		gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct)
-		err = fes.GlobalStatePut(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
+		if err = gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct); err != nil {
+			return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMapFromGlobalState: cannot encode verifiedMap struct: %v", err)
+		}
+		err = fes.GlobalState.Put(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
 		if err != nil {
-			return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMap: Cannot Decode Verification Map: %v", err)
+			return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMapFromGlobalState: Cannot Decode Verification Map: %v", err)
 		}
 	}
 	// Return the verificationMap
@@ -217,10 +295,10 @@ func makeUserMetadata(userMetadataBytes []byte, userPublicKeyBytes []byte) (_use
 
 func (fes *APIServer) getUserMetadataFromGlobalStateByPublicKeyBytes(userPublicKeyBytes []byte) (_userMetadata *UserMetadata, _err error) {
 	dbKey := GlobalStateKeyForPublicKeyToUserMetadata(userPublicKeyBytes)
-	userMetadataBytes, err := fes.GlobalStateGet(dbKey)
+	userMetadataBytes, err := fes.GlobalState.Get(dbKey)
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf(
-			"getUserMetadataFromGlobalStateByPublicKeyBytes: Problem with GlobalStateGet: %v", err), "")
+			"getUserMetadataFromGlobalStateByPublicKeyBytes: Problem with Get: %v", err), "")
 	}
 
 	userMetadata, err := makeUserMetadata(userMetadataBytes, userPublicKeyBytes)
@@ -257,7 +335,7 @@ func (fes *APIServer) putUserMetadataInGlobalState(
 	// Encode the updated entry and stick it in the database.
 	metadataDataBuf := bytes.NewBuffer([]byte{})
 	gob.NewEncoder(metadataDataBuf).Encode(userMetadata)
-	err := fes.GlobalStatePut(dbKey, metadataDataBuf.Bytes())
+	err := fes.GlobalState.Put(dbKey, metadataDataBuf.Bytes())
 	if err != nil {
 		return errors.Wrap(fmt.Errorf(
 			"AdminUpdateUserGlobalMetadata: Problem putting updated user metadata: %v", err), "")
@@ -266,31 +344,31 @@ func (fes *APIServer) putUserMetadataInGlobalState(
 	return nil
 }
 
-func (fes *APIServer) SendSeedBitClout(recipientPkBytes []byte, amountNanos uint64, useBuyBitCloutSeed bool) (txnHash *lib.BlockHash, _err error) {
-	fes.mtxSeedBitClout.Lock()
-	defer fes.mtxSeedBitClout.Unlock()
+func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, useBuyDeSoSeed bool) (txnHash *lib.BlockHash, _err error) {
+	fes.mtxSeedDeSo.Lock()
+	defer fes.mtxSeedDeSo.Unlock()
 
-	senderSeed := fes.Config.StarterBitcloutSeed
-	if useBuyBitCloutSeed {
-		senderSeed = fes.Config.BuyBitCloutSeed
+	senderSeed := fes.Config.StarterDESOSeed
+	if useBuyDeSoSeed {
+		senderSeed = fes.Config.BuyDESOSeed
 	}
 	starterSeedBytes, err := bip39.NewSeedWithErrorChecking(senderSeed, "")
 	if err != nil {
-		glog.Errorf("SendSeedBitClout: error converting mnemonic: %v", err)
-		return nil, fmt.Errorf("SendSeedBitClout: Error converting mnemonic: %+v", err)
+		glog.Errorf("SendSeedDeSo: error converting mnemonic: %v", err)
+		return nil, fmt.Errorf("SendSeedDeSo: Error converting mnemonic: %+v", err)
 	}
 
 	starterPubKey, starterPrivKey, _, err := lib.ComputeKeysFromSeed(starterSeedBytes, 0, fes.Params)
 	if err != nil {
-		glog.Errorf("SendSeedBitClout: Error computing keys from seed: %v", err)
-		return nil, fmt.Errorf("SendSeedBitClout: Error computing keys from seed: %+v", err)
+		glog.Errorf("SendSeedDeSo: Error computing keys from seed: %v", err)
+		return nil, fmt.Errorf("SendSeedDeSo: Error computing keys from seed: %+v", err)
 	}
 
-	sendBitClout := func() (txnHash *lib.BlockHash, _err error) {
+	sendDeSo := func() (txnHash *lib.BlockHash, _err error) {
 		// Create the transaction outputs and add the recipient's public key and the
 		// amount we want to pay them
-		txnOutputs := []*lib.BitCloutOutput{}
-		txnOutputs = append(txnOutputs, &lib.BitCloutOutput{
+		txnOutputs := []*lib.DeSoOutput{}
+		txnOutputs = append(txnOutputs, &lib.DeSoOutput{
 			PublicKey: recipientPkBytes,
 			// If we get here we know the amount is non-negative.
 			AmountNanos: amountNanos,
@@ -298,9 +376,9 @@ func (fes *APIServer) SendSeedBitClout(recipientPkBytes []byte, amountNanos uint
 
 		// Assemble the transaction so that inputs can be found and fees can
 		// be computed.
-		txn := &lib.MsgBitCloutTxn{
+		txn := &lib.MsgDeSoTxn{
 			// The inputs will be set below.
-			TxInputs:  []*lib.BitCloutInput{},
+			TxInputs:  []*lib.DeSoInput{},
 			TxOutputs: txnOutputs,
 			PublicKey: starterPubKey.SerializeCompressed(),
 			TxnMeta:   &lib.BasicTransferMetadata{},
@@ -314,41 +392,54 @@ func (fes *APIServer) SendSeedBitClout(recipientPkBytes []byte, amountNanos uint
 		if err != nil {
 			return nil, err
 		}
+
 		minFee := fes.MinFeeRateNanosPerKB
 		if utxoView.GlobalParamsEntry != nil && utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB > 0 {
 			minFee = utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB
 		}
 		_, _, _, _, err = fes.blockchain.AddInputsAndChangeToTransaction(txn, minFee, fes.mempool)
 		if err != nil {
-			return nil, fmt.Errorf("SendSeedBitClout: Error adding inputs for seed BitClout: %v", err)
+			return nil, fmt.Errorf("SendSeedDeSo: Error adding inputs for seed DeSo: %v", err)
 		}
 
 		txnSignature, err := txn.Sign(starterPrivKey)
 		if err != nil {
-			return nil, fmt.Errorf("SendSeedBitClout: Error adding inputs for seed BitClout: %v", err)
+			return nil, fmt.Errorf("SendSeedDeSo: Error adding inputs for seed DeSo: %v", err)
 		}
-		txn.Signature = txnSignature
+		txn.Signature.SetSignature(txnSignature)
 
 		err = fes.backendServer.VerifyAndBroadcastTransaction(txn)
 		if err != nil {
-			return nil, fmt.Errorf("SendSeedBitClout: Problem processing starter seed transaction: %v", err)
+			return nil, fmt.Errorf("SendSeedDeSo: Problem processing starter seed transaction: %v", err)
 		}
 
 		return txn.Hash(), nil
 	}
 
-	// Here we retry sending BitClout once if there is an error.  This is concerning, but we believe it is safe at this
-	// time as no Clout will be sent if there is an error.  We wait for 5 seconds
+	// Here we retry sending DeSo once if there is an error.  This is concerning, but we believe it is safe at this
+	// time as no DESO will be sent if there is an error.  We wait for 5 seconds
 	var hash *lib.BlockHash
-	hash, err = sendBitClout()
+	hash, err = sendDeSo()
 	if err != nil {
 		publicKeyBase58Check := lib.PkToString(recipientPkBytes, fes.Params)
-		glog.Errorf("SendSeedBitClout: 1st attempt - error sending %d nanos of Clout to public key %v: error - %v", amountNanos, publicKeyBase58Check, err)
+		glog.Errorf("SendSeedDeSo: 1st attempt - error sending %d nanos of DESO to public key %v: error - %v", amountNanos, publicKeyBase58Check, err)
 		time.Sleep(5 * time.Second)
-		hash, err = sendBitClout()
+		hash, err = sendDeSo()
 		if err != nil {
-			glog.Errorf("SendSeedBitClout: 2nd attempt - error sending %d nanos of Clout to public key %v: error - %v", amountNanos, publicKeyBase58Check, err)
+			glog.Errorf("SendSeedDeSo: 2nd attempt - error sending %d nanos of DESO to public key %v: error - %v", amountNanos, publicKeyBase58Check, err)
 		}
 	}
 	return hash, err
+}
+
+func (fes *APIServer) AddNodeSourceToTxnMetadata(txn *lib.MsgDeSoTxn) {
+	if fes.Config.NodeSource != 0 {
+		if len(txn.ExtraData) == 0 {
+			txnExtraData := make(map[string][]byte)
+			txnExtraData[lib.NodeSourceMapKey] = lib.UintToBuf(fes.Config.NodeSource)
+			txn.ExtraData = txnExtraData
+		} else {
+			txn.ExtraData[lib.NodeSourceMapKey] = lib.UintToBuf(fes.Config.NodeSource)
+		}
+	}
 }

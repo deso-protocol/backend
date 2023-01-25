@@ -200,17 +200,6 @@ func getKrakenPrice() (float64, error) {
 	return amount, nil
 }
 
-func CalcMedian(numbers []float64) float64 {
-
-	mNumber := len(numbers) / 2
-
-	if len(numbers)%2 == 0 {
-		return numbers[mNumber]
-	}
-
-	return (numbers[mNumber-1] + numbers[mNumber]) / 2
-}
-
 func GetUSDToBTCPrice() (float64, error) {
 	amounts := []float64{}
 	{

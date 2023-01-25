@@ -5,14 +5,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/backend/routes"
-	"github.com/bitclout/core/lib"
+	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core/lib"
 	"io/ioutil"
 	"net/http"
 	"runtime"
 	"time"
 
-	"github.com/sasha-s/go-deadlock"
+	"github.com/deso-protocol/go-deadlock"
 
 	"github.com/golang/glog"
 )
@@ -32,7 +32,7 @@ type RemoteMiner struct {
 	TemplateRefreshIntervalSeconds float64
 
 	mtxLatestBLockTemplates deadlock.RWMutex
-	latestBlockHeaders      []*lib.MsgBitCloutHeader
+	latestBlockHeaders      []*lib.MsgDeSoHeader
 	latestExtraDatas        []uint64
 	latestBlockID           string
 	currentDiffTarget       *lib.BlockHash
@@ -69,7 +69,7 @@ func NewRemoteMiner(
 }
 
 func (bb *RemoteMiner) GetBlockTemplate(threadIndex int64) (
-	_hdr *lib.MsgBitCloutHeader, _extraNonce uint64, _blockID string, _diffTarget *lib.BlockHash) {
+	_hdr *lib.MsgDeSoHeader, _extraNonce uint64, _blockID string, _diffTarget *lib.BlockHash) {
 
 	bb.mtxLatestBLockTemplates.RLock()
 	defer bb.mtxLatestBLockTemplates.RUnlock()
@@ -78,7 +78,7 @@ func (bb *RemoteMiner) GetBlockTemplate(threadIndex int64) (
 }
 
 func (bb *RemoteMiner) SubmitWinningHeader(
-	header *lib.MsgBitCloutHeader, extraData uint64, blockID string) error {
+	header *lib.MsgDeSoHeader, extraData uint64, blockID string) error {
 	headerBytes, err := header.ToBytes(false)
 	if err != nil {
 		return fmt.Errorf("Error converting header to bytes: %v", err)
@@ -111,7 +111,7 @@ func (bb *RemoteMiner) SubmitWinningHeader(
 
 	// Log
 	if !res.IsMainChain {
-		glog.Debugf("Submitted block, but it's not on the main chain: isMainChain: %v, isOrphan: %v", res.IsMainChain, res.IsOrphan)
+		glog.V(1).Infof("Submitted block, but it's not on the main chain: isMainChain: %v, isOrphan: %v", res.IsMainChain, res.IsOrphan)
 	} else {
 		hash, _ := header.Hash()
 		glog.Infof("========== Successfully mined a block on the main chain! Height: %v, Hash: %v ==========", header.Height, hash)
@@ -121,7 +121,7 @@ func (bb *RemoteMiner) SubmitWinningHeader(
 	if err := bb.RefreshBlockTemplates(); err != nil {
 		glog.Errorf("Error refreshing block templates: %v", err)
 	}
-	glog.Debugf("Successfully refreshed block templates after SubmitWinningHeader")
+	glog.V(1).Infof("Successfully refreshed block templates after SubmitWinningHeader")
 
 	return nil
 }
@@ -131,7 +131,7 @@ func (bb *RemoteMiner) RefreshBlockTemplates() error {
 	getBlockTemplateRequest := &routes.GetBlockTemplateRequest{
 		PublicKeyBase58Check: bb.PublicKeyBase58Check,
 		NumHeaders:           bb.NumThreads,
-		HeaderVersion: 		  lib.CurrentHeaderVersion,
+		HeaderVersion:        lib.CurrentHeaderVersion,
 	}
 	jsonRequest, err := json.Marshal(getBlockTemplateRequest)
 	if err != nil {
@@ -159,9 +159,9 @@ func (bb *RemoteMiner) RefreshBlockTemplates() error {
 	bb.mtxLatestBLockTemplates.Lock()
 	defer bb.mtxLatestBLockTemplates.Unlock()
 
-	bb.latestBlockHeaders = []*lib.MsgBitCloutHeader{}
+	bb.latestBlockHeaders = []*lib.MsgDeSoHeader{}
 	for _, hdrBytes := range res.Headers {
-		header := &lib.MsgBitCloutHeader{}
+		header := &lib.MsgDeSoHeader{}
 		if err := header.FromBytes(hdrBytes); err != nil {
 			return fmt.Errorf("Error parsing headers in response: %v", err)
 		}
@@ -214,7 +214,7 @@ func (ss *SingleThread) Loop() {
 		// Hash on it
 		timeBefore := time.Now()
 		bestHash, bestNonce, err := lib.FindLowestHash(hdr, uint64(ss.IterationsPerCycle))
-		glog.Tracef("Time per iteration: %v", time.Since(timeBefore))
+		glog.V(2).Infof("Time per iteration: %v", time.Since(timeBefore))
 		if err != nil {
 			// If there's an error log it and break out.
 			glog.Errorf("Error while mining: %v", err)
@@ -256,7 +256,7 @@ func (bb *RemoteMiner) Start() {
 		if err := bb.RefreshBlockTemplates(); err != nil {
 			glog.Errorf("Error refreshing block templates: %v", err)
 		}
-		glog.Debugf("Successfully refreshed block templates")
+		glog.V(1).Infof("Successfully refreshed block templates")
 		time.Sleep(time.Duration(bb.TemplateRefreshIntervalSeconds) * time.Second)
 	}
 }

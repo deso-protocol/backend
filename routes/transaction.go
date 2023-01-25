@@ -7,16 +7,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"reflect"
 	"strings"
 	"time"
 
-	"github.com/bitclout/core/lib"
+	"github.com/holiman/uint256"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
 )
@@ -55,6 +58,9 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	txnFound := fes.mempool.IsTransactionInPool(txnHash)
+	if !txnFound {
+		txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
+	}
 	res := &GetTxnResponse{
 		TxnFound: txnFound,
 	}
@@ -70,8 +76,9 @@ type SubmitTransactionRequest struct {
 }
 
 type SubmitTransactionResponse struct {
-	Transaction *lib.MsgBitCloutTxn
-	TxnHashHex  string
+	Transaction              *lib.MsgDeSoTxn
+	TxnHashHex               string
+	TransactionIDBase58Check string
 
 	// include the PostEntryResponse if a post was submitted
 	PostEntryResponse *PostEntryResponse
@@ -91,54 +98,22 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	txn := &lib.MsgBitCloutTxn{}
+	txn := &lib.MsgDeSoTxn{}
 	err = txn.FromBytes(txnBytes)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem deserializing transaction from bytes: %v", err))
 		return
 	}
 
-	// If this is a creator coin transaction, we update global state user metadata to say user has purchased CC.
-	if txn.TxnMeta.GetTxnType() == lib.TxnTypeCreatorCoin && txn.TxnMeta.(*lib.CreatorCoinMetadataa).OperationType == lib.CreatorCoinOperationTypeBuy {
-		var userMetadata *UserMetadata
-		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(txn.PublicKey)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem getting usermetadata from global state for basic transfer: %v", err))
-			return
-		}
-		if !userMetadata.HasPurchasedCreatorCoin {
-			userMetadata.HasPurchasedCreatorCoin = true
-			if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem updating HasPurchasedCreatorCoin in global state user metadata: %v", err))
-				return
-			}
-		}
-	}
-
-	_, diamondPostHashKeyExists := txn.ExtraData[lib.DiamondPostHashKey]
-	// If this is a basic transfer (but not a diamond action), we check if user has purchased CC (if this node is configured for Jumio or Twilio)
-	if !diamondPostHashKeyExists && txn.TxnMeta.GetTxnType() == lib.TxnTypeBasicTransfer && (fes.IsConfiguredForJumio() || fes.Twilio != nil) {
-		var userMetadata *UserMetadata
-		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(txn.PublicKey)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem getting usermetadata from global state for basic transfer: %v", err))
-			return
-		}
-		if (userMetadata.JumioVerified || userMetadata.PhoneNumber != "" ) && !userMetadata.HasPurchasedCreatorCoin && userMetadata.MustPurchaseCreatorCoin {
-			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: You must purchase a creator coin before performing a transfer: %v", err))
-			return
-		}
-	}
-
-	err = fes.backendServer.VerifyAndBroadcastTransaction(txn)
-	if err != nil {
+	if err = fes.backendServer.VerifyAndBroadcastTransaction(txn); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitTransaction: Problem processing transaction: %v", err))
 		return
 	}
 
 	res := &SubmitTransactionResponse{
-		Transaction: txn,
-		TxnHashHex:  txn.Hash().String(),
+		Transaction:              txn,
+		TxnHashHex:               txn.Hash().String(),
+		TransactionIDBase58Check: lib.PkToString(txn.Hash()[:], fes.Params),
 	}
 
 	if txn.TxnMeta.GetTxnType() == lib.TxnTypeSubmitPost {
@@ -157,7 +132,7 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 // After we submit a new post transaction we need to do run a few callbacks
 // 1. Attach the PostEntry to the response so the client can render it
 // 2. Attempt to auto-whitelist the post for the global feed
-func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn, response *SubmitTransactionResponse) error {
+func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgDeSoTxn, response *SubmitTransactionResponse) error {
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return errors.Errorf("Problem with GetAugmentedUniversalView: %v", err)
@@ -183,33 +158,28 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 		return errors.Errorf("Problem obtaining post entry response: %v", err)
 	}
 
-	// attach a ProfileEntry to the PostEntryResponse
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
-	if err != nil {
-		return err
-	}
-
 	profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
-	postEntryResponse.ProfileEntryResponse = _profileEntryToResponse(profileEntry, fes.Params, verifiedMap, utxoView)
+	postEntryResponse.ProfileEntryResponse = fes._profileEntryToResponse(profileEntry, utxoView)
 
 	// attach everything to the response
 	response.PostEntryResponse = postEntryResponse
 
-	// Try to whitelist a post if it is not a comment and is not a vanilla reclout.
-	if len(postHashToModify) == 0 && !lib.IsVanillaReclout(postEntry) {
+	// Try to whitelist a post if it is not a comment and is not a vanilla repost.
+	if len(postHashToModify) == 0 && !lib.IsVanillaRepost(postEntry) {
 		// If this is a new post, let's try and auto-whitelist it now that it has been broadcast.
 		// First we need to figure out if the user is whitelisted.
 		userMetadata, err := fes.getUserMetadataFromGlobalState(lib.PkToString(updaterPublicKeyBytes, fes.Params))
 		if err != nil {
-			return errors.Wrapf(err, "GlobalStateGet error: Problem getting "+
+			return errors.Wrapf(err, "Get error: Problem getting "+
 				"metadata from global state.")
 		}
 
-		// Only whitelist posts for users that are auto-whitelisted and the post is not a comment or a vanilla reclout.
-		if userMetadata.WhitelistPosts && len(postEntry.ParentStakeID) == 0 && (postEntry.IsQuotedReclout || postEntry.RecloutedPostHash == nil) {
+		// Only whitelist posts for users that are auto-whitelisted and the post is not a comment or a vanilla repost.
+		if userMetadata.WhitelistPosts && len(postEntry.ParentStakeID) == 0 && (postEntry.IsQuotedRepost || postEntry.RepostedPostHash == nil) {
 			minTimestampNanos := time.Now().UTC().AddDate(0, 0, -1).UnixNano() // last 24 hours
 			_, dbPostAndCommentHashes, _, err := lib.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
-				fes.blockchain.DB(), updaterPublicKeyBytes, false /*fetchEntries*/, uint64(minTimestampNanos), 0, /*maxTimestampNanos*/
+				fes.blockchain.DB(), fes.blockchain.Snapshot(), updaterPublicKeyBytes, false, /*fetchEntries*/
+				uint64(minTimestampNanos), 0, /*maxTimestampNanos*/
 			)
 			if err != nil {
 				return errors.Errorf("Problem fetching last 24 hours of user posts: %v", err)
@@ -219,7 +189,7 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 			maxAutoWhitelistPostsPerDay := 5
 			postEntriesInLastDay := 0
 			for _, dbPostOrCommentHash := range dbPostAndCommentHashes {
-				if existingPostEntry := utxoView.GetPostEntryForPostHash(dbPostOrCommentHash); len(existingPostEntry.ParentStakeID) == 0 && !lib.IsVanillaReclout(existingPostEntry) {
+				if existingPostEntry := utxoView.GetPostEntryForPostHash(dbPostOrCommentHash); len(existingPostEntry.ParentStakeID) == 0 && !lib.IsVanillaRepost(existingPostEntry) {
 					postEntriesInLastDay += 1
 				}
 				if maxAutoWhitelistPostsPerDay >= postEntriesInLastDay {
@@ -231,7 +201,7 @@ func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgBitCloutTxn
 			if postEntriesInLastDay < maxAutoWhitelistPostsPerDay {
 				dbKey := GlobalStateKeyForTstampPostHash(postEntry.TimestampNanos, postHash)
 				// Encode the post entry and stick it in the database.
-				if err = fes.GlobalStatePut(dbKey, []byte{1}); err != nil {
+				if err = fes.GlobalState.Put(dbKey, []byte{1}); err != nil {
 					return errors.Errorf("Problem adding post to global state: %v", err)
 				}
 			}
@@ -261,17 +231,24 @@ type UpdateProfileRequest struct {
 
 	IsHidden bool `safeForLogging:"true"`
 
+	// ExtraData
+	ExtraData map[string]string `safeForLogging:"true"`
+
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
 // UpdateProfileResponse ...
 type UpdateProfileResponse struct {
-	TotalInputNanos   uint64
-	ChangeAmountNanos uint64
-	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
-	TransactionHex    string
-	TxnHashHex        string
+	TotalInputNanos               uint64
+	ChangeAmountNanos             uint64
+	FeeNanos                      uint64
+	Transaction                   *lib.MsgDeSoTxn
+	TransactionHex                string
+	TxnHashHex                    string
+	CompProfileCreationTxnHashHex string
 }
 
 // UpdateProfile ...
@@ -289,6 +266,13 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"UpdateProfile: Problem decoding public key %s: %v",
 			requestData.UpdaterPublicKeyBase58Check, err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeUpdateProfile, updaterPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: TransactionFees specified in Request body are invalid: %v", err))
 		return
 	}
 
@@ -311,7 +295,7 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 	}
 	if !canCreateProfile {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"UpdateProfile: Not allowed to update profile. Please verify your phone number or buy BitClout."))
+			"UpdateProfile: Not allowed to update profile. Please verify your phone number or buy DeSo."))
 		return
 	}
 
@@ -334,10 +318,9 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		profilePublicKey = profilePublicKeyBytess
 	}
 
-	if len(requestData.NewUsername) > 0 && (strings.Index(requestData.NewUsername, "BC") == 0 ||
-		strings.Index(requestData.NewUsername, "tBC") == 0) {
+	if len(requestData.NewUsername) > 0 && strings.Index(requestData.NewUsername, fes.PublicKeyBase58Prefix) == 0 {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"UpdateProfile: Username cannot start with BC or tBC"))
+			"UpdateProfile: Username cannot start with %s", fes.PublicKeyBase58Prefix))
 		return
 	}
 
@@ -381,7 +364,8 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 	if len(requestData.NewUsername) > 0 {
 
 		utxoView.GetProfileEntryForUsername([]byte(requestData.NewUsername))
-		if existingProfile, usernameExists := utxoView.ProfileUsernameToProfileEntry[lib.MakeUsernameMapKey([]byte(requestData.NewUsername))]; usernameExists && !existingProfile.IsDeleted() {
+		existingProfile, usernameExists := utxoView.ProfileUsernameToProfileEntry[lib.MakeUsernameMapKey([]byte(requestData.NewUsername))]
+		if usernameExists && existingProfile != nil && !existingProfile.IsDeleted() {
 			// Check that the existing profile does not belong to the profile public key
 			if utxoView.GetPKIDForPublicKey(profilePublicKey) != utxoView.GetPKIDForPublicKey(existingProfile.PublicKey) {
 				_AddBadRequestError(ww, fmt.Sprintf(
@@ -396,10 +380,21 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	additionalFees, err := fes.CompProfileCreation(profilePublicKey, userMetadata, utxoView)
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem encoding ExtraData: %v", err))
+		return
+	}
+
+	additionalFees, compProfileCreationTxnHash, err := fes.CompProfileCreation(profilePublicKey, userMetadata, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, err.Error())
 		return
+	}
+
+	var compProfileCreationTxnHashHex string
+	if compProfileCreationTxnHash != nil {
+		compProfileCreationTxnHashHex = compProfileCreationTxnHash.String()
 	}
 
 	// Try and create the UpdateProfile txn for the user.
@@ -413,11 +408,15 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		requestData.NewStakeMultipleBasisPoints,
 		requestData.IsHidden,
 		additionalFees,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		extraData,
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem creating transaction: %v", err))
 		return
 	}
+
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -425,102 +424,148 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// TODO: for consistency, should we add InTutorial to the request data. It doesn't save us much since we need fetch the user metadata regardless.
+	if userMetadata.TutorialStatus == STARTED || userMetadata.TutorialStatus == INVEST_OTHERS_SELL {
+		userMetadata.TutorialStatus = CREATE_PROFILE
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem updating tutorial status to update profile completed: %v", err))
+			return
+		}
+	}
+
 	// Return all the data associated with the transaction in the response
 	res := UpdateProfileResponse{
-		TotalInputNanos:   totalInput,
-		ChangeAmountNanos: changeAmount,
-		FeeNanos:          fees,
-		Transaction:       txn,
-		TransactionHex:    hex.EncodeToString(txnBytes),
-		TxnHashHex:        txn.Hash().String(),
+		TotalInputNanos:               totalInput,
+		ChangeAmountNanos:             changeAmount,
+		FeeNanos:                      fees,
+		Transaction:                   txn,
+		TransactionHex:                hex.EncodeToString(txnBytes),
+		TxnHashHex:                    txn.Hash().String(),
+		CompProfileCreationTxnHashHex: compProfileCreationTxnHashHex,
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendMessage: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
 
-func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata *UserMetadata, utxoView *lib.UtxoView) (_additionalFee uint64, _err error) {
+func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata *UserMetadata, utxoView *lib.UtxoView) (_additionalFee uint64, _txnHash *lib.BlockHash, _err error) {
 	// Determine if this is a profile creation request and if we need to comp the user for creating the profile.
 	existingProfileEntry := utxoView.GetProfileEntryForPublicKey(profilePublicKey)
 	// If we are updating an existing profile, there is no fee and we do not comp anything.
 	if existingProfileEntry != nil {
-		return 0, nil
+		return 0, nil, nil
 	}
 	// Additional fee is set to the create profile fee when we are creating a profile
 	additionalFees := utxoView.GlobalParamsEntry.CreateProfileFeeNanos
 
-	// Only comp create profile fee if frontend server has both twilio and starter bitclout seed configured and the user
+	existingMetamaskAirdropMetadata, err := fes.GetMetamaskAirdropMetadata(profilePublicKey)
+	if err != nil {
+		return 0, nil, fmt.Errorf("Error geting metamask airdrop metadata from global state: %v", err)
+	}
+	// Only comp create profile fee if frontend server has both twilio and starter deso seed configured and the user
 	// has verified their profile.
-	if !fes.Config.CompProfileCreation || fes.Config.StarterBitcloutSeed == "" || fes.Twilio == nil || (userMetadata.PhoneNumber == "" && !userMetadata.JumioVerified) {
-		return additionalFees, nil
+	if !fes.Config.CompProfileCreation || fes.Config.StarterDESOSeed == "" || fes.Twilio == nil || (userMetadata.PhoneNumber == "" && !userMetadata.JumioVerified && existingMetamaskAirdropMetadata == nil) {
+		return additionalFees, nil, nil
 	}
 	var currentBalanceNanos uint64
-	currentBalanceNanos, err := GetBalanceForPublicKeyUsingUtxoView(profilePublicKey, utxoView)
+	currentBalanceNanos, err = GetBalanceForPublicKeyUsingUtxoView(profilePublicKey, utxoView)
 	if err != nil {
-		return 0, errors.Wrap(fmt.Errorf("UpdateProfile: error getting current balance: %v", err), "")
+		return 0, nil, errors.Wrap(fmt.Errorf("UpdateProfile: error getting current balance: %v", err), "")
 	}
 	createProfileFeeNanos := utxoView.GlobalParamsEntry.CreateProfileFeeNanos
 
 	// If a user is jumio verified, we just comp the profile even if their balance is greater than the create profile fee.
 	// If a user has a phone number verified but is not jumio verified, we need to check that they haven't spent all their
-	// starter bitclout already and that ShouldCompProfileCreation is true
-	var phoneNumberMetadata *PhoneNumberMetadata
+	// starter deso already and that ShouldCompProfileCreation is true
+	var multiPhoneNumberMetadata []*PhoneNumberMetadata
+	var updateMetamaskAirdropMetadata bool
 	if userMetadata.PhoneNumber != "" && !userMetadata.JumioVerified {
-		phoneNumberMetadata, err = fes.getPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
+		multiPhoneNumberMetadata, err = fes.getMultiPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
 		if err != nil {
-			return 0, errors.Wrap(fmt.Errorf("UpdateProfile: error getting phone number metadata for public key %v: %v", profilePublicKey, err), "")
+			return 0, nil, fmt.Errorf("UpdateProfile: error getting phone number metadata for public key %v: %v", profilePublicKey, err)
+		}
+		if len(multiPhoneNumberMetadata) == 0 {
+			return 0, nil, fmt.Errorf("UpdateProfile: no phone number metadata for phone number %v", userMetadata.PhoneNumber)
+		}
+		var phoneNumberMetadata *PhoneNumberMetadata
+		for _, phoneNumMetadata := range multiPhoneNumberMetadata {
+			if bytes.Equal(phoneNumMetadata.PublicKey, profilePublicKey) {
+				phoneNumberMetadata = phoneNumMetadata
+				break
+			}
 		}
 		if phoneNumberMetadata == nil {
-			return 0, errors.Wrap(fmt.Errorf("UpdateProfile: no phone number metadata for phone number %v", userMetadata.PhoneNumber), "")
+			return 0, nil, fmt.Errorf("UpdateProfile: phone number metadata not found in slice for public key")
 		}
 		if !phoneNumberMetadata.ShouldCompProfileCreation || currentBalanceNanos > createProfileFeeNanos {
-			return additionalFees, nil
+			return additionalFees, nil, nil
 		}
+	} else if existingMetamaskAirdropMetadata != nil {
+		if !existingMetamaskAirdropMetadata.ShouldCompProfileCreation {
+			return additionalFees, nil, nil
+		}
+		updateMetamaskAirdropMetadata = true
 	} else {
 		// User has been Jumio verified but should comp profile creation is false, just return
 		if !userMetadata.JumioShouldCompProfileCreation {
-			return additionalFees, nil
+			return additionalFees, nil, nil
 		}
 	}
 
-	// Find the minimum starter bit clout amount
-	minStarterBitCloutNanos := fes.Config.StarterBitcloutNanos
+	// Find the minimum starter bit deso amount
+	minStarterDESONanos := fes.Config.StarterDESONanos
 	if len(fes.Config.StarterPrefixNanosMap) > 0 {
-		for _, starterBitClout := range fes.Config.StarterPrefixNanosMap {
-			if starterBitClout < minStarterBitCloutNanos {
-				minStarterBitCloutNanos = starterBitClout
+		for _, starterDeSo := range fes.Config.StarterPrefixNanosMap {
+			if starterDeSo < minStarterDESONanos {
+				minStarterDESONanos = starterDeSo
 			}
 		}
 	}
-	// We comp the create profile fee minus the minimum starter bitclout amount divided by 2.
+	// If metamask airdrop is less than min phone number amount, we set the min amount to the airdrop value
+	if fes.Config.MetamaskAirdropDESONanosAmount != 0 && minStarterDESONanos > fes.Config.MetamaskAirdropDESONanosAmount {
+		minStarterDESONanos = fes.Config.MetamaskAirdropDESONanosAmount
+	}
+	// We comp the create profile fee minus the minimum starter deso amount divided by 2.
 	// This discourages botting while covering users who verify a phone number.
-	compAmount := createProfileFeeNanos - (minStarterBitCloutNanos / 2)
-	// If the user won't have enough bitclout to cover the fee, this is an error.
+	compAmount := createProfileFeeNanos - (minStarterDESONanos / 2)
+	// If the user won't have enough deso to cover the fee, this is an error.
 	if currentBalanceNanos+compAmount < createProfileFeeNanos {
-		return 0, errors.Wrap(fmt.Errorf("Creating a profile requires BitClout.  Please purchase some to create a profile."), "")
+		return 0, nil, fmt.Errorf("Creating a profile requires DeSo.  Please purchase some to create a profile.")
 	}
 	// Set should comp to false so we don't continually comp a public key.  PhoneNumberMetadata is only non-nil if
 	// a user verified their phone number but is not jumio verified.
-	if phoneNumberMetadata != nil {
-		phoneNumberMetadata.ShouldCompProfileCreation = false
-		if err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata); err != nil {
-			return 0, errors.Wrap(fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for phone number metadata: %v", err), "")
+	if len(multiPhoneNumberMetadata) > 0 {
+		newPhoneNumberMetadata := []*PhoneNumberMetadata{}
+		for _, phoneNumMetadata := range multiPhoneNumberMetadata {
+			if bytes.Equal(phoneNumMetadata.PublicKey, profilePublicKey) {
+				phoneNumMetadata.ShouldCompProfileCreation = false
+			}
+			newPhoneNumberMetadata = append(newPhoneNumberMetadata, phoneNumMetadata)
+		}
+		if err = fes.putPhoneNumberMetadataInGlobalState(newPhoneNumberMetadata, userMetadata.PhoneNumber); err != nil {
+			return 0, nil, fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for phone number metadata: %v", err)
 		}
 	} else {
 		// Set JumioShouldCompProfileCreation to false so we don't continue to comp profile creation.
 		userMetadata.JumioShouldCompProfileCreation = false
 		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
-			return 0, errors.Wrap(fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for jumio user metadata: %v", err), "")
+			return 0, nil, fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for jumio user metadata: %v", err)
+		}
+		if existingMetamaskAirdropMetadata != nil && updateMetamaskAirdropMetadata {
+			existingMetamaskAirdropMetadata.ShouldCompProfileCreation = false
+			if err = fes.PutMetamaskAirdropMetadata(existingMetamaskAirdropMetadata); err != nil {
+				return 0, nil, fmt.Errorf("UpdateProfile: Error updating metamask airdrop metadata in global state: %v", err)
+			}
 		}
 	}
 
 	// Send the comp amount to the public key
-	_, err = fes.SendSeedBitClout(profilePublicKey, compAmount, false)
+	txnHash, err := fes.SendSeedDeSo(profilePublicKey, compAmount, false)
 	if err != nil {
-		return 0, errors.Wrap(fmt.Errorf("UpdateProfile: error comping create profile fee: %v", err), "")
+		return 0, nil, errors.Wrap(fmt.Errorf("UpdateProfile: error comping create profile fee: %v", err), "")
 	}
-	return additionalFees, nil
+	return additionalFees, txnHash, nil
 }
 
 func GetBalanceForPublicKeyUsingUtxoView(
@@ -542,6 +587,9 @@ func GetBalanceForPublicKeyUsingUtxoView(
 type ExchangeBitcoinRequest struct {
 	// The public key of the user who we're creating the burn for.
 	PublicKeyBase58Check string `safeForLogging:"true"`
+	// If passed, we will check if the user intends to burn btc through a derived key.
+	DerivedPublicKeyBase58Check string `safeForLogging:"true"`
+
 	// Note: When BurnAmountSatoshis is negative, we assume that the user wants
 	// to burn the maximum amount of satoshi she has available.
 	BurnAmountSatoshis   int64 `safeForLogging:"true"`
@@ -573,17 +621,17 @@ type ExchangeBitcoinResponse struct {
 	FeeSatoshis          uint64
 	BitcoinTransaction   *wire.MsgTx
 
-	SerializedTxnHex   string
-	TxnHashHex         string
-	BitCloutTxnHashHex string
+	SerializedTxnHex string
+	TxnHashHex       string
+	DeSoTxnHashHex   string
 
 	UnsignedHashes []string
 }
 
 // ExchangeBitcoinStateless ...
 func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http.Request) {
-	if fes.Config.BuyBitCloutSeed == "" {
-		_AddBadRequestError(ww, "ExchangeBitcoinStateless: This node is not configured to sell BitClout for Bitcoin")
+	if fes.Config.BuyDESOSeed == "" {
+		_AddBadRequestError(ww, "ExchangeBitcoinStateless: This node is not configured to sell DeSo for Bitcoin")
 		return
 	}
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
@@ -628,7 +676,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		}
 
 		burnAmountSatoshis = totalInput - int64(txFee)
-		glog.Tracef("ExchangeBitcoinStateless: Getting ready to burn %d Satoshis", burnAmountSatoshis)
+		glog.V(2).Infof("ExchangeBitcoinStateless: Getting ready to burn %d Satoshis", burnAmountSatoshis)
 	}
 
 	// Prevent the user from creating a burn transaction with a dust output since
@@ -641,7 +689,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 
 	// Get a UtxoSource from the user's BitcoinAPI data. Note we could change the API
 	// around a bit to not have to do this but oh well.
-	utxoSource := func(spendAddr string, params *lib.BitCloutParams) ([]*lib.BitcoinUtxo, error) {
+	utxoSource := func(spendAddr string, params *lib.DeSoParams) ([]*lib.BitcoinUtxo, error) {
 		if spendAddr != requestData.BTCDepositAddress {
 			return nil, fmt.Errorf("ExchangeBitcoinStateless.UtxoSource: Expecting deposit address %s "+
 				"but got unrecognized address %s", requestData.BTCDepositAddress, spendAddr)
@@ -661,13 +709,44 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		_AddBadRequestError(ww, "ExchangeBitcoinStateless: Invalid public key")
 		return
 	}
+	// If a derived key was passed, we will look for deposits in the derived btc address.
+	if requestData.DerivedPublicKeyBase58Check != "" {
+		// First decode the derived key.
+		derivedPkBytes, _, err := lib.Base58CheckDecode(requestData.DerivedPublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, errors.Wrapf(err, "ExchangeBitcoinStateless: Invalid derived public key").Error())
+			return
+		}
+		// Verify that the derived key has been authorized by the provided owner public key.
+		utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+		if err != nil {
+			_AddBadRequestError(ww, errors.Wrapf(err, "ExchangeBitcoinStateless: Problem getting universal view from mempool").Error())
+			return
+		}
+		// Get the current block height for the derived key validation.
+		blockHeight := fes.blockchain.BlockTip().Height
+		// Now verify that the derived key has been authorized and hasn't expired.
+		if err := utxoView.ValidateDerivedKey(pkBytes, derivedPkBytes, uint64(blockHeight)); err != nil {
+			_AddBadRequestError(ww, errors.Wrapf(err, "ExchangeBitcoinStateless: Problem verifying the derived key").Error())
+			return
+		}
+		// If we get here it means a valid derived key was passed in the request. We will now get it's btc address for the deposit.
+		// FIXME (delete): At this point derived key deposits are pretty much done. The rest of this function stays the same,
+		// 	 note that SendSeedDeSo will use the owner public key for the transaction recipient.
+		addressPubKey, err = btcutil.NewAddressPubKey(derivedPkBytes, fes.Params.BitcoinBtcdParams)
+		if err != nil {
+			_AddBadRequestError(ww, errors.Wrapf(err, "ExchangeBitcoinStateless: Problem while getting btc address "+
+				"for the derived key").Error())
+			return
+		}
+	}
 	pubKey := addressPubKey.PubKey()
 
 	bitcoinTxn, totalInputSatoshis, fee, unsignedHashes, bitcoinSpendErr := lib.CreateBitcoinSpendTransaction(
 		uint64(burnAmountSatoshis),
 		uint64(requestData.FeeRateSatoshisPerKB),
 		pubKey,
-		fes.Config.BuyBitCloutBTCAddress,
+		fes.Config.BuyDESOBTCAddress,
 		fes.Params,
 		utxoSource)
 
@@ -677,7 +756,8 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		return
 	}
 
-	// Add all the signatures to the inputs
+	// Add all the signatures to the inputs. If the burned btc is coming from a derived key, the signatures must also be
+	// made by that derived key.
 	pkData := pubKey.SerializeCompressed()
 	for ii, signedHash := range requestData.SignedHashes {
 		sig, err := hex.DecodeString(signedHash)
@@ -719,35 +799,24 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 	bitcoinTxnBytes := bitcoinTxnBuffer.Bytes()
 	bitcoinTxnHash := bitcoinTxn.TxHash()
 
-	// Check that BitClout purchased they would get does not exceed current balance.
-	var feeBasisPoints uint64
-	feeBasisPoints, err = fes.GetBuyBitCloutFeeBasisPointsResponseFromGlobalState()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("WyreWalletOrderSubscription: error getting buy bitclout premium basis points from global state: %v", err))
-		return
-	}
-
 	// Update the current exchange price.
-	fes.UpdateUSDCentsToBitCloutExchangeRate()
+	fes.UpdateUSDCentsToDeSoExchangeRate()
 
-	nanosPurchased, err := fes.GetNanosFromSats(uint64(burnAmountSatoshis), feeBasisPoints)
+	// Check that DeSo purchased they would get does not exceed current balance.
+	nanosPurchased := fes.GetNanosFromSats(uint64(burnAmountSatoshis), fes.BuyDESOFeeBasisPoints)
+	balanceInsufficient, err := fes.ExceedsDeSoBalance(nanosPurchased, fes.Config.BuyDESOSeed)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error computing nanos purchased: %v", err))
-		return
-	}
-	balanceInsufficient, err := fes.ExceedsBitCloutBalance(nanosPurchased, fes.Config.BuyBitCloutSeed)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error checking if send bitclout balance is sufficient: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error checking if send deso balance is sufficient: %v", err))
 		return
 	}
 	if balanceInsufficient {
-		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: SendBitClout wallet balance is below nanos purchased"))
+		_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: SendDeSo wallet balance is below nanos purchased"))
 		return
 	}
 
-	var bitcloutTxnHash *lib.BlockHash
+	var desoTxnHash *lib.BlockHash
 	if requestData.Broadcast {
-		glog.Infof("ExchangeBitcoinStateless: Broadcasting Bitcoin txn: %v", bitcoinTxn)
+		glog.Infof("ExchangeBitcoinStateless: Broadcasting Bitcoin txn: %v", bitcoinTxn.TxHash())
 
 		// Check whether the deposits being used to construct this transaction have RBF enabled.
 		// If they do then we force the user to wait until those deposits have been mined into a
@@ -757,43 +826,69 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		// TODO: We use a pretty janky API to check for this, and if it goes down then
 		// BitcoinExchange txns break. But without it we're vulnerable to double-spends
 		// so we keep it for now.
-		if fes.Params.NetworkType == lib.NetworkType_MAINNET {
-			// Go through the transaction's inputs. If any of them have RBF set then we
-			// must assume that this transaction has RBF as well.
-			for _, txIn := range bitcoinTxn.TxIn {
-				isRBF, err := lib.BlockonomicsCheckRBF(txIn.PreviousOutPoint.Hash.String())
-				if err != nil {
-					glog.Errorf("ExchangeBitcoinStateless: ERROR: Blockonomics request to check RBF for txn "+
-						"hash %v failed. This is bad because it means users are not able to "+
-						"complete Bitcoin burns: %v", txIn.PreviousOutPoint.Hash.String(), err)
-					_AddBadRequestError(ww, fmt.Sprintf(
-						"The nodes are still processing your deposit. Please wait a few seconds "+
-							"and try again."))
-					return
-				}
-				// If we got a success response from Blockonomics then bail if the transaction has
-				// RBF set.
-				if isRBF {
-					glog.Errorf("ExchangeBitcoinStateless: ERROR: Blockonomics found RBF txn: %v", bitcoinTxnHash.String())
-					_AddBadRequestError(ww, fmt.Sprintf(
-						"Your deposit has \"replace by fee\" set, "+
-							"which means we must wait for one confirmation on the Bitcoin blockchain before "+
-							"allowing you to buy. This usually takes about ten minutes.<br><br>"+
-							"You can see how many confirmations your deposit has by "+
-							"<a target=\"_blank\" href=\"https://www.blockchain.com/btc/tx/%v\">clicking here</a>.", txIn.PreviousOutPoint.Hash.String()))
-					return
-				}
-			}
+		isRBF, err := lib.CheckRBF(bitcoinTxn, bitcoinTxnHash, fes.Params)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("Error checking RBF for txn: %v", err))
+			return
+		}
+		if isRBF {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"Your deposit has \"replace by fee\" set, "+
+					"which means we must wait for one confirmation on the Bitcoin blockchain before "+
+					"allowing you to buy. This usually takes about ten minutes.<br><br>"+
+					"You can see how many confirmations your deposit has by "+
+					"<a target=\"_blank\" href=\"https://www.blockchain.com/btc/tx/%v\">clicking here</a>.", bitcoinTxnHash.String()))
+			return
 		}
 
 		// If a BlockCypher API key is set then use BlockCypher to do the checks. Otherwise
 		// use Bitcoin nodes to do it. Note that BLockCypher tends to be the more reliable path.
 		if fes.BlockCypherAPIKey != "" {
 			// Push the transaction to BlockCypher and ensure no error occurs.
-			if err = lib.BlockCypherPushAndWaitForTxn(
+			if isDoubleSpend, err := lib.BlockCypherPushAndWaitForTxn(
 				hex.EncodeToString(bitcoinTxnBytes), &bitcoinTxnHash,
 				fes.BlockCypherAPIKey, fes.Params.BitcoinDoubleSpendWaitSeconds,
 				fes.Params); err != nil {
+
+				if !isDoubleSpend {
+					_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error broadcasting "+
+						"transaction - not double spend: %v", err))
+					return
+				}
+				// If we hit an error, kick off a goroutine to retry this txn every
+				// minute for a few hours.
+				//
+				// TODO: This code is very ugly and highly error-prone. If you write it
+				// incorrectly, it will send infinite money to someone. Don't change it
+				// unless you absolutely have to...
+				go func() {
+					endTime := time.Now().Add(3 * time.Hour)
+					for time.Now().Before(endTime) {
+						err = lib.CheckBitcoinDoubleSpend(
+							&bitcoinTxnHash, fes.BlockCypherAPIKey, fes.Params)
+						if err == nil {
+							// If we get here then it means the txn *finally* worked. Blast
+							// out the DESO in this case and return.
+							glog.Infof("Eventually mined Bitcoin txn %v. Sending DESO...", bitcoinTxnHash)
+							desoTxnHash, err = fes.SendSeedDeSo(pkBytes, nanosPurchased, true)
+							if err != nil {
+								glog.Errorf("Error sending DESO for Bitcoin txn %v", bitcoinTxnHash)
+							}
+							// Note that if we don't return we'll send money to this person infinitely...
+							return
+						} else {
+							glog.Infof("Error when re-checking double-spend for Bitcoin txn %v: %v", bitcoinTxnHash, err)
+						}
+
+						// Sleep for a bit each time.
+						glog.Infof("Sleeping for 1 minute while waiting for Bitcoin "+
+							"txn %v to mine...", bitcoinTxnHash)
+						sleepTime := time.Minute
+						time.Sleep(sleepTime)
+					}
+					glog.Infof("Bitcoin txn %v did not end up mining after several hours", bitcoinTxnHash)
+				}()
+
 				_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error broadcasting transaction: %v", err))
 				return
 			}
@@ -803,16 +898,16 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 			return
 		}
 
-		bitcloutTxnHash, err = fes.SendSeedBitClout(pkBytes, nanosPurchased, true)
+		desoTxnHash, err = fes.SendSeedDeSo(pkBytes, nanosPurchased, true)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error sending BitClout: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Error sending DeSo: %v", err))
 			return
 		}
 	}
 
-	bitcloutTxnHashString := ""
-	if bitcloutTxnHash != nil {
-		bitcloutTxnHashString = bitcloutTxnHash.String()
+	desoTxnHashString := ""
+	if desoTxnHash != nil {
+		desoTxnHashString = desoTxnHash.String()
 	}
 
 	res := &ExchangeBitcoinResponse{
@@ -822,9 +917,9 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 		ChangeAmountSatoshis: totalInputSatoshis - uint64(burnAmountSatoshis) - fee,
 		BitcoinTransaction:   bitcoinTxn,
 
-		SerializedTxnHex:   hex.EncodeToString(bitcoinTxnBytes),
-		TxnHashHex:         bitcoinTxn.TxHash().String(),
-		BitCloutTxnHashHex: bitcloutTxnHashString,
+		SerializedTxnHex: hex.EncodeToString(bitcoinTxnBytes),
+		TxnHashHex:       bitcoinTxn.TxHash().String(),
+		DeSoTxnHashHex:   desoTxnHashString,
 
 		UnsignedHashes: unsignedHashes,
 	}
@@ -834,8 +929,8 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 	}
 }
 
-// GetNanosFromSats - convert Satoshis to BitClout nanos
-func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) (uint64, error) {
+// GetNanosFromSats - convert Satoshis to DeSo nanos
+func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) uint64 {
 	usdCentsPerBitcoin := fes.UsdCentsPerBitCoinExchangeRate
 	// If we don't have a valid value from monitoring at this time, use the price from the protocol
 	if usdCentsPerBitcoin == 0 {
@@ -846,79 +941,83 @@ func (fes *APIServer) GetNanosFromSats(satoshis uint64, feeBasisPoints uint64) (
 	return fes.GetNanosFromUSDCents(usdCents, feeBasisPoints)
 }
 
-// GetNanosFromUSDCents - convert USD cents to BitClout nanos
-func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint64) (uint64, error) {
+// GetNanosFromETH - convert ETH to DESO nanos
+func (fes *APIServer) GetNanosFromETH(eth *big.Float, feeBasisPoints uint64) uint64 {
+	usdCentsPerETH := big.NewFloat(float64(fes.UsdCentsPerETHExchangeRate))
+	usdCentsETH := big.NewFloat(0).Mul(eth, usdCentsPerETH)
+	// This number should always fit into a float64 so we shouldn't have a problem
+	// with overflow.
+	usdCentsFloat, _ := usdCentsETH.Float64()
+
+	return fes.GetNanosFromUSDCents(usdCentsFloat, feeBasisPoints)
+}
+
+// GetNanosFromUSDCents - convert USD cents to DeSo nanos
+func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint64) uint64 {
 	// Get Exchange Price gets the max of price from blockchain.com and the reserve price.
-	usdCentsPerBitClout := fes.GetExchangeBitCloutPrice()
-	conversionRateAfterFee := float64(usdCentsPerBitClout) * (1 + (float64(feeBasisPoints) / (100.0 * 100.0)))
+	usdCentsPerDeSo := fes.GetExchangeDeSoPrice()
+	conversionRateAfterFee := float64(usdCentsPerDeSo) * (1 + (float64(feeBasisPoints) / (100.0 * 100.0)))
 	nanosPurchased := uint64(usdCents * float64(lib.NanosPerUnit) / conversionRateAfterFee)
-	return nanosPurchased, nil
+	return nanosPurchased
 }
 
-// ExceedsSendBitCloutBalance - Check if nanosPurchased is greater than the balance of the BuyBitClout wallet.
-func (fes *APIServer) ExceedsBitCloutBalance(nanosPurchased uint64, seed string) (bool, error) {
-	buyBitCloutSeedBalance, err := fes.getBalanceForSeed(seed)
+func (fes *APIServer) GetUSDFromNanos(nanos uint64) float64 {
+	usdCentsPerDeSo := float64(fes.UsdCentsPerDeSoExchangeRate)
+	return usdCentsPerDeSo * float64(nanos/lib.NanosPerUnit) / 100
+}
+
+// ExceedsSendDeSoBalance - Check if nanosPurchased is greater than the balance of the BuyDESO wallet.
+func (fes *APIServer) ExceedsDeSoBalance(nanosPurchased uint64, seed string) (bool, error) {
+	buyDeSoSeedBalance, err := fes.getBalanceForSeed(seed)
 	if err != nil {
-		return false, fmt.Errorf("Error getting buy bitclout balance: %v", err)
+		return false, fmt.Errorf("Error getting buy deso balance: %v", err)
 	}
-	return nanosPurchased > buyBitCloutSeedBalance, nil
+	return nanosPurchased > buyDeSoSeedBalance, nil
 }
 
-
-
-// SendBitCloutRequest ...
-type SendBitCloutRequest struct {
+// SendDeSoRequest ...
+type SendDeSoRequest struct {
 	SenderPublicKeyBase58Check   string `safeForLogging:"true"`
 	RecipientPublicKeyOrUsername string `safeForLogging:"true"`
 	AmountNanos                  int64  `safeForLogging:"true"`
 	MinFeeRateNanosPerKB         uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
-// SendBitCloutResponse ...
-type SendBitCloutResponse struct {
+// SendDeSoResponse ...
+type SendDeSoResponse struct {
 	TotalInputNanos          uint64
 	SpendAmountNanos         uint64
 	ChangeAmountNanos        uint64
 	FeeNanos                 uint64
 	TransactionIDBase58Check string
-	Transaction              *lib.MsgBitCloutTxn
+	Transaction              *lib.MsgDeSoTxn
 	TransactionHex           string
 	TxnHashHex               string
 }
 
-// SendBitClout ...
-func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
+// SendDeSo ...
+func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := SendBitCloutRequest{}
+	requestData := SendDeSoRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Problem parsing request body: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem parsing request body: %v", err))
 		return
-	}
-
-	if fes.IsConfiguredForJumio() {
-		userMetadata, err := fes.getUserMetadataFromGlobalState(requestData.SenderPublicKeyBase58Check)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: problem getting user metadata from global state: %v", err))
-			return
-		}
-		if userMetadata.JumioVerified && !userMetadata.HasPurchasedCreatorCoin {
-			_AddBadRequestError(ww, fmt.Sprintf("You must purchase a creator coin before you can send $CLOUT"))
-			return
-		}
 	}
 
 	// If the string starts with the public key characters than interpret it as
 	// a public key. Otherwise we interpret it as a username and try to look up
 	// the corresponding profile.
 	var recipientPkBytes []byte
-	if strings.Index(requestData.RecipientPublicKeyOrUsername, "BC") == 0 ||
-		strings.Index(requestData.RecipientPublicKeyOrUsername, "tBC") == 0 {
+	if strings.Index(requestData.RecipientPublicKeyOrUsername, fes.PublicKeyBase58Prefix) == 0 {
 
 		// Decode the recipient's public key.
 		var err error
 		recipientPkBytes, _, err = lib.Base58CheckDecode(requestData.RecipientPublicKeyOrUsername)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Problem decoding recipient "+
+			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem decoding recipient "+
 				"base58 public key %s: %v", requestData.RecipientPublicKeyOrUsername, err))
 			return
 		}
@@ -927,34 +1026,41 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 		// transactions.
 		utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Error generating "+
+			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error generating "+
 				"view to verify username: %v", err))
 			return
 		}
 		profileEntry := utxoView.GetProfileEntryForUsername(
 			[]byte(requestData.RecipientPublicKeyOrUsername))
 		if profileEntry == nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Profile with username "+
+			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Profile with username "+
 				"%v does not exist", requestData.RecipientPublicKeyOrUsername))
 			return
 		}
 		recipientPkBytes = profileEntry.PublicKey
 	}
 	if len(recipientPkBytes) == 0 {
-		_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Unknown error parsing public key."))
+		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Unknown error parsing public key."))
 		return
 	}
 
 	// Decode the sender public key.
 	senderPkBytes, _, err := lib.Base58CheckDecode(requestData.SenderPublicKeyBase58Check)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Problem decoding sender base58 public key %s: %v", requestData.SenderPublicKeyBase58Check, err))
+		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem decoding sender base58 public key %s: %v", requestData.SenderPublicKeyBase58Check, err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeBasicTransfer, senderPkBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDESO: TransactionFees specified in Request body are invalid: %v", err))
 		return
 	}
 
 	// If the AmountNanos is less than zero then we have a special case where we create
 	// a transaction with the maximum spend.
-	var txnn *lib.MsgBitCloutTxn
+	var txnn *lib.MsgDeSoTxn
 	var totalInputt uint64
 	var spendAmountt uint64
 	var changeAmountt uint64
@@ -963,20 +1069,19 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 		// Create a MAX transaction
 		txnn, totalInputt, spendAmountt, feeNanoss, err = fes.blockchain.CreateMaxSpend(
 			senderPkBytes, recipientPkBytes, requestData.MinFeeRateNanosPerKB,
-			fes.backendServer.GetMempool())
+			fes.backendServer.GetMempool(), additionalOutputs)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Error processing MAX transaction: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error processing MAX transaction: %v", err))
 			return
 		}
 
 	} else {
 		// In this case, we are spending what the user asked us to spend as opposed to
-		// spending the maximum amount posssible.
+		// spending the maximum amount possible.
 
 		// Create the transaction outputs and add the recipient's public key and the
 		// amount we want to pay them
-		txnOutputs := []*lib.BitCloutOutput{}
-		txnOutputs = append(txnOutputs, &lib.BitCloutOutput{
+		txnOutputs := append(additionalOutputs, &lib.DeSoOutput{
 			PublicKey: recipientPkBytes,
 			// If we get here we know the amount is non-negative.
 			AmountNanos: uint64(requestData.AmountNanos),
@@ -984,9 +1089,9 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 
 		// Assemble the transaction so that inputs can be found and fees can
 		// be computed.
-		txnn = &lib.MsgBitCloutTxn{
+		txnn = &lib.MsgDeSoTxn{
 			// The inputs will be set below.
-			TxInputs:  []*lib.BitCloutInput{},
+			TxInputs:  []*lib.DeSoInput{},
 			TxOutputs: txnOutputs,
 			PublicKey: senderPkBytes,
 			TxnMeta:   &lib.BasicTransferMetadata{},
@@ -1000,7 +1105,7 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 			fes.blockchain.AddInputsAndChangeToTransaction(
 				txnn, requestData.MinFeeRateNanosPerKB, fes.mempool)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Error processing transaction: %v", err))
+			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error processing transaction: %v", err))
 			return
 		}
 	}
@@ -1008,7 +1113,7 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 	// Sanity check that the input is equal to:
 	//   (spend amount + change amount + fees)
 	if totalInputt != (spendAmountt + changeAmountt + feeNanoss) {
-		_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: totalInput=%d is not equal "+
+		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: totalInput=%d is not equal "+
 			"to the sum of the (spend amount=%d, change=%d, and fees=%d) which sums "+
 			"to %d. This means there was likely a problem with CreateMaxSpend",
 			totalInputt, spendAmountt, changeAmountt, feeNanoss, (spendAmountt+changeAmountt+feeNanoss)))
@@ -1022,7 +1127,7 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 
 	txnBytes, err := txnn.ToBytes(true)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Problem serializing transaction: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem serializing transaction: %v", err))
 		return
 	}
 
@@ -1030,7 +1135,7 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 	// get to this point and if the user requested that the transaction be
 	// validated or broadcast, the user can assume that those operations
 	// occurred successfully.
-	res := SendBitCloutResponse{
+	res := SendDeSoResponse{
 		TotalInputNanos:          totalInputt,
 		SpendAmountNanos:         spendAmountt,
 		ChangeAmountNanos:        changeAmountt,
@@ -1041,7 +1146,7 @@ func (fes *APIServer) SendBitClout(ww http.ResponseWriter, req *http.Request) {
 		TxnHashHex:               txnn.Hash().String(),
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendBitClout: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
@@ -1052,6 +1157,9 @@ type CreateLikeStatelessRequest struct {
 	LikedPostHashHex           string `safeForLogging:"true"`
 	IsUnlike                   bool   `safeForLogging:"true"`
 	MinFeeRateNanosPerKB       uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
 // CreateLikeStatelessResponse ...
@@ -1059,7 +1167,7 @@ type CreateLikeStatelessResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 }
 
@@ -1090,6 +1198,13 @@ func (fes *APIServer) CreateLikeStateless(ww http.ResponseWriter, req *http.Requ
 		return
 	}
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeLike, readerPkBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateLikeStateless: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	// We need to make the postHashBytes into a block hash in order to create the txn.
 	postHash := lib.BlockHash{}
 	copy(postHash[:], postHashBytes)
@@ -1097,11 +1212,14 @@ func (fes *APIServer) CreateLikeStateless(ww http.ResponseWriter, req *http.Requ
 	// Try and create the message for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateLikeTxn(
 		readerPkBytes, postHash, requestData.IsUnlike,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateLikeStateless: Problem creating transaction: %v", err))
 		return
 	}
+
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -1135,10 +1253,10 @@ type SubmitPostRequest struct {
 	// The parent post or profile. This is used for comments.
 	ParentStakeID string `safeForLogging:"true"`
 	// The body of this post.
-	BodyObj *lib.BitCloutBodySchema
+	BodyObj *lib.DeSoBodySchema
 
-	// The PostHashHex of the post being reclouted
-	RecloutedPostHashHex string `safeForLogging:"true"`
+	// The PostHashHex of the post being reposted
+	RepostedPostHashHex string `safeForLogging:"true"`
 
 	// ExtraData object to hold arbitrary attributes of a post.
 	PostExtraData map[string]string `safeForLogging:"true"`
@@ -1147,6 +1265,11 @@ type SubmitPostRequest struct {
 	IsHidden bool `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	InTutorial bool `safeForLogging:"true"`
 }
 
 // SubmitPostResponse ...
@@ -1157,7 +1280,7 @@ type SubmitPostResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 }
 
@@ -1179,6 +1302,13 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeSubmitPost, updaterPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	// Decode the parent stake ID. Default to empty block hash.
 	var parentStakeID []byte
 	if requestData.ParentStakeID != "" {
@@ -1191,8 +1321,7 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 					requestData.ParentStakeID, err))
 				return
 			}
-		} else if strings.Index(requestData.ParentStakeID, "BC") == 0 ||
-			strings.Index(requestData.ParentStakeID, "tBC") == 0 {
+		} else if strings.Index(requestData.ParentStakeID, fes.PublicKeyBase58Prefix) == 0 {
 
 			parentStakeID, _, err = lib.Base58CheckDecode(requestData.ParentStakeID)
 			if err != nil || len(parentStakeID) != btcec.PubKeyBytesLenCompressed {
@@ -1230,11 +1359,18 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		postHashToModify = postHashToModifyBytes
 	}
 
+	var utxoView *lib.UtxoView
+	utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Error getting utxoView"))
+		return
+	}
+
 	// If we're not modifying a post then do a bunch of checks.
 	var bodyBytes []byte
-	var recloutPostHashBytes []byte
-	isQuotedReclout := false
-	isReclout := false
+	var repostPostHashBytes []byte
+	isQuotedRepost := false
+	isRepost := false
 	if len(postHashToModify) == 0 {
 		// Verify that the body length is greater than the minimum.
 		if requestData.BodyObj == nil {
@@ -1242,41 +1378,34 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		// If a post is reclouting another post, we set a boolean value to indicates that this posts is a reclout and
+		// If a post is reposting another post, we set a boolean value to indicates that this posts is a repost and
 		// convert the PostHashHex to bytes.
-		if requestData.RecloutedPostHashHex != "" {
-			isReclout = true
-			// Convert the post hash hex of the reclouted post to bytes
-			recloutPostHashBytes, err = hex.DecodeString(requestData.RecloutedPostHashHex)
+		if requestData.RepostedPostHashHex != "" {
+			isRepost = true
+			// Convert the post hash hex of the reposted post to bytes
+			repostPostHashBytes, err = hex.DecodeString(requestData.RepostedPostHashHex)
 			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Could not decode Reclout Post Hash Hex"))
+				_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Could not decode Repost Post Hash Hex"))
 			}
-			// Check that the post being reclouted isn't a reclout without a comment.  A user should only be able to reclout
-			// a reclout post if it is a quote reclout.
+			// Check that the post being reposted isn't a repost without a comment.  A user should only be able to repost
+			// a repost post if it is a quote repost.
 			if requestData.BodyObj.Body == "" && len(requestData.BodyObj.ImageURLs) == 0 {
-				var utxoView *lib.UtxoView
-				utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
-				if err != nil {
-					_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Error getting utxoView"))
-					return
-				}
+				// Convert repost post hash from bytes to block hash and look up postEntry by postHash.
+				repostPostHash := &lib.BlockHash{}
+				copy(repostPostHash[:], repostPostHashBytes)
+				repostPostEntry := utxoView.GetPostEntryForPostHash(repostPostHash)
 
-				// Convert reclout post hash from bytes to block hash and look up postEntry by postHash.
-				recloutPostHash := &lib.BlockHash{}
-				copy(recloutPostHash[:], recloutPostHashBytes)
-				recloutPostEntry := utxoView.GetPostEntryForPostHash(recloutPostHash)
-
-				// If the body of the post that we are trying to reclout is empty, this is an error as
-				// we do not want to allow a user to reclout
-				if lib.IsVanillaReclout(recloutPostEntry) {
-					_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Cannot reclout a post that is a reclout without a quote"))
+				// If the body of the post that we are trying to repost is empty, this is an error as
+				// we do not want to allow a user to repost
+				if lib.IsVanillaRepost(repostPostEntry) {
+					_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Cannot repost a post that is a repost without a quote"))
 					return
 				}
 			} else {
-				isQuotedReclout = true
+				isQuotedRepost = true
 			}
 		}
-		bodyBytes, err = fes.cleanBody(requestData.BodyObj, isReclout)
+		bodyBytes, err = fes.cleanBody(requestData.BodyObj, isRepost)
 
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf(
@@ -1286,18 +1415,18 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 	} else {
 		// In this case we're updating an existing post so just parse the body.
 		// TODO: It's probably fine for the other fields to be updated.
-		if requestData.RecloutedPostHashHex != "" {
-			recloutPostHashBytes, err = hex.DecodeString(requestData.RecloutedPostHashHex)
+		if requestData.RepostedPostHashHex != "" {
+			repostPostHashBytes, err = hex.DecodeString(requestData.RepostedPostHashHex)
 			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Could not decode Reclout Post Hash Hex"))
+				_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Could not decode Repost Post Hash Hex"))
 			}
-			isReclout = true
+			isRepost = true
 			if requestData.BodyObj.Body != "" || len(requestData.BodyObj.ImageURLs) > 0 {
-				isQuotedReclout = true
+				isQuotedRepost = true
 			}
 		}
 		if requestData.BodyObj != nil {
-			bodyBytes, err = fes.cleanBody(requestData.BodyObj, isReclout /*isReclout*/)
+			bodyBytes, err = fes.cleanBody(requestData.BodyObj, isRepost /*isRepost*/)
 			if err != nil {
 				_AddBadRequestError(ww, err.Error())
 				return
@@ -1305,7 +1434,11 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	postExtraData := preprocessExtraData(requestData.PostExtraData)
+	postExtraData, err := EncodeExtraDataMap(requestData.PostExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Problem decoding ExtraData: %v", err))
+		return
+	}
 
 	// Try and create the SubmitPost for the user.
 	tstamp := uint64(time.Now().UnixNano())
@@ -1314,16 +1447,19 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		postHashToModify,
 		parentStakeID,
 		bodyBytes,
-		recloutPostHashBytes,
-		isQuotedReclout,
+		repostPostHashBytes,
+		isQuotedRepost,
 		tstamp,
 		postExtraData,
 		requestData.IsHidden,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Problem creating transaction: %v", err))
 		return
 	}
+
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -1331,6 +1467,28 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if requestData.InTutorial {
+		var userMetadata *UserMetadata
+		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(updaterPublicKeyBytes)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Problem getting user metadata from global state: %v", err))
+			return
+		}
+
+		if userMetadata.TutorialStatus != DIAMOND {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Must be in the GiveADiamondComplete status in tutorial in order to post at this point in the tutorial: %v", err))
+			return
+		}
+		userMetadata.TutorialStatus = COMPLETE
+		// Since the user has now completed the tutorial, we set must complete to false.
+		// Users are able to restart the tutorial, so we can't rely on tutorial status being COMPLETE to verify that
+		// they have done the tutorial.
+		userMetadata.MustCompleteTutorial = false
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Error putting user metadata in global state: %v", err))
+			return
+		}
+	}
 	/******************************************************************************************/
 
 	// Return all the data associated with the transaction in the response
@@ -1349,18 +1507,19 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (fes *APIServer) cleanBody(bodyObj *lib.BitCloutBodySchema, isReclout bool) ([]byte, error) {
+func (fes *APIServer) cleanBody(bodyObj *lib.DeSoBodySchema, isRepost bool) ([]byte, error) {
 	// Sanitize the Body field on the body object, which should exist.
-	if bodyObj.Body == "" && len(bodyObj.ImageURLs) == 0 && !isReclout {
-		return nil, fmt.Errorf("SubmitPost: Body or Image is required if not reclouting.")
+	if bodyObj.Body == "" && len(bodyObj.ImageURLs) == 0 && len(bodyObj.VideoURLs) == 0 && !isRepost {
+		return nil, fmt.Errorf("SubmitPost: Body or Image or Video is required if not reposting.")
 	}
 
-	bitcloutBodySchema := &lib.BitCloutBodySchema{
+	desoBodySchema := &lib.DeSoBodySchema{
 		Body:      bodyObj.Body,
 		ImageURLs: bodyObj.ImageURLs,
+		VideoURLs: bodyObj.VideoURLs,
 	}
 	// Serialize the body object to JSON.
-	bodyBytes, err := json.Marshal(bitcloutBodySchema)
+	bodyBytes, err := json.Marshal(desoBodySchema)
 	if err != nil {
 		return nil, fmt.Errorf("SubmitPost: Error serializing body to JSON %v", err)
 	}
@@ -1381,6 +1540,9 @@ type CreateFollowTxnStatelessRequest struct {
 	FollowedPublicKeyBase58Check string `safeForLogging:"true"`
 	IsUnfollow                   bool   `safeForLogging:"true"`
 	MinFeeRateNanosPerKB         uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
 // CreateFollowTxnStatelessResponse ...
@@ -1388,7 +1550,7 @@ type CreateFollowTxnStatelessResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 }
 
@@ -1425,6 +1587,13 @@ func (fes *APIServer) CreateFollowTxnStateless(ww http.ResponseWriter, req *http
 		return
 	}
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeFollow, followerPkBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateFollowTxnStateless: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	// Decode the followed person's public key.
 	followedPkBytes, _, err := lib.Base58CheckDecode(requestData.FollowedPublicKeyBase58Check)
 	if err != nil {
@@ -1436,11 +1605,14 @@ func (fes *APIServer) CreateFollowTxnStateless(ww http.ResponseWriter, req *http
 	// Try and create the follow for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateFollowTxn(
 		followerPkBytes, followedPkBytes, requestData.IsUnfollow,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateFollowTxnStateless: Problem creating transaction: %v", err))
 		return
 	}
+
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -1475,42 +1647,51 @@ type BuyOrSellCreatorCoinRequest struct {
 	OperationType string `safeForLogging:"true"`
 
 	// Generally, only one of these will be used depending on the OperationType
-	// set. In a Buy transaction, BitCloutToSellNanos will be converted into
+	// set. In a Buy transaction, DeSoToSellNanos will be converted into
 	// creator coin on behalf of the user. In a Sell transaction,
-	// CreatorCoinToSellNanos will be converted into BitClout. In an AddBitClout
-	// operation, BitCloutToAddNanos will be aded for the user. This allows us to
+	// CreatorCoinToSellNanos will be converted into DeSo. In an AddDeSo
+	// operation, DeSoToAddNanos will be aded for the user. This allows us to
 	// support multiple transaction types with same meta field.
-	BitCloutToSellNanos    uint64 `safeForLogging:"true"`
+	DeSoToSellNanos        uint64 `safeForLogging:"true"`
 	CreatorCoinToSellNanos uint64 `safeForLogging:"true"`
-	BitCloutToAddNanos     uint64 `safeForLogging:"true"`
+	DeSoToAddNanos         uint64 `safeForLogging:"true"`
 
-	// When a user converts BitClout into CreatorCoin, MinCreatorCoinExpectedNanos
+	// When a user converts DeSo into CreatorCoin, MinCreatorCoinExpectedNanos
 	// specifies the minimum amount of creator coin that the user expects from their
-	// transaction. And vice versa when a user is converting CreatorCoin for BitClout.
+	// transaction. And vice versa when a user is converting CreatorCoin for DeSo.
 	// Specifying these fields prevents the front-running of users' buy/sell. Setting
 	// them to zero turns off the check. Give it your best shot, Ivan.
-	MinBitCloutExpectedNanos    uint64 `safeForLogging:"true"`
+	MinDeSoExpectedNanos        uint64 `safeForLogging:"true"`
 	MinCreatorCoinExpectedNanos uint64 `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	InTutorial bool `safeForLogging:"true"`
+
+	BitCloutToSellNanos      uint64 `safeForLogging:"true"` // Deprecated
+	BitCloutToAddNanos       uint64 `safeForLogging:"true"` // Deprecated
+	MinBitCloutExpectedNanos uint64 `safeForLogging:"true"` // Deprecated
 }
 
 // BuyOrSellCreatorCoinResponse ...
 type BuyOrSellCreatorCoinResponse struct {
-	// The amount of BitClout
-	ExpectedBitCloutReturnedNanos    uint64
+	// The amount of DeSo
+	ExpectedDeSoReturnedNanos        uint64
 	ExpectedCreatorCoinReturnedNanos uint64
 	FounderRewardGeneratedNanos      uint64
 
-	// Spend is defined as BitClout that's specified as input that winds up as "output not
+	// Spend is defined as DeSo that's specified as input that winds up as "output not
 	// belonging to you." In the case of a creator coin sell, your input is creator coin (not
-	// BitClout), so this ends up being 0. In the case of a creator coin buy,
-	// it should equal the amount of BitClout you put in to buy the creator coin
+	// DeSo), so this ends up being 0. In the case of a creator coin buy,
+	// it should equal the amount of DeSo you put in to buy the creator coin
 	SpendAmountNanos  uint64
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 	TxnHashHex        string
 }
@@ -1533,6 +1714,13 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeCreatorCoin, updaterPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	// Decode the creator public key
 	creatorPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.CreatorPublicKeyBase58Check)
 	if err != nil || len(creatorPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
@@ -1542,14 +1730,29 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
-	if requestData.BitCloutToSellNanos == 0 && requestData.CreatorCoinToSellNanos == 0 {
+	// Deprecated: backwards compatability
+	if requestData.BitCloutToSellNanos > 0 {
+		requestData.DeSoToSellNanos = requestData.BitCloutToSellNanos
+	}
+
+	// Deprecated: backwards compatability
+	if requestData.BitCloutToAddNanos > 0 {
+		requestData.DeSoToAddNanos = requestData.BitCloutToAddNanos
+	}
+
+	// Deprecated: backwards compatability
+	if requestData.MinBitCloutExpectedNanos > 0 {
+		requestData.MinDeSoExpectedNanos = requestData.MinBitCloutExpectedNanos
+	}
+
+	if requestData.DeSoToSellNanos == 0 && requestData.CreatorCoinToSellNanos == 0 {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"BuyOrSellCreatorCoin: One of the following is required: "+
-				"{BitCloutToSellNanos, CreatorCoinToSellNanos}"))
+				"{DeSoToSellNanos, CreatorCoinToSellNanos}"))
 		return
 	}
-	if requestData.BitCloutToAddNanos != 0 {
-		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: BitCloutToAddNanos not yet supported"))
+	if requestData.DeSoToAddNanos != 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: DeSoToAddNanos not yet supported"))
 		return
 	}
 
@@ -1570,30 +1773,34 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		updaterPublicKeyBytes,
 		creatorPublicKeyBytes,
 		operationType,
-		requestData.BitCloutToSellNanos,
+		requestData.DeSoToSellNanos,
 		requestData.CreatorCoinToSellNanos,
-		requestData.BitCloutToAddNanos,
-		requestData.MinBitCloutExpectedNanos,
+		requestData.DeSoToAddNanos,
+		requestData.MinDeSoExpectedNanos,
 		requestData.MinCreatorCoinExpectedNanos,
 		// Standard transaction fields
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem adding inputs and change transaction: %v", err))
 		return
 	}
 
-	// Compute how much CreatorCoin or BitClout we expect to be returned
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
+
+	utxoView, err := fes.mempool.GetAugmentedUtxoViewForPublicKey(updaterPublicKeyBytes, txn)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem computing view for transaction: %v", err))
+		return
+	}
+
+	// Compute how much CreatorCoin or DeSo we expect to be returned
 	// from applying this transaction. This helps the UI display an estimated
 	// price.
-	ExpectedBitCloutReturnedNanos := uint64(0)
+	ExpectedDeSoReturnedNanos := uint64(0)
 	ExpectedCreatorCoinReturnedNanos := uint64(0)
 	FounderRewardGeneratedNanos := uint64(0)
 	{
-		utxoView, err := fes.mempool.GetAugmentedUtxoViewForPublicKey(updaterPublicKeyBytes, txn)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem computing view for transaction: %v", err))
-			return
-		}
 		txHash := txn.Hash()
 		blockHeight := fes.blockchain.BlockTip().Height + 1
 		if operationType == lib.CreatorCoinOperationTypeBuy {
@@ -1606,13 +1813,13 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 			ExpectedCreatorCoinReturnedNanos = creatorCoinReturnedNanos
 			FounderRewardGeneratedNanos = founderRewardNanos
 		} else if operationType == lib.CreatorCoinOperationTypeSell {
-			_, _, bitCloutreturnedNanos, _, err :=
+			_, _, desoreturnedNanos, _, err :=
 				utxoView.HelpConnectCreatorCoinSell(txn, txHash, blockHeight, false /*verifySignatures*/)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem connecting sell transaction: %v", err))
 				return
 			}
-			ExpectedBitCloutReturnedNanos = bitCloutreturnedNanos
+			ExpectedDeSoReturnedNanos = desoreturnedNanos
 
 		} else {
 			_AddBadRequestError(ww, fmt.Sprintf(
@@ -1628,9 +1835,80 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
+	if requestData.InTutorial {
+		var userMetadata *UserMetadata
+		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(updaterPublicKeyBytes)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem getting user metadata from global state: %v", err))
+			return
+		}
+
+		var updateUserMetadata bool
+		// TODO: check that user is buying from list of creators included in tutorial
+		// TODO: Save which creator a user purchased by PKID in user metadata so we can bring them to the same place in the flow
+		// TODO: Do we need to save how much they bought for usage in tutorial?
+		if operationType == lib.CreatorCoinOperationTypeBuy && (userMetadata.TutorialStatus == CREATE_PROFILE || userMetadata.TutorialStatus == STARTED) && requestData.CreatorPublicKeyBase58Check != requestData.UpdaterPublicKeyBase58Check {
+			if reflect.DeepEqual(updaterPublicKeyBytes, creatorPublicKeyBytes) {
+				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Cannot purchase your own coin in the Invest in others step"))
+				return
+			}
+			creatorPKID := utxoView.GetPKIDForPublicKey(creatorPublicKeyBytes)
+			if creatorPKID == nil {
+				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: No PKID found for public key: %v", requestData.CreatorPublicKeyBase58Check))
+				return
+			}
+			wellKnownVal, err := fes.GlobalState.Get(GlobalStateKeyWellKnownTutorialCreators(creatorPKID.PKID))
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Error trying to look up creator in well known index: %v", err))
+				return
+			}
+			if wellKnownVal == nil {
+				upAndComing, err := fes.GlobalState.Get(GlobalStateKeyUpAndComingTutorialCreators(creatorPKID.PKID))
+				if err != nil {
+					_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Error trying to look up creator in up and coming index: %v", err))
+					return
+				}
+				if upAndComing == nil {
+					_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Creator is not in either of the featured creators indexes"))
+					return
+				}
+			}
+			userMetadata.TutorialStatus = INVEST_OTHERS_BUY
+			userMetadata.CreatorPurchasedInTutorialPKID = creatorPKID.PKID
+			userMetadata.CreatorCoinsPurchasedInTutorial = ExpectedCreatorCoinReturnedNanos
+			updateUserMetadata = true
+		}
+
+		// Tutorial state: user is investing in themselves
+		if operationType == lib.CreatorCoinOperationTypeBuy && (userMetadata.TutorialStatus == INVEST_OTHERS_SELL || userMetadata.TutorialStatus == CREATE_PROFILE) && requestData.CreatorPublicKeyBase58Check == requestData.UpdaterPublicKeyBase58Check {
+			userMetadata.TutorialStatus = INVEST_SELF
+			updateUserMetadata = true
+		}
+
+		if operationType == lib.CreatorCoinOperationTypeSell && userMetadata.TutorialStatus == INVEST_OTHERS_BUY {
+			creatorPKID := utxoView.GetPKIDForPublicKey(creatorPublicKeyBytes)
+			if !reflect.DeepEqual(creatorPKID.PKID, userMetadata.CreatorPurchasedInTutorialPKID) {
+				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Must sell the same creator as purchased in previous step"))
+				return
+			}
+			userMetadata.TutorialStatus = INVEST_OTHERS_SELL
+			updateUserMetadata = true
+		}
+
+		if !updateUserMetadata {
+			_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Current tutorial status (%v) does not allow this %v transaction", userMetadata.TutorialStatus, requestData.OperationType))
+			return
+		}
+
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem updating user metadata's tutorial status in global state: %v", err))
+			return
+		}
+	}
+
 	// Return all the data associated with the transaction in the response
 	res := BuyOrSellCreatorCoinResponse{
-		ExpectedBitCloutReturnedNanos:    ExpectedBitCloutReturnedNanos,
+		ExpectedDeSoReturnedNanos:        ExpectedDeSoReturnedNanos,
 		ExpectedCreatorCoinReturnedNanos: ExpectedCreatorCoinReturnedNanos,
 		FounderRewardGeneratedNanos:      FounderRewardGeneratedNanos,
 
@@ -1643,7 +1921,7 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 		TxnHashHex:        txn.Hash().String(),
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SendMessage: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
@@ -1663,6 +1941,9 @@ type TransferCreatorCoinRequest struct {
 	CreatorCoinToTransferNanos uint64 `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
 }
 
 // TransferCreatorCoinResponse ...
@@ -1671,7 +1952,7 @@ type TransferCreatorCoinResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 	TxnHashHex        string
 }
@@ -1697,6 +1978,13 @@ func (fes *APIServer) TransferCreatorCoin(ww http.ResponseWriter, req *http.Requ
 	if err != nil || len(senderPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferCreatorCoin: Problem decoding sender public key %s: %v",
 			requestData.SenderPublicKeyBase58Check, err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeCreatorCoinTransfer, senderPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferCreatorCoin: TransactionFees specified in Request body are invalid: %v", err))
 		return
 	}
 
@@ -1755,11 +2043,14 @@ func (fes *APIServer) TransferCreatorCoin(ww http.ResponseWriter, req *http.Requ
 		requestData.CreatorCoinToTransferNanos,
 		receiverPublicKeyBytes,
 		// Standard transaction fields
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferCreatorCoin: Problem creating transaction: %v", err))
 		return
 	}
+
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -1798,6 +2089,11 @@ type SendDiamondsRequest struct {
 	DiamondLevel int64 `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	InTutorial bool `safeForLogging:"true"`
 }
 
 // SendDiamondsResponse ...
@@ -1806,7 +2102,7 @@ type SendDiamondsResponse struct {
 	TotalInputNanos   uint64
 	ChangeAmountNanos uint64
 	FeeNanos          uint64
-	Transaction       *lib.MsgBitCloutTxn
+	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 	TxnHashHex        string
 }
@@ -1818,7 +2114,6 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem parsing request body: %v", err))
 		return
-
 	}
 
 	if requestData.SenderPublicKeyBase58Check == "" ||
@@ -1871,42 +2166,76 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Try and create the transfer with diamonds for the user.
-	// We give diamonds in CLOUT if we're past the corresponding block height.
+	// We give diamonds in DESO if we're past the corresponding block height.
 	blockHeight := fes.blockchain.BlockTip().Height + 1
-	var txn *lib.MsgBitCloutTxn
+	var txn *lib.MsgDeSoTxn
 	var totalInput uint64
 	var changeAmount uint64
 	var fees uint64
-	if blockHeight > lib.BitCloutDiamondsBlockHeight {
+	var additionalOutputs []*lib.DeSoOutput
+	if blockHeight > fes.Params.ForkHeights.DeSoDiamondsBlockHeight {
+		// Compute the additional transaction fees as specified by the request body and the node-level fees.
+		additionalOutputs, err = fes.getTransactionFee(lib.TxnTypeBasicTransfer, senderPublicKeyBytes, requestData.TransactionFees)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: TransactionFees specified in Request body are invalid: %v", err))
+			return
+		}
 		txn, totalInput, _, changeAmount, fees, err = fes.blockchain.CreateBasicTransferTxnWithDiamonds(
 			senderPublicKeyBytes,
 			diamondPostHash,
 			requestData.DiamondLevel,
 			// Standard transaction fields
-			requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+			requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem creating transaction: %v", err))
 			return
 		}
 
 	} else {
+		// Compute the additional transaction fees as specified by the request body and the node-level fees.
+		additionalOutputs, err = fes.getTransactionFee(lib.TxnTypeCreatorCoinTransfer, senderPublicKeyBytes, requestData.TransactionFees)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: TransactionFees specified in Request body are invalid: %v", err))
+			return
+		}
 		txn, totalInput, changeAmount, fees, err = fes.blockchain.CreateCreatorCoinTransferTxnWithDiamonds(
 			senderPublicKeyBytes,
 			receiverPublicKeyBytes,
 			diamondPostHash,
 			requestData.DiamondLevel,
 			// Standard transaction fields
-			requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
+			requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem creating transaction: %v", err))
 			return
 		}
 	}
 
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
+
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem serializing transaction: %v", err))
 		return
+	}
+
+	if requestData.InTutorial {
+		var userMetadata *UserMetadata
+		userMetadata, err = fes.getUserMetadataFromGlobalStateByPublicKeyBytes(senderPublicKeyBytes)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem getting user metadata from global state: %v", err))
+			return
+		}
+		if userMetadata.TutorialStatus != INVEST_SELF {
+			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: User should not be sending diamonds at this point in the tutorial"))
+			return
+		}
+		userMetadata.TutorialStatus = DIAMOND
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem putting user metadata in global state: %v", err))
+			return
+		}
 	}
 
 	// Return all the data associated with the transaction in the response
@@ -1923,4 +2252,1662 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+type DAOCoinOperationTypeString string
+
+const (
+	DAOCoinOperationStringMint                            DAOCoinOperationTypeString = "mint"
+	DAOCoinOperationStringBurn                            DAOCoinOperationTypeString = "burn"
+	DAOCoinOperationStringUpdateTransferRestrictionStatus DAOCoinOperationTypeString = "update_transfer_restriction_status"
+	DAOCoinOperationStringDisableMinting                  DAOCoinOperationTypeString = "disable_minting"
+)
+
+type TransferRestrictionStatusString string
+
+const (
+	TransferRestrictionStatusStringUnrestricted            TransferRestrictionStatusString = "unrestricted"
+	TransferRestrictionStatusStringProfileOwnerOnly        TransferRestrictionStatusString = "profile_owner_only"
+	TransferRestrictionStatusStringDAOMembersOnly          TransferRestrictionStatusString = "dao_members_only"
+	TransferRestrictionStatusStringPermanentlyUnrestricted TransferRestrictionStatusString = "permanently_unrestricted"
+)
+
+// DAOCoinRequest ...
+type DAOCoinRequest struct {
+	// The public key of the user who is performing the DAOCoin Txn
+	UpdaterPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// The public key or username of the profile whose DAO coin the transactor is trying to transact with.
+	ProfilePublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+
+	// Whether this is a "mint", "burn" or "disable_minting" transaction
+	OperationType DAOCoinOperationTypeString `safeForLogging:"true"`
+
+	// Coins
+	CoinsToMintNanos uint256.Int `safeForLogging:"true"`
+
+	CoinsToBurnNanos uint256.Int `safeForLogging:"true"`
+
+	// Transfer Restriction Status
+	TransferRestrictionStatus TransferRestrictionStatusString `safeForLogging:"true"`
+
+	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+}
+
+// DAOCoinResponse ...
+type DAOCoinResponse struct {
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgDeSoTxn
+	TransactionHex    string
+	TxnHashHex        string
+}
+
+// DAOCoin ...
+func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := DAOCoinRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Convert OperationTypeString to DAOCoinOperationType
+	var operationType lib.DAOCoinOperationType
+	switch requestData.OperationType {
+	case DAOCoinOperationStringMint:
+		operationType = lib.DAOCoinOperationTypeMint
+	case DAOCoinOperationStringBurn:
+		operationType = lib.DAOCoinOperationTypeBurn
+	case DAOCoinOperationStringUpdateTransferRestrictionStatus:
+		operationType = lib.DAOCoinOperationTypeUpdateTransferRestrictionStatus
+	case DAOCoinOperationStringDisableMinting:
+		operationType = lib.DAOCoinOperationTypeDisableMinting
+	default:
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: OperationType \"%v\" not supported",
+			requestData.OperationType))
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Problem computing view: %v", err))
+		return
+	}
+	// Decode the updater public key
+	updaterPublicKeyBytes, err := GetPubKeyBytesFromBase58Check(requestData.UpdaterPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Problem decoding updater public key/username %s: %v",
+			requestData.UpdaterPublicKeyBase58Check, err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeDAOCoin, updaterPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
+	// Get the creator public key and make sure the profile exists
+	creatorPublicKeyBytes, profileEntry, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
+		requestData.ProfilePublicKeyBase58CheckOrUsername, utxoView)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: error getting profile or decoding public key for "+
+			"ProfilePublicKeyBase58CheckOrUsername %s: %v", requestData.ProfilePublicKeyBase58CheckOrUsername, err))
+		return
+	}
+
+	if profileEntry == nil || profileEntry.IsDeleted() {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: no profile found for profile public key %v",
+			requestData.ProfilePublicKeyBase58CheckOrUsername))
+		return
+	}
+
+	// Perform some basic sanity checks
+	if (operationType == lib.DAOCoinOperationTypeMint || operationType == lib.DAOCoinOperationTypeDisableMinting ||
+		operationType == lib.DAOCoinOperationTypeUpdateTransferRestrictionStatus) &&
+		!reflect.DeepEqual(updaterPublicKeyBytes, creatorPublicKeyBytes) {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"DAOCoin: Must be profile owner in order to perform %v operation", requestData.OperationType))
+		return
+	}
+	zero := uint256.NewInt()
+	if operationType == lib.DAOCoinOperationTypeMint && requestData.CoinsToMintNanos.Eq(zero) {
+		_AddBadRequestError(ww, fmt.Sprint("DAOCoin: Cannot mint 0 coins"))
+		return
+	}
+
+	if operationType == lib.DAOCoinOperationTypeBurn && requestData.CoinsToBurnNanos.Eq(zero) {
+		_AddBadRequestError(ww, fmt.Sprint("DAOCoin: Cannot burn 0 coins"))
+		return
+	}
+
+	var transferRestrictionStatus lib.TransferRestrictionStatus
+	if operationType == lib.DAOCoinOperationTypeUpdateTransferRestrictionStatus {
+		if profileEntry.DAOCoinEntry.TransferRestrictionStatus == lib.TransferRestrictionStatusPermanentlyUnrestricted {
+			_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Cannot update TransferRestrictionStatus if current "+
+				"status is Permanently Unrestricted"))
+			return
+		}
+		switch requestData.TransferRestrictionStatus {
+		case TransferRestrictionStatusStringUnrestricted:
+			transferRestrictionStatus = lib.TransferRestrictionStatusUnrestricted
+		case TransferRestrictionStatusStringProfileOwnerOnly:
+			transferRestrictionStatus = lib.TransferRestrictionStatusProfileOwnerOnly
+		case TransferRestrictionStatusStringDAOMembersOnly:
+			transferRestrictionStatus = lib.TransferRestrictionStatusDAOMembersOnly
+		case TransferRestrictionStatusStringPermanentlyUnrestricted:
+			transferRestrictionStatus = lib.TransferRestrictionStatusPermanentlyUnrestricted
+		default:
+			_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: TransferRestrictionStatus \"%v\" not supported",
+				requestData.TransferRestrictionStatus))
+			return
+		}
+		if profileEntry.DAOCoinEntry.TransferRestrictionStatus == transferRestrictionStatus {
+			_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Cannot update transfer restriction status to be the "+
+				"same as the current status"))
+			return
+		}
+	}
+
+	// Try and create the DAOCoin transaction for the user.
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateDAOCoinTxn(
+		updaterPublicKeyBytes,
+		&lib.DAOCoinMetadata{
+			OperationType:             operationType,
+			ProfilePublicKey:          creatorPublicKeyBytes,
+			CoinsToMintNanos:          requestData.CoinsToMintNanos,
+			CoinsToBurnNanos:          requestData.CoinsToBurnNanos,
+			TransferRestrictionStatus: transferRestrictionStatus,
+		},
+		// Standard transaction fields
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Problem adding inputs and change transaction: %v", err))
+		return
+	}
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := DAOCoinResponse{
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+		TxnHashHex:        txn.Hash().String(),
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+// TransferDAOCoinRequest ...
+type TransferDAOCoinRequest struct {
+	// The public key of the user who is making the transfer.
+	SenderPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// The public key/Username of the profile for the DAO coin that the user is transferring.
+	ProfilePublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+
+	// The public key/username of the user receiving the transferred creator coin.
+	ReceiverPublicKeyBase58CheckOrUsername string `safeForLogging:"true"`
+
+	// The amount of creator coins to transfer in nanos.
+	DAOCoinToTransferNanos uint256.Int `safeForLogging:"true"`
+
+	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+}
+
+// TransferDAOCoinResponse ...
+type TransferDAOCoinResponse struct {
+	SpendAmountNanos  uint64
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgDeSoTxn
+	TransactionHex    string
+	TxnHashHex        string
+}
+
+// TransferDAOCoin ...
+func (fes *APIServer) TransferDAOCoin(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := TransferDAOCoinRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem parsing request body: %v", err))
+		return
+	}
+
+	if requestData.SenderPublicKeyBase58Check == "" ||
+		requestData.ProfilePublicKeyBase58CheckOrUsername == "" ||
+		requestData.ReceiverPublicKeyBase58CheckOrUsername == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Must provide a sender, a creator, and a receiver."))
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem fetching utxoView: %v", err))
+		return
+	}
+
+	// Decode the updater public key
+	senderPublicKeyBytes, _, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
+		requestData.SenderPublicKeyBase58Check, utxoView)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem decoding sender public key %s: %v",
+			requestData.SenderPublicKeyBase58Check, err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeDAOCoinTransfer, senderPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
+	// Decode the creator public key
+	creatorPublicKeyBytes, creatorProfileEntry, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
+		requestData.ProfilePublicKeyBase58CheckOrUsername, utxoView)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem decoding creator public key %s: %v",
+			requestData.ProfilePublicKeyBase58CheckOrUsername, err))
+		return
+	}
+
+	if creatorProfileEntry == nil || creatorProfileEntry.IsDeleted() {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: No profile entry found for creator public key %s",
+			requestData.ProfilePublicKeyBase58CheckOrUsername))
+		return
+	}
+
+	// Get the public key for the receiver.
+	receiverPublicKeyBytes, _, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
+		requestData.ReceiverPublicKeyBase58CheckOrUsername, utxoView)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem decoding reeceiver public key %s: %v",
+			requestData.ReceiverPublicKeyBase58CheckOrUsername, err))
+		return
+	}
+
+	if err = utxoView.IsValidDAOCoinTransfer(
+		creatorProfileEntry, senderPublicKeyBytes, receiverPublicKeyBytes); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Invalid DAOCoinTransfer: %v", err))
+		return
+	}
+
+	// Try and create the TransferCreatorCoin transaction for the user.
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateDAOCoinTransferTxn(
+		senderPublicKeyBytes,
+		&lib.DAOCoinTransferMetadata{
+			ProfilePublicKey:       creatorPublicKeyBytes,
+			ReceiverPublicKey:      receiverPublicKeyBytes,
+			DAOCoinToTransferNanos: requestData.DAOCoinToTransferNanos,
+		},
+		// Standard transaction fields
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem creating transaction: %v", err))
+		return
+	}
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := TransferDAOCoinResponse{
+		SpendAmountNanos:  totalInput - changeAmount - fees,
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+		TxnHashHex:        txn.Hash().String(),
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type DAOCoinLimitOrderSimulatedExecutionResult struct {
+	BuyingCoinQuantityFilled  string
+	SellingCoinQuantityFilled string
+}
+
+// DAOCoinLimitOrderResponse ...
+type DAOCoinLimitOrderResponse struct {
+	SpendAmountNanos  uint64
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgDeSoTxn
+	TransactionHex    string
+	TxnHashHex        string
+
+	SimulatedExecutionResult *DAOCoinLimitOrderSimulatedExecutionResult
+}
+
+// DAOCoinLimitOrderWithExchangeRateAndQuantityRequest alias type for backwards compatibility
+type DAOCoinLimitOrderWithExchangeRateAndQuantityRequest DAOCoinLimitOrderCreationRequest
+
+type DAOCoinLimitOrderCreationRequest struct {
+	// The public key of the user who is creating the order
+	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// The public key of the DAO coin being bought
+	BuyingDAOCoinCreatorPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// The public key of the DAO coin being sold
+	SellingDAOCoinCreatorPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// A decimal string (ex: 1.23) that represents the exchange rate between the two coins. If operation type is BID
+	// then the denominator represents the coin being bought. If the operation type is ASK, then the denominator
+	// represents the coin being sold
+	Price string `safeForLogging:"true"`
+
+	// A decimal string (ex: 1.23) that represents the quantity of coins being bought or sold. If operation type is BID,
+	// then this quantity refers to the coin being bought. If operation type is ASK, then it refers to the coin being sold
+	Quantity string `safeForLogging:"true"`
+
+	OperationType DAOCoinLimitOrderOperationTypeString `safeForLogging:"true"`
+	FillType      DAOCoinLimitOrderFillTypeString      `safeForLogging:"true"`
+
+	// The two fields ExchangeRateCoinsToSellPerCoinToBuy and QuantityToFill will be deprecated once the above Price
+	// and Quantity fields are deployed, and users have migrated to start using them. Until then, the API will continue
+	// to accept ExchangeRateCoinsToSellPerCoinToBuy and QuantityToFill in requests to this endpoint
+	ExchangeRateCoinsToSellPerCoinToBuy float64 `safeForLogging:"true"` // Deprecated
+	QuantityToFill                      float64 `safeForLogging:"true"` // Deprecated
+
+	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
+	TransactionFees      []TransactionFee `safeForLogging:"true"`
+}
+
+// CreateDAOCoinLimitOrder Constructs a transaction that creates a DAO coin limit order for the specified
+// DAO coin pair, price, quantity, operation type, and fill type
+func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := DAOCoinLimitOrderCreationRequest{}
+
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Basic validation that we have a transactor
+	if requestData.TransactorPublicKeyBase58Check == "" {
+		_AddBadRequestError(ww, "CreateDAOCoinLimitOrder: must provide a TransactorPublicKeyBase58Check")
+		return
+	}
+
+	// Validate operation type
+	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	// Parse and validate fill type; for backwards compatibility, default the empty string to GoodTillCancelled
+	fillType := lib.DAOCoinLimitOrderFillTypeGoodTillCancelled
+	if requestData.FillType != "" {
+		fillType, err = orderFillTypeToUint64(requestData.FillType)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+			return
+		}
+	}
+
+	// Validated and parse price to a scaled exchange rate
+	scaledExchangeRateCoinsToSellPerCoinToBuy := uint256.NewInt()
+	if requestData.Price == "" && requestData.ExchangeRateCoinsToSellPerCoinToBuy == 0 {
+		err = errors.Errorf("Price must be provided as a valid decimal string (ex: 1.23)")
+	} else if requestData.Price != "" {
+		scaledExchangeRateCoinsToSellPerCoinToBuy, err = CalculateScaledExchangeRateFromPriceString(
+			requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.Price,
+			operationType,
+		)
+	} else if requestData.ExchangeRateCoinsToSellPerCoinToBuy <= 0 {
+		err = errors.Errorf("CreateDAOCoinLimitOrder: ExchangeRateCoinsToSellPerCoinToBuy must be greater than 0")
+	} else {
+		// ExchangeRateCoinsToSellPerCoinToBuy > 0
+		scaledExchangeRateCoinsToSellPerCoinToBuy, err = CalculateScaledExchangeRateFromFloat(
+			requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.ExchangeRateCoinsToSellPerCoinToBuy,
+		)
+	}
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	// Parse and validated quantity
+	quantityToFillInBaseUnits := uint256.NewInt()
+	if requestData.Quantity == "" && requestData.QuantityToFill == 0 {
+		err = errors.Errorf("Quantity must be provided as a valid decimal string (ex: 1.23)")
+	} else if requestData.Quantity != "" {
+		quantityToFillInBaseUnits, err = CalculateQuantityToFillAsBaseUnits(
+			requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.OperationType,
+			requestData.Quantity,
+		)
+	} else if requestData.QuantityToFill <= 0 {
+		err = errors.Errorf("CreateDAOCoinLimitOrder: Quantity must be greater than 0")
+	} else {
+		quantityToFillInBaseUnits, err = CalculateQuantityToFillAsBaseUnits(
+			requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.OperationType,
+			formatFloatAsString(requestData.QuantityToFill),
+		)
+	}
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: problem fetching utxoView: %v", err))
+		return
+	}
+
+	// Decode and validate the buying / selling coin public keys
+	buyingCoinPublicKey, sellingCoinPublicKey, err := fes.getBuyingAndSellingDAOCoinPublicKeys(
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+	)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	// Validate transactor has sufficient selling coins.
+	err = fes.validateTransactorSellingCoinBalance(
+		requestData.TransactorPublicKeyBase58Check,
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+		requestData.OperationType,
+		scaledExchangeRateCoinsToSellPerCoinToBuy,
+		quantityToFillInBaseUnits,
+	)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	// Validate any transfer restrictions on buying the DAO coin.
+	err = fes.validateDAOCoinOrderTransferRestriction(
+		requestData.TransactorPublicKeyBase58Check,
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	// Create order.
+	res, err := fes.createDAOCoinLimitOrderResponse(
+		utxoView,
+		requestData.TransactorPublicKeyBase58Check,
+		buyingCoinPublicKey,
+		sellingCoinPublicKey,
+		scaledExchangeRateCoinsToSellPerCoinToBuy,
+		quantityToFillInBaseUnits,
+		operationType,
+		fillType,
+		nil,
+		requestData.MinFeeRateNanosPerKB,
+		requestData.TransactionFees,
+	)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	res.SimulatedExecutionResult, err = fes.getDAOCoinLimitOrderSimulatedExecutionResult(
+		utxoView,
+		requestData.TransactorPublicKeyBase58Check,
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+		res.Transaction,
+	)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+// DAOCoinMarketOrderWithQuantityRequest alias type for backwards compatibility
+type DAOCoinMarketOrderWithQuantityRequest DAOCoinMarketOrderCreationRequest
+
+type DAOCoinMarketOrderCreationRequest struct {
+	// The public key of the user who is sending the order
+	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// The public key of the DAO coin being bought
+	BuyingDAOCoinCreatorPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// The public key of the DAO coin being sold
+	SellingDAOCoinCreatorPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// A decimal string (ex: 1.23) that represents the quantity of coins being bought or sold. If operation type is BID,
+	// then this quantity refers to the coin being bought. If operation type is ASK, then it refers to the coin being sold
+	Quantity string `safeForLogging:"true"`
+
+	OperationType DAOCoinLimitOrderOperationTypeString `safeForLogging:"true"`
+	FillType      DAOCoinLimitOrderFillTypeString      `safeForLogging:"true"`
+
+	// The QuantityToFill field will be deprecated once the above Quantity field is deployed, and users have migrated to
+	// start using it. Until then, the API will continue to accept QuantityToFill as an optional parameter in lieu of Quantity
+	QuantityToFill float64 `safeForLogging:"true"` // Deprecated
+
+	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
+	TransactionFees      []TransactionFee `safeForLogging:"true"`
+}
+
+func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := DAOCoinMarketOrderCreationRequest{}
+
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Basic validation that we have a transactor
+	if requestData.TransactorPublicKeyBase58Check == "" {
+		_AddBadRequestError(ww, "CreateDAOCoinMarketOrder: must provide a TransactorPublicKeyBase58Check")
+		return
+	}
+
+	// Validate operation type
+	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
+		return
+	}
+
+	// Validate and convert quantity to base units
+
+	// Parse and validated quantity
+	quantityToFillInBaseUnits := uint256.NewInt()
+	if requestData.Quantity == "" && requestData.QuantityToFill == 0 {
+		err = errors.Errorf("CreateDAOCoinMarketOrder: Quantity must be provided as a valid decimal string (ex: 1.23)")
+	} else if requestData.Quantity != "" {
+		quantityToFillInBaseUnits, err = CalculateQuantityToFillAsBaseUnits(
+			requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.OperationType,
+			requestData.Quantity,
+		)
+	} else if requestData.QuantityToFill <= 0 {
+		err = errors.Errorf("CreateDAOCoinMarketOrder: Quantity must be greater than 0")
+	} else {
+		quantityToFillInBaseUnits, err = CalculateQuantityToFillAsBaseUnits(
+			requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+			requestData.OperationType,
+			formatFloatAsString(requestData.QuantityToFill),
+		)
+	}
+
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
+		return
+	}
+
+	// Validate fill type
+	fillType, err := orderFillTypeToUint64(requestData.FillType)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
+		return
+	}
+	if fillType == lib.DAOCoinLimitOrderFillTypeGoodTillCancelled {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("CreateDAOCoinMarketOrder: %v fill type not supported for market orders", requestData.FillType),
+		)
+		return
+	}
+
+	// Validate any transfer restrictions on buying the DAO coin.
+	err = fes.validateDAOCoinOrderTransferRestriction(
+		requestData.TransactorPublicKeyBase58Check,
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: problem fetching utxoView: %v", err))
+		return
+	}
+
+	// Decode and validate the buying / selling coin public keys
+	buyingCoinPublicKey, sellingCoinPublicKey, err := fes.getBuyingAndSellingDAOCoinPublicKeys(
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+	)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
+		return
+	}
+
+	// override the initial value and explicitly set to 0 for clarity
+	zeroUint256 := uint256.NewInt().SetUint64(0)
+
+	res, err := fes.createDAOCoinLimitOrderResponse(
+		utxoView,
+		requestData.TransactorPublicKeyBase58Check,
+		buyingCoinPublicKey,
+		sellingCoinPublicKey,
+		zeroUint256,
+		quantityToFillInBaseUnits,
+		operationType,
+		fillType,
+		nil,
+		requestData.MinFeeRateNanosPerKB,
+		requestData.TransactionFees,
+	)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
+		return
+	}
+
+	res.SimulatedExecutionResult, err = fes.getDAOCoinLimitOrderSimulatedExecutionResult(
+		utxoView,
+		requestData.TransactorPublicKeyBase58Check,
+		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check,
+		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
+		res.Transaction,
+	)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
+		return
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+// getBuyingAndSellingDAOCoinPublicKeys
+// The string 'DESO' for the buying or selling coin represents $DESO. This enables $DESO <> DAO coin trades, and
+// DAO coin <> DAO coin trades. At most one of the buying or selling coin can specify $DESO as we don't enable
+// $DESO <> $DESO trades
+func (fes *APIServer) getBuyingAndSellingDAOCoinPublicKeys(
+	buyingDAOCoinCreatorPublicKeyBase58Check string,
+	sellingDAOCoinCreatorPublicKeyBase58Check string,
+) ([]byte, []byte, error) {
+	if sellingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString &&
+		buyingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+		return nil, nil, errors.Errorf("'DESO' specified for both the " +
+			"coin to buy and the coin to sell. At least one must specify a valid DAO public key whose coin " +
+			"will be bought or sold")
+	}
+
+	buyingCoinPublicKey := lib.ZeroPublicKey.ToBytes()
+	sellingCoinPublicKey := lib.ZeroPublicKey.ToBytes()
+
+	var err error
+
+	if buyingDAOCoinCreatorPublicKeyBase58Check != DESOCoinIdentifierString {
+		buyingCoinPublicKey, err = GetPubKeyBytesFromBase58Check(buyingDAOCoinCreatorPublicKeyBase58Check)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if sellingDAOCoinCreatorPublicKeyBase58Check != DESOCoinIdentifierString {
+		sellingCoinPublicKey, err = GetPubKeyBytesFromBase58Check(sellingDAOCoinCreatorPublicKeyBase58Check)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	return buyingCoinPublicKey, sellingCoinPublicKey, nil
+}
+
+type DAOCoinLimitOrderWithCancelOrderIDRequest struct {
+	// The public key of the user who is cancelling the order
+	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
+
+	CancelOrderID string `safeForLogging:"true"`
+
+	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
+	TransactionFees      []TransactionFee `safeForLogging:"true"`
+}
+
+// CancelDAOCoinLimitOrder Constructs a transaction that cancels an existing DAO coin limit order with the specified
+// order id
+func (fes *APIServer) CancelDAOCoinLimitOrder(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := DAOCoinLimitOrderWithCancelOrderIDRequest{}
+
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("CancelDAOCoinLimitOrder: Problem parsing request body: %v", err),
+		)
+		return
+	}
+
+	if requestData.TransactorPublicKeyBase58Check == "" {
+		_AddBadRequestError(
+			ww,
+			"CancelDAOCoinLimitOrder: must provide a TransactorPublicKeyBase58Check",
+		)
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CancelDAOCoinLimitOrder: problem fetching utxoView: %v", err))
+		return
+	}
+
+	cancelOrderID, err := decodeBlockHashFromHex(requestData.CancelOrderID)
+	if err != nil {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("CancelDAOCoinLimitOrder: CancelOrderID param is not a valid order id: %v", err),
+		)
+		return
+	}
+
+	res, err := fes.createDAOCoinLimitOrderResponse(
+		utxoView,
+		requestData.TransactorPublicKeyBase58Check,
+		nil,
+		nil,
+		nil,
+		nil,
+		0,
+		0,
+		cancelOrderID,
+		requestData.MinFeeRateNanosPerKB,
+		requestData.TransactionFees,
+	)
+
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CancelDAOCoinLimitOrder: %v", err))
+		return
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("CancelDAOCoinLimitOrder: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) createDAOCoinLimitOrderResponse(
+	utxoView *lib.UtxoView,
+	transactorPublicKeyBase58Check string,
+	buyingCoinPublicKeyBytes []byte,
+	sellingCoinPublicKeyBytes []byte,
+	scaledExchangeRateCoinsToSellPerCoinToBuy *uint256.Int,
+	quantityToFillInBaseUnits *uint256.Int,
+	operationType lib.DAOCoinLimitOrderOperationType,
+	fillType lib.DAOCoinLimitOrderFillType,
+	cancelOrderId *lib.BlockHash,
+	minFeeRateNanosPerKB uint64,
+	transactionFees []TransactionFee,
+) (*DAOCoinLimitOrderResponse, error) {
+
+	transactorPublicKeyBytes, _, err := fes.GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(
+		transactorPublicKeyBase58Check,
+		utxoView,
+	)
+	if err != nil {
+		return nil, errors.Errorf("Error getting public key for the transactor: %v", err)
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(
+		lib.TxnTypeDAOCoinLimitOrder,
+		transactorPublicKeyBytes,
+		transactionFees,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("specified transactionFees are invalid: %v", err)
+	}
+
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateDAOCoinLimitOrderTxn(
+		transactorPublicKeyBytes,
+		&lib.DAOCoinLimitOrderMetadata{
+			BuyingDAOCoinCreatorPublicKey:             lib.NewPublicKey(buyingCoinPublicKeyBytes),
+			SellingDAOCoinCreatorPublicKey:            lib.NewPublicKey(sellingCoinPublicKeyBytes),
+			ScaledExchangeRateCoinsToSellPerCoinToBuy: scaledExchangeRateCoinsToSellPerCoinToBuy,
+			QuantityToFillInBaseUnits:                 quantityToFillInBaseUnits,
+			OperationType:                             operationType,
+			FillType:                                  fillType,
+			CancelOrderID:                             cancelOrderId,
+		},
+		minFeeRateNanosPerKB,
+		fes.backendServer.GetMempool(),
+		additionalOutputs,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := DAOCoinLimitOrderResponse{
+		SpendAmountNanos:  totalInput - changeAmount - fees,
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+		TxnHashHex:        txn.Hash().String(),
+	}
+
+	return &res, nil
+}
+
+// getTransactionFee transforms transactionFees specified in an API request body to DeSoOutput and combines that with node-level transaction fees for this transaction type.
+func (fes *APIServer) getTransactionFee(txnType lib.TxnType, transactorPublicKey []byte, transactionFees []TransactionFee) (_outputs []*lib.DeSoOutput, _err error) {
+	// Transform transaction fees specified by the API request body.
+	extraOutputs, err := TransformTransactionFeesToOutputs(transactionFees)
+	if err != nil {
+		return nil, err
+	}
+	// Look up node-level fees for this transaction type.
+	fees := fes.TransactionFeeMap[txnType]
+	// If there are no node fees for this transaction type, don't even bother checking exempt public keys, just return the DeSoOutputs specified by the API request body.
+	if len(fees) == 0 {
+		return extraOutputs, nil
+	}
+	// If this node has designated this public key as one exempt from node-level fees, only return the DeSoOutputs requested by the API request body.
+	if _, exists := fes.ExemptPublicKeyMap[lib.PkToString(transactorPublicKey, fes.Params)]; exists {
+		return extraOutputs, nil
+	}
+	// Append the fees to the extraOutputs and return.
+	newOutputs := append(extraOutputs, fees...)
+	return newOutputs, nil
+}
+
+type AssociationLimitMapItem struct {
+	AssociationClass        lib.AssociationClassString
+	AssociationType         string
+	AppScopeType            lib.AssociationAppScopeTypeString
+	AppPublicKeyBase58Check string
+	AssociationOperation    lib.AssociationOperationString
+	OpCount                 uint64
+}
+
+type AccessGroupLimitMapItem struct {
+	AccessGroupOwnerPublicKeyBase58Check string
+	ScopeType                            lib.AccessGroupScopeString
+	AccessGroupKeyName                   string
+	OperationType                        lib.AccessGroupOperationString
+	OpCount                              uint64
+}
+
+type AccessGroupMemberLimitMapItem struct {
+	AccessGroupOwnerPublicKeyBase58Check string
+	ScopeType                            lib.AccessGroupScopeString
+	AccessGroupKeyName                   string
+	OperationType                        lib.AccessGroupMemberOperationString
+	OpCount                              uint64
+}
+
+// TransactionSpendingLimitResponse is a backend struct used to describe the TransactionSpendingLimit for a Derived key
+// in a way that can be JSON encoded/decoded.
+type TransactionSpendingLimitResponse struct {
+	// GlobalDESOLimit is the total amount of DESO (in nanos) that the DerivedKey can spend
+	GlobalDESOLimit uint64
+	// TransactionCountLimitMap is a map from transaction type (as a string) to the number of transactions
+	// the derived key is authorized to perform.
+	TransactionCountLimitMap map[lib.TxnString]uint64
+	// CreatorCoinOperationLimitMap is a map with public key base58 check as keys mapped to a map of
+	// CreatorCoinLimitOperationString (buy, sell, transfer, any) keys to the number of these operations that the
+	// derived key is authorized to perform.
+	CreatorCoinOperationLimitMap map[string]map[lib.CreatorCoinLimitOperationString]uint64
+	// DAOCoinOperationLimitMap is a map with public key base58 check as keys mapped to a map of
+	// DAOCoinLimitOperationString (mint, burn, transfer, disable_minting, update_transfer_restriction status, any)
+	// keys to the number of these operations that the derived key is authorized to perform.
+	DAOCoinOperationLimitMap map[string]map[lib.DAOCoinLimitOperationString]uint64
+	// NFTOperationLimitMap is a map with post hash hex as keys mapped to a map with serial number keys mapped to a map
+	// with NFTLimitOperationString (update, nft_bid, accept_nft_bid, transfer, burn, accept_nft_transfer, any) keys to
+	// the number of these operations that the derived key is authorized to perform.
+	NFTOperationLimitMap map[string]map[uint64]map[lib.NFTLimitOperationString]uint64
+	// DAOCoinLimitOrderLimitMap is a map with BuyingCoinPublicKey as keys mapped to a map
+	// of SellingCoinPublicKey mapped to the number of DAO Coin Limit Order transactions with
+	// this Buying and Selling coin pair that the derived key is authorized to perform.
+	DAOCoinLimitOrderLimitMap map[string]map[string]uint64
+	// AssociationLimitMap is a slice of AssociationLimitMapItems. Because there are so many attributes to define
+	// the key for AssociationLimits, we represent it as a slice instead of a deeply nested map.
+	AssociationLimitMap []AssociationLimitMapItem
+	// AccessGroupLimitMap is a slice of AccessGroupLimitMapItems.
+	AccessGroupLimitMap []AccessGroupLimitMapItem
+	// AccessGroupMemberLimitMap is a slice of AccessGroupMemberLimitMapItems.
+	AccessGroupMemberLimitMap []AccessGroupMemberLimitMapItem
+
+	// ===== ENCODER MIGRATION lib.UnlimitedDerivedKeysMigration =====
+	// IsUnlimited determines whether this derived key is unlimited. An unlimited derived key can perform all transactions
+	// that the owner can.
+	IsUnlimited bool
+}
+
+// AuthorizeDerivedKeyRequest ...
+type AuthorizeDerivedKeyRequest struct {
+	// The original public key of the derived key owner.
+	OwnerPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// The derived public key
+	DerivedPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// The expiration block of the derived key pair.
+	ExpirationBlock uint64 `safeForLogging:"true"`
+
+	// The signature of hash(derived key + expiration block) made by the owner.
+	AccessSignature string `safeForLogging:"true"`
+
+	// The intended operation on the derived key.
+	DeleteKey bool `safeForLogging:"true"`
+
+	// If we intend to sign this transaction with a derived key.
+	DerivedKeySignature bool `safeForLogging:"true"`
+
+	// ExtraData is arbitrary key value map
+	ExtraData map[string]string `safeForLogging:"true"`
+
+	// TransactionSpendingLimitHex represents a struct that will be merged with
+	// the TransactionSpendingLimitTracker for this Derived key. We require that
+	// this be sent as hex in order to guarantee that the AccessHash computed from
+	// this value is consistent with what the user is requesting.
+	TransactionSpendingLimitHex string `safeForLogging:"true"`
+
+	// Memo is a simple string that can be used to describe a derived key
+	Memo string `safeForLogging:"true"`
+
+	AppName string `safeForLogging:"true"`
+
+	// No need to specify ProfileEntryResponse in each TransactionFee
+	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+}
+
+// AuthorizeDerivedKeyResponse ...
+type AuthorizeDerivedKeyResponse struct {
+	SpendAmountNanos  uint64
+	TotalInputNanos   uint64
+	ChangeAmountNanos uint64
+	FeeNanos          uint64
+	Transaction       *lib.MsgDeSoTxn
+	TransactionHex    string
+	TxnHashHex        string
+}
+
+// AuthorizeDerivedKey ...
+func (fes *APIServer) AuthorizeDerivedKey(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AuthorizeDerivedKeyRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem parsing request body: %v", err))
+		return
+	}
+
+	if requestData.OwnerPublicKeyBase58Check == "" ||
+		requestData.DerivedPublicKeyBase58Check == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Must provide an owner and a derived key."))
+		return
+	}
+
+	// Decode the owner public key
+	ownerPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.OwnerPublicKeyBase58Check)
+	if err != nil || len(ownerPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AuthorizeDerivedKey: Problem decoding owner public key %s: %v",
+			requestData.OwnerPublicKeyBase58Check, err))
+		return
+	}
+
+	// Decode the derived public key
+	derivedPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.DerivedPublicKeyBase58Check)
+	if err != nil || len(derivedPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AuthorizeDerivedKey: Problem decoding derived public key %s: %v",
+			requestData.DerivedPublicKeyBase58Check, err))
+		return
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeAuthorizeDerivedKey, ownerPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
+	// Make sure owner and derived keys are different
+	if reflect.DeepEqual(ownerPublicKeyBytes, derivedPublicKeyBytes) {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Owner and derived public keys cannot be the same."))
+		return
+	}
+
+	// Decode the access signature
+	accessSignature, err := hex.DecodeString(requestData.AccessSignature)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Couldn't decode access signature."))
+		return
+	}
+	var memo []byte
+	blockHeight := fes.blockchain.BlockTip().Height + 1
+	// Only add the TransactionSpendingLimit and Memo if we're passed the block height.
+	if blockHeight >= fes.Params.ForkHeights.DerivedKeySetSpendingLimitsBlockHeight {
+		var memoStr string
+		if len(requestData.Memo) != 0 {
+			memoStr = requestData.Memo
+		} else if len(requestData.AppName) != 0 {
+			memoStr = requestData.AppName
+		}
+		if len(memoStr) != 0 {
+			memo = make([]byte, hex.EncodedLen(len([]byte(memoStr))))
+			hex.Encode(memo, []byte(memoStr))
+		}
+	}
+
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem decoding ExtraData: %v", err))
+		return
+	}
+
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateAuthorizeDerivedKeyTxn(
+		ownerPublicKeyBytes,
+		derivedPublicKeyBytes,
+		requestData.ExpirationBlock,
+		accessSignature,
+		requestData.DeleteKey,
+		requestData.DerivedKeySignature,
+		extraData,
+		memo,
+		requestData.TransactionSpendingLimitHex,
+		// Standard transaction fields
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem creating transaction: %v", err))
+		return
+	}
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := AuthorizeDerivedKeyResponse{
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+		TxnHashHex:        txn.Hash().String(),
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+const DAOCoinLimitOrderDESOPublicKey = "DESO"
+
+// TransactionSpendingLimitToResponse converts the core struct lib.TransactionSpendingLimit to a
+// TransactionSpendingLimitResponse
+func TransactionSpendingLimitToResponse(
+	transactionSpendingLimit *lib.TransactionSpendingLimit, utxoView *lib.UtxoView, params *lib.DeSoParams,
+) *TransactionSpendingLimitResponse {
+
+	// If the transactionSpendingLimit is nil, return nil.
+	if transactionSpendingLimit == nil {
+		return nil
+	}
+
+	// Copy the GlobalDESOLimit and IsUnlimited fields.
+	transactionSpendingLimitResponse := &TransactionSpendingLimitResponse{
+		GlobalDESOLimit: transactionSpendingLimit.GlobalDESOLimit,
+		IsUnlimited:     transactionSpendingLimit.IsUnlimited,
+	}
+
+	// Iterate over the TransactionCountLimit map - convert TxnType to TxnString and set as key with count as value
+	if len(transactionSpendingLimit.TransactionCountLimitMap) > 0 {
+		transactionSpendingLimitResponse.TransactionCountLimitMap = make(map[lib.TxnString]uint64)
+		for txnType, txnCount := range transactionSpendingLimit.TransactionCountLimitMap {
+			transactionSpendingLimitResponse.TransactionCountLimitMap[txnType.GetTxnString()] = txnCount
+		}
+	}
+
+	// Iterate over the CreatorCoinOperationLimitMap - convert PKID from key into base58Check public key, convert
+	// CreatorCoinLimitOperation to CreatorCoinLimitOperationString. Fill in the nested maps appropriately.
+	if len(transactionSpendingLimit.CreatorCoinOperationLimitMap) > 0 {
+		transactionSpendingLimitResponse.CreatorCoinOperationLimitMap = make(
+			map[string]map[lib.CreatorCoinLimitOperationString]uint64)
+		for ccLimitKey, opCount := range transactionSpendingLimit.CreatorCoinOperationLimitMap {
+			var creatorPublicKeyBase58Check string
+			if !ccLimitKey.CreatorPKID.IsZeroPKID() {
+				creatorPublicKeyBase58Check = lib.PkToString(
+					utxoView.GetPublicKeyForPKID(&ccLimitKey.CreatorPKID), params)
+			}
+			// If the key doesn't exist in the map yet, put key with empty map.
+			if _, exists := transactionSpendingLimitResponse.CreatorCoinOperationLimitMap[creatorPublicKeyBase58Check]; !exists {
+				transactionSpendingLimitResponse.CreatorCoinOperationLimitMap[creatorPublicKeyBase58Check] =
+					make(map[lib.CreatorCoinLimitOperationString]uint64)
+			}
+			transactionSpendingLimitResponse.CreatorCoinOperationLimitMap[creatorPublicKeyBase58Check][ccLimitKey.Operation.ToCreatorCoinLimitOperationString()] = opCount
+		}
+	}
+
+	// Iterate over the DAOCoinOperationLimitMap - convert PKID from key into base58Check public key, convert
+	// DAOCoinLimitOperation to DAOCoinLimitOperationString. Fill in the nested maps appropriately.
+	if len(transactionSpendingLimit.DAOCoinOperationLimitMap) > 0 {
+		transactionSpendingLimitResponse.DAOCoinOperationLimitMap = make(
+			map[string]map[lib.DAOCoinLimitOperationString]uint64)
+		for daoLimitKey, opCount := range transactionSpendingLimit.DAOCoinOperationLimitMap {
+			var creatorPublicKeyBase58Check string
+			if !daoLimitKey.CreatorPKID.IsZeroPKID() {
+				creatorPublicKeyBase58Check = lib.PkToString(
+					utxoView.GetPublicKeyForPKID(&daoLimitKey.CreatorPKID), params)
+			}
+			// If the key doesn't exist in the map yet, put key with empty map.
+			if _, exists := transactionSpendingLimitResponse.DAOCoinOperationLimitMap[creatorPublicKeyBase58Check]; !exists {
+				transactionSpendingLimitResponse.DAOCoinOperationLimitMap[creatorPublicKeyBase58Check] =
+					make(map[lib.DAOCoinLimitOperationString]uint64)
+			}
+			transactionSpendingLimitResponse.DAOCoinOperationLimitMap[creatorPublicKeyBase58Check][daoLimitKey.Operation.ToDAOCoinLimitOperationString()] = opCount
+		}
+	}
+
+	// Iterate over the NFTOperationLimitMap - convert BlockHash from key into PostHashHex, convert
+	// NFTLimitOperation to NFTLimitOperationString. Fill in the nested maps appropriately.
+	if len(transactionSpendingLimit.NFTOperationLimitMap) > 0 {
+		transactionSpendingLimitResponse.NFTOperationLimitMap = make(
+			map[string]map[uint64]map[lib.NFTLimitOperationString]uint64)
+		for nftLimitKey, opCount := range transactionSpendingLimit.NFTOperationLimitMap {
+			var postHashHex string
+			if !reflect.DeepEqual(nftLimitKey.BlockHash, lib.ZeroBlockHash) {
+				postHashHex = hex.EncodeToString(nftLimitKey.BlockHash[:])
+			}
+			// If the key doesn't exist in the map yet, put key with empty map.
+			if _, exists := transactionSpendingLimitResponse.NFTOperationLimitMap[postHashHex]; !exists {
+				transactionSpendingLimitResponse.NFTOperationLimitMap[postHashHex] =
+					make(map[uint64]map[lib.NFTLimitOperationString]uint64)
+			}
+			serialNum := nftLimitKey.SerialNumber
+			// If serial number map doesn't exist in the map yet, put key with empty map.
+			if _, exists := transactionSpendingLimitResponse.NFTOperationLimitMap[postHashHex][serialNum]; !exists {
+				transactionSpendingLimitResponse.NFTOperationLimitMap[postHashHex][serialNum] =
+					make(map[lib.NFTLimitOperationString]uint64)
+			}
+
+			transactionSpendingLimitResponse.NFTOperationLimitMap[postHashHex][serialNum][nftLimitKey.Operation.ToNFTLimitOperationString()] = opCount
+		}
+	}
+
+	// Iterate over the DAOCoinLimitOrderLimitMap - convert PKID from key into base58Check public key.
+	// Fill in the nested maps appropriately.
+	if len(transactionSpendingLimit.DAOCoinLimitOrderLimitMap) > 0 {
+		transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap = make(
+			map[string]map[string]uint64)
+		for daoCoinLimitOrderLimitKey, opCount := range transactionSpendingLimit.DAOCoinLimitOrderLimitMap {
+			buyingPublicKey := DAOCoinLimitOrderDESOPublicKey
+			if !daoCoinLimitOrderLimitKey.BuyingDAOCoinCreatorPKID.IsZeroPKID() {
+				buyingPkBytes := utxoView.GetPublicKeyForPKID(&daoCoinLimitOrderLimitKey.BuyingDAOCoinCreatorPKID)
+				buyingPublicKey = lib.PkToString(buyingPkBytes, params)
+			}
+			sellingPublicKey := DAOCoinLimitOrderDESOPublicKey
+			if !daoCoinLimitOrderLimitKey.SellingDAOCoinCreatorPKID.IsZeroPKID() {
+				sellingPkBytes := utxoView.GetPublicKeyForPKID(&daoCoinLimitOrderLimitKey.SellingDAOCoinCreatorPKID)
+				sellingPublicKey = lib.PkToString(sellingPkBytes, params)
+			}
+			if _, exists := transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap[buyingPublicKey]; !exists {
+				transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap[buyingPublicKey] = make(map[string]uint64)
+			}
+			transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap[buyingPublicKey][sellingPublicKey] = opCount
+		}
+	}
+
+	// Iterate over the AssociationLimitMap - convert association limit key and op count to AssociationLimitMapItem
+	// structs.
+	if len(transactionSpendingLimit.AssociationLimitMap) > 0 {
+		for associationLimitKey, opCount := range transactionSpendingLimit.AssociationLimitMap {
+			associationClassString := associationLimitKey.AssociationClass.ToAssociationClassString()
+			associationType := associationLimitKey.AssociationType
+			associationAppScopeTypeString := associationLimitKey.AppScopeType.ToAssociationAppScopeTypeString()
+			associationOperationString := associationLimitKey.Operation.ToAssociationOperationString()
+			var appPublicKey string
+			if !associationLimitKey.AppPKID.IsZeroPKID() {
+				appPkBytes := utxoView.GetPublicKeyForPKID(&associationLimitKey.AppPKID)
+				appPublicKey = lib.PkToString(appPkBytes, params)
+			}
+			transactionSpendingLimitResponse.AssociationLimitMap = append(transactionSpendingLimitResponse.AssociationLimitMap,
+				AssociationLimitMapItem{
+					AssociationClass:        associationClassString,
+					AssociationType:         associationType,
+					AppScopeType:            associationAppScopeTypeString,
+					AppPublicKeyBase58Check: appPublicKey,
+					AssociationOperation:    associationOperationString,
+					OpCount:                 opCount,
+				})
+		}
+	}
+
+	// Iterate over the AccessGroupLimitMap.
+	if len(transactionSpendingLimit.AccessGroupMap) > 0 {
+		for accessGroupLimitKey, opCount := range transactionSpendingLimit.AccessGroupMap {
+			accessGroupOwnerPublicKeyBase58Check := lib.Base58CheckEncode(
+				accessGroupLimitKey.AccessGroupOwnerPublicKey.ToBytes(), false, params,
+			)
+			transactionSpendingLimitResponse.AccessGroupLimitMap = append(
+				transactionSpendingLimitResponse.AccessGroupLimitMap,
+				AccessGroupLimitMapItem{
+					AccessGroupOwnerPublicKeyBase58Check: accessGroupOwnerPublicKeyBase58Check,
+					ScopeType:                            accessGroupLimitKey.AccessGroupScopeType.ToAccessGroupScopeString(),
+					AccessGroupKeyName:                   string(lib.AccessKeyNameDecode(&accessGroupLimitKey.AccessGroupKeyName)),
+					OperationType:                        accessGroupLimitKey.OperationType.ToAccessGroupOperationString(),
+					OpCount:                              opCount,
+				},
+			)
+		}
+	}
+
+	// Iterate over the AccessGroupMemberLimitMap.
+	if len(transactionSpendingLimit.AccessGroupMemberMap) > 0 {
+		for accessGroupMemberLimitKey, opCount := range transactionSpendingLimit.AccessGroupMemberMap {
+			accessGroupOwnerPublicKeyBase58Check := lib.Base58CheckEncode(
+				accessGroupMemberLimitKey.AccessGroupOwnerPublicKey.ToBytes(), false, params,
+			)
+			transactionSpendingLimitResponse.AccessGroupMemberLimitMap = append(
+				transactionSpendingLimitResponse.AccessGroupMemberLimitMap,
+				AccessGroupMemberLimitMapItem{
+					AccessGroupOwnerPublicKeyBase58Check: accessGroupOwnerPublicKeyBase58Check,
+					ScopeType:                            accessGroupMemberLimitKey.AccessGroupScopeType.ToAccessGroupScopeString(),
+					AccessGroupKeyName:                   string(lib.AccessKeyNameDecode(&accessGroupMemberLimitKey.AccessGroupKeyName)),
+					OperationType:                        accessGroupMemberLimitKey.OperationType.ToAccessGroupMemberOperationString(),
+					OpCount:                              opCount,
+				},
+			)
+		}
+	}
+
+	return transactionSpendingLimitResponse
+}
+
+func (fes *APIServer) TransactionSpendingLimitFromResponse(
+	transactionSpendingLimitResponse TransactionSpendingLimitResponse) (*lib.TransactionSpendingLimit, error) {
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return nil, fmt.Errorf("TransactionSpendingLimitFromResponse: error getting utxoview: %v", err)
+	}
+	transactionSpendingLimit := &lib.TransactionSpendingLimit{
+		GlobalDESOLimit: transactionSpendingLimitResponse.GlobalDESOLimit,
+		IsUnlimited:     transactionSpendingLimitResponse.IsUnlimited,
+	}
+
+	if len(transactionSpendingLimitResponse.TransactionCountLimitMap) > 0 {
+		transactionSpendingLimit.TransactionCountLimitMap = make(map[lib.TxnType]uint64)
+		for txnType, value := range transactionSpendingLimitResponse.TransactionCountLimitMap {
+			transactionSpendingLimit.TransactionCountLimitMap[lib.GetTxnTypeFromString(txnType)] = value
+		}
+	}
+
+	getCreatorPKIDForBase58Check := func(pubKeyBase58Check string) (*lib.PKID, error) {
+		creatorPKID := &lib.ZeroPKID
+		if pubKeyBase58Check != "" {
+			var pkBytes []byte
+			pkBytes, _, err = lib.Base58CheckDecode(pubKeyBase58Check)
+			if err != nil {
+				return nil, err
+			}
+			pkid := utxoView.GetPKIDForPublicKey(pkBytes)
+			if pkid == nil || pkid.PKID == nil {
+				return nil, fmt.Errorf("No PKID found for public key %v", pubKeyBase58Check)
+			}
+			creatorPKID = pkid.PKID
+		}
+		return creatorPKID, nil
+	}
+
+	if len(transactionSpendingLimitResponse.CreatorCoinOperationLimitMap) > 0 {
+		transactionSpendingLimit.CreatorCoinOperationLimitMap = make(map[lib.CreatorCoinOperationLimitKey]uint64)
+		for pubKey, operationToCountMap := range transactionSpendingLimitResponse.CreatorCoinOperationLimitMap {
+			creatorPKID, err := getCreatorPKIDForBase58Check(pubKey)
+			if err != nil {
+				return nil, fmt.Errorf("Error getting PKID for pub key %v", pubKey)
+			}
+			for operation, count := range operationToCountMap {
+				transactionSpendingLimit.CreatorCoinOperationLimitMap[lib.MakeCreatorCoinOperationLimitKey(
+					*creatorPKID, operation.ToCreatorCoinLimitOperation())] = count
+			}
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.DAOCoinOperationLimitMap) > 0 {
+		transactionSpendingLimit.DAOCoinOperationLimitMap = make(map[lib.DAOCoinOperationLimitKey]uint64)
+		for pubKey, operationToCountMap := range transactionSpendingLimitResponse.DAOCoinOperationLimitMap {
+			creatorPKID, err := getCreatorPKIDForBase58Check(pubKey)
+			if err != nil {
+				return nil, fmt.Errorf("Error getting PKID for pub key %v", pubKey)
+			}
+			for operation, count := range operationToCountMap {
+				transactionSpendingLimit.DAOCoinOperationLimitMap[lib.MakeDAOCoinOperationLimitKey(
+					*creatorPKID, operation.ToDAOCoinLimitOperation())] = count
+			}
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.NFTOperationLimitMap) > 0 {
+		transactionSpendingLimit.NFTOperationLimitMap = make(map[lib.NFTOperationLimitKey]uint64)
+		for postHashHex, serialNumToOperationToCountMap := range transactionSpendingLimitResponse.NFTOperationLimitMap {
+			postHash := &lib.ZeroBlockHash
+			if postHashHex != "" {
+				postHash, err = GetPostHashFromPostHashHex(postHashHex)
+				if err != nil {
+					return nil, err
+				}
+			}
+			for serialNum, operationToCountMap := range serialNumToOperationToCountMap {
+				for operation, count := range operationToCountMap {
+					transactionSpendingLimit.NFTOperationLimitMap[lib.MakeNFTOperationLimitKey(
+						*postHash, serialNum, operation.ToNFTLimitOperation())] = count
+				}
+			}
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap) > 0 {
+		transactionSpendingLimit.DAOCoinLimitOrderLimitMap = make(map[lib.DAOCoinLimitOrderLimitKey]uint64)
+		for buyingPublicKey, sellingPublicKeyToCountMap := range transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap {
+			buyingPKID := &lib.ZeroPKID
+			if buyingPublicKey != DAOCoinLimitOrderDESOPublicKey {
+				buyingPKID, err = getCreatorPKIDForBase58Check(buyingPublicKey)
+				if err != nil {
+					return nil, err
+				}
+			}
+			for sellingPublicKey, count := range sellingPublicKeyToCountMap {
+				sellingPKID := &lib.ZeroPKID
+				if sellingPublicKey != DAOCoinLimitOrderDESOPublicKey {
+					sellingPKID, err = getCreatorPKIDForBase58Check(sellingPublicKey)
+					if err != nil {
+						return nil, err
+					}
+				}
+				transactionSpendingLimit.DAOCoinLimitOrderLimitMap[lib.MakeDAOCoinLimitOrderLimitKey(
+					*buyingPKID, *sellingPKID)] = count
+			}
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.AssociationLimitMap) > 0 {
+		transactionSpendingLimit.AssociationLimitMap = make(map[lib.AssociationLimitKey]uint64)
+		for _, associationLimitMapItem := range transactionSpendingLimitResponse.AssociationLimitMap {
+			appPKID := &lib.ZeroPKID
+			if associationLimitMapItem.AppPublicKeyBase58Check != "" {
+				appPKID, err = getCreatorPKIDForBase58Check(associationLimitMapItem.AppPublicKeyBase58Check)
+				if err != nil {
+					return nil, err
+				}
+			}
+			transactionSpendingLimit.AssociationLimitMap[lib.MakeAssociationLimitKey(
+				associationLimitMapItem.AssociationClass.ToAssociationClass(),
+				[]byte(associationLimitMapItem.AssociationType),
+				*appPKID,
+				associationLimitMapItem.AppScopeType.ToAssociationAppScopeType(),
+				associationLimitMapItem.AssociationOperation.ToAssociationOperation(),
+			)] = associationLimitMapItem.OpCount
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.AccessGroupLimitMap) > 0 {
+		transactionSpendingLimit.AccessGroupMap = make(map[lib.AccessGroupLimitKey]uint64)
+		for _, accessGroupLimitMapItem := range transactionSpendingLimitResponse.AccessGroupLimitMap {
+			accessGroupOwnerPublicKey, _, err := lib.Base58CheckDecode(accessGroupLimitMapItem.AccessGroupOwnerPublicKeyBase58Check)
+			if err != nil {
+				return nil, err
+			}
+			accessGroupLimitKey := lib.MakeAccessGroupLimitKey(
+				*lib.NewPublicKey(accessGroupOwnerPublicKey),
+				accessGroupLimitMapItem.ScopeType.ToAccessGroupScopeType(),
+				*lib.NewGroupKeyName([]byte(accessGroupLimitMapItem.AccessGroupKeyName)),
+				accessGroupLimitMapItem.OperationType.ToAccessGroupOperationType(),
+			)
+			transactionSpendingLimit.AccessGroupMap[accessGroupLimitKey] = accessGroupLimitMapItem.OpCount
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.AccessGroupMemberLimitMap) > 0 {
+		transactionSpendingLimit.AccessGroupMemberMap = make(map[lib.AccessGroupMemberLimitKey]uint64)
+		for _, accessGroupMemberLimitMapItem := range transactionSpendingLimitResponse.AccessGroupMemberLimitMap {
+			accessGroupOwnerPublicKey, _, err := lib.Base58CheckDecode(accessGroupMemberLimitMapItem.AccessGroupOwnerPublicKeyBase58Check)
+			if err != nil {
+				return nil, err
+			}
+			accessGroupMemberLimitKey := lib.MakeAccessGroupMemberLimitKey(
+				*lib.NewPublicKey(accessGroupOwnerPublicKey),
+				accessGroupMemberLimitMapItem.ScopeType.ToAccessGroupScopeType(),
+				*lib.NewGroupKeyName([]byte(accessGroupMemberLimitMapItem.AccessGroupKeyName)),
+				accessGroupMemberLimitMapItem.OperationType.ToAccessGroupMemberOperation(),
+			)
+			transactionSpendingLimit.AccessGroupMemberMap[accessGroupMemberLimitKey] = accessGroupMemberLimitMapItem.OpCount
+		}
+	}
+
+	return transactionSpendingLimit, nil
+}
+
+// AppendExtraDataRequest ...
+type AppendExtraDataRequest struct {
+	// Transaction hex.
+	TransactionHex string `safeForLogging:"true"`
+
+	// ExtraData object.
+	ExtraData map[string]string `safeForLogging:"true"`
+}
+
+// AppendExtraDataResponse ...
+type AppendExtraDataResponse struct {
+	// Final Transaction hex.
+	TransactionHex string `safeForLogging:"true"`
+}
+
+// AppendExtraData ...
+// This endpoint allows setting custom ExtraData for a given transaction hex.
+func (fes *APIServer) AppendExtraData(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AppendExtraDataRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Get the transaction bytes from the request data.
+	txnBytes, err := hex.DecodeString(requestData.TransactionHex)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem decoding transaction hex %v", err))
+		return
+	}
+
+	// Deserialize transaction from transaction bytes.
+	txn := &lib.MsgDeSoTxn{}
+	err = txn.FromBytes(txnBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem deserializing transaction from bytes: %v", err))
+		return
+	}
+
+	if txn.ExtraData == nil {
+		txn.ExtraData = make(map[string][]byte)
+	}
+
+	// Append ExtraData entries
+	encodedExtraDataToAppend, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem encoding ExtraData: %v", err))
+		return
+	}
+	for k, vBytes := range encodedExtraDataToAppend {
+		txn.ExtraData[k] = vBytes
+	}
+
+	// Get the final transaction bytes.
+	txnBytesFinal, err := txn.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem serializing transaction: %v", err))
+		return
+	}
+
+	// Return the final transaction bytes.
+	res := AppendExtraDataResponse{
+		TransactionHex: hex.EncodeToString(txnBytesFinal),
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AppendExtraData: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+// GetTransactionSpendingRequest ...
+type GetTransactionSpendingRequest struct {
+	// Transaction hex.
+	TransactionHex string `safeForLogging:"true"`
+}
+
+// GetTransactionSpendingResponse ...
+type GetTransactionSpendingResponse struct {
+	// Total transaction spending in nanos.
+	TotalSpendingNanos uint64 `safeForLogging:"true"`
+}
+
+// GetTransactionSpending ...
+// This endpoint allows you to calculate transaction total spending
+// by subtracting transaction output to sender from transaction inputs.
+// Note, this endpoint doesn't check if transaction is valid.
+func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetTransactionSpendingRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Get the transaction bytes from the request data.
+	txnBytes, err := hex.DecodeString(requestData.TransactionHex)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem decoding transaction hex %v", err))
+		return
+	}
+
+	// Deserialize transaction from transaction bytes.
+	txn := &lib.MsgDeSoTxn{}
+	err = txn.FromBytes(txnBytes)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem deserializing transaction from bytes: %v", err))
+		return
+	}
+
+	// If transaction has no inputs we can return immediately.
+	if len(txn.TxInputs) == 0 {
+		// Return the final transaction spending.
+		res := GetTransactionSpendingResponse{
+			TotalSpendingNanos: 0,
+		}
+		if err := json.NewEncoder(ww).Encode(res); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem encoding response as JSON: %v", err))
+		}
+		return
+	}
+
+	// Get augmented universal view from mempool.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem getting AugmentedUniversalView: %v", err))
+		return
+	}
+
+	// Create an array of utxoEntries from transaction inputs' utxoKeys.
+	totalInputNanos := uint64(0)
+	for _, txInput := range txn.TxInputs {
+		utxoEntry := utxoView.GetUtxoEntryForUtxoKey((*lib.UtxoKey)(txInput))
+		if utxoEntry == nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Already spent utxo or invalid txn input: %v", txInput))
+			return
+		}
+		totalInputNanos += utxoEntry.AmountNanos
+	}
+
+	// Get nanos sent back to the sender from outputs.
+	changeAmountNanos := uint64(0)
+	for _, txOutput := range txn.TxOutputs {
+		if reflect.DeepEqual(txOutput.PublicKey, txn.PublicKey) {
+			changeAmountNanos += txOutput.AmountNanos
+		}
+	}
+
+	// Sanity check if output doesn't exceed inputs.
+	if changeAmountNanos > totalInputNanos {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Output to sender exceeds inputs: (%v, %v)", changeAmountNanos, totalInputNanos))
+		return
+	}
+
+	// Return the final transaction spending.
+	totalSpendingNanos := totalInputNanos - changeAmountNanos
+	res := GetTransactionSpendingResponse{
+		TotalSpendingNanos: totalSpendingNanos,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem encoding response as JSON: %v", err))
+	}
+	return
+}
+
+func (fes *APIServer) simulateSubmitTransaction(utxoView *lib.UtxoView, txn *lib.MsgDeSoTxn) (uint64, error) {
+	bestHeight := fes.blockchain.BlockTip().Height + 1
+	_, _, _, fees, err := utxoView.ConnectTransaction(
+		txn,
+		txn.Hash(),
+		0,
+		bestHeight,
+		false,
+		false,
+	)
+	return fees, err
 }

@@ -3,9 +3,9 @@ package toolslib
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/bitclout/backend/routes"
-	"github.com/bitclout/core/lib"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
@@ -13,20 +13,20 @@ import (
 
 // _generateUnsignedUpdateProfile...
 func _generateUnsignedUpdateProfile(updaterPubKey *btcec.PublicKey, newUsername string, newDescription string,
-	newProfilePic string, newCreatorBasisPoints uint64, params *lib.BitCloutParams, node string) (*routes.UpdateProfileResponse, error) {
+	newProfilePic string, newCreatorBasisPoints uint64, params *lib.DeSoParams, node string) (*routes.UpdateProfileResponse, error) {
 	endpoint := node + routes.RoutePathUpdateProfile
 
 	// Setup request
 	payload := &routes.UpdateProfileRequest{
 		UpdaterPublicKeyBase58Check: lib.PkToString(updaterPubKey.SerializeCompressed(), params),
 		ProfilePublicKeyBase58Check: "",
-		NewUsername: newUsername,
-		NewDescription: newDescription,
-		NewProfilePic: newProfilePic,
-		NewCreatorBasisPoints: newCreatorBasisPoints,
+		NewUsername:                 newUsername,
+		NewDescription:              newDescription,
+		NewProfilePic:               newProfilePic,
+		NewCreatorBasisPoints:       newCreatorBasisPoints,
 		NewStakeMultipleBasisPoints: 12500,
-		IsHidden: false,
-		MinFeeRateNanosPerKB: 1000,
+		IsHidden:                    false,
+		MinFeeRateNanosPerKB:        1000,
 	}
 	postBody, err := json.Marshal(payload)
 	if err != nil {
@@ -41,7 +41,7 @@ func _generateUnsignedUpdateProfile(updaterPubKey *btcec.PublicKey, newUsername 
 	}
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := ioutil.ReadAll(resp.Body)
-		return nil, errors.Errorf("_generateUnsignedUpdateProfile(): Received non 200 response code: " +
+		return nil, errors.Errorf("_generateUnsignedUpdateProfile(): Received non 200 response code: "+
 			"Status Code: %v Body: %v", resp.StatusCode, string(bodyBytes))
 	}
 
@@ -60,7 +60,7 @@ func _generateUnsignedUpdateProfile(updaterPubKey *btcec.PublicKey, newUsername 
 
 // UpdateProfile...
 func UpdateProfile(updaterPubKey *btcec.PublicKey, updaterPrivKey *btcec.PrivateKey, newUsername string, newDescription string,
-	newProfilePic string, newCreatorBasisPoints uint64, params *lib.BitCloutParams, node string) error {
+	newProfilePic string, newCreatorBasisPoints uint64, params *lib.DeSoParams, node string) error {
 
 	// Request an unsigned transaction from the node
 	unsignedUpdateProfile, err := _generateUnsignedUpdateProfile(updaterPubKey, newUsername, newDescription,
@@ -75,7 +75,7 @@ func UpdateProfile(updaterPubKey *btcec.PublicKey, updaterPrivKey *btcec.Private
 	if err != nil {
 		return errors.Wrap(err, "UpdateProfile() failed to sign the transaction")
 	}
-	txn.Signature = signature
+	txn.Signature.SetSignature(signature)
 
 	// Submit the transaction to the node
 	err = SubmitTransactionToNode(txn, node)

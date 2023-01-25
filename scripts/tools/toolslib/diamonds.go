@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/bitclout/backend/routes"
-	"github.com/bitclout/core/lib"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/deso-protocol/backend/routes"
+	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
@@ -14,7 +14,7 @@ import (
 
 // _generateUnsignedGiveDiamonds...
 func _generateUnsignedSendDiamonds(senderPubKey *btcec.PublicKey, postHashHex string, receiverPublicKeyBase58Check string,
-	diamondLevel int64, params *lib.BitCloutParams, node string) (*routes.SendDiamondsResponse, error) {
+	diamondLevel int64, params *lib.DeSoParams, node string) (*routes.SendDiamondsResponse, error) {
 	endpoint := node + routes.RoutePathSendDiamonds
 
 	// Setup request
@@ -38,7 +38,7 @@ func _generateUnsignedSendDiamonds(senderPubKey *btcec.PublicKey, postHashHex st
 	}
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := ioutil.ReadAll(resp.Body)
-		return nil, errors.Errorf("_generateUnsignedSendDiamonds(): Received non 200 response code: " +
+		return nil, errors.Errorf("_generateUnsignedSendDiamonds(): Received non 200 response code: "+
 			"Status Code: %v Body: %v", resp.StatusCode, string(bodyBytes))
 	}
 
@@ -72,7 +72,7 @@ func _generateUnsignedSendDiamonds(senderPubKey *btcec.PublicKey, postHashHex st
 
 // SendDiamonds
 func SendDiamonds(senderPubKey *btcec.PublicKey, senderPrivKey *btcec.PrivateKey, postHashHex string,
-	receiverPublicKeyBase58Check string, diamondLevel int64, params *lib.BitCloutParams, node string) error {
+	receiverPublicKeyBase58Check string, diamondLevel int64, params *lib.DeSoParams, node string) error {
 
 	// Request an unsigned transaction from the node
 	unsignedSendDiamonds, err := _generateUnsignedSendDiamonds(senderPubKey, postHashHex, receiverPublicKeyBase58Check,
@@ -87,7 +87,7 @@ func SendDiamonds(senderPubKey *btcec.PublicKey, senderPrivKey *btcec.PrivateKey
 	if err != nil {
 		return errors.Wrap(err, "SendDiamonds() failed to sign transaction")
 	}
-	txn.Signature = signature
+	txn.Signature.SetSignature(signature)
 
 	// Submit the transaction to the node
 	err = SubmitTransactionToNode(txn, node)

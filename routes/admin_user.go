@@ -3,16 +3,18 @@ package routes
 import (
 	"bytes"
 	"encoding/gob"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/core/lib"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/pkg/errors"
 	"io"
 	"net/http"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/deso-protocol/core/lib"
+	"github.com/pkg/errors"
 )
 
 // AdminUpdateUserGlobalMetadataRequest...
@@ -41,9 +43,6 @@ type AdminUpdateUserGlobalMetadataRequest struct {
 
 	AdminPublicKey string
 }
-
-// AdminUpdateUserGlobalMetadataResponse ...
-type AdminUpdateUserGlobalMetadataResponse struct{}
 
 // AdminUpdateUserGlobalMetadata ...
 //
@@ -75,17 +74,6 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 		}
 	}
 
-	// Check if the username provided was a actually a phone number. If it is,
-	// search for the associated public key in global state.
-	if userPublicKeyBytes == nil && requestData.Username != "" && requestData.Username[0] == '+' {
-		phoneNumberMetadata, err := fes.getPhoneNumberMetadataFromGlobalState(requestData.Username)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Error getting phone number metadata: %v", err))
-			return
-		}
-		userPublicKeyBytes = phoneNumberMetadata.PublicKey
-	}
-
 	// If we do not have a public key by this point, try and get one from the profile associated with the username.
 	if userPublicKeyBytes == nil && requestData.Username != "" {
 		utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
@@ -115,24 +103,33 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 			_AddBadRequestError(ww, "AdminUpdateUserGlobalMetadata: User does not have a phone number")
 			return
 		}
-		phoneNumberMetadata, err := fes.getPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
+		multiPhoneNumberMetadata, err := fes.getMultiPhoneNumberMetadataFromGlobalState(userMetadata.PhoneNumber)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Error getting phone number metadata: %v", err))
 			return
 		}
-		phoneNumberMetadata.PublicKey = nil
-		err = fes.putPhoneNumberMetadataInGlobalState(phoneNumberMetadata)
-		if err != nil {
+		newMetadata := []*PhoneNumberMetadata{}
+		for _, phoneNumberMetadata := range multiPhoneNumberMetadata {
+			if !bytes.Equal(phoneNumberMetadata.PublicKey, userPublicKeyBytes) {
+				newMetadata = append(newMetadata, phoneNumberMetadata)
+			}
+		}
+
+		if err = fes.putPhoneNumberMetadataInGlobalState(newMetadata, userMetadata.PhoneNumber); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Error saving phone number metadata: %v", err))
 			return
 		}
 
-		// If we made it this far we were successful at removing phone metadata, return without error.
-		res := AdminUpdateUserGlobalMetadataResponse{}
-		if err := json.NewEncoder(ww).Encode(res); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem encoding response as JSON: %v", err))
+		userMetadata.PhoneNumber = ""
+		userMetadata.PhoneNumberCountryCode = ""
+
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem putting updated user metadata after deleting phone number: %v", err))
 			return
 		}
+
+		// If we made it this far we were successful at removing phone metadata, return without error.
+		// Simply return a 200 status code
 		return
 	}
 
@@ -145,52 +142,60 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 	userPKIDEntry := utxoView.GetPKIDForPublicKey(userPublicKeyBytes)
 	profileEntry := utxoView.GetProfileEntryForPKID(userPKIDEntry.PKID)
 
+	// NOTE: for now, if pointing to a different global state, this will not be merged with the black/graylist from
+	// the external source. This is a planned future enhancements.
 	// Now that we have a userMetadata object, update it based on the request.
 	if requestData.IsBlacklistUpdate {
 		userMetadata.RemoveEverywhere = requestData.RemoveEverywhere
 		blacklistKey := GlobalStateKeyForBlacklistedProfile(userPublicKeyBytes)
+		blacklistVal := lib.NotBlacklisted
+		blacklistAction := "removing from"
 		if userMetadata.RemoveEverywhere {
-			err = fes.GlobalStatePut(blacklistKey, lib.IsBlacklisted)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating blacklist: %v", err))
-			}
-		} else {
-			err = fes.GlobalStateDelete(blacklistKey)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem deleting from blacklist: %v", err))
-				return
-			}
+			blacklistVal = lib.IsBlacklisted
+			blacklistAction = "adding to"
+		}
+		if err = fes.GlobalState.Put(blacklistKey, blacklistVal); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem %v blacklist: %v", blacklistAction, err))
+			return
 		}
 		// We update the logs accordingly
-		err = fes.UpdateFilterAuditLogs(string(profileEntry.Username), userPKIDEntry, Blacklist, !userMetadata.RemoveEverywhere, requestData.AdminPublicKey, utxoView)
-		if err != nil {
+		if err = fes.UpdateFilterAuditLogs(
+			string(profileEntry.Username),
+			userPKIDEntry,
+			Blacklist,
+			!userMetadata.RemoveEverywhere,
+			requestData.AdminPublicKey,
+			utxoView); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating blacklist logs: %v", err))
 			return
 		}
-		// We need to update global state's list of blacklisted users.
-
+		// We need to update global state's list of graylisted users.
 		userMetadata.RemoveFromLeaderboard = requestData.RemoveFromLeaderboard
 		graylistkey := GlobalStateKeyForGraylistedProfile(userPublicKeyBytes)
+		graylistVal := lib.NotGraylisted
+		graylistAction := "removing from"
 		if userMetadata.RemoveFromLeaderboard {
-			// We need to update global state's list of graylisted users.
-			err = fes.GlobalStatePut(graylistkey, lib.IsGraylisted)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating graylist: %v", err))
-				return
-			}
-		} else {
-			err = fes.GlobalStateDelete(graylistkey)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem deleting from graylist: %v", err))
-				return
-			}
+			graylistVal = lib.IsGraylisted
+			graylistAction = "adding to"
+		}
+		if err = fes.GlobalState.Put(graylistkey, graylistVal); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem %v graylist: %v", graylistAction, err))
+			return
 		}
 		// We update the logs accordingly
-		err = fes.UpdateFilterAuditLogs(string(profileEntry.Username), userPKIDEntry, Graylist, !userMetadata.RemoveFromLeaderboard, requestData.AdminPublicKey, utxoView)
-		if err != nil {
+		if err = fes.UpdateFilterAuditLogs(
+			string(profileEntry.Username),
+			userPKIDEntry,
+			Graylist,
+			!userMetadata.RemoveFromLeaderboard,
+			requestData.AdminPublicKey,
+			utxoView); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem updating graylist logs: %v", err))
 			return
 		}
+		// Force Blacklist and Graylist to update instantly.
+		fes.SetBlacklistedPKIDMap(utxoView)
+		fes.SetGraylistedPKIDMap(utxoView)
 	} else if requestData.IsWhitelistUpdate {
 		userMetadata.WhitelistPosts = requestData.WhitelistPosts
 		// We update the logs accordingly
@@ -202,16 +207,29 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 	}
 
 	// Encode the updated entry and stick it in the database.
-	err = fes.putUserMetadataInGlobalState(userMetadata)
-	if err != nil {
+	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem putting updated user metadata: %v", err))
 		return
 	}
+	// Simply return with a 200 status code
+}
 
-	// If we made it this far we were successful, return without error.
-	res := AdminUpdateUserGlobalMetadataResponse{}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUserGlobalMetadata: Problem encoding response as JSON: %v", err))
+type AdminResetPhoneNumberRequest struct {
+	PhoneNumber string
+}
+
+// Clears all phone number metadata for a given phone number - thus allowing it to be used again.
+func (fes *APIServer) AdminResetPhoneNumber(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminResetPhoneNumberRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminResetPhoneNumber: Problem parsing request body: %v", err))
+		return
+	}
+	if err := fes.putPhoneNumberMetadataInGlobalState([]*PhoneNumberMetadata{}, requestData.PhoneNumber); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"AdminResetPhoneNumber: Problem putting empty slice in global state for phone number %v: %v",
+			requestData.PhoneNumber, err))
 		return
 	}
 }
@@ -233,10 +251,10 @@ func (fes *APIServer) getUserMetadataUsernameMaps(numToFetch int) (_publicKeyToU
 	_publicKeyToUsername map[string]string, _err error) {
 	// Seek the global state for the user metadata prefix.
 	seekKey := _GlobalStatePrefixPublicKeyToUserMetadata
-	keys, vals, err := fes.GlobalStateSeek(seekKey, seekKey, 0, numToFetch, false, true)
+	keys, vals, err := fes.GlobalState.Seek(seekKey, seekKey, 0, numToFetch, false, true)
 	if err != nil {
 		return nil, nil,
-			errors.Wrapf(err, "getUserMetadataUsernameMaps: problem with GlobalStateSeek")
+			errors.Wrapf(err, "getUserMetadataUsernameMaps: problem with Seek")
 	}
 
 	// Sanity check that we got an appropriate number of keys and values.
@@ -353,7 +371,7 @@ func (fes *APIServer) AdminGetUserGlobalMetadata(ww http.ResponseWriter, req *ht
 	// If we made it this far we were successful, return without error.
 	res := AdminGetUserGlobalMetadataResponse{
 		UserMetadata:             *userMetadata,
-		UserProfileEntryResponse: _profileEntryToResponse(profileEntry, fes.Params, nil, utxoView),
+		UserProfileEntryResponse: fes._profileEntryToResponse(profileEntry, utxoView),
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserGlobalMetadata: Problem encoding response as JSON: %v", err))
@@ -367,7 +385,7 @@ func (fes *APIServer) UpdateUsernameVerificationAuditLog(usernameToVerify string
 	verificationAuditLogs := []VerificationUsernameAuditLog{}
 	// Get the key to look up the current list of audit logs for this username
 	verificationAuditLogKey := GlobalStateKeyForUsernameVerificationAuditLogs(usernameToVerify)
-	verificationAuditLogBytes, err := fes.GlobalStateGet(verificationAuditLogKey)
+	verificationAuditLogBytes, err := fes.GlobalState.Get(verificationAuditLogKey)
 	if err != nil {
 		return errors.Wrap(fmt.Errorf("UpdateUsernameVerificationAuditLog: Failed to log verification to audit log"), "")
 	}
@@ -404,7 +422,7 @@ func (fes *APIServer) UpdateUsernameVerificationAuditLog(usernameToVerify string
 	verificationAuditLogs = append([]VerificationUsernameAuditLog{newVerificationAuditLog}, verificationAuditLogs...)
 	verificationDataBuf := bytes.NewBuffer([]byte{})
 	gob.NewEncoder(verificationDataBuf).Encode(verificationAuditLogs)
-	err = fes.GlobalStatePut(verificationAuditLogKey, verificationDataBuf.Bytes())
+	err = fes.GlobalState.Put(verificationAuditLogKey, verificationDataBuf.Bytes())
 	if err != nil {
 		return errors.Wrap(fmt.Errorf("AdminGrantVerificationBadge: Failed to update verification audit logs"), "")
 	}
@@ -455,7 +473,7 @@ func (fes *APIServer) UpdateFilterAuditLogs(usernameToUpdate string, pkidEntryTo
 		return errors.Wrap(err, "UpdateFilterAuditLogs: Failed to get filter logs")
 	}
 
-	err = fes.GlobalStatePut(filterLogsKey, filterLogsBuf.Bytes())
+	err = fes.GlobalState.Put(filterLogsKey, filterLogsBuf.Bytes())
 	if err != nil {
 		return errors.Wrap(fmt.Errorf("UpdateFilterAuditLogs: Failed to update filter logs"), "")
 	}
@@ -489,7 +507,7 @@ func (fes *APIServer) GetFilterAuditLogs(username string, filterType FilterType)
 	}
 
 	// Fetch the logs from global state
-	filterLogsBytes, err := fes.GlobalStateGet(filterLogsKey)
+	filterLogsBytes, err := fes.GlobalState.Get(filterLogsKey)
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf("GetFilterAuditLogs: Failed to fetch filter audit logs from globalstate"), "")
 	}
@@ -557,8 +575,9 @@ type AdminGrantVerificationBadgeResponse struct {
 
 // AdminGrantVerificationBadge
 //
-// This endpoint enables anyone with access to a node's shared secret to grant a verifiaction
+// This endpoint enables anyone with access to a node's shared secret to grant a verification
 // badge to a particular username.
+// This operates on this node's global state and does not interact with the configured GlobalStateAPIUrl.
 func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *http.Request) {
 	requestData := AdminGrantVerificationBadgeRequest{}
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
@@ -595,7 +614,7 @@ func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *h
 	}
 
 	// Pull the verified map from global state
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMapFromGlobalState()
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("AdminGrantVerificationBadge: Failed fetching verified map from database: %v", err))
 		return
@@ -623,12 +642,18 @@ func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *h
 
 	// Encode the updated entry and stick it in the database.
 	metadataDataBuf := bytes.NewBuffer([]byte{})
-	gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct)
-	err = fes.GlobalStatePut(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
+	if err = gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGrantVerificationBadge: failed to encode verified map struct: %v", err))
+		return
+	}
+	err = fes.GlobalState.Put(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
 	if err != nil {
 		_AddBadRequestError(ww, "AdminGrantVerificationBadge: Failed placing new verification map into the database.")
 		return
 	}
+
+	// Force a refresh of the Verified Username map.
+	fes.SetVerifiedUsernameMap()
 
 	// Return a success message
 	res := AdminGrantVerificationBadgeResponse{
@@ -658,6 +683,7 @@ type AdminRemoveVerificationBadgeResponse struct {
 // If the public key still has the same username, the user is considered verified.
 // In order to "delete" a user efficiently, we simply map their public key to an empty string.
 // Since their public key can never have an underlying username of "", it will never show up as verified.
+// This operates on this node's global state and does not interact with the configured GlobalStateAPIUrl.
 func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *http.Request) {
 	requestData := AdminRemoveVerificationBadgeRequest{}
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
@@ -693,29 +719,24 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 	}
 
 	// Pull the verified map from global state
-	verifiedMapBytes, err := fes.GlobalStateGet(_GlobalStatePrefixForVerifiedMap)
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMapFromGlobalState()
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Failed fetching verified map from database."))
+		_AddInternalServerError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Failed fetching verified map from database: %v", err))
 		return
 	}
-	verifiedMapStruct := VerifiedUsernameToPKID{}
-	if verifiedMapBytes != nil {
-		err = gob.NewDecoder(bytes.NewReader(verifiedMapBytes)).Decode(&verifiedMapStruct)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Failed decoding verified map from database."))
-			return
-		}
-	} else {
-		// If we don't find a map in global state, return early.
+	// We can exit early if there are no users in the verified map.
+	if verifiedMap == nil || len(verifiedMap) == 0 {
 		res := AdminRemoveVerificationBadgeResponse{
 			Message: "Couldn't find a verified username map in global state.  Nothing to delete.",
 		}
-		if err := json.NewEncoder(ww).Encode(res); err != nil {
+		if err = json.NewEncoder(ww).Encode(res); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Problem encoding response as "+
 				"JSON: %v", err))
-			return
 		}
 		return
+	}
+	verifiedMapStruct := VerifiedUsernameToPKID{
+		VerifiedUsernameToPKID: verifiedMap,
 	}
 
 	// Add a new audit log for this verification removal request.
@@ -725,23 +746,28 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 		return
 	}
 
-	// Kill the key in our map.
-	delete(verifiedMapStruct.VerifiedUsernameToPKID, strings.ToLower(usernameToRemove))
+	// We set the value for this username to an empty PKID to signify that it has been removed.
+	verifiedMapStruct.VerifiedUsernameToPKID[strings.ToLower(usernameToRemove)] = &lib.ZeroPKID
 
 	// Encode the updated entry and stick it in the database.
 	metadataDataBuf := bytes.NewBuffer([]byte{})
-	gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct)
-	err = fes.GlobalStatePut(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
-	if err != nil {
+	if err = gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Failed encoding new verification map: %v", err))
+	}
+
+	if err = fes.GlobalState.Put(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes()); err != nil {
 		_AddBadRequestError(ww, "AdminRemoveVerificationBadge: Failed placing new verification map into the database.")
 		return
 	}
+
+	// Force a refresh of the Verified Username map.
+	fes.SetVerifiedUsernameMap()
 
 	// Return a success message
 	res := AdminRemoveVerificationBadgeResponse{
 		Message: "Successfully removed verification badge for: " + usernameToRemove,
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Problem encoding response as JSON: %v", err))
 		return
 	}
@@ -755,9 +781,7 @@ type AdminGetVerifiedUsersResponse struct {
 	VerifiedUsers []string
 }
 
-// AdminGetVerifiedUsers
-//
-// Gets a list of all verified users.
+// AdminGetVerifiedUsers gets a list of all verified users from this node's global state.
 func (fes *APIServer) AdminGetVerifiedUsers(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := AdminGetVerifiedUsersRequest{}
@@ -767,7 +791,7 @@ func (fes *APIServer) AdminGetVerifiedUsers(ww http.ResponseWriter, req *http.Re
 	}
 
 	// Pull the verified map from global state
-	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+	verifiedMap, err := fes.GetVerifiedUsernameToPKIDMapFromGlobalState()
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("AdminGetVerifiedUsers: Failed fetching verified map from database: %v", err))
 		return
@@ -810,7 +834,8 @@ type AdminGetUsernameVerificationAuditLogsResponse struct {
 	VerificationAuditLogs []VerificationUsernameAuditLogResponse
 }
 
-// Get the verification audit logs for a given username
+// AdminGetUsernameVerificationAuditLogs gets the verification audit logs for a given username from this node's global
+// state.  It does not look at the configured GlobalStateAPIUrl to fetch this information.
 func (fes *APIServer) AdminGetUsernameVerificationAuditLogs(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := AdminGetUsernameVerificationAuditLogsRequest{}
@@ -820,7 +845,7 @@ func (fes *APIServer) AdminGetUsernameVerificationAuditLogs(ww http.ResponseWrit
 	}
 	// Get the verification audit logs from global state.
 	key := GlobalStateKeyForUsernameVerificationAuditLogs(requestData.Username)
-	verificationUsernameAuditLogBytes, err := fes.GlobalStateGet(key)
+	verificationUsernameAuditLogBytes, err := fes.GlobalState.Get(key)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUsernameVerificationAuditLogs: Problem getting audit logs for this username: %v", err))
 		return
@@ -886,9 +911,15 @@ type AdminGetUserAdminDataResponse struct {
 	// Phone number verification
 	PhoneNumber string
 	Email       string
+
+	// Referral Code
+	ReferralHashBase58Check            string
+	JumioStarterDeSoTxnHashBase58Check string
+	ReferrerDeSoTxnHashBase58Check     string
 }
 
-// Get the audit logs for a particular public key and their associated metadata
+// AdminGetUserAdminData gets the audit logs for a particular public key and their associated metadata from this node's
+// global state. This does not use verifications fetched from other APIs.
 func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := AdminGetUserAdminDataRequest{}
@@ -922,7 +953,7 @@ func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Re
 	lastVerifyRemoverPublicKey := ""
 	if profileEntry != nil {
 		username := strings.ToLower(string(profileEntry.Username))
-		verifiedMap, err := fes.GetVerifiedUsernameToPKIDMap()
+		verifiedMap, err := fes.GetVerifiedUsernameToPKIDMapFromGlobalState()
 		if err != nil {
 			_AddInternalServerError(ww, fmt.Sprintf("AdminGetUserMetadata: Failed fetching verified map from database: %v", err))
 			return
@@ -937,7 +968,7 @@ func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Re
 
 		// Get the verification audit logs from global state.
 		key := GlobalStateKeyForUsernameVerificationAuditLogs(string(profileEntry.Username))
-		verificationUsernameAuditLogBytes, err := fes.GlobalStateGet(key)
+		verificationUsernameAuditLogBytes, err := fes.GlobalState.Get(key)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem getting audit logs for this username: %v", err))
 			return
@@ -1035,25 +1066,54 @@ func (fes *APIServer) AdminGetUserAdminData(ww http.ResponseWriter, req *http.Re
 	phoneNumber := userMetadata.PhoneNumber
 	email := userMetadata.Email
 
+	var jumioStarterDeSoTxnHashBase58Check string
+	if userMetadata.JumioStarterDeSoTxnHashHex != "" {
+		jumioStarterDeSoTxnHashBase58Check, err = fes.HashHexToBase58Check(userMetadata.JumioStarterDeSoTxnHashHex)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem converting JumioStarterDeSoTxnHashHex to base58check: %v", err))
+			return
+		}
+	}
+
+	var referrerDeSoTxnHashBase58Check string
+	if userMetadata.ReferrerDeSoTxnHash != "" {
+		referrerDeSoTxnHashBase58Check, err = fes.HashHexToBase58Check(userMetadata.ReferrerDeSoTxnHash)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem converting ReferrerDeSoTxnHash to base58check: %v", err))
+			return
+		}
+	}
+
 	res := AdminGetUserAdminDataResponse{
-		Username:                      username,
-		IsVerified:                    isVerified,
-		LastVerifierPublicKey:         lastVerifierPublicKey,
-		LastVerifyRemoverPublicKey:    lastVerifyRemoverPublicKey,
-		IsWhitelisted:                 isWhitelisted,
-		LastWhitelisterPublicKey:      lastWhitelisterPublicKey,
-		LastWhitelistRemoverPublicKey: lastWhitelistRemoverPublicKey,
-		IsGraylisted:                  isGraylisted,
-		LastGraylisterPublicKey:       lastGraylisterPublicKey,
-		LastGraylistRemoverPublicKey:  lastGraylistRemoverPublicKey,
-		IsBlacklisted:                 isBlacklisted,
-		LastBlacklisterPublicKey:      lastBlacklisterPublicKey,
-		LastBlacklistRemoverPublicKey: lastBlacklistRemoverPublicKey,
-		PhoneNumber:                   phoneNumber,
-		Email:                         email,
+		Username:                           username,
+		IsVerified:                         isVerified,
+		LastVerifierPublicKey:              lastVerifierPublicKey,
+		LastVerifyRemoverPublicKey:         lastVerifyRemoverPublicKey,
+		IsWhitelisted:                      isWhitelisted,
+		LastWhitelisterPublicKey:           lastWhitelisterPublicKey,
+		LastWhitelistRemoverPublicKey:      lastWhitelistRemoverPublicKey,
+		IsGraylisted:                       isGraylisted,
+		LastGraylisterPublicKey:            lastGraylisterPublicKey,
+		LastGraylistRemoverPublicKey:       lastGraylistRemoverPublicKey,
+		IsBlacklisted:                      isBlacklisted,
+		LastBlacklisterPublicKey:           lastBlacklisterPublicKey,
+		LastBlacklistRemoverPublicKey:      lastBlacklistRemoverPublicKey,
+		PhoneNumber:                        phoneNumber,
+		Email:                              email,
+		ReferralHashBase58Check:            userMetadata.ReferralHashBase58Check,
+		JumioStarterDeSoTxnHashBase58Check: jumioStarterDeSoTxnHashBase58Check,
+		ReferrerDeSoTxnHashBase58Check:     referrerDeSoTxnHashBase58Check,
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGetUserMetadata: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+func (fes *APIServer) HashHexToBase58Check(hashHex string) (base58Check string, _err error) {
+	hashBytes, err := hex.DecodeString(hashHex)
+	if err != nil {
+		return "", fmt.Errorf("AdminGetUserMetadata: Problem decoding JumioStarterDeSoTxnHashHex: %v", err)
+	}
+	return lib.PkToString(hashBytes, fes.Params), nil
 }

@@ -1,15 +1,19 @@
 package routes
 
 import (
+	"bytes"
+	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/bitclout/core/lib"
 	"io"
 	"net/http"
+	"time"
+
+	"github.com/deso-protocol/core/lib"
 )
 
-// AdminPinPostRequest...
+// AdminPinPostRequest ...
 type AdminPinPostRequest struct {
 	// The post hash of the post to pin or unpin from the global feed
 	PostHashHex string `safeForLogging:"true"`
@@ -20,7 +24,7 @@ type AdminPinPostRequest struct {
 // AdminPinPostResponse ...
 type AdminPinPostResponse struct{}
 
-// AdminUpdateGlobalFeed ...
+// AdminPinPost  ...
 func (fes *APIServer) AdminPinPost(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := AdminPinPostRequest{}
@@ -61,14 +65,14 @@ func (fes *APIServer) AdminPinPost(ww http.ResponseWriter, req *http.Request) {
 	// Create a key to access the global state object.
 	dbKey := GlobalStateKeyForTstampPinnedPostHash(postEntry.TimestampNanos, postHash)
 	if requestData.UnpinPost {
-		err = fes.GlobalStateDelete(dbKey)
+		err = fes.GlobalState.Delete(dbKey)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminPinPost: Problem deleting post from global state: %v", err))
 			return
 		}
 	} else {
 		// Encode the post entry and stick it in the database.
-		err = fes.GlobalStatePut(dbKey, []byte{1})
+		err = fes.GlobalState.Put(dbKey, []byte{1})
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("AdminPinPost: Problem putting updated user metadata: %v", err))
 			return
@@ -95,6 +99,7 @@ type AdminUpdateGlobalFeedRequest struct {
 type AdminUpdateGlobalFeedResponse struct{}
 
 // AdminUpdateGlobalFeed ...
+// NOTE: This function adds posts to the global feed as well as to the hot feed approved posts.
 func (fes *APIServer) AdminUpdateGlobalFeed(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := AdminUpdateGlobalFeedRequest{}
@@ -134,18 +139,33 @@ func (fes *APIServer) AdminUpdateGlobalFeed(ww http.ResponseWriter, req *http.Re
 	// Create a key to access the global state object.
 	dbKey := GlobalStateKeyForTstampPostHash(postEntry.TimestampNanos, postHash)
 	if requestData.RemoveFromGlobalFeed {
-		err = fes.GlobalStateDelete(dbKey)
+		err = fes.GlobalState.Delete(dbKey)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem deleting post from global state: %v", err))
+			_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem deleting post from global state: %v", err))
 			return
 		}
 	} else {
 		// Encode the post entry and stick it in the database.
-		err = fes.GlobalStatePut(dbKey, []byte{1})
+		err = fes.GlobalState.Put(dbKey, []byte{1})
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem putting updated user metadata: %v", err))
+			_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem putting updated user metadata: %v", err))
 			return
 		}
+	}
+
+	// Add a hot feed op for this post.
+	hotFeedOp := HotFeedApprovedPostOp{
+		IsRemoval:  requestData.RemoveFromGlobalFeed,
+		Multiplier: 1,
+	}
+	hotFeedOpDataBuf := bytes.NewBuffer([]byte{})
+	gob.NewEncoder(hotFeedOpDataBuf).Encode(hotFeedOp)
+	opTimestamp := uint64(time.Now().UnixNano())
+	hotFeedOpKey := GlobalStateKeyForHotFeedApprovedPostOp(opTimestamp, postHash)
+	err = fes.GlobalState.Put(hotFeedOpKey, hotFeedOpDataBuf.Bytes())
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("AdminUpdateGlobalFeed: Problem putting hotFeedOp: %v", err))
+		return
 	}
 
 	// If we made it this far we were successful, return without error.
@@ -191,7 +211,7 @@ func (fes *APIServer) AdminRemoveNilPosts(ww http.ResponseWriter, req *http.Requ
 	maxBigEndianUint64Bytes := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
 	maxKeyLen := 1 + len(maxBigEndianUint64Bytes) + lib.HashSizeBytes
 	// Get postHashes for posts in the globalFeed.
-	keys, _, err := fes.GlobalStateSeek(
+	keys, _, err := fes.GlobalState.Seek(
 		_GlobalStatePrefixTstampNanosPostHash, /*startPrefix*/
 		_GlobalStatePrefixTstampNanosPostHash, /*validForPrefix*/
 		maxKeyLen,                             /*maxKeyLen*/
@@ -216,7 +236,7 @@ func (fes *APIServer) AdminRemoveNilPosts(ww http.ResponseWriter, req *http.Requ
 		// If the postEntry doesn't exist, clear the entry for the map of global feed posts
 		// from global state
 		if postEntry == nil {
-			err = fes.GlobalStateDelete(dbKeyBytes)
+			err = fes.GlobalState.Delete(dbKeyBytes)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf(
 					"AdminRemoveNilPosts: Problem deleting missing key in GlobalState Key-value store for global feed: #{err}"))
