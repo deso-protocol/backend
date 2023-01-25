@@ -412,7 +412,7 @@ func (fes *APIServer) GetVideoStatus(ww http.ResponseWriter, req *http.Request) 
 }
 
 type EnableVideoDownloadResponse struct {
-	Default map[string]interface {}
+	Default map[string]interface{}
 }
 
 // Cloudflare does NOT allow uploaded videos to be downloaded (just streamed)
@@ -430,7 +430,7 @@ func (fes *APIServer) EnableVideoDownload(ww http.ResponseWriter, req *http.Requ
 		_AddBadRequestError(ww, fmt.Sprintf("EnableVideoDownload: Missing videoId"))
 		return
 	}
-    url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%v/stream/%v/downloads", fes.Config.CloudflareAccountId, videoId)
+	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%v/stream/%v/downloads", fes.Config.CloudflareAccountId, videoId)
 	client := &http.Client{}
 
 	// This is a POST request because:
