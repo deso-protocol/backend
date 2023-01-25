@@ -302,6 +302,8 @@ const (
 	RoutePathGetAccessGroupMemberInfo = "/api/v0/get-access-group-member-info"
 
 	RoutePathGetPaginatedAccessGroupMembers = "/api/v0/get-paginated-access-group-members"
+	RoutePathGetBulkAccessGroupEntries      = "/api/v0/get-bulk-access-group-entries"
+
 	// Routes for access groups based DM and group chat messaging.
 	RoutePathSendDmMessage = "/api/v0/send-dm-message"
 
@@ -1948,6 +1950,127 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetCountKeysWithDESO,
 			fes.GetCountKeysWithDESO,
+			PublicAccess,
+		},
+		// registering the routes related to access groups
+		{
+			"CreateAccessGroup",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateAccessGroup,
+			fes.CreateAccessGroup,
+			PublicAccess,
+		},
+		{
+			"AddAccessGroupMembers",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAddAccessGroupMembers,
+			fes.AddAccessGroupMembers,
+			PublicAccess,
+		},
+		{
+			"GetAllUserAccessGroups",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAllUserAccessGroups,
+			fes.GetAllUserAccessGroups,
+			PublicAccess,
+		},
+		{
+			"GetAllUserAccessGroupsOwned",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAllUserAccessGroupsOwned,
+			fes.GetAllUserAccessGroupsOwned,
+			PublicAccess,
+		},
+		{
+			"GetAllUserAccessGroupsMemberOnly",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAllUserAccessGroupsMemberOnly,
+			fes.GetAllUserAccessGroupsMemberOnly,
+			PublicAccess,
+		},
+		{
+			"CheckPartyAccessGroups",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCheckPartyAccessGroups,
+			fes.CheckPartyAccessGroups,
+			PublicAccess,
+		},
+		{
+			"GetAccessGroupInfo",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAccessGroupInfo,
+			fes.GetAccessGroupInfo,
+			PublicAccess,
+		},
+		{
+			"GetAccessGroupMemberInfo",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAccessGroupMemberInfo,
+			fes.GetAccessGroupMemberInfo,
+			PublicAccess,
+		},
+		{
+			"GetPaginatedAccessGroupMembers",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPaginatedAccessGroupMembers,
+			fes.GetPaginatedAccessGroupMembers,
+			PublicAccess,
+		},
+		{
+			"GetBulkAccessGroupEntries",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetBulkAccessGroupEntries,
+			fes.GetBulkAccessGroupEntries,
+			PublicAccess,
+		},
+		// access group message APIs.
+		{
+			"SendDmMessage",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSendDmMessage,
+			fes.SendDmMessage,
+			PublicAccess,
+		},
+		{
+			"SendGroupChatMessage",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSendGroupChatMessage,
+			fes.SendGroupChatMessage,
+			PublicAccess,
+		},
+		{
+			"GetUserDmThreadsOrderedByTimestamp",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetUserDmThreadsOrderedByTimestamp,
+			fes.GetUserDmThreadsOrderedByTimestamp,
+			PublicAccess,
+		},
+		{
+			"GetPaginatedMessagesForDmThread",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPaginatedMessagesForDmThread,
+			fes.GetPaginatedMessagesForDmThread,
+			PublicAccess,
+		},
+		{
+			"GetUserGroupChatThreadsOrderedByTimestamp",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetUserGroupChatThreadsOrderedByTimestamp,
+			fes.GetUserGroupChatThreadsOrderedByTimestamp,
+			PublicAccess,
+		},
+		{
+			"GetPaginatedMessagesForGroupChatThread",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPaginatedMessagesForGroupChatThread,
+			fes.GetPaginatedMessagesForGroupChatThread,
+			PublicAccess,
+		},
+		{
+			"GetAllUserMessageThreads",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAllUserMessageThreads,
+			fes.GetAllUserMessageThreads,
 			PublicAccess,
 		},
 		// registering the routes related to access groups

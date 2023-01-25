@@ -16,6 +16,10 @@ import (
 	"testing"
 	"time"
 
+	chainlib "github.com/btcsuite/btcd/blockchain"
+	"github.com/deso-protocol/backend/config"
+	"github.com/deso-protocol/core/lib"
+
 	"github.com/dgraph-io/badger/v3"
 
 	"github.com/stretchr/testify/assert"

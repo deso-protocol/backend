@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/deso-protocol/core/lib"
@@ -45,6 +46,10 @@ func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check string, accessGrou
 	}
 	// get the byte array of the access group key name.
 	accessGroupKeyNameBytes := []byte(accessGroupKeyName)
+	// If it's the base key, we're fine with it and just let it rip.
+	if len(accessGroupKeyNameBytes) == 0 {
+		return publicKeyBytes, accessGroupKeyNameBytes, nil
+	}
 	// Validates whether the accessGroupOwner key is a valid public key and
 	// some basic checks on access group key name like Min and Max characters.
 	if err = lib.ValidateAccessGroupPublicKeyAndName(publicKeyBytes, accessGroupKeyNameBytes); err != nil {
@@ -52,6 +57,14 @@ func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check string, accessGrou
 			"public key and access group key name %s %s: %v", publicKeyBase58Check, accessGroupKeyName, err))
 	}
 
+	// We're okay with the base key
+	// Access group name key cannot be equal to base group name key (equal to all zeros).
+	// By default all users belong to the access group with the base name key, hence it is reserved.
+	//if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
+	//	return nil, nil, errors.New(fmt.Sprintf(
+	//		"ValidateAccessGroupPublicKeyAndName: Access Group key cannot be same as base key (all zeros)."+
+	//			"Access group key name %s", accessGroupKeyName))
+	//}
 	return publicKeyBytes, accessGroupKeyNameBytes, nil
 }
 
@@ -83,9 +96,7 @@ func getFirstMessage(latestMessageEntries []*lib.NewMessageEntry) *lib.NewMessag
 	if len(latestMessageEntries) > 0 {
 		return latestMessageEntries[0]
 	}
-	// Don't return an error if there are zero entries, return empty value.
-	// client might be dependent on empty value to implement the fetching logic.
-	return &lib.NewMessageEntry{}
+	return nil
 }
 
 // Helper function to fetch just the latest message from the given Dm thread.
@@ -139,6 +150,9 @@ func (fes *APIServer) fetchLatestMessageFromDmThreads(
 		if err != nil {
 			return nil, err
 		}
+		if latestMessageEntry == nil {
+			continue
+		}
 		latestMessageEntries = append(latestMessageEntries, latestMessageEntry)
 	}
 
@@ -185,14 +199,16 @@ func (fes *APIServer) fetchLatestMessageFromGroupChatThreads(groupChatThreads []
 
 	var latestMessageEntries []*lib.NewMessageEntry
 	// Use current unix time stamp since we're fetching only the latest message.
-	currTime := time.Now().Unix()
+	currTime := time.Now().UnixNano()
 	// Iterate through each group chat thread and fetch their latest message.
 	for _, dmThread := range groupChatThreads {
 		latestMessageEntry, err := fes.fetchLatestMessageFromGroupChatThread(dmThread, uint64(currTime), utxoView)
 		if err != nil {
 			return nil, errors.Wrap(err, "")
 		}
-
+		if latestMessageEntry == nil {
+			continue
+		}
 		latestMessageEntries = append(latestMessageEntries, latestMessageEntry)
 	}
 	return latestMessageEntries, nil
@@ -302,6 +318,11 @@ func (fes *APIServer) sendMessageHandler(ww http.ResponseWriter, req *http.Reque
 	//		requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
 	//}
 
+	hexDecodedEncryptedMessageBytes, err := hex.DecodeString(requestData.EncryptedMessageText)
+	if err != nil {
+		return errors.Wrapf(err, "Problem decoding encrypted message text hex")
+	}
+
 	// Validate the sender access group public key.
 	senderAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
 	if err != nil {
@@ -310,7 +331,7 @@ func (fes *APIServer) sendMessageHandler(ww http.ResponseWriter, req *http.Reque
 	}
 
 	// Validate the recipient access group public key.
-	recipientAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
+	recipientAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.RecipientAccessGroupPublicKeyBase58Check)
 	if err != nil {
 		return errors.Wrapf(err, fmt.Sprintf("Problem validating recipient "+
 			"base58 public key %s: ", requestData.SenderAccessGroupPublicKeyBase58Check))
@@ -335,7 +356,7 @@ func (fes *APIServer) sendMessageHandler(ww http.ResponseWriter, req *http.Reque
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNewMessageTxn(
 		senderGroupOwnerPkBytes, *lib.NewPublicKey(senderGroupOwnerPkBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes), *lib.NewPublicKey(senderAccessGroupPkbytes),
 		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes), *lib.NewPublicKey(recipientAccessGroupPkbytes),
-		[]byte(requestData.EncryptedMessageText), tstamp,
+		hexDecodedEncryptedMessageBytes, tstamp,
 		newMessageType, lib.NewMessageOperationCreate,
 		extraData, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
@@ -386,9 +407,10 @@ type AccessGroupInfo struct {
 	AccessGroupKeyName              string `safeForLogging:"true"`
 }
 type MessageInfo struct {
-	EncryptedText  string
-	TimestampNanos uint64
-	ExtraData      map[string]string
+	EncryptedText        string
+	TimestampNanos       uint64
+	TimestampNanosString string
+	ExtraData            map[string]string
 }
 
 func (fes *APIServer) NewMessageEntryToResponse(newMessageEntry *lib.NewMessageEntry, chatType ChatType, utxoView *lib.UtxoView) NewMessageEntryResponse {
@@ -403,9 +425,10 @@ func (fes *APIServer) NewMessageEntryToResponse(newMessageEntry *lib.NewMessageE
 			newMessageEntry.RecipientAccessGroupPublicKey,
 			newMessageEntry.RecipientAccessGroupKeyName),
 		MessageInfo: MessageInfo{
-			EncryptedText:  string(newMessageEntry.EncryptedText),
-			TimestampNanos: newMessageEntry.TimestampNanos,
-			ExtraData:      DecodeExtraDataMap(fes.Params, utxoView, newMessageEntry.ExtraData),
+			EncryptedText:        hex.EncodeToString(newMessageEntry.EncryptedText),
+			TimestampNanos:       newMessageEntry.TimestampNanos,
+			TimestampNanosString: strconv.FormatUint(newMessageEntry.TimestampNanos, 10),
+			ExtraData:            DecodeExtraDataMap(fes.Params, utxoView, newMessageEntry.ExtraData),
 		},
 	}
 }
@@ -433,9 +456,11 @@ type GetPaginatedMessagesForDmThreadRequest struct {
 	PartyGroupKeyName                   string
 	// Filter to fetch direct messages who time stamp is less than StartTimestamp.
 	// So you need to set this to current time and MaxMessagesToFetch to 10, to fetch
-	//  the latest 10 messages.
-	StartTimestamp     uint64
-	MaxMessagesToFetch int
+	//  the latest 10 messages. We support passing start timestamp as string and uint64.
+	// uint64 can lose precision when being JSON decoded, so we prefer StartTimestampString.
+	StartTimestamp       uint64
+	StartTimestampString string
+	MaxMessagesToFetch   int
 }
 
 // type to serialize the response containing the direct messages between two parties.
@@ -493,6 +518,16 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		return
 	}
 
+	startTimestamp := requestData.StartTimestamp
+	if requestData.StartTimestampString != "" {
+		startTimestamp, err = strconv.ParseUint(requestData.StartTimestampString, 10, 64)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Error parsing "+
+				"StartTimestampString: %v", err))
+			return
+		}
+	}
+
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Error generating "+
@@ -500,16 +535,66 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		return
 	}
 
+	senderPublicKey := *lib.NewPublicKey(senderGroupOwnerPkBytes)
+	senderGroupKeyName := *lib.NewGroupKeyName(senderGroupKeyNameBytes)
+	recipientPublicKey := *lib.NewPublicKey(recipientGroupOwnerPkBytes)
+	recipientGroupKeyName := *lib.NewGroupKeyName(recipientGroupKeyNameBytes)
 	// The information of the two parties involved in Dm has to encoded in lib.DmThreadKey.
-	dmThreadKey := lib.MakeDmThreadKey(*lib.NewPublicKey(senderGroupKeyNameBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes),
-		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes))
+	dmThreadKey := lib.MakeDmThreadKey(senderPublicKey, senderGroupKeyName, recipientPublicKey, recipientGroupKeyName)
 
 	// Fetch the max messages between the sender and the party.
-	latestMessages, err := fes.fetchMaxMessagesFromDmThread(&dmThreadKey, requestData.StartTimestamp, requestData.MaxMessagesToFetch, utxoView)
+	latestMessages, err := fes.fetchMaxMessagesFromDmThread(&dmThreadKey, startTimestamp, requestData.MaxMessagesToFetch, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated messages for "+
 			"Request Data: %v: %v", requestData, err))
 		return
+	}
+
+	// Special case: If we're getting the DM thread for the default-key for
+	// both parties, then we also fetch base key DMs.
+	if senderGroupKeyName == *lib.DefaultGroupKeyName() &&
+		recipientGroupKeyName == *lib.DefaultGroupKeyName() {
+		baseKey := *lib.BaseGroupKeyName()
+		baseKeyBaseKeyThreadKey := lib.MakeDmThreadKey(senderPublicKey, baseKey, recipientPublicKey, baseKey)
+		baseKeyBaseKeyLatestMessages, err := fes.fetchMaxMessagesFromDmThread(
+			&baseKeyBaseKeyThreadKey, startTimestamp, requestData.MaxMessagesToFetch, utxoView)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated "+
+				"messages for base key - base key - Request Data: %v: %v", requestData, err))
+			return
+		}
+		latestMessages = append(latestMessages, baseKeyBaseKeyLatestMessages...)
+
+		baseKeyDefaultKeyThreadKey := lib.MakeDmThreadKey(senderPublicKey, baseKey, recipientPublicKey, recipientGroupKeyName)
+		baseKeyDefaultKeyLatestMessages, err := fes.fetchMaxMessagesFromDmThread(
+			&baseKeyDefaultKeyThreadKey, startTimestamp, requestData.MaxMessagesToFetch, utxoView)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated "+
+				"messages for base key - default key - Request Data: %v: %v", requestData, err))
+			return
+		}
+		latestMessages = append(latestMessages, baseKeyDefaultKeyLatestMessages...)
+
+		defaultKeyBaseKeyThreadKey := lib.MakeDmThreadKey(senderPublicKey, senderGroupKeyName, recipientPublicKey, baseKey)
+		defaultKeyBaseKeyLatestMessages, err := fes.fetchMaxMessagesFromDmThread(
+			&defaultKeyBaseKeyThreadKey, startTimestamp, requestData.MaxMessagesToFetch, utxoView)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem getting paginated "+
+				"messages for default key - base key - Request Data: %v: %v", requestData, err))
+			return
+		}
+		latestMessages = append(latestMessages, defaultKeyBaseKeyLatestMessages...)
+
+		// Now we sort them and take the first MaxMessagesToFetch
+		sort.Slice(latestMessages, func(ii, jj int) bool {
+			return latestMessages[ii].TimestampNanos > latestMessages[jj].TimestampNanos
+		})
+
+		lastIndex := requestData.MaxMessagesToFetch
+		if lastIndex > len(latestMessages) {
+			lastIndex = len(latestMessages)
+		}
+		latestMessages = latestMessages[:lastIndex]
 	}
 
 	// Since the two parties in the conversation in same in all the message if added this info upfront.
@@ -525,7 +610,7 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		)
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem encoding response as JSON: %v", err))
 		return
 	}
@@ -554,8 +639,11 @@ type GetPaginatedMessagesForGroupChatThreadRequest struct {
 	UserPublicKeyBase58Check string
 	AccessGroupKeyName       string
 
-	StartTimestamp     uint64
-	MaxMessagesToFetch int
+	// We support passing start timestamp as string and uint64.
+	// uint64 can lose precision when being JSON decoded, so we prefer StartTimestampString.
+	StartTimestamp       uint64
+	StartTimestampString string
+	MaxMessagesToFetch   int
 }
 
 type GetPaginatedMessagesForGroupChatThreadResponse struct {
@@ -591,6 +679,16 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 		return
 	}
 
+	startTimestamp := requestData.StartTimestamp
+	if requestData.StartTimestampString != "" {
+		startTimestamp, err = strconv.ParseUint(requestData.StartTimestampString, 10, 64)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Error parsing "+
+				"StartTimestampString: %v", err))
+			return
+		}
+	}
+
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForGroupChatThread: Error generating "+
@@ -606,7 +704,7 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 	}
 
 	// Fetch the max group chat messages from the access group.
-	groupChatMessages, err := fes.fetchMaxMessagesFromGroupChatThread(&accessGroupId, requestData.StartTimestamp, requestData.MaxMessagesToFetch, utxoView)
+	groupChatMessages, err := fes.fetchMaxMessagesFromGroupChatThread(&accessGroupId, startTimestamp, requestData.MaxMessagesToFetch, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForGroupChatThread: Problem getting paginated messages for "+
 			"Request Data: %v: %v", requestData, err))
