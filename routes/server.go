@@ -136,7 +136,7 @@ const (
 	RoutePathGetFullTikTokURL    = "/api/v0/get-full-tiktok-url"
 	RoutePathUploadVideo         = "/api/v0/upload-video"
 	RoutePathGetVideoStatus      = "/api/v0/get-video-status"
-  RoutePathGetVideoDimensions  = "/api/v0/get-video-dimensions"
+	RoutePathGetVideoDimensions  = "/api/v0/get-video-dimensions"
 	RoutePathEnableVideoDownload = "/api/v0/enable-video-download"
 
 	// message.go
@@ -1858,8 +1858,8 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathEnableVideoDownload,
 			fes.EnableVideoDownload,
-    },
-    {
+		},
+		{
 			"GetVideoDimensions",
 			[]string{"GET"},
 			RoutePathGetVideoDimensions + "/{videoId:[0-9a-z]{25,35}}",
