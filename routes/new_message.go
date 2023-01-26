@@ -295,7 +295,7 @@ func (fes *APIServer) sendMessageHandler(
 	req *http.Request,
 	newMessageType lib.NewMessageType,
 	newMessageOperationType lib.NewMessageOperation,
-	) error {
+) error {
 	// Deserialize the request data.
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := SendNewMessageRequest{}
