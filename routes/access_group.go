@@ -847,12 +847,14 @@ type GetPaginatedAccessGroupMembersRequest struct {
 	// Since the results are paginated, this public key is the starting point for max results with subsequent pagination calls.
 	// Set it to empty in the first call to fetch results from the beginning.
 	StartingAccessGroupMemberPublicKeyBase58Check string `safeForLogging:"true"`
-	MaxMembersToFetch                             int
+	MaxMembersToFetch                             int    `safeForLogging:"true"`
 }
 
 // The API returns the list of public key of the members of the group.
 type GetPaginatedAccessGroupMembersResponse struct {
 	AccessGroupMembersBase58Check []string // We should probably return ProfileEntryResponses
+
+	PublicKeyToProfileEntryResponse map[string]*ProfileEntryResponse
 }
 
 func (fes *APIServer) GetPaginatedAccessGroupMembers(ww http.ResponseWriter, req *http.Request) {
@@ -910,20 +912,38 @@ func (fes *APIServer) GetPaginatedAccessGroupMembers(ww http.ResponseWriter, req
 		}
 	}
 
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedAccessGroupMembers: Error generating "+
+			"utxo view: %v", err))
+		return
+	}
+
 	// Fetch the max messages between the sender and the party.
 	accessGroupMembers, err := fes.fetchMaxMembersFromAccessGroup(accessGroupOwnerPkBytes, accessGroupKeyNameBytes,
-		startingPkBytes, requestData.MaxMembersToFetch)
+		startingPkBytes, requestData.MaxMembersToFetch, utxoView)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedAccessGroupMembers: Problem getting paginated members for "+
 			"Request Data: %v: %v", requestData, err))
 		return
 	}
 
-	res := GetPaginatedAccessGroupMembersResponse{
-		AccessGroupMembersBase58Check: accessGroupMembers,
+	var accessGroupMembersBase58Check []string
+	for _, member := range accessGroupMembers {
+		accessGroupMembersBase58Check = append(accessGroupMembersBase58Check, lib.PkToString(member.ToBytes(), fes.Params))
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	res := GetPaginatedAccessGroupMembersResponse{
+		AccessGroupMembersBase58Check: accessGroupMembersBase58Check,
+	}
+
+	res.PublicKeyToProfileEntryResponse = make(map[string]*ProfileEntryResponse)
+	for _, member := range accessGroupMembers {
+		res.PublicKeyToProfileEntryResponse[lib.PkToString(member.ToBytes(), fes.Params)] = fes.GetProfileEntryResponseForPublicKeyBytes(
+			member.ToBytes(), utxoView)
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedAccessGroupMembers: Problem encoding response as JSON: %v", err))
 		return
 	}
@@ -931,13 +951,7 @@ func (fes *APIServer) GetPaginatedAccessGroupMembers(ww http.ResponseWriter, req
 
 // Fetches max number of members from the access group.
 func (fes *APIServer) fetchMaxMembersFromAccessGroup(groupOwnerPublicKeyBytes []byte, groupKeyNameBytes []byte,
-	startingAccessGroupMemberPublicKeyBytes []byte, maxMembersToFetch int) ([]string, error) {
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		return nil, errors.Wrap(fmt.Errorf("fetchMaxMembersFromAccessGroup: Error generating "+
-			"utxo view: %v", err), "")
-	}
-
+	startingAccessGroupMemberPublicKeyBytes []byte, maxMembersToFetch int, utxoView *lib.UtxoView) ([]*lib.PublicKey, error) {
 	// call the core library to fetch info about the access group.
 	accessGroupMembers, err := utxoView.GetPaginatedAccessGroupMembersEnumerationEntries(lib.NewPublicKey(groupOwnerPublicKeyBytes),
 		lib.NewGroupKeyName(groupKeyNameBytes), startingAccessGroupMemberPublicKeyBytes, uint32(maxMembersToFetch))
@@ -945,12 +959,7 @@ func (fes *APIServer) fetchMaxMembersFromAccessGroup(groupOwnerPublicKeyBytes []
 		return nil, errors.Wrapf(err, "fetchMaxMembersFromAccessGroup: Problem getting access group member entry")
 	}
 
-	var accessGroupMembersBase58Check []string
-	for _, accessGroupMember := range accessGroupMembers {
-		accessGroupMembersBase58Check = append(accessGroupMembersBase58Check, lib.PkToString(accessGroupMember.ToBytes(), fes.Params))
-	}
-
-	return accessGroupMembersBase58Check, nil
+	return accessGroupMembers, nil
 }
 
 type GroupOwnerAndGroupKeyNamePair struct {

@@ -57,14 +57,6 @@ func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check string, accessGrou
 			"public key and access group key name %s %s: %v", publicKeyBase58Check, accessGroupKeyName, err))
 	}
 
-	// We're okay with the base key
-	// Access group name key cannot be equal to base group name key (equal to all zeros).
-	// By default all users belong to the access group with the base name key, hence it is reserved.
-	//if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
-	//	return nil, nil, errors.New(fmt.Sprintf(
-	//		"ValidateAccessGroupPublicKeyAndName: Access Group key cannot be same as base key (all zeros)."+
-	//			"Access group key name %s", accessGroupKeyName))
-	//}
 	return publicKeyBytes, accessGroupKeyNameBytes, nil
 }
 
@@ -309,15 +301,6 @@ func (fes *APIServer) sendMessageHandler(ww http.ResponseWriter, req *http.Reque
 			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
 	}
 
-	// TODO: I don't think this is true! Can't we message with our default key to a "named" group we created?
-	// sender and the recipient public keys cannot be the same.
-	//if bytes.Equal(senderGroupOwnerPkBytes, recipientGroupOwnerPkBytes) {
-	//	// Abruptly end the request processing on error and return.
-	//	return errors.Wrapf(err, fmt.Sprintf("Dm sender and recipient "+
-	//		"cannot be the same %s: %s",
-	//		requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
-	//}
-
 	hexDecodedEncryptedMessageBytes, err := hex.DecodeString(requestData.EncryptedMessageText)
 	if err != nil {
 		return errors.Wrapf(err, "Problem decoding encrypted message text hex")
@@ -465,7 +448,8 @@ type GetPaginatedMessagesForDmThreadRequest struct {
 
 // type to serialize the response containing the direct messages between two parties.
 type GetPaginatedMessagesForDmResponse struct {
-	ThreadMessages []NewMessageEntryResponse
+	ThreadMessages                  []NewMessageEntryResponse
+	PublicKeyToProfileEntryResponse map[string]*ProfileEntryResponse
 }
 
 // API is used to fetch the direct messages between two parties in a paginated way.
@@ -610,6 +594,14 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		)
 	}
 
+	// Add the sender's profile to the response.
+	res.PublicKeyToProfileEntryResponse[requestData.UserGroupOwnerPublicKeyBase58Check] = fes.GetProfileEntryResponseForPublicKeyBytes(
+		senderGroupOwnerPkBytes, utxoView)
+
+	// Add the recipient's profile to the response.
+	res.PublicKeyToProfileEntryResponse[requestData.PartyGroupOwnerPublicKeyBase58Check] = fes.GetProfileEntryResponseForPublicKeyBytes(
+		recipientGroupOwnerPkBytes, utxoView)
+
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem encoding response as JSON: %v", err))
 		return
@@ -647,7 +639,8 @@ type GetPaginatedMessagesForGroupChatThreadRequest struct {
 }
 
 type GetPaginatedMessagesForGroupChatThreadResponse struct {
-	GroupChatMessages []NewMessageEntryResponse
+	GroupChatMessages               []NewMessageEntryResponse
+	PublicKeyToProfileEntryResponse map[string]*ProfileEntryResponse
 }
 
 // Similar to GetPaginatedMessagesForDmThread API, but fetches messages from a group chat instead.
@@ -714,18 +707,32 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 	// group chat threads with each group chat represented by GroupChatThread.
 	// Each entry consists of the sender account, recipient account info and the latest message.
 	messages := []NewMessageEntryResponse{}
+	publicKeyToProfileEntryResponseMap := make(map[string]*ProfileEntryResponse)
 
 	for _, threadMsg := range groupChatMessages {
 		message := fes.NewMessageEntryToResponse(threadMsg, ChatTypeGroupChat, utxoView)
 		messages = append(messages, message)
+		// Add the sender's profile to the response.
+		senderPublicKeyBase58Check := message.SenderInfo.OwnerPublicKeyBase58Check
+		if _, ok := publicKeyToProfileEntryResponseMap[senderPublicKeyBase58Check]; ok {
+			publicKeyToProfileEntryResponseMap[senderPublicKeyBase58Check] = fes.GetProfileEntryResponseForPublicKeyBytes(
+				threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes(), utxoView)
+		}
+
+		// Add the recipient's profile to the response.
+		if _, ok := publicKeyToProfileEntryResponseMap[message.RecipientInfo.OwnerPublicKeyBase58Check]; ok {
+			publicKeyToProfileEntryResponseMap[message.RecipientInfo.OwnerPublicKeyBase58Check] = fes.GetProfileEntryResponseForPublicKeyBytes(
+				threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes(), utxoView)
+		}
 	}
 
 	// response containing group chat messages from the given access group ID of a public key.
 	res := GetPaginatedMessagesForGroupChatThreadResponse{
-		GroupChatMessages: messages,
+		GroupChatMessages:               messages,
+		PublicKeyToProfileEntryResponse: publicKeyToProfileEntryResponseMap,
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForGroupChatThread: Problem encoding response as JSON: %v", err))
 		return
 	}
@@ -739,6 +746,8 @@ type GetUserMessageThreadsRequest struct {
 
 type GetUserMessageThreadsResponse struct {
 	MessageThreads []NewMessageEntryResponse
+
+	PublicKeyToProfileEntryResponse map[string]*ProfileEntryResponse
 }
 
 // This API just doesn't write any data, hence it doesn't create a new transaction.
@@ -817,12 +826,34 @@ func (fes *APIServer) getUserMessageThreadsHandler(ww http.ResponseWriter, req *
 		return messageThreads[i].MessageInfo.TimestampNanos > messageThreads[j].MessageInfo.TimestampNanos
 	})
 
-	// response containing all user chats.
-	res := GetUserMessageThreadsResponse{
-		MessageThreads: messageThreads,
+	publicKeyToProfileEntryResponseMap := make(map[string]*ProfileEntryResponse)
+
+	for _, message := range messageThreads {
+		// Get Sender Profile.
+		if _, ok := publicKeyToProfileEntryResponseMap[message.SenderInfo.OwnerPublicKeyBase58Check]; !ok {
+			profileEntryResponse, err := fes.GetProfileEntryResponseForPublicKeyBase58Check(message.SenderInfo.OwnerPublicKeyBase58Check, utxoView)
+			if err != nil {
+				return errors.Wrapf(err, "GetUserMessageThreads: ")
+			}
+			publicKeyToProfileEntryResponseMap[message.SenderInfo.OwnerPublicKeyBase58Check] = profileEntryResponse
+		}
+
+		if _, ok := publicKeyToProfileEntryResponseMap[message.RecipientInfo.OwnerPublicKeyBase58Check]; !ok {
+			profileEntryResponse, err := fes.GetProfileEntryResponseForPublicKeyBase58Check(message.RecipientInfo.OwnerPublicKeyBase58Check, utxoView)
+			if err != nil {
+				return errors.Wrapf(err, "GetUserMessageThreads: ")
+			}
+			publicKeyToProfileEntryResponseMap[message.RecipientInfo.OwnerPublicKeyBase58Check] = profileEntryResponse
+		}
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	// response containing all user chats.
+	res := GetUserMessageThreadsResponse{
+		MessageThreads:                  messageThreads,
+		PublicKeyToProfileEntryResponse: publicKeyToProfileEntryResponseMap,
+	}
+
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		return errors.Wrapf(err, "Problem encoding response as JSON: ")
 	}
 	return nil
