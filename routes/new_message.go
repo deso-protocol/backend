@@ -444,8 +444,6 @@ type GetPaginatedMessagesForDmThreadRequest struct {
 	StartTimestamp       uint64
 	StartTimestampString string
 	MaxMessagesToFetch   int
-
-	IncludeProfiles bool
 }
 
 // type to serialize the response containing the direct messages between two parties.
@@ -596,23 +594,21 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 		)
 	}
 
-	if requestData.IncludeProfiles {
-		// Add the sender's profile to the response.
-		senderProfileEntry := utxoView.GetProfileEntryForPublicKey(senderGroupOwnerPkBytes)
-		var senderProfileEntryResponse *ProfileEntryResponse
-		if senderProfileEntry != nil {
-			senderProfileEntryResponse = fes._profileEntryToResponse(senderProfileEntry, utxoView)
-		}
-		res.PublicKeyToProfileEntryResponse[requestData.UserGroupOwnerPublicKeyBase58Check] = senderProfileEntryResponse
-
-		// Add the recipient's profile to the response.
-		recipientProfileEntry := utxoView.GetProfileEntryForPublicKey(recipientGroupOwnerPkBytes)
-		var recipientProfileEntryResponse *ProfileEntryResponse
-		if recipientProfileEntry != nil {
-			recipientProfileEntryResponse = fes._profileEntryToResponse(recipientProfileEntry, utxoView)
-		}
-		res.PublicKeyToProfileEntryResponse[requestData.PartyGroupOwnerPublicKeyBase58Check] = recipientProfileEntryResponse
+	// Add the sender's profile to the response.
+	senderProfileEntry := utxoView.GetProfileEntryForPublicKey(senderGroupOwnerPkBytes)
+	var senderProfileEntryResponse *ProfileEntryResponse
+	if senderProfileEntry != nil {
+		senderProfileEntryResponse = fes._profileEntryToResponse(senderProfileEntry, utxoView)
 	}
+	res.PublicKeyToProfileEntryResponse[requestData.UserGroupOwnerPublicKeyBase58Check] = senderProfileEntryResponse
+
+	// Add the recipient's profile to the response.
+	recipientProfileEntry := utxoView.GetProfileEntryForPublicKey(recipientGroupOwnerPkBytes)
+	var recipientProfileEntryResponse *ProfileEntryResponse
+	if recipientProfileEntry != nil {
+		recipientProfileEntryResponse = fes._profileEntryToResponse(recipientProfileEntry, utxoView)
+	}
+	res.PublicKeyToProfileEntryResponse[requestData.PartyGroupOwnerPublicKeyBase58Check] = recipientProfileEntryResponse
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem encoding response as JSON: %v", err))
@@ -648,8 +644,6 @@ type GetPaginatedMessagesForGroupChatThreadRequest struct {
 	StartTimestamp       uint64
 	StartTimestampString string
 	MaxMessagesToFetch   int
-
-	IncludeProfiles bool
 }
 
 type GetPaginatedMessagesForGroupChatThreadResponse struct {
@@ -726,9 +720,6 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 	for _, threadMsg := range groupChatMessages {
 		message := fes.NewMessageEntryToResponse(threadMsg, ChatTypeGroupChat, utxoView)
 		messages = append(messages, message)
-		if !requestData.IncludeProfiles {
-			continue
-		}
 		// Add the sender's profile to the response.
 		senderPublicKeyBase58Check := message.SenderInfo.OwnerPublicKeyBase58Check
 		if _, ok := publicKeyToProfileEntryResponseMap[senderPublicKeyBase58Check]; ok {
@@ -767,8 +758,6 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 type GetUserMessageThreadsRequest struct {
 	// PublicKeyBase58Check is the public key whose group IDs needs to be queried.
 	UserPublicKeyBase58Check string `safeForLogging:"true"`
-
-	IncludeProfiles bool `safeForLogging:"true"`
 }
 
 type GetUserMessageThreadsResponse struct {
@@ -856,9 +845,6 @@ func (fes *APIServer) getUserMessageThreadsHandler(ww http.ResponseWriter, req *
 	publicKeyToProfileEntryResponseMap := make(map[string]*ProfileEntryResponse)
 
 	for _, message := range messageThreads {
-		if !requestData.IncludeProfiles {
-			continue
-		}
 		// Get Sender Profile.
 		if _, ok := publicKeyToProfileEntryResponseMap[message.SenderInfo.OwnerPublicKeyBase58Check]; !ok {
 			publicKeyBytes, _, err := lib.Base58CheckDecode(message.SenderInfo.OwnerPublicKeyBase58Check)

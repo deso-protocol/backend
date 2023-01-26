@@ -848,8 +848,6 @@ type GetPaginatedAccessGroupMembersRequest struct {
 	// Set it to empty in the first call to fetch results from the beginning.
 	StartingAccessGroupMemberPublicKeyBase58Check string `safeForLogging:"true"`
 	MaxMembersToFetch                             int `safeForLogging:"true"`
-
-	IncludeProfiles bool
 }
 
 // The API returns the list of public key of the members of the group.
@@ -939,16 +937,14 @@ func (fes *APIServer) GetPaginatedAccessGroupMembers(ww http.ResponseWriter, req
 		AccessGroupMembersBase58Check: accessGroupMembersBase58Check,
 	}
 
-	if requestData.IncludeProfiles {
-		res.PublicKeyToProfileEntryResponse = make(map[string]*ProfileEntryResponse)
-		for _, member := range accessGroupMembers {
-			profileEntry := utxoView.GetProfileEntryForPublicKey(member.ToBytes())
-			var profileEntryResponse *ProfileEntryResponse
-			if profileEntry != nil {
-				profileEntryResponse = fes._profileEntryToResponse(profileEntry, utxoView)
-			}
-			res.PublicKeyToProfileEntryResponse[lib.PkToString(member.ToBytes(), fes.Params)] = profileEntryResponse
+	res.PublicKeyToProfileEntryResponse = make(map[string]*ProfileEntryResponse)
+	for _, member := range accessGroupMembers {
+		profileEntry := utxoView.GetProfileEntryForPublicKey(member.ToBytes())
+		var profileEntryResponse *ProfileEntryResponse
+		if profileEntry != nil {
+			profileEntryResponse = fes._profileEntryToResponse(profileEntry, utxoView)
 		}
+		res.PublicKeyToProfileEntryResponse[lib.PkToString(member.ToBytes(), fes.Params)] = profileEntryResponse
 	}
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
