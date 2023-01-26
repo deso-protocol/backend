@@ -939,12 +939,8 @@ func (fes *APIServer) GetPaginatedAccessGroupMembers(ww http.ResponseWriter, req
 
 	res.PublicKeyToProfileEntryResponse = make(map[string]*ProfileEntryResponse)
 	for _, member := range accessGroupMembers {
-		profileEntry := utxoView.GetProfileEntryForPublicKey(member.ToBytes())
-		var profileEntryResponse *ProfileEntryResponse
-		if profileEntry != nil {
-			profileEntryResponse = fes._profileEntryToResponse(profileEntry, utxoView)
-		}
-		res.PublicKeyToProfileEntryResponse[lib.PkToString(member.ToBytes(), fes.Params)] = profileEntryResponse
+		res.PublicKeyToProfileEntryResponse[lib.PkToString(member.ToBytes(), fes.Params)] = fes.GetProfileEntryResponseForPublicKeyBytes(
+			member.ToBytes(), utxoView)
 	}
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {

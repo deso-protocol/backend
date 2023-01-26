@@ -3618,3 +3618,21 @@ func (fes *APIServer) GetPublicKeyPrefix() string {
 		return "tBC"
 	}
 }
+
+func (fes *APIServer) GetProfileEntryResponseForPublicKeyBase58Check(publicKeyBase58Check string, utxoView *lib.UtxoView) (
+	*ProfileEntryResponse, error) {
+	publicKeyBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
+	if err != nil {
+		return nil, err
+	}
+	return fes.GetProfileEntryResponseForPublicKeyBytes(publicKeyBytes, utxoView), nil
+}
+
+func (fes *APIServer) GetProfileEntryResponseForPublicKeyBytes(publicKeyBytes []byte, utxoView *lib.UtxoView) *ProfileEntryResponse {
+	profileEntry := utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
+	var profileEntryResponse *ProfileEntryResponse
+	if profileEntry != nil {
+		profileEntryResponse = fes._profileEntryToResponse(profileEntry, utxoView)
+	}
+	return profileEntryResponse
+}

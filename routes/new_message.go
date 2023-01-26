@@ -595,20 +595,12 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 	}
 
 	// Add the sender's profile to the response.
-	senderProfileEntry := utxoView.GetProfileEntryForPublicKey(senderGroupOwnerPkBytes)
-	var senderProfileEntryResponse *ProfileEntryResponse
-	if senderProfileEntry != nil {
-		senderProfileEntryResponse = fes._profileEntryToResponse(senderProfileEntry, utxoView)
-	}
-	res.PublicKeyToProfileEntryResponse[requestData.UserGroupOwnerPublicKeyBase58Check] = senderProfileEntryResponse
+	res.PublicKeyToProfileEntryResponse[requestData.UserGroupOwnerPublicKeyBase58Check] = fes.GetProfileEntryResponseForPublicKeyBytes(
+		senderGroupOwnerPkBytes, utxoView)
 
 	// Add the recipient's profile to the response.
-	recipientProfileEntry := utxoView.GetProfileEntryForPublicKey(recipientGroupOwnerPkBytes)
-	var recipientProfileEntryResponse *ProfileEntryResponse
-	if recipientProfileEntry != nil {
-		recipientProfileEntryResponse = fes._profileEntryToResponse(recipientProfileEntry, utxoView)
-	}
-	res.PublicKeyToProfileEntryResponse[requestData.PartyGroupOwnerPublicKeyBase58Check] = recipientProfileEntryResponse
+	res.PublicKeyToProfileEntryResponse[requestData.PartyGroupOwnerPublicKeyBase58Check] = fes.GetProfileEntryResponseForPublicKeyBytes(
+		recipientGroupOwnerPkBytes, utxoView)
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPaginatedMessagesForDmThread: Problem encoding response as JSON: %v", err))
@@ -723,22 +715,14 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 		// Add the sender's profile to the response.
 		senderPublicKeyBase58Check := message.SenderInfo.OwnerPublicKeyBase58Check
 		if _, ok := publicKeyToProfileEntryResponseMap[senderPublicKeyBase58Check]; ok {
-			profileEntry := utxoView.GetProfileEntryForPublicKey(threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes())
-			var profileEntryResponse *ProfileEntryResponse
-			if profileEntry != nil {
-				profileEntryResponse = fes._profileEntryToResponse(profileEntry, utxoView)
-			}
-			publicKeyToProfileEntryResponseMap[senderPublicKeyBase58Check] = profileEntryResponse
+			publicKeyToProfileEntryResponseMap[senderPublicKeyBase58Check] = fes.GetProfileEntryResponseForPublicKeyBytes(
+				threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes(), utxoView)
 		}
 
 		// Add the recipient's profile to the response.
 		if _, ok := publicKeyToProfileEntryResponseMap[message.RecipientInfo.OwnerPublicKeyBase58Check]; ok {
-			profileEntry := utxoView.GetProfileEntryForPublicKey(threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes())
-			var profileEntryResponse *ProfileEntryResponse
-			if profileEntry != nil {
-				profileEntryResponse = fes._profileEntryToResponse(profileEntry, utxoView)
-			}
-			publicKeyToProfileEntryResponseMap[message.RecipientInfo.OwnerPublicKeyBase58Check] = profileEntryResponse
+			publicKeyToProfileEntryResponseMap[message.RecipientInfo.OwnerPublicKeyBase58Check] = fes.GetProfileEntryResponseForPublicKeyBytes(
+				threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes(), utxoView)
 		}
 	}
 
@@ -847,37 +831,17 @@ func (fes *APIServer) getUserMessageThreadsHandler(ww http.ResponseWriter, req *
 	for _, message := range messageThreads {
 		// Get Sender Profile.
 		if _, ok := publicKeyToProfileEntryResponseMap[message.SenderInfo.OwnerPublicKeyBase58Check]; !ok {
-			publicKeyBytes, _, err := lib.Base58CheckDecode(message.SenderInfo.OwnerPublicKeyBase58Check)
+			profileEntryResponse, err := fes.GetProfileEntryResponseForPublicKeyBase58Check(message.SenderInfo.OwnerPublicKeyBase58Check, utxoView)
 			if err != nil {
-				return errors.Wrapf(
-					err,
-					fmt.Sprintf(
-						"GetUserMessageThreads: Problem decoding sender public key for a message: %v",
-						message.RecipientInfo.OwnerPublicKeyBase58Check),
-				)
-			}
-			profileEntry := utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
-			var profileEntryResponse *ProfileEntryResponse
-			if profileEntry != nil {
-				profileEntryResponse = fes._profileEntryToResponse(profileEntry, utxoView)
+				return errors.Wrapf(err, "GetUserMessageThreads: ")
 			}
 			publicKeyToProfileEntryResponseMap[message.SenderInfo.OwnerPublicKeyBase58Check] = profileEntryResponse
 		}
 
 		if _, ok := publicKeyToProfileEntryResponseMap[message.RecipientInfo.OwnerPublicKeyBase58Check]; !ok {
-			publicKeyBytes, _, err := lib.Base58CheckDecode(message.RecipientInfo.OwnerPublicKeyBase58Check)
+			profileEntryResponse, err := fes.GetProfileEntryResponseForPublicKeyBase58Check(message.RecipientInfo.OwnerPublicKeyBase58Check, utxoView)
 			if err != nil {
-				return errors.Wrapf(
-					err,
-					fmt.Sprintf(
-						"GetUserMessageThreads: Problem decoding recipient public key for a message: %v",
-						message.RecipientInfo.OwnerPublicKeyBase58Check),
-				)
-			}
-			profilEntry := utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
-			var profileEntryResponse *ProfileEntryResponse
-			if profilEntry != nil {
-				profileEntryResponse = fes._profileEntryToResponse(profilEntry, utxoView)
+				return errors.Wrapf(err, "GetUserMessageThreads: ")
 			}
 			publicKeyToProfileEntryResponseMap[message.RecipientInfo.OwnerPublicKeyBase58Check] = profileEntryResponse
 		}
