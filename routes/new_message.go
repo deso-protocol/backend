@@ -57,14 +57,6 @@ func ValidateAccessGroupPublicKeyAndName(publicKeyBase58Check string, accessGrou
 			"public key and access group key name %s %s: %v", publicKeyBase58Check, accessGroupKeyName, err))
 	}
 
-	// We're okay with the base key
-	// Access group name key cannot be equal to base group name key (equal to all zeros).
-	// By default all users belong to the access group with the base name key, hence it is reserved.
-	//if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
-	//	return nil, nil, errors.New(fmt.Sprintf(
-	//		"ValidateAccessGroupPublicKeyAndName: Access Group key cannot be same as base key (all zeros)."+
-	//			"Access group key name %s", accessGroupKeyName))
-	//}
 	return publicKeyBytes, accessGroupKeyNameBytes, nil
 }
 
@@ -308,15 +300,6 @@ func (fes *APIServer) sendMessageHandler(ww http.ResponseWriter, req *http.Reque
 			"base58 public key %s: %s ",
 			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
 	}
-
-	// TODO: I don't think this is true! Can't we message with our default key to a "named" group we created?
-	// sender and the recipient public keys cannot be the same.
-	//if bytes.Equal(senderGroupOwnerPkBytes, recipientGroupOwnerPkBytes) {
-	//	// Abruptly end the request processing on error and return.
-	//	return errors.Wrapf(err, fmt.Sprintf("Dm sender and recipient "+
-	//		"cannot be the same %s: %s",
-	//		requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
-	//}
 
 	hexDecodedEncryptedMessageBytes, err := hex.DecodeString(requestData.EncryptedMessageText)
 	if err != nil {

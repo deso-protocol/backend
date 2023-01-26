@@ -849,7 +849,6 @@ type GetPaginatedAccessGroupMembersRequest struct {
 	StartingAccessGroupMemberPublicKeyBase58Check string `safeForLogging:"true"`
 	MaxMembersToFetch                             int `safeForLogging:"true"`
 
-	//
 	IncludeProfiles bool
 }
 
