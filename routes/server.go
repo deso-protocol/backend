@@ -275,7 +275,10 @@ const (
 
 	// access_group.go
 	RoutePathCreateAccessGroup                = "/api/v0/create-access-group"
+	RoutePathUpdateAccessGroup                = "/api/v0/update-access-group"
 	RoutePathAddAccessGroupMembers            = "/api/v0/add-access-group-members"
+	RoutePathRemoveAccessGroupMembers         = "/api/v0/remove-access-group-members"
+	RoutePathUpdateAccessGroupMembers         = "/api/v0/update-access-group-members"
 	RoutePathGetAllUserAccessGroups           = "/api/v0/get-all-user-access-groups"
 	RoutePathGetAllUserAccessGroupsOwned      = "/api/v0/get-all-user-access-groups-owned"
 	RoutePathGetAllUserAccessGroupsMemberOnly = "/api/v0/get-all-user-access-groups-member-only"
@@ -287,7 +290,9 @@ const (
 
 	// new_message.go
 	RoutePathSendDmMessage                             = "/api/v0/send-dm-message"
+	RoutePathUpdateDmMessage                           = "/api/v0/update-dm-message"
 	RoutePathSendGroupChatMessage                      = "/api/v0/send-group-chat-message"
+	RoutePathUpdateGroupChatMessage                    = "/api/v0/update-group-chat-message"
 	RoutePathGetUserDmThreadsOrderedByTimestamp        = "/api/v0/get-user-dm-threads-ordered-by-timestamp"
 	RoutePathGetPaginatedMessagesForDmThread           = "/api/v0/get-paginated-messages-for-dm-thread"
 	RoutePathGetUserGroupChatThreadsOrderedByTimestamp = "/api/v0/get-user-group-chat-threads-ordered-by-timestamp"
@@ -1949,10 +1954,31 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"UpdateAccessGroup",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateAccessGroup,
+			fes.UpdateAccessGroup,
+			PublicAccess,
+		},
+		{
 			"AddAccessGroupMembers",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAddAccessGroupMembers,
 			fes.AddAccessGroupMembers,
+			PublicAccess,
+		},
+		{
+			"RemoveAccessGroupMembers",
+			[]string{"POST", "OPTIONS"},
+			RoutePathRemoveAccessGroupMembers,
+			fes.RemoveAccessGroupMembers,
+			PublicAccess,
+		},
+		{
+			"UpdateAccessGroupMembers",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateAccessGroupMembers,
+			fes.UpdateAccessGroupMembers,
 			PublicAccess,
 		},
 		{
@@ -2020,10 +2046,24 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"UpdateDmMessage",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateDmMessage,
+			fes.UpdateDmMessage,
+			PublicAccess,
+		},
+		{
 			"SendGroupChatMessage",
 			[]string{"POST", "OPTIONS"},
 			RoutePathSendGroupChatMessage,
 			fes.SendGroupChatMessage,
+			PublicAccess,
+		},
+		{
+			"UpdateGroupChatMessage",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateGroupChatMessage,
+			fes.UpdateGroupChatMessage,
 			PublicAccess,
 		},
 		{
