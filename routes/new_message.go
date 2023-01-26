@@ -583,7 +583,7 @@ func (fes *APIServer) GetPaginatedMessagesForDmThread(ww http.ResponseWriter, re
 
 	// Since the two parties in the conversation in same in all the message if added this info upfront.
 	res := GetPaginatedMessagesForDmResponse{
-		ThreadMessages: []NewMessageEntryResponse{},
+		ThreadMessages:                  []NewMessageEntryResponse{},
 		PublicKeyToProfileEntryResponse: make(map[string]*ProfileEntryResponse),
 	}
 
