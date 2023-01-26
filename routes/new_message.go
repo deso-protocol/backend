@@ -849,14 +849,12 @@ func (fes *APIServer) getUserMessageThreadsHandler(ww http.ResponseWriter, req *
 		if _, ok := publicKeyToProfileEntryResponseMap[message.SenderInfo.OwnerPublicKeyBase58Check]; !ok {
 			publicKeyBytes, _, err := lib.Base58CheckDecode(message.SenderInfo.OwnerPublicKeyBase58Check)
 			if err != nil {
-				if err != nil {
-					return errors.Wrapf(
-						err,
-						fmt.Sprintf(
-							"GetUserMessageThreads: Problem decoding sender public key for a message: %v",
-							message.RecipientInfo.OwnerPublicKeyBase58Check),
-					)
-				}
+				return errors.Wrapf(
+					err,
+					fmt.Sprintf(
+						"GetUserMessageThreads: Problem decoding sender public key for a message: %v",
+						message.RecipientInfo.OwnerPublicKeyBase58Check),
+				)
 			}
 			profileEntry := utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
 			var profileEntryResponse *ProfileEntryResponse
