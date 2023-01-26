@@ -847,7 +847,7 @@ type GetPaginatedAccessGroupMembersRequest struct {
 	// Since the results are paginated, this public key is the starting point for max results with subsequent pagination calls.
 	// Set it to empty in the first call to fetch results from the beginning.
 	StartingAccessGroupMemberPublicKeyBase58Check string `safeForLogging:"true"`
-	MaxMembersToFetch                             int `safeForLogging:"true"`
+	MaxMembersToFetch                             int    `safeForLogging:"true"`
 }
 
 // The API returns the list of public key of the members of the group.

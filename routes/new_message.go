@@ -448,7 +448,7 @@ type GetPaginatedMessagesForDmThreadRequest struct {
 
 // type to serialize the response containing the direct messages between two parties.
 type GetPaginatedMessagesForDmResponse struct {
-	ThreadMessages []NewMessageEntryResponse
+	ThreadMessages                  []NewMessageEntryResponse
 	PublicKeyToProfileEntryResponse map[string]*ProfileEntryResponse
 }
 
@@ -639,7 +639,7 @@ type GetPaginatedMessagesForGroupChatThreadRequest struct {
 }
 
 type GetPaginatedMessagesForGroupChatThreadResponse struct {
-	GroupChatMessages []NewMessageEntryResponse
+	GroupChatMessages               []NewMessageEntryResponse
 	PublicKeyToProfileEntryResponse map[string]*ProfileEntryResponse
 }
 
@@ -728,7 +728,7 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 
 	// response containing group chat messages from the given access group ID of a public key.
 	res := GetPaginatedMessagesForGroupChatThreadResponse{
-		GroupChatMessages: messages,
+		GroupChatMessages:               messages,
 		PublicKeyToProfileEntryResponse: publicKeyToProfileEntryResponseMap,
 	}
 
@@ -849,7 +849,7 @@ func (fes *APIServer) getUserMessageThreadsHandler(ww http.ResponseWriter, req *
 
 	// response containing all user chats.
 	res := GetUserMessageThreadsResponse{
-		MessageThreads: messageThreads,
+		MessageThreads:                  messageThreads,
 		PublicKeyToProfileEntryResponse: publicKeyToProfileEntryResponseMap,
 	}
 
