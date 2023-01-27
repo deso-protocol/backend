@@ -358,7 +358,7 @@ func (fes *APIServer) accessGroupMemberHandler(
 				return fmt.Errorf("access group member entry not found for publicKey %v", member.AccessGroupMemberPublicKeyBase58Check)
 			}
 
-			if !bytes.Equal(accessGroupMemberEntry.AccessGroupMemberKeyName.ToBytes(), memberAccessGroupKeyNameBytes) {
+			if !bytes.Equal(accessGroupMemberEntry.AccessGroupMemberKeyName.ToBytes(), lib.NewGroupKeyName(memberAccessGroupKeyNameBytes).ToBytes()) {
 				return fmt.Errorf("can't %v group member with a different access group key name", accessGroupMemberOperationType.ToString())
 			}
 		}
