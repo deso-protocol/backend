@@ -226,6 +226,9 @@ type SendNewMessageRequest struct {
 	// although unencrypted message can be passed as well.
 	EncryptedMessageText string
 
+	// Only set if we are updating a message
+	TimestampNanosString string `safeForLogging:"true"`
+
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
@@ -253,8 +256,15 @@ type SendNewMessageResponse struct {
 // are performed after submitting the transaction.
 // Only basic validations on the input data are performed here.
 func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
-	if err := fes.sendMessageHandler(ww, req, lib.NewMessageTypeDm); err != nil {
+	if err := fes.sendMessageHandler(ww, req, lib.NewMessageTypeDm, lib.NewMessageOperationCreate); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendDmMessage: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) UpdateDmMessage(ww http.ResponseWriter, req *http.Request) {
+	if err := fes.sendMessageHandler(ww, req, lib.NewMessageTypeDm, lib.NewMessageOperationUpdate); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateDmMessage: %v", err))
 		return
 	}
 }
@@ -267,13 +277,25 @@ func (fes *APIServer) SendDmMessage(ww http.ResponseWriter, req *http.Request) {
 // are performed after submitting the transaction.
 // Only basic validations on the input data are performed here.
 func (fes *APIServer) SendGroupChatMessage(ww http.ResponseWriter, req *http.Request) {
-	if err := fes.sendMessageHandler(ww, req, lib.NewMessageTypeGroupChat); err != nil {
+	if err := fes.sendMessageHandler(ww, req, lib.NewMessageTypeGroupChat, lib.NewMessageOperationCreate); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendGroupChatMessage: %v", err))
 		return
 	}
 }
 
-func (fes *APIServer) sendMessageHandler(ww http.ResponseWriter, req *http.Request, newMessageType lib.NewMessageType) error {
+func (fes *APIServer) UpdateGroupChatMessage(ww http.ResponseWriter, req *http.Request) {
+	if err := fes.sendMessageHandler(ww, req, lib.NewMessageTypeGroupChat, lib.NewMessageOperationUpdate); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateGroupChatMessage: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) sendMessageHandler(
+	ww http.ResponseWriter,
+	req *http.Request,
+	newMessageType lib.NewMessageType,
+	newMessageOperationType lib.NewMessageOperation,
+) error {
 	// Deserialize the request data.
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := SendNewMessageRequest{}
@@ -334,13 +356,26 @@ func (fes *APIServer) sendMessageHandler(ww http.ResponseWriter, req *http.Reque
 
 	tstamp := uint64(time.Now().UnixNano())
 
+	if newMessageOperationType == lib.NewMessageOperationUpdate {
+		// convert timestampnanos string to uint64
+		tstamp, err = strconv.ParseUint(requestData.TimestampNanosString, 10, 64)
+		if err != nil {
+			return errors.Wrapf(err, "Problem converting TimestampNanosString to uint64: ")
+		}
+		if tstamp == 0 {
+			return errors.Wrapf(err, "TimestampNanosString cannot be 0: ")
+		}
+		// Note that for now we do not validate that the message exists
+		// before updating or creating.
+	}
+
 	// Call CreateNewMessageTxn the core lib to construct the transaction to send a group chat message.
 	// The message type must be lib.NewMessageTypeGroupChat, and operation type is lib.NewMessageOperationCreate.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNewMessageTxn(
 		senderGroupOwnerPkBytes, *lib.NewPublicKey(senderGroupOwnerPkBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes), *lib.NewPublicKey(senderAccessGroupPkbytes),
 		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes), *lib.NewPublicKey(recipientAccessGroupPkbytes),
 		hexDecodedEncryptedMessageBytes, tstamp,
-		newMessageType, lib.NewMessageOperationCreate,
+		newMessageType, newMessageOperationType,
 		extraData, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		return errors.Wrapf(err, "Problem creating transaction: ")
@@ -363,7 +398,7 @@ func (fes *APIServer) sendMessageHandler(ww http.ResponseWriter, req *http.Reque
 		TransactionHex:    hex.EncodeToString(txnBytes),
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		return errors.Wrapf(err, "Problem encoding response as JSON: ")
 	}
 	return nil

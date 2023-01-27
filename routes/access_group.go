@@ -38,6 +38,112 @@ type CreateAccessGroupResponse struct {
 	TransactionHex    string
 }
 
+func (fes *APIServer) accessGroupHandler(
+	ww http.ResponseWriter,
+	req *http.Request,
+	accessGroupOperationType lib.AccessGroupOperationType,
+) error {
+
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := CreateAccessGroupRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		return fmt.Errorf("problem parsing request body: %v", err)
+	}
+
+	// Decode the access group owner public key.
+	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.AccessGroupOwnerPublicKeyBase58Check)
+	if err != nil {
+		return fmt.Errorf("problem decoding owner"+
+			"base58 public key %s: %v", requestData.AccessGroupOwnerPublicKeyBase58Check, err)
+	}
+
+	accessGroupKeyNameBytes := []byte(requestData.AccessGroupKeyName)
+
+	// get the byte array of the access group key name.
+
+	// Validates whether the accessGroupOwner key is a valid public key and
+	// some basic checks on access group key name like Min and Max characters.
+	if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupOwnerPkBytes, accessGroupKeyNameBytes); err != nil {
+		return fmt.Errorf("problem validating access group owner "+
+			"public key and access group key name %s: %v", requestData.AccessGroupKeyName, err)
+	}
+
+	// Access group name key cannot be equal to base name key (equal to all zeros).
+	if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
+		return fmt.Errorf(
+			"access group key cannot be same as base key (all zeros)."+"access group key name %s", requestData.AccessGroupKeyName)
+	}
+	// Decode the access group public key.
+	accessGroupPkBytes, _, err := lib.Base58CheckDecode(requestData.AccessGroupPublicKeyBase58Check)
+	if err != nil {
+		return fmt.Errorf("problem decoding access group "+
+			"base58 public key %s: %v", requestData.AccessGroupPublicKeyBase58Check, err)
+	}
+	// validate whether the access group public key is a valid public key.
+	if err = lib.IsByteArrayValidPublicKey(accessGroupPkBytes); err != nil {
+		return fmt.Errorf("problem validating access group "+
+			"public key %s: %v", accessGroupPkBytes, err)
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return fmt.Errorf("error getting view: %v", err)
+	}
+
+	accessGroupEntry, err := utxoView.GetAccessGroupEntry(lib.NewPublicKey(accessGroupOwnerPkBytes), lib.NewGroupKeyName(accessGroupKeyNameBytes))
+	if err != nil {
+		return fmt.Errorf("error checking existence of access group entry: %v", err)
+	}
+	if accessGroupOperationType == lib.AccessGroupOperationTypeUpdate && (accessGroupEntry == nil || accessGroupEntry.IsDeleted()) {
+		return fmt.Errorf("cannot update an access group entry that does not exist or has been deleted")
+	}
+	if accessGroupOperationType == lib.AccessGroupOperationTypeCreate && accessGroupEntry != nil && !accessGroupEntry.IsDeleted() {
+		return fmt.Errorf("cannot create an access group entry that already exists")
+	}
+
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeAccessGroup, accessGroupOwnerPkBytes, requestData.TransactionFees)
+	if err != nil {
+		return fmt.Errorf("transactionFees specified in Request body are invalid: %v", err)
+	}
+
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		return fmt.Errorf("problem encoding ExtraData: %v", err)
+	}
+
+	// Core from the core lib to construct the transaction to create an access group.
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateAccessGroupTxn(
+		accessGroupOwnerPkBytes, accessGroupPkBytes,
+		accessGroupKeyNameBytes, accessGroupOperationType,
+		extraData,
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+	if err != nil {
+		return fmt.Errorf("problem creating transaction: %v", err)
+	}
+
+	// Add node source to txn metadata
+	fes.AddNodeSourceToTxnMetadata(txn)
+
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		return fmt.Errorf("problem serializing transaction: %v", err)
+	}
+
+	// Return all the data associated with the transaction in the response
+	res := CreateAccessGroupResponse{
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		return fmt.Errorf("problem encoding response as JSON: %v", err)
+	}
+	return nil
+}
+
 // Endpoint implementation to create new access group.
 // This endpoint should enable users to create a new access group.
 // The endpoint should call the CreateAccessGroupTxn function from the core repo.
@@ -68,97 +174,15 @@ type CreateAccessGroupResponse struct {
 //    Check out the three step process of creating transaction here https://docs.deso.org/for-developers/backend/transactions .
 
 func (fes *APIServer) CreateAccessGroup(ww http.ResponseWriter, req *http.Request) {
-
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := CreateAccessGroupRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem parsing request body: %v", err))
+	if err := fes.accessGroupHandler(ww, req, lib.AccessGroupOperationTypeCreate); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: %v", err))
 		return
 	}
+}
 
-	// Decode the access group owner public key.
-	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.AccessGroupOwnerPublicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem decoding owner"+
-			"base58 public key %s: %v", requestData.AccessGroupOwnerPublicKeyBase58Check, err))
-		return
-	}
-
-	accessGroupKeyNameBytes := []byte(requestData.AccessGroupKeyName)
-
-	// get the byte array of the access group key name.
-
-	// Validates whether the accessGroupOwner key is a valid public key and
-	// some basic checks on access group key name like Min and Max characters.
-	if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupOwnerPkBytes, accessGroupKeyNameBytes); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem validating access group owner "+
-			"public key and access group key name %s: %v", requestData.AccessGroupKeyName, err))
-		return
-	}
-
-	// Access group name key cannot be equal to base name key (equal to all zeros).
-	if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"CreateAccessGroup: Access Group key cannot be same as base key (all zeros)."+"access group key name %s", requestData.AccessGroupKeyName))
-		return
-	}
-	// Decode the access group public key.
-	accessGroupPkBytes, _, err := lib.Base58CheckDecode(requestData.AccessGroupPublicKeyBase58Check)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem decoding access group "+
-			"base58 public key %s: %v", requestData.AccessGroupPublicKeyBase58Check, err))
-		return
-	}
-	// validate whether the access group public key is a valid public key.
-	if err = lib.IsByteArrayValidPublicKey(accessGroupPkBytes); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem validating access group "+
-			"public key %s: %v", accessGroupPkBytes, err))
-		return
-	}
-
-	// Compute the additional transaction fees as specified by the request body and the node-level fees.
-	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeAccessGroup, accessGroupOwnerPkBytes, requestData.TransactionFees)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: TransactionFees specified in Request body are invalid: %v", err))
-		return
-	}
-
-	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem encoding ExtraData: %v", err))
-		return
-	}
-
-	// Core from the core lib to construct the transaction to create an access group.
-	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateAccessGroupTxn(
-		accessGroupOwnerPkBytes, accessGroupPkBytes,
-		accessGroupKeyNameBytes, lib.AccessGroupOperationTypeCreate,
-		extraData,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem creating transaction: %v", err))
-		return
-	}
-
-	// Add node source to txn metadata
-	fes.AddNodeSourceToTxnMetadata(txn)
-
-	txnBytes, err := txn.ToBytes(true)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem serializing transaction: %v", err))
-		return
-	}
-
-	// Return all the data associated with the transaction in the response
-	res := CreateAccessGroupResponse{
-		TotalInputNanos:   totalInput,
-		ChangeAmountNanos: changeAmount,
-		FeeNanos:          fees,
-		Transaction:       txn,
-		TransactionHex:    hex.EncodeToString(txnBytes),
-	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem encoding response as JSON: %v", err))
+func (fes *APIServer) UpdateAccessGroup(ww http.ResponseWriter, req *http.Request) {
+	if err := fes.accessGroupHandler(ww, req, lib.AccessGroupOperationTypeUpdate); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateAccessGroup: %v", err))
 		return
 	}
 }
@@ -215,33 +239,23 @@ type AddAccessGroupMembersResponse struct {
 	TransactionHex string
 }
 
-// Here are some of the important rules to use this API to add members to an access group.
-// Note: This API helps you only construct a transaction to add a member. This doesn't execute a transaction.
-//		You need to follow up with signing the transaction and submitting it to Submit Transaction API to execute the transaction.
-//	 1. The access group should already exist to able to add a member.
-//	 2. Only the owner of the access group can add a member.
-//	    This means the AccessGroupOwnerPublicKeyBase58Check in this request should
-//	    match with the key used for signing the transaction while submitting the transaction.
-//	 3. An existing member of a group cannot add a member, again, only the owner can add members.
-//	 4. More than one member can be added at a time.
-//	 5. The information of the members to be added should be included in accessGroupMemberList.
-
-func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Request) {
+func (fes *APIServer) accessGroupMemberHandler(
+	ww http.ResponseWriter,
+	req *http.Request,
+	accessGroupMemberOperationType lib.AccessGroupMemberOperationType,
+) error {
 	// Parse the request body.
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := AddAccessGroupMembersRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: Problem parsing request body: %v", err))
-		return
+		return fmt.Errorf("problem parsing request body: %v", err)
 	}
-
 	// Decode the access group owner public key.
 	// Public key should be sent encoded in Base58 with Checksum format.
 	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.AccessGroupOwnerPublicKeyBase58Check)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: Problem decoding owner"+
-			"base58 public key %s: %v", requestData.AccessGroupOwnerPublicKeyBase58Check, err))
-		return
+		return fmt.Errorf("problem decoding owner"+
+			"base58 public key %s: %v", requestData.AccessGroupOwnerPublicKeyBase58Check, err)
 	}
 
 	accessGroupKeyNameBytes := []byte(requestData.AccessGroupKeyName)
@@ -249,18 +263,20 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 	// Access group name key cannot be equal to base name key  (equal to all zeros).
 	// Base access group key is reserved and by default all users belong to an access group with base group key.
 	if lib.EqualGroupKeyName(lib.NewGroupKeyName(accessGroupKeyNameBytes), lib.BaseGroupKeyName()) {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"AddAccessGroupMembers: Access Group key cannot be same as base key (all zeros). "+
-				"access group key name %s", requestData.AccessGroupKeyName))
-		return
+		return fmt.Errorf("access group key cannot be same as base key (all zeros). "+
+			"access group key name %s", requestData.AccessGroupKeyName)
 	}
 
 	// Validate whether the accessGroupOwner key is a valid public key and
 	// some basic checks on access group key name like Min and Max characters are performed.
 	if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupOwnerPkBytes, accessGroupKeyNameBytes); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: Problem validating access group owner "+
-			"public key and access group key name %s: %v", requestData.AccessGroupKeyName, err))
-		return
+		return fmt.Errorf("problem validating access group owner "+
+			"public key and access group key name %s: %v", requestData.AccessGroupKeyName, err)
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return fmt.Errorf("error getting utxo view: %v", err)
 	}
 
 	// DeSo core library expects the member list input the form of []*lib.AccessGroupMember{}
@@ -275,12 +291,12 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 		member := requestData.AccessGroupMemberList[i]
 
 		// Decode the member public key.
+		var accessGroupMemberPkBytes []byte
 		// As usual any public key is expected to be wired in Base58 Checksum format.
-		accessGroupMemberPkBytes, _, err := lib.Base58CheckDecode(member.AccessGroupMemberPublicKeyBase58Check)
+		accessGroupMemberPkBytes, _, err = lib.Base58CheckDecode(member.AccessGroupMemberPublicKeyBase58Check)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: Problem decoding member"+
-				"base58 public key %s: %v", member.AccessGroupMemberPublicKeyBase58Check, err))
-			return
+			return fmt.Errorf("problem decoding member"+
+				"base58 public key %s: %v", member.AccessGroupMemberPublicKeyBase58Check, err)
 		}
 
 		memberAccessGroupKeyNameBytes := []byte(member.AccessGroupMemberKeyName)
@@ -288,38 +304,67 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 		// some basic checks on access group key name like Min and Max characters are done.
 		if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupMemberPkBytes,
 			memberAccessGroupKeyNameBytes); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: Problem validating access group owner "+
+			return fmt.Errorf("problem validating access group owner "+
 				"public key and access group key name %s %s: %v",
-				member.AccessGroupMemberPublicKeyBase58Check, member.AccessGroupMemberKeyName, err))
-			return
+				member.AccessGroupMemberPublicKeyBase58Check, member.AccessGroupMemberKeyName, err)
 		}
 
-		// It's possible for the access group owner to list themselves as a member to be added.
+		// It's possible for the access group owner to list themselves as a member to be added or removed.
 		// But there's a restriction! The accessGroupKey names in the member list cannot be
 		// same as the key of the access group being added.
 		if bytes.Equal(accessGroupOwnerPkBytes, accessGroupMemberPkBytes) &&
 			bytes.Equal(lib.NewGroupKeyName(accessGroupKeyNameBytes).ToBytes(),
 				lib.NewGroupKeyName(memberAccessGroupKeyNameBytes).ToBytes()) {
+			return errors.New("can't include the owner of the group in the member list of the " +
+				"group using the same group key name.")
+		}
 
-			_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: Can't add the owner of the group as a member of the "+
-				"group using the same group key name."))
-			return
+		// We have extra validations to do for the remove and update operations.
+		if accessGroupMemberOperationType == lib.AccessGroupMemberOperationTypeRemove && member.EncryptedKey != "" {
+			return fmt.Errorf("encryptedKey should be empty for remove operations")
+		}
 
+		if accessGroupMemberOperationType == lib.AccessGroupMemberOperationTypeRemove && len(member.ExtraData) != 0 {
+			return fmt.Errorf("extraData should be empty for remove operations")
 		}
 
 		// Checking for duplicate entry in the member list.
 		memberPublicKey := *lib.NewPublicKey(accessGroupMemberPkBytes)
 		if accessGroupMemberPublicKeys.Includes(memberPublicKey) {
-			_AddBadRequestError(ww, fmt.Sprintf("Duplicate member entry in the member list for (%v)"+
-				"cannot be empty.", memberPublicKey))
-			return
+			return fmt.Errorf("duplicate member entry in the member list for (%v)"+
+				"cannot be empty", memberPublicKey)
 		}
 		accessGroupMemberPublicKeys.Add(memberPublicKey)
 
 		extraData, err := EncodeExtraDataMap(member.ExtraData)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: error encoding extra data for member: %v", err))
-			return
+			return fmt.Errorf("error encoding extra data for member: %v", err)
+		}
+
+		// We need to check that these are already members of the group. Can't update or
+		// remove if they aren't already members.
+		accessGroupMemberEntry, err := utxoView.GetAccessGroupMemberEntry(
+			lib.NewPublicKey(accessGroupMemberPkBytes),
+			lib.NewPublicKey(accessGroupOwnerPkBytes),
+			lib.NewGroupKeyName(accessGroupKeyNameBytes))
+
+		if err != nil {
+			return fmt.Errorf("error getting access group member entry: %v", err)
+		}
+
+		if accessGroupMemberOperationType == lib.AccessGroupMemberOperationTypeRemove ||
+			accessGroupMemberOperationType == lib.AccessGroupMemberOperationTypeUpdate {
+			if accessGroupMemberEntry == nil || accessGroupMemberEntry.IsDeleted() {
+				return fmt.Errorf("access group member entry not found for publicKey %v", member.AccessGroupMemberPublicKeyBase58Check)
+			}
+
+			if !bytes.Equal(accessGroupMemberEntry.AccessGroupMemberKeyName.ToBytes(), memberAccessGroupKeyNameBytes) {
+				return fmt.Errorf("can't %v group member with a different access group key name", accessGroupMemberOperationType.ToString())
+			}
+		}
+
+		if accessGroupMemberOperationType == lib.AccessGroupMemberOperationTypeAdd && (accessGroupMemberEntry != nil && !accessGroupMemberEntry.IsDeleted()) {
+			return fmt.Errorf("access group member entry already exists for publicKey %v", member.AccessGroupMemberPublicKeyBase58Check)
 		}
 
 		// Assembling the information inside an array of &lib.AccessGroupMember as expected by the core library.
@@ -330,31 +375,27 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 			ExtraData:                  extraData,
 		}
 		accessGroupMembers = append(accessGroupMembers, accessGroupMember)
-
 	}
 
 	// Compute the additional transaction fees as specified by the request body and the node-level fees.
 	additionalOutputs, err := fes.getTransactionFee(lib.TxnTypeAccessGroupMembers, accessGroupOwnerPkBytes, requestData.TransactionFees)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: TransactionFees specified in Request body are invalid: %v", err))
-		return
+		return fmt.Errorf("transactionFees specified in Request body are invalid: %v", err)
 	}
 
 	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem encoding ExtraData: %v", err))
-		return
+		return fmt.Errorf("problem encoding ExtraData: %v", err)
 	}
 
 	// Core from the core lib to construct the transaction to create an access group.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateAccessGroupMembersTxn(
 		accessGroupOwnerPkBytes, accessGroupKeyNameBytes,
-		accessGroupMembers, lib.AccessGroupMemberOperationTypeAdd,
+		accessGroupMembers, accessGroupMemberOperationType,
 		extraData,
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem creating transaction: %v", err))
-		return
+		return fmt.Errorf("problem creating transaction: %v", err)
 	}
 
 	// Add node source to txn metadata
@@ -362,8 +403,7 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem serializing transaction: %v", err))
-		return
+		return fmt.Errorf("problem serializing transaction: %v", err)
 	}
 
 	// Return all the data associated with the transaction in the response
@@ -375,8 +415,40 @@ func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Re
 		TransactionHex:    hex.EncodeToString(txnBytes),
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateAccessGroup: Problem encoding response as JSON: %v", err))
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		return fmt.Errorf("problem encoding response as JSON: %v", err)
+	}
+	return nil
+}
+
+// Here are some of the important rules to use this API to add members to an access group.
+// Note: This API helps you only construct a transaction to add a member. This doesn't execute a transaction.
+//		You need to follow up with signing the transaction and submitting it to Submit Transaction API to execute the transaction.
+//	 1. The access group should already exist to able to add a member.
+//	 2. Only the owner of the access group can add a member.
+//	    This means the AccessGroupOwnerPublicKeyBase58Check in this request should
+//	    match with the key used for signing the transaction while submitting the transaction.
+//	 3. An existing member of a group cannot add a member, again, only the owner can add members.
+//	 4. More than one member can be added at a time.
+//	 5. The information of the members to be added should be included in accessGroupMemberList.
+
+func (fes *APIServer) AddAccessGroupMembers(ww http.ResponseWriter, req *http.Request) {
+	if err := fes.accessGroupMemberHandler(ww, req, lib.AccessGroupMemberOperationTypeAdd); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AddAccessGroupMembers: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) RemoveAccessGroupMembers(ww http.ResponseWriter, req *http.Request) {
+	if err := fes.accessGroupMemberHandler(ww, req, lib.AccessGroupMemberOperationTypeRemove); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("RemoveAccessGroupMembers: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) UpdateAccessGroupMembers(ww http.ResponseWriter, req *http.Request) {
+	if err := fes.accessGroupMemberHandler(ww, req, lib.AccessGroupMemberOperationTypeUpdate); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateAccessGroupMembers: %v", err))
 		return
 	}
 }
