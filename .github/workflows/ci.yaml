@@ -38,15 +38,15 @@ jobs:
         uses: actions/checkout@v3
         with:
           repository: deso-protocol/core
-          path: core
+          path: ./core
 
       - name: Checkout backend
         uses: actions/checkout@v3
         with:
-          path: backend
+          path: ./backend
 
       - name: Change dir to backend
-        run: cd backend && pwd
+        run: pwd
 
       - name: Cache dependencies
         uses: actions/cache@v2
