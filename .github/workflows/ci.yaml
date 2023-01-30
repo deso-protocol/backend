@@ -29,10 +29,13 @@ jobs:
     runs-on: ubuntu-20.04
 
     steps:
-      - name: Install Go
+      - name: Install go
         uses: actions/setup-go@v2
         with:
           go-version: "1.18"
+
+      - name: Install os dependencies
+        run: sudo apt-get install -y libvips-tools libvips-dev && vips -v
 
       - name: Checkout core
         uses: actions/checkout@v3
@@ -45,17 +48,17 @@ jobs:
         with:
           path: ./backend
 
-      - name: Cache dependencies
+      - name: Cache go dependencies
         uses: actions/cache@v2
         with:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
+            ~/backend/.cache/go-build
+            ~/backend/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
-        working-directory: ./backend
 
       - name: Run go test
-        run: pwd && ls && go test -v ./routes
-        working-directory: ./backend
+        run: cd backend && go test -v ./routes
