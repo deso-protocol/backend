@@ -34,8 +34,35 @@ jobs:
         with:
           go-version: "1.18"
 
-      - name: Checkout branch
+      - name: Checkout core
         uses: actions/checkout@v3
+        with:
+          repository: "https://github.com/deso-protocol/core"
+          path: core
+
+      - name: Checkout backend branch
+        uses: actions/checkout@v3
+        with:
+          path: backend
+
+      - name: Change dir to backend
+        run: cd backend
+
+      - name: Cache dependencies
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Install dependencies
+        run: go mod download && go install
+
+      - name: Build package
+        run: go build
 
       - name: Run go test
         run: go test -v ./routes
