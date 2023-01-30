@@ -55,6 +55,7 @@ type UserAssociationQuery struct {
 	SortDescending                 bool     `safeForLogging:"true"`
 	IncludeTransactorProfile       bool     `safeForLogging:"true"`
 	IncludeTargetUserProfile       bool     `safeForLogging:"true"`
+	IncludeAppProfile              bool     `safeForLogging:"true"`
 }
 
 type UserAssociationResponse struct {
@@ -68,6 +69,7 @@ type UserAssociationResponse struct {
 	BlockHeight                    uint32                `safeForLogging:"true"`
 	TransactorProfile              *ProfileEntryResponse `safeForLogging:"true"`
 	TargetUserProfile              *ProfileEntryResponse `safeForLogging:"true"`
+	AppProfile                     *ProfileEntryResponse `safeForLogging:"true"`
 }
 
 type UserAssociationsResponse struct {
@@ -100,6 +102,7 @@ type PostAssociationQuery struct {
 	IncludeTransactorProfile       bool     `safeForLogging:"true"`
 	IncludePostEntry               bool     `safeForLogging:"true"`
 	IncludePostAuthorProfile       bool     `safeForLogging:"true"`
+	IncludeAppProfile              bool     `safeForLogging:"true"`
 }
 
 type PostAssociationResponse struct {
@@ -114,6 +117,7 @@ type PostAssociationResponse struct {
 	TransactorProfile              *ProfileEntryResponse `safeForLogging:"true"`
 	PostEntry                      *PostEntryResponse    `safeForLogging:"true"`
 	PostAuthorProfile              *ProfileEntryResponse `safeForLogging:"true"`
+	AppProfile                     *ProfileEntryResponse `safeForLogging:"true"`
 }
 
 type PostAssociationsResponse struct {
@@ -394,6 +398,33 @@ func (fes *APIServer) GetUserAssociationByID(ww http.ResponseWriter, req *http.R
 	// Convert AssociationEntry to AssociationResponse.
 	response := fes._convertUserAssociationEntryToResponse(utxoView, associationEntry)
 
+	// Join TransactorProfile.
+	response.TransactorProfile, err = fes.GetProfileEntryResponseForPublicKeyBase58Check(
+		response.TransactorPublicKeyBase58Check, utxoView,
+	)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetUserAssociationByID: %v", err))
+		return
+	}
+
+	// Join TargetUserProfile.
+	response.TargetUserProfile, err = fes.GetProfileEntryResponseForPublicKeyBase58Check(
+		response.TargetUserPublicKeyBase58Check, utxoView,
+	)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetUserAssociationByID: %v", err))
+		return
+	}
+
+	// Join AppProfile.
+	response.AppProfile, err = fes.GetProfileEntryResponseForPublicKeyBase58Check(
+		response.AppPublicKeyBase58Check, utxoView,
+	)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetUserAssociationByID: %v", err))
+		return
+	}
+
 	// JSON encode response.
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
 		_AddInternalServerError(ww, "GetUserAssociationByID: problem encoding response as JSON")
@@ -448,6 +479,17 @@ func (fes *APIServer) GetUserAssociations(ww http.ResponseWriter, req *http.Requ
 		if requestData.IncludeTargetUserProfile {
 			associationResponse.TargetUserProfile, err = fes.GetProfileEntryResponseForPublicKeyBase58Check(
 				associationResponse.TargetUserPublicKeyBase58Check, utxoView,
+			)
+			if err != nil {
+				_AddInternalServerError(ww, fmt.Sprintf("GetUserAssociations: %v", err))
+				return
+			}
+		}
+
+		// Join AppProfile if specified.
+		if requestData.IncludeAppProfile {
+			associationResponse.AppProfile, err = fes.GetProfileEntryResponseForPublicKeyBase58Check(
+				associationResponse.AppPublicKeyBase58Check, utxoView,
 			)
 			if err != nil {
 				_AddInternalServerError(ww, fmt.Sprintf("GetUserAssociations: %v", err))
@@ -602,9 +644,9 @@ func (fes *APIServer) _constructUserAssociationQueriesFromParams(
 		return nil, nil, errors.New("unsupported SortDescending param for count operation")
 	}
 
-	// Validate IncludeTransactorProfile and IncludeTargetUserProfile.
+	// Validate IncludeTransactorProfile, IncludeTargetUserProfile, and IncludeAppProfile.
 	if (queryType == AssociationQueryTypeQuery || queryType == AssociationQueryTypeCountByValue) &&
-		(requestData.IncludeTransactorProfile || requestData.IncludeTargetUserProfile) {
+		(requestData.IncludeTransactorProfile || requestData.IncludeTargetUserProfile || requestData.IncludeAppProfile) {
 		return nil, nil, errors.New("unsupported IncludeProfile param for count operation")
 	}
 
@@ -889,6 +931,40 @@ func (fes *APIServer) GetPostAssociationByID(ww http.ResponseWriter, req *http.R
 	// Convert AssociationEntry to AssociationResponse.
 	response := fes._convertPostAssociationEntryToResponse(utxoView, associationEntry)
 
+	// Join TransactorProfile.
+	response.TransactorProfile, err = fes.GetProfileEntryResponseForPublicKeyBase58Check(
+		response.TransactorPublicKeyBase58Check, utxoView,
+	)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociationByID: %v", err))
+		return
+	}
+
+	// Join PostEntry.
+	postHash := associationEntry.PostHash
+	postEntry := utxoView.GetPostEntryForPostHash(postHash)
+	if postEntry == nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociationByID: post entry not found for %v", postHash))
+		return
+	}
+	response.PostEntry, err = fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, nil, 2)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociationByID: %v", err))
+		return
+	}
+
+	// Join PostAuthorProfile.
+	response.PostAuthorProfile = fes.GetProfileEntryResponseForPublicKeyBytes(postEntry.PosterPublicKey, utxoView)
+
+	// Join AppProfile.
+	response.AppProfile, err = fes.GetProfileEntryResponseForPublicKeyBase58Check(
+		response.AppPublicKeyBase58Check, utxoView,
+	)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociationByID: %v", err))
+		return
+	}
+
 	// JSON encode response.
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
 		_AddInternalServerError(ww, "GetPostAssociationByID: problem encoding response as JSON")
@@ -944,7 +1020,7 @@ func (fes *APIServer) GetPostAssociations(ww http.ResponseWriter, req *http.Requ
 			postHash := associationEntry.PostHash
 			postEntry := utxoView.GetPostEntryForPostHash(postHash)
 			if postEntry == nil {
-				_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociations: post entry not found for %s", postHash))
+				_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociations: post entry not found for %v", postHash))
 				return
 			}
 
@@ -975,6 +1051,18 @@ func (fes *APIServer) GetPostAssociations(ww http.ResponseWriter, req *http.Requ
 				return
 			}
 			associationResponse.TransactorProfile = profile
+		}
+
+		// Join AppProfile if specified.
+		if requestData.IncludeAppProfile {
+			profile, err := fes.GetProfileEntryResponseForPublicKeyBase58Check(
+				associationResponse.AppPublicKeyBase58Check, utxoView,
+			)
+			if err != nil {
+				_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociations: %v", err))
+				return
+			}
+			associationResponse.AppProfile = profile
 		}
 
 		associationResponses = append(associationResponses, associationResponse)
@@ -1124,9 +1212,9 @@ func (fes *APIServer) _constructPostAssociationQueriesFromParams(
 		return nil, nil, errors.New("unsupported SortDescending param for count operation")
 	}
 
-	// Validate IncludeTransactorProfile, IncludePostEntry, and IncludePostAuthorProfile.
+	// Validate IncludeTransactorProfile, IncludePostEntry, IncludePostAuthorProfile, and IncludeAppProfile.
 	if (queryType == AssociationQueryTypeCount || queryType == AssociationQueryTypeCountByValue) &&
-		(requestData.IncludeTransactorProfile || requestData.IncludePostEntry || requestData.IncludePostAuthorProfile) {
+		(requestData.IncludeTransactorProfile || requestData.IncludePostEntry || requestData.IncludePostAuthorProfile || requestData.IncludeAppProfile) {
 		return nil, nil, errors.New("unsupported IncludeProfile param for count operation")
 	}
 
