@@ -599,12 +599,12 @@ func (fes *APIServer) getUserAccessGroupsHandler(ww http.ResponseWriter, req *ht
 	if getMember {
 		res.AccessGroupsMember, err = fes.getMemberOnlyAccessEntriesForPublicKey(accessGroupOwnerPkBytes, utxoView)
 		if err != nil {
-			return errors.Wrapf(err, "Problem getting owned access groups")
+			return errors.Wrapf(err, "Problem getting owned access groups: ")
 		}
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		return errors.Wrapf(err, "Problem encoding response as JSON: %v")
+		return errors.Wrapf(err, "Problem encoding response as JSON: ")
 	}
 
 	return nil
