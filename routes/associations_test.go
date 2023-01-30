@@ -25,6 +25,39 @@ func TestAssociations(t *testing.T) {
 	// UserAssociations
 	//
 	{
+		// Create sender user profile.
+		// Send POST request.
+		body := &UpdateProfileRequest{
+			UpdaterPublicKeyBase58Check: senderPkString,
+			NewUsername:                 "sender",
+		}
+		bodyJSON, err := json.Marshal(body)
+		require.NoError(t, err)
+		request, _ := http.NewRequest("POST", RoutePathUpdateProfile, bytes.NewBuffer(bodyJSON))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.NotContains(t, string(response.Body.Bytes()), "error")
+
+		// Decode response.
+		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+		updateProfileResponse := UpdateProfileResponse{}
+		err = decoder.Decode(&updateProfileResponse)
+		require.NoError(t, err)
+		txn := updateProfileResponse.Transaction
+		require.Equal(
+			t, string(txn.TxnMeta.(*lib.UpdateProfileMetadata).NewUsername), "sender",
+		)
+
+		// Sign txn.
+		require.Nil(t, txn.Signature.Sign)
+		signTxn(t, txn, senderPrivString)
+		require.NotNil(t, txn.Signature.Sign)
+
+		// Submit txn.
+		submitTxn(t, apiServer, txn)
+	}
+	{
 		// Create a UserAssociation.
 		// Send POST request.
 		extraData := map[string]string{"PeerID": "A"}
@@ -91,6 +124,9 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, associationResponse.AssociationType, "ENDORSEMENT")
 		require.Equal(t, associationResponse.AssociationValue, "SQL")
 		require.Equal(t, associationResponse.ExtraData["PeerID"], "A")
+		require.Equal(t, associationResponse.TransactorProfile.Username, "sender")
+		require.Nil(t, associationResponse.TargetUserProfile)
+		require.Nil(t, associationResponse.AppProfile)
 	}
 	{
 		// Count UserAssociations by attributes.
