@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - name: Install go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v3
         with:
           go-version: "1.18"
 
@@ -49,13 +49,11 @@ jobs:
           path: ./backend
 
       - name: Cache go dependencies
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-            ~/backend/.cache/go-build
-            ~/backend/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
