@@ -46,7 +46,7 @@ jobs:
           path: ./backend
 
       - name: Change dir to backend
-        run: ls core && echo "\n\n" && ls backend
+        run: cd backend && pwd && ls
 
       - name: Cache dependencies
         uses: actions/cache@v2
@@ -57,12 +57,6 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
-
-      - name: Install dependencies
-        run: go mod download && go install
-
-      - name: Build package
-        run: go build
 
       - name: Run go test
         run: go test -v ./routes
