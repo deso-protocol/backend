@@ -46,7 +46,7 @@ jobs:
           path: ./backend
 
       - name: Change dir to backend
-        run: pwd
+        run: ls core && echo "\n\n" && ls backend
 
       - name: Cache dependencies
         uses: actions/cache@v2
