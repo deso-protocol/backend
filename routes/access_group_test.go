@@ -169,6 +169,8 @@ func TestAPIAccessGroups(t *testing.T) {
 	groupName1String := "group1"
 
 	apiServer := newTestApiServer(t)
+	defer apiServer.backendServer.Stop()
+	defer apiServer.Stop()
 
 	// Create a request to create an access group.
 	values := CreateAccessGroupRequest{
