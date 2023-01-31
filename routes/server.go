@@ -1861,7 +1861,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		{
 			"EnableVideoDownload",
 			[]string{"POST", "OPTIONS"},
-			RoutePathEnableVideoDownload,
+			RoutePathEnableVideoDownload + "/{videoId:[0-9a-z]{25,35}}",
 			fes.EnableVideoDownload,
 			PublicAccess,
 		},
