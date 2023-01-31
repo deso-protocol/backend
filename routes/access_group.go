@@ -300,11 +300,15 @@ func (fes *APIServer) accessGroupMemberHandler(
 		}
 
 		memberAccessGroupKeyNameBytes := []byte(member.AccessGroupMemberKeyName)
+		if len(memberAccessGroupKeyNameBytes) == 0 {
+			// Special case: base key needs to have at least one byte
+			memberAccessGroupKeyNameBytes = []byte{0}
+		}
 		// Checks whether the accessGroupMember key is a valid public key and
 		// some basic checks on access group key name like Min and Max characters are done.
 		if err = lib.ValidateAccessGroupPublicKeyAndName(accessGroupMemberPkBytes,
 			memberAccessGroupKeyNameBytes); err != nil {
-			return fmt.Errorf("problem validating access group owner "+
+			return fmt.Errorf("problem validating access group member "+
 				"public key and access group key name %s %s: %v",
 				member.AccessGroupMemberPublicKeyBase58Check, member.AccessGroupMemberKeyName, err)
 		}
