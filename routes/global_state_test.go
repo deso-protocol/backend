@@ -13,13 +13,14 @@ import (
 )
 
 func TestGlobalStateServicePutGetDeleteWithDB(t *testing.T) {
-	t.Skip("FIXME")
 	assert := assert.New(t)
 	require := require.New(t)
 	_, _ = assert, require
 
 	apiServer, _, _ := newTestAPIServer(
 		t, "" /*globalStateRemoteNode*/)
+	defer apiServer.backendServer.Stop()
+	defer apiServer.Stop()
 
 	// Getting when no value is present should return nil without an
 	// error.
@@ -58,13 +59,14 @@ func TestGlobalStateServicePutGetDeleteWithDB(t *testing.T) {
 }
 
 func TestGlobalStateServicePutGetDeleteWithRemoteNode(t *testing.T) {
-	t.Skip("FIXME")
 	assert := assert.New(t)
 	require := require.New(t)
 	_, _ = assert, require
 
 	apiServer, _, _ := newTestAPIServer(
 		t, "" /*globalStateRemoteNode*/)
+	defer apiServer.backendServer.Stop()
+	defer apiServer.Stop()
 
 	// Getting when no value is present should return nil without an
 	// error.
@@ -183,12 +185,17 @@ func TestGlobalStateServicePutGetDeleteWithRemoteNode(t *testing.T) {
 
 func TestGlobalStateServiceURLCreation(t *testing.T) {
 	t.Skip("FIXME")
+	// This test is currently skipped because the backend API Server
+	// tries to fetch the transaction fees from global state on
+	// boot up
 	assert := assert.New(t)
 	require := require.New(t)
 	_, _ = assert, require
 
 	apiServer, _, _ := newTestAPIServer(
 		t, "https://deso.com:17001" /*globalStateRemoteNode*/)
+	defer apiServer.backendServer.Stop()
+	defer apiServer.Stop()
 
 	{
 		url, _, err := apiServer.GlobalState.CreateGetRequest([]byte("woo"))

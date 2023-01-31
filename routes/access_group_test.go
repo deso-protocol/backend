@@ -16,15 +16,6 @@ import (
 	"testing"
 )
 
-// Helper function to encode a public key to Base58 Checksum format.
-func Base58CheckEncodePublickey(t *testing.T, publickeyBytes []byte) (Base58EncodedPublickey string) {
-	t.Helper()
-	// 3 byte public key prefix as per the base58 checksum format.
-	Base58CheckPrefix := [3]byte{0x11, 0xc2, 0x0}
-	return lib.Base58CheckEncodeWithPrefix(publickeyBytes, Base58CheckPrefix)
-
-}
-
 func signTransaction(t *testing.T, txn *lib.MsgDeSoTxn) {
 	privKeyBytes, _, err := lib.Base58CheckDecode(senderPrivString)
 	require.NoError(t, err)
@@ -70,7 +61,7 @@ func SignAndSubmitTransaction(t *testing.T, privateKeyBase58Check string, txn *l
 }
 
 // Function to fetch the access group ID.
-func fetchAccessGroupID(t *testing.T, apiServer *APIServer, publicKeyBase58Check string) *GetAccessGroupsRequest {
+func fetchAccessGroupID(t *testing.T, apiServer *APIServer, publicKeyBase58Check string) *GetAccessGroupsResponse {
 	t.Helper()
 	// form the request for RoutePathGetAllUserAccessGroups
 	values := GetAccessGroupsRequest{PublicKeyBase58Check: publicKeyBase58Check}
@@ -80,7 +71,7 @@ func fetchAccessGroupID(t *testing.T, apiServer *APIServer, publicKeyBase58Check
 	require.NoError(t, err)
 	responseBody := ExecuteRequest(t, apiServer, routePath, requestbody)
 	// Deserialize the response.
-	unmarshalResponse := &GetAccessGroupsRequest{}
+	unmarshalResponse := &GetAccessGroupsResponse{}
 	err = json.Unmarshal(responseBody, unmarshalResponse)
 	require.NoError(t, err)
 	return unmarshalResponse
@@ -104,10 +95,11 @@ func ExecuteRequest(t *testing.T, apiServer *APIServer, routePath string, reques
 
 // This access group key name is reserved since every user by default belongs to them.
 func TestAPIAccessGroupBaseGroupMembership(t *testing.T) {
-	t.Skip("FIXME")
 	assert := assert.New(t)
 
 	apiServer, _, _ := newTestAPIServer(t, "" /*globalStateRemoteNode*/)
+	defer apiServer.backendServer.Stop()
+	defer apiServer.Stop()
 
 	// form the request for RoutePathGetAllUserAccessGroups
 	values := GetAccessGroupsRequest{PublicKeyBase58Check: senderPkString}
@@ -120,7 +112,10 @@ func TestAPIAccessGroupBaseGroupMembership(t *testing.T) {
 			{
 				// The user should be the owner of the default base group().
 				AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-				AccessGroupKeyName:                   hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
+				AccessGroupKeyName:                   string(lib.AccessKeyNameDecode(lib.BaseGroupKeyName())),
+				AccessGroupPublicKeyBase58Check:      senderPkString,
+				ExtraData:                            nil,
+				AccessGroupMemberEntryResponse:       nil,
 			},
 		},
 	}
@@ -135,7 +130,7 @@ func TestAPIAccessGroupBaseGroupMembership(t *testing.T) {
 	assert.Equal(200, response.Code, "OK response is expected")
 
 	// Deserialize the response.
-	unmarshalResponse := &GetAccessGroupsRequest{}
+	unmarshalResponse := &GetAccessGroupsResponse{}
 	err = json.Unmarshal(response.Body.Bytes(), unmarshalResponse)
 	if err != nil {
 		t.Fatal("Unable to Base58 Check decode the result")
@@ -163,7 +158,6 @@ func generateRandomPublicKey(t *testing.T) (publicKeyBytes []byte) {
 // - RoutePathGetAllUserAccessGroupsOwned
 // - RoutePathGetAllUserAccessGroupsMemberOnly
 func TestAPIAccessGroups(t *testing.T) {
-	t.Skip("FIXME")
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -174,17 +168,18 @@ func TestAPIAccessGroups(t *testing.T) {
 	// random public keys to be used a users/members access groups.
 	member1 := generateRandomPublicKey(t)
 	// values for access group keys.
-	groupName1 := []byte("group1")
-	//groupName2 := []byte("group2")
+	groupName1String := "group1"
 
-	apiServer, _, _ := newTestAPIServer(t, "" /*globalStateRemoteNode*/)
+	apiServer := newTestApiServer(t)
+	defer apiServer.backendServer.Stop()
+	defer apiServer.Stop()
 
 	// Create a request to create an access group.
 	values := CreateAccessGroupRequest{
 		AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-		AccessGroupPublicKeyBase58Check:      Base58CheckEncodePublickey(t, groupPk1),
-		AccessGroupKeyName:                   hex.EncodeToString(groupName1),
-		MinFeeRateNanosPerKB:                 10,
+		AccessGroupPublicKeyBase58Check:      lib.Base58CheckEncode(groupPk1, false, apiServer.Params),
+		AccessGroupKeyName:                   groupName1String,
+		MinFeeRateNanosPerKB:                 apiServer.MinFeeRateNanosPerKB,
 		TransactionFees:                      nil,
 	}
 
@@ -221,12 +216,14 @@ func TestAPIAccessGroups(t *testing.T) {
 			{
 				// The user should be the owner of the default base group().
 				AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-				AccessGroupKeyName:                   hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
+				AccessGroupKeyName:                   "",
+				AccessGroupPublicKeyBase58Check:      senderPkString,
 			},
 			{
 				// The user should be the owner of the default base group().
 				AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-				AccessGroupKeyName:                   string(lib.NewGroupKeyName(groupName1).ToBytes()),
+				AccessGroupKeyName:                   groupName1String,
+				AccessGroupPublicKeyBase58Check:      lib.Base58CheckEncode(groupPk1, false, apiServer.Params),
 			},
 		},
 	}
@@ -235,18 +232,17 @@ func TestAPIAccessGroups(t *testing.T) {
 	assert.Equal(&expectedResponse, actualGroupIDsres)
 
 	// Add member1 as a new member of groupName1.
-	accesGroupMember1 := AccessGroupMember{
-		AccessGroupMemberPublicKeyBase58Check: Base58CheckEncodePublickey(t, member1),
-		AccessGroupMemberKeyName:              string(lib.BaseGroupKeyName().ToBytes()),
+	accessGroupMember1 := AccessGroupMember{
+		AccessGroupMemberPublicKeyBase58Check: lib.Base58CheckEncode(member1, false, apiServer.Params),
+		AccessGroupMemberKeyName:              "",
 		EncryptedKey:                          string([]byte{1, 2, 3}),
 	}
 	// Call the API to construct the transaction to add the member.
 	memberAdd := &AddAccessGroupMembersRequest{
 		AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-		AccessGroupKeyName:                   string(lib.NewGroupKeyName(groupName1).ToBytes()),
-		AccessGroupMemberList:                []AccessGroupMember{accesGroupMember1},
-		MinFeeRateNanosPerKB:                 10,
-		TransactionFees:                      nil,
+		AccessGroupKeyName:                   groupName1String,
+		AccessGroupMemberList:                []AccessGroupMember{accessGroupMember1},
+		MinFeeRateNanosPerKB:                 apiServer.MinFeeRateNanosPerKB,
 	}
 
 	requestbody, err = json.Marshal(memberAdd)
@@ -270,21 +266,27 @@ func TestAPIAccessGroups(t *testing.T) {
 	// Now that the transaction is submitted, fetch the AccessGroup IDs and
 	// check if the new member is add to the access group.
 	// Fetch all the access groups for member1.
-	actualGroupIDsres = fetchAccessGroupID(t, apiServer, Base58CheckEncodePublickey(t, member1))
+	actualGroupIDsres = fetchAccessGroupID(t, apiServer, lib.Base58CheckEncode(member1, false, apiServer.Params))
 	// Expected response for the call to fetch Access group ID.
 	expectedResponse = GetAccessGroupsResponse{
 		AccessGroupsOwned: []AccessGroupEntryResponse{
 			{
 				// The user should be the owner of the default base group().
-				AccessGroupOwnerPublicKeyBase58Check: Base58CheckEncodePublickey(t, member1),
-				AccessGroupKeyName:                   string(lib.BaseGroupKeyName().ToBytes()),
+				AccessGroupOwnerPublicKeyBase58Check: lib.Base58CheckEncode(member1, false, apiServer.Params),
+				AccessGroupKeyName:                   "",
+				AccessGroupPublicKeyBase58Check:      lib.Base58CheckEncode(member1, false, apiServer.Params),
 			},
 		},
 		AccessGroupsMember: []AccessGroupEntryResponse{
 			{
-				// The user should be the owner of the default base group().
 				AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-				AccessGroupKeyName:                   string(lib.NewGroupKeyName(groupName1).ToBytes()),
+				AccessGroupKeyName:                   groupName1String,
+				AccessGroupPublicKeyBase58Check:      lib.Base58CheckEncode(groupPk1, false, apiServer.Params),
+				AccessGroupMemberEntryResponse: &AccessGroupMemberEntryResponse{
+					AccessGroupMemberPublicKeyBase58Check: lib.Base58CheckEncode(member1, false, apiServer.Params),
+					AccessGroupMemberKeyName:              "",
+					EncryptedKey:                          string([]byte{1, 2, 3}),
+				},
 			},
 		},
 	}
@@ -297,7 +299,7 @@ func TestAPIAccessGroups(t *testing.T) {
 	requestbody, err = json.Marshal(ownerOnlyValues)
 	require.NoError(err)
 	responseBytes = ExecuteRequest(t, apiServer, RoutePathGetAllUserAccessGroupsOwned, requestbody)
-	actualOwnerOnlyResponse := &GetAccessGroupsRequest{}
+	actualOwnerOnlyResponse := &GetAccessGroupsResponse{}
 	err = json.Unmarshal(responseBytes, actualOwnerOnlyResponse)
 	require.NoError(err)
 	expectedResponse = GetAccessGroupsResponse{
@@ -305,12 +307,14 @@ func TestAPIAccessGroups(t *testing.T) {
 			{
 				// The user should be the owner of the default base group().
 				AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-				AccessGroupKeyName:                   hex.EncodeToString(lib.BaseGroupKeyName().ToBytes()),
+				AccessGroupKeyName:                   "",
+				AccessGroupPublicKeyBase58Check:      senderPkString,
 			},
 			{
 				// The user should be the owner of the default base group().
 				AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-				AccessGroupKeyName:                   string(lib.NewGroupKeyName(groupName1).ToBytes()),
+				AccessGroupKeyName:                   groupName1String,
+				AccessGroupPublicKeyBase58Check:      lib.Base58CheckEncode(groupPk1, false, apiServer.Params),
 			},
 		},
 	}
@@ -319,21 +323,26 @@ func TestAPIAccessGroups(t *testing.T) {
 	assert.Equal(&expectedResponse, actualOwnerOnlyResponse)
 
 	// Test Api to fetch member only access groups.
-	memberOnlyValues := GetAccessGroupsRequest{PublicKeyBase58Check: Base58CheckEncodePublickey(t, member1)}
+	memberOnlyValues := GetAccessGroupsRequest{PublicKeyBase58Check: lib.Base58CheckEncode(member1, false, apiServer.Params)}
 
 	requestbody, err = json.Marshal(memberOnlyValues)
 	require.NoError(err)
 	responseBytes = ExecuteRequest(t, apiServer, RoutePathGetAllUserAccessGroupsMemberOnly, requestbody)
-	actualMemberOnlyResponse := &GetAccessGroupsRequest{}
+	actualMemberOnlyResponse := &GetAccessGroupsResponse{}
 	err = json.Unmarshal(responseBytes, actualMemberOnlyResponse)
 	require.NoError(err)
 
 	expectedResponse = GetAccessGroupsResponse{
 		AccessGroupsMember: []AccessGroupEntryResponse{
 			{
-				// The user should be the owner of the default base group().
 				AccessGroupOwnerPublicKeyBase58Check: senderPkString,
-				AccessGroupKeyName:                   string(lib.NewGroupKeyName(groupName1).ToBytes()),
+				AccessGroupKeyName:                   groupName1String,
+				AccessGroupPublicKeyBase58Check:      lib.Base58CheckEncode(groupPk1, false, apiServer.Params),
+				AccessGroupMemberEntryResponse: &AccessGroupMemberEntryResponse{
+					AccessGroupMemberPublicKeyBase58Check: lib.Base58CheckEncode(member1, false, apiServer.Params),
+					AccessGroupMemberKeyName:              "",
+					EncryptedKey:                          string([]byte{1, 2, 3}),
+				},
 			},
 		},
 	}

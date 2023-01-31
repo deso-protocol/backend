@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	chainlib "github.com/btcsuite/btcd/blockchain"
+	coreCmd "github.com/deso-protocol/core/cmd"
 	"github.com/google/uuid"
 	"io"
 	"io/ioutil"
@@ -59,7 +60,7 @@ func GetTestBadgerDb() (_db *badger.DB, _dir string) {
 	return db, dir
 }
 
-func NewLowDifficultyBlockchain() (*lib.Blockchain, *lib.DeSoParams, *badger.DB) {
+func NewLowDifficultyBlockchain() (*lib.Blockchain, *lib.DeSoParams, *badger.DB, string) {
 
 	// Set the number of txns per view regeneration to one while creating the txns
 	lib.ReadOnlyUtxoViewRegenerationIntervalTxns = 1
@@ -68,12 +69,12 @@ func NewLowDifficultyBlockchain() (*lib.Blockchain, *lib.DeSoParams, *badger.DB)
 }
 
 func NewLowDifficultyBlockchainWithParams(params *lib.DeSoParams) (
-	*lib.Blockchain, *lib.DeSoParams, *badger.DB) {
+	*lib.Blockchain, *lib.DeSoParams, *badger.DB, string) {
 
 	// Set the number of txns per view regeneration to one while creating the txns
 	lib.ReadOnlyUtxoViewRegenerationIntervalTxns = 1
 
-	db, _ := GetTestBadgerDb()
+	db, dir := GetTestBadgerDb()
 	timesource := chainlib.NewMedianTime()
 
 	// Set some special parameters for testing. If the blocks above are changed
@@ -126,7 +127,7 @@ func NewLowDifficultyBlockchainWithParams(params *lib.DeSoParams) (
 		log.Fatal(err)
 	}
 
-	return chain, &paramsCopy, db
+	return chain, &paramsCopy, db, dir
 }
 
 func NewTestMiner(t *testing.T, chain *lib.Blockchain, params *lib.DeSoParams, isSender bool) (*lib.DeSoMempool, *lib.DeSoMiner) {
@@ -163,17 +164,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	require := require.New(t)
 	_, _ = assert, require
 
-	chain, params, _ := NewLowDifficultyBlockchain()
-	params.ForkHeights.AssociationsAndAccessGroupsBlockHeight = uint32(0)
-	txIndexDb, _ := GetTestBadgerDb()
-	txIndex, _ := lib.NewTXIndex(chain, params, txIndexDb.Opts().Dir)
-	mempool, miner := NewTestMiner(t, chain, params, true /*isSender*/)
-	// Mine two blocks to give the sender some DeSo.
-	block1, err := miner.MineAndProcessSingleBlock(0 /*threadIndex*/, mempool)
-	require.NoError(err)
-	block2, err := miner.MineAndProcessSingleBlock(0 /*threadIndex*/, mempool)
-	require.NoError(err)
-	_, _, _ = block1, block2, mempool
+	_, badgerDir := GetTestBadgerDb()
 
 	// Create a global state db only if a remote node was not provided
 	var globalStateDB *badger.DB
@@ -181,29 +172,58 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 		globalStateDB, _ = GetTestBadgerDb()
 	}
 	publicConfig := &config.Config{
-		APIPort:                 testJSONPort,
-		GlobalStateRemoteNode:   globalStateRemoteNode,
-		GlobalStateRemoteSecret: globalStateSharedSecret,
+		APIPort:                    testJSONPort,
+		GlobalStateRemoteNode:      globalStateRemoteNode,
+		GlobalStateRemoteSecret:    globalStateSharedSecret,
+		RunHotFeedRoutine:          false,
+		RunSupplyMonitoringRoutine: false,
+		AdminPublicKeys:            []string{"*"},
 	}
 
+	// Set core node's config.
+	coreConfig := coreCmd.LoadConfig()
+	coreConfig.Params = &lib.DeSoTestnetParams
+	coreConfig.DataDirectory = badgerDir
+	coreConfig.MempoolDumpDirectory = badgerDir
+	coreConfig.TXIndex = true
+	coreConfig.MinerPublicKeys = []string{senderPkString}
+	coreConfig.NumMiningThreads = 1
+	coreConfig.HyperSync = false
+	coreConfig.MinFeerate = 10
+	coreConfig.LogDirectory = badgerDir
+	coreConfig.PrivateMode = true
+	coreConfig.DisableNetworking = true
+	// Create a core node.
+	shutdownListener := make(chan struct{})
+	node := coreCmd.NewNode(coreConfig)
+	node.Start(&shutdownListener)
+
 	publicApiServer, err := NewAPIServer(
-		nil, mempool, chain, miner.BlockProducer, txIndex, params, publicConfig,
-		2000, globalStateDB, nil, "")
+		node.Server, node.Server.GetMempool(), node.Server.GetBlockchain(), node.Server.GetBlockProducer(),
+		node.TXIndex, node.Params, publicConfig,
+		node.Config.MinFeerate, globalStateDB, nil, node.Config.BlockCypherAPIKey)
 	require.NoError(err)
+	publicApiServer.MinFeeRateNanosPerKB = node.Config.MinFeerate
 
 	// Calling initState() initializes the state of the APIServer and the router as well.
 	publicApiServer.initState()
 
 	privateConfig := publicConfig
-	privateConfig.AdminPublicKeys = []string{"adminpublickey"}
 	privateApiServer, err := NewAPIServer(
-		nil, mempool, chain, miner.BlockProducer, txIndex, params, privateConfig,
-		2000, globalStateDB, nil, "")
+		node.Server, node.Server.GetMempool(), node.Server.GetBlockchain(), node.Server.GetBlockProducer(),
+		node.TXIndex, node.Params, privateConfig,
+		node.Config.MinFeerate, globalStateDB, nil, node.Config.BlockCypherAPIKey)
 	require.NoError(err)
+	privateApiServer.MinFeeRateNanosPerKB = node.Config.MinFeerate
 
 	// Calling initState() initializes the state of the APIServer and the router as well.
 	privateApiServer.initState()
 
+	miner := node.Server.GetMiner()
+	_, err = miner.MineAndProcessSingleBlock(0, node.Server.GetMempool())
+	require.NoError(err)
+	_, err = miner.MineAndProcessSingleBlock(0, node.Server.GetMempool())
+	require.NoError(err)
 	return publicApiServer, privateApiServer, miner
 }
 
@@ -214,6 +234,8 @@ func TestAPI(t *testing.T) {
 	_, _ = assert, require
 
 	apiServer, _, miner := newTestAPIServer(t, "" /*globalStateRemoteNode*/)
+	defer apiServer.backendServer.Stop()
+	defer apiServer.Stop()
 
 	{
 		request, _ := http.NewRequest("GET", RoutePathAPIBase, nil)

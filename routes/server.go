@@ -2619,6 +2619,9 @@ func (fes *APIServer) StartGlobalStateMonitoring() {
 }
 
 func (fes *APIServer) SetGlobalStateCache() {
+	if fes.backendServer == nil {
+		return
+	}
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		glog.Errorf("SetGlobalStateCache: problem with GetAugmentedUniversalView: %v", err)
