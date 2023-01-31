@@ -98,6 +98,8 @@ func TestAPIAccessGroupBaseGroupMembership(t *testing.T) {
 	assert := assert.New(t)
 
 	apiServer, _, _ := newTestAPIServer(t, "" /*globalStateRemoteNode*/)
+	defer apiServer.backendServer.Stop()
+	defer apiServer.Stop()
 
 	// form the request for RoutePathGetAllUserAccessGroups
 	values := GetAccessGroupsRequest{PublicKeyBase58Check: senderPkString}
@@ -169,6 +171,8 @@ func TestAPIAccessGroups(t *testing.T) {
 	groupName1String := "group1"
 
 	apiServer := newTestApiServer(t)
+	defer apiServer.backendServer.Stop()
+	defer apiServer.Stop()
 
 	// Create a request to create an access group.
 	values := CreateAccessGroupRequest{
