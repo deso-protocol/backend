@@ -168,7 +168,7 @@ func TestAPIAccessGroups(t *testing.T) {
 	// values for access group keys.
 	groupName1String := "group1"
 
-	apiServer := newTestApiServer(t)
+	apiServer, _, _ := newTestAPIServer(t, "")
 
 	// Create a request to create an access group.
 	values := CreateAccessGroupRequest{

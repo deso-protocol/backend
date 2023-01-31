@@ -164,15 +164,8 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	require := require.New(t)
 	_, _ = assert, require
 
-	chain, params, _, badgerDir := NewLowDifficultyBlockchain()
-	params.ForkHeights.AssociationsAndAccessGroupsBlockHeight = uint32(0)
-	mempool, miner := NewTestMiner(t, chain, params, true /*isSender*/)
-	// Mine two blocks to give the sender some DeSo.
-	block1, err := miner.MineAndProcessSingleBlock(0 /*threadIndex*/, mempool)
-	require.NoError(err)
-	block2, err := miner.MineAndProcessSingleBlock(0 /*threadIndex*/, mempool)
-	require.NoError(err)
-	_, _, _ = block1, block2, mempool
+	_, badgerDir := GetTestBadgerDb()
+
 
 	// Create a global state db only if a remote node was not provided
 	var globalStateDB *badger.DB
@@ -201,6 +194,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	coreConfig.LogDirectory = badgerDir
 	coreConfig.PrivateMode = true
 	coreConfig.DisableNetworking = true
+	coreConfig.Regtest = true
 	// Create a core node.
 	shutdownListener := make(chan struct{})
 	node := coreCmd.NewNode(coreConfig)
@@ -227,6 +221,11 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	// Calling initState() initializes the state of the APIServer and the router as well.
 	privateApiServer.initState()
 
+	miner := node.Server.GetMiner()
+	_, err = miner.MineAndProcessSingleBlock(0, node.Server.GetMempool())
+	require.NoError(err)
+	_, err = miner.MineAndProcessSingleBlock(0, node.Server.GetMempool())
+	require.NoError(err)
 	return publicApiServer, privateApiServer, miner
 }
 
