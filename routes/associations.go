@@ -73,7 +73,8 @@ type UserAssociationResponse struct {
 }
 
 type UserAssociationsResponse struct {
-	Associations []*UserAssociationResponse
+	Associations                    []*UserAssociationResponse
+	PublicKeyToProfileEntryResponse map[string]*ProfileEntryResponse
 }
 
 type CreatePostAssociationRequest struct {
@@ -121,7 +122,9 @@ type PostAssociationResponse struct {
 }
 
 type PostAssociationsResponse struct {
-	Associations []*PostAssociationResponse
+	Associations                    []*PostAssociationResponse
+	PublicKeyToProfileEntryResponse map[string]*ProfileEntryResponse
+	PostHashHexToPostEntryResponse  map[string]*PostEntryResponse
 }
 
 type DeleteAssociationRequest struct {
@@ -146,7 +149,7 @@ type AssociationsCountResponse struct {
 	Count uint64
 }
 
-type AssociationCountsReponse struct {
+type AssociationCountsResponse struct {
 	Counts map[string]uint64
 	Total  uint64
 }
@@ -432,6 +435,25 @@ func (fes *APIServer) GetUserAssociationByID(ww http.ResponseWriter, req *http.R
 	}
 }
 
+func (fes *APIServer) AddProfileEntryResponseToMap(
+	publicKeyBase58Check string,
+	profileEntryResponseMap map[string]*ProfileEntryResponse,
+	utxoView *lib.UtxoView,
+) error {
+	if _, exists := profileEntryResponseMap[publicKeyBase58Check]; exists {
+		return nil
+	}
+	var profile *ProfileEntryResponse
+	profile, err := fes.GetProfileEntryResponseForPublicKeyBase58Check(
+		publicKeyBase58Check, utxoView,
+	)
+	if err != nil {
+		return err
+	}
+	profileEntryResponseMap[publicKeyBase58Check] = profile
+	return nil
+}
+
 func (fes *APIServer) GetUserAssociations(ww http.ResponseWriter, req *http.Request) {
 	// Create UTXO view.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
@@ -458,39 +480,37 @@ func (fes *APIServer) GetUserAssociations(ww http.ResponseWriter, req *http.Requ
 		associationEntries = append(associationEntries, currentAssociationEntries...)
 	}
 
-	// Convert AssociationEntries to AssociationResponses.
+	// Convert AssociationEntries to AssociationResponses and populate map of
+	// public key to ProfileEntryResponse.
 	associationResponses := []*UserAssociationResponse{}
+	publicKeyToProfileEntryResponseMap := make(map[string]*ProfileEntryResponse)
 	for _, associationEntry := range associationEntries {
 		associationResponse := fes._convertUserAssociationEntryToResponse(utxoView, associationEntry)
-
-		// Join TransactorProfile if specified.
+		// Lookup TransactorProfile if specified.
 		if requestData.IncludeTransactorProfile {
-			associationResponse.TransactorProfile, err = fes.GetProfileEntryResponseForPublicKeyBase58Check(
-				associationResponse.TransactorPublicKeyBase58Check, utxoView,
-			)
-			if err != nil {
+			if err = fes.AddProfileEntryResponseToMap(
+				associationResponse.TransactorPublicKeyBase58Check, publicKeyToProfileEntryResponseMap, utxoView,
+			); err != nil {
 				_AddInternalServerError(ww, fmt.Sprintf("GetUserAssociations: %v", err))
 				return
 			}
 		}
 
-		// Join TargetUserProfile if specified.
+		// Lookup TargetUserProfile if specified.
 		if requestData.IncludeTargetUserProfile {
-			associationResponse.TargetUserProfile, err = fes.GetProfileEntryResponseForPublicKeyBase58Check(
-				associationResponse.TargetUserPublicKeyBase58Check, utxoView,
-			)
-			if err != nil {
+			if err = fes.AddProfileEntryResponseToMap(
+				associationResponse.TargetUserPublicKeyBase58Check, publicKeyToProfileEntryResponseMap, utxoView,
+			); err != nil {
 				_AddInternalServerError(ww, fmt.Sprintf("GetUserAssociations: %v", err))
 				return
 			}
 		}
 
-		// Join AppProfile if specified.
+		// Lookup AppProfile if specified.
 		if requestData.IncludeAppProfile {
-			associationResponse.AppProfile, err = fes.GetProfileEntryResponseForPublicKeyBase58Check(
-				associationResponse.AppPublicKeyBase58Check, utxoView,
-			)
-			if err != nil {
+			if err = fes.AddProfileEntryResponseToMap(
+				associationResponse.AppPublicKeyBase58Check, publicKeyToProfileEntryResponseMap, utxoView,
+			); err != nil {
 				_AddInternalServerError(ww, fmt.Sprintf("GetUserAssociations: %v", err))
 				return
 			}
@@ -500,7 +520,10 @@ func (fes *APIServer) GetUserAssociations(ww http.ResponseWriter, req *http.Requ
 	}
 
 	// JSON encode response.
-	response := UserAssociationsResponse{Associations: associationResponses}
+	response := UserAssociationsResponse{
+		Associations:                    associationResponses,
+		PublicKeyToProfileEntryResponse: publicKeyToProfileEntryResponseMap,
+	}
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
 		_AddInternalServerError(ww, "GetUserAssociations: problem encoding response as JSON")
 		return
@@ -568,7 +591,7 @@ func (fes *APIServer) CountUserAssociationsByValue(ww http.ResponseWriter, req *
 	}
 
 	// JSON encode response.
-	response := AssociationCountsReponse{Counts: counts, Total: total}
+	response := AssociationCountsResponse{Counts: counts, Total: total}
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
 		_AddInternalServerError(ww, "CountUserAssociationsByValue: problem encoding response as JSON")
 		return
@@ -997,24 +1020,25 @@ func (fes *APIServer) GetPostAssociations(ww http.ResponseWriter, req *http.Requ
 		associationEntries = append(associationEntries, currentAssociationEntries...)
 	}
 
-	// Convert AssociationEntries to AssociationResponses.
+	// Convert AssociationEntries to AssociationResponses and populate map of public key to
+	// ProfileEntryResponse and post hash hex to PostEntryResponse.
 	associationResponses := []*PostAssociationResponse{}
+	publicKeyToProfileEntryResponseMap := make(map[string]*ProfileEntryResponse)
+	postHashHexToPostEntryResponse := make(map[string]*PostEntryResponse)
 	for _, associationEntry := range associationEntries {
 		associationResponse := fes._convertPostAssociationEntryToResponse(utxoView, associationEntry)
 
-		// Join TransactorProfile if specified.
+		// Lookup TransactorProfile if specified.
 		if requestData.IncludeTransactorProfile {
-			profile, err := fes.GetProfileEntryResponseForPublicKeyBase58Check(
-				associationResponse.TransactorPublicKeyBase58Check, utxoView,
-			)
-			if err != nil {
+			if err = fes.AddProfileEntryResponseToMap(
+				associationResponse.TransactorPublicKeyBase58Check, publicKeyToProfileEntryResponseMap, utxoView,
+			); err != nil {
 				_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociations: %v", err))
 				return
 			}
-			associationResponse.TransactorProfile = profile
 		}
 
-		// Join PostEntry and/or PostAuthorProfile if specified.
+		// Lookup PostEntry and/or PostAuthorProfile if specified.
 		if requestData.IncludePostEntry || requestData.IncludePostAuthorProfile {
 			postHash := associationEntry.PostHash
 			postEntry := utxoView.GetPostEntryForPostHash(postHash)
@@ -1023,40 +1047,52 @@ func (fes *APIServer) GetPostAssociations(ww http.ResponseWriter, req *http.Requ
 				return
 			}
 
-			// Join PostEntry.
+			// Lookup PostEntry.
 			if requestData.IncludePostEntry {
-				associationResponse.PostEntry, err = fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, nil, 2)
+				postHashHex := hex.EncodeToString(postHash[:])
+				if _, exists := postHashHexToPostEntryResponse[postHashHex]; exists {
+					continue
+				}
+				var postEntryResponse *PostEntryResponse
+				postEntryResponse, err = fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, nil, 2)
 				if err != nil {
 					_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociations: %v", err))
 					return
 				}
+				postHashHexToPostEntryResponse[postHashHex] = postEntryResponse
 			}
 
-			// Join PostAuthorProfile.
+			// Lookup PostAuthorProfile.
 			if requestData.IncludePostAuthorProfile {
-				associationResponse.PostAuthorProfile = fes.GetProfileEntryResponseForPublicKeyBytes(
-					postEntry.PosterPublicKey, utxoView,
-				)
+				authorPublicKey := lib.Base58CheckEncode(postEntry.PosterPublicKey, false, fes.Params)
+				if err = fes.AddProfileEntryResponseToMap(
+					authorPublicKey, publicKeyToProfileEntryResponseMap, utxoView,
+				); err != nil {
+					_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociations: %v", err))
+					return
+				}
 			}
 		}
 
-		// Join AppProfile if specified.
+		// Lookup AppProfile if specified.
 		if requestData.IncludeAppProfile {
-			profile, err := fes.GetProfileEntryResponseForPublicKeyBase58Check(
-				associationResponse.AppPublicKeyBase58Check, utxoView,
-			)
-			if err != nil {
+			if err = fes.AddProfileEntryResponseToMap(
+				associationResponse.AppPublicKeyBase58Check, publicKeyToProfileEntryResponseMap, utxoView,
+			); err != nil {
 				_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociations: %v", err))
 				return
 			}
-			associationResponse.AppProfile = profile
 		}
 
 		associationResponses = append(associationResponses, associationResponse)
 	}
 
 	// JSON encode response.
-	response := PostAssociationsResponse{Associations: associationResponses}
+	response := PostAssociationsResponse{
+		Associations:                    associationResponses,
+		PublicKeyToProfileEntryResponse: publicKeyToProfileEntryResponseMap,
+		PostHashHexToPostEntryResponse:  postHashHexToPostEntryResponse,
+	}
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
 		_AddInternalServerError(ww, "GetPostAssociations: problem encoding response as JSON")
 		return
@@ -1124,7 +1160,7 @@ func (fes *APIServer) CountPostAssociationsByValue(ww http.ResponseWriter, req *
 	}
 
 	// JSON encode response.
-	response := AssociationCountsReponse{Counts: counts, Total: total}
+	response := AssociationCountsResponse{Counts: counts, Total: total}
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
 		_AddInternalServerError(ww, "CountPostAssociationsByValue: problem encoding response as JSON")
 		return
