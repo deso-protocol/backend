@@ -170,7 +170,7 @@ func TestAssociations(t *testing.T) {
 
 		// Decode response.
 		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
-		countsResponse := AssociationCountsReponse{}
+		countsResponse := AssociationCountsResponse{}
 		err = decoder.Decode(&countsResponse)
 		require.NoError(t, err)
 		require.Zero(t, countsResponse.Counts["JAVASCRIPT"])
@@ -208,9 +208,9 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, queryResponse.Associations[0].AssociationValue, "SQL")
 		require.Equal(t, queryResponse.Associations[0].ExtraData["PeerID"], "A")
 		require.NotNil(t, queryResponse.Associations[0].BlockHeight)
-		require.Equal(t, queryResponse.Associations[0].TransactorProfile.Username, "sender")
-		require.Nil(t, queryResponse.Associations[0].TargetUserProfile)
-		require.Nil(t, queryResponse.Associations[0].AppProfile)
+		require.Equal(t, queryResponse.PublicKeyToProfileEntryResponse[senderPkString].Username, "sender")
+		require.Nil(t, queryResponse.PublicKeyToProfileEntryResponse[recipientPkString])
+		require.Nil(t, queryResponse.PublicKeyToProfileEntryResponse[moneyPkString])
 
 		// Submit invalid query.
 		body = &UserAssociationQuery{}
@@ -253,9 +253,9 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, queryResponse.Associations[0].AssociationValue, "SQL")
 		require.Equal(t, queryResponse.Associations[0].ExtraData["PeerID"], "A")
 		require.NotNil(t, queryResponse.Associations[0].BlockHeight)
-		require.Equal(t, queryResponse.Associations[0].TransactorProfile.Username, "sender")
-		require.Nil(t, queryResponse.Associations[0].TargetUserProfile)
-		require.Nil(t, queryResponse.Associations[0].AppProfile)
+		require.Equal(t, queryResponse.PublicKeyToProfileEntryResponse[senderPkString].Username, "sender")
+		require.Nil(t, queryResponse.PublicKeyToProfileEntryResponse[recipientPkString])
+		require.Nil(t, queryResponse.PublicKeyToProfileEntryResponse[moneyPkString])
 	}
 	{
 		// Delete a UserAssociation.
@@ -453,7 +453,7 @@ func TestAssociations(t *testing.T) {
 
 		// Decode response.
 		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
-		countsResponse := AssociationCountsReponse{}
+		countsResponse := AssociationCountsResponse{}
 		err = decoder.Decode(&countsResponse)
 		require.NoError(t, err)
 		require.Equal(t, countsResponse.Counts["HEART"], uint64(1))
@@ -490,10 +490,9 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, queryResponse.Associations[0].AssociationValue, "HEART")
 		require.Equal(t, queryResponse.Associations[0].ExtraData["PeerID"], "B")
 		require.NotNil(t, queryResponse.Associations[0].BlockHeight)
-		require.Nil(t, queryResponse.Associations[0].TransactorProfile)
-		require.Equal(t, queryResponse.Associations[0].PostEntry.Body, "Hello, world!")
-		require.Nil(t, queryResponse.Associations[0].PostAuthorProfile)
-		require.Nil(t, queryResponse.Associations[0].AppProfile)
+		require.Nil(t, queryResponse.PublicKeyToProfileEntryResponse[senderPkString])
+		require.Equal(t, queryResponse.PostHashHexToPostEntryResponse[postHashHex].Body, "Hello, world!")
+		require.Nil(t, queryResponse.PublicKeyToProfileEntryResponse[moneyPkString])
 
 		// Submit invalid query.
 		body = &PostAssociationQuery{}
@@ -536,10 +535,9 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, queryResponse.Associations[0].AssociationValue, "HEART")
 		require.Equal(t, queryResponse.Associations[0].ExtraData["PeerID"], "B")
 		require.NotNil(t, queryResponse.Associations[0].BlockHeight)
-		require.Nil(t, queryResponse.Associations[0].TransactorProfile)
-		require.Nil(t, queryResponse.Associations[0].PostEntry)
-		require.Equal(t, queryResponse.Associations[0].PostAuthorProfile.Username, "sender")
-		require.Nil(t, queryResponse.Associations[0].AppProfile)
+		require.Nil(t, queryResponse.PostHashHexToPostEntryResponse[postHashHex])
+		require.Equal(t, queryResponse.PublicKeyToProfileEntryResponse[senderPkString].Username, "sender")
+		require.Nil(t, queryResponse.PublicKeyToProfileEntryResponse[moneyPkString])
 	}
 	{
 		// Delete a PostAssociation.
