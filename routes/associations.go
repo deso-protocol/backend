@@ -1064,9 +1064,9 @@ func (fes *APIServer) GetPostAssociations(ww http.ResponseWriter, req *http.Requ
 
 			// Lookup PostAuthorProfile.
 			if requestData.IncludePostAuthorProfile {
-				authorPublicKey := lib.Base58CheckEncode(postEntry.PosterPublicKey, false, fes.Params)
+				authorPublicKeyBase58Check := lib.Base58CheckEncode(postEntry.PosterPublicKey, false, fes.Params)
 				if err = fes.AddProfileEntryResponseToMap(
-					authorPublicKey, publicKeyToProfileEntryResponseMap, utxoView,
+					authorPublicKeyBase58Check, publicKeyToProfileEntryResponseMap, utxoView,
 				); err != nil {
 					_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociations: %v", err))
 					return
