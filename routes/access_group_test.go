@@ -98,6 +98,8 @@ func TestAPIAccessGroupBaseGroupMembership(t *testing.T) {
 	assert := assert.New(t)
 
 	apiServer, _, _ := newTestAPIServer(t, "" /*globalStateRemoteNode*/)
+	defer apiServer.backendServer.Stop()
+	defer apiServer.Stop()
 
 	// form the request for RoutePathGetAllUserAccessGroups
 	values := GetAccessGroupsRequest{PublicKeyBase58Check: senderPkString}

@@ -234,6 +234,8 @@ func TestAPI(t *testing.T) {
 	_, _ = assert, require
 
 	apiServer, _, miner := newTestAPIServer(t, "" /*globalStateRemoteNode*/)
+	defer apiServer.backendServer.Stop()
+	defer apiServer.Stop()
 
 	{
 		request, _ := http.NewRequest("GET", RoutePathAPIBase, nil)
