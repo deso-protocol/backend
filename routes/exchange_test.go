@@ -166,7 +166,6 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 
 	_, badgerDir := GetTestBadgerDb()
 
-
 	// Create a global state db only if a remote node was not provided
 	var globalStateDB *badger.DB
 	if globalStateRemoteNode == "" {
