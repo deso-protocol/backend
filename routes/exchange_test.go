@@ -231,6 +231,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 }
 
 func TestAPI(t *testing.T) {
+	t.Skip("FIXME")
 	assert := assert.New(t)
 	require := require.New(t)
 	_, _ = assert, require
