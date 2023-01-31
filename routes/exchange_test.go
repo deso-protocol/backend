@@ -193,7 +193,6 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	coreConfig.LogDirectory = badgerDir
 	coreConfig.PrivateMode = true
 	coreConfig.DisableNetworking = true
-	coreConfig.Regtest = true
 	// Create a core node.
 	shutdownListener := make(chan struct{})
 	node := coreCmd.NewNode(coreConfig)
