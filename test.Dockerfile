@@ -33,6 +33,7 @@ COPY cmd       cmd
 COPY miner     miner
 COPY routes    routes
 COPY countries countries
+COPY config    config
 COPY main.go   .
 
 
