@@ -459,7 +459,6 @@ func (fes *APIServer) GetUserAssociations(ww http.ResponseWriter, req *http.Requ
 	}
 
 	// Convert AssociationEntries to AssociationResponses.
-	// Include TransactorProfile and TargetProfile if specified.
 	associationResponses := []*UserAssociationResponse{}
 	for _, associationEntry := range associationEntries {
 		associationResponse := fes._convertUserAssociationEntryToResponse(utxoView, associationEntry)
