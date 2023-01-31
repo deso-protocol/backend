@@ -25,6 +25,41 @@ func TestAssociations(t *testing.T) {
 	// UserAssociations
 	//
 	{
+		// Create sender user profile.
+		// Send POST request.
+		body := &UpdateProfileRequest{
+			UpdaterPublicKeyBase58Check: senderPkString,
+			NewUsername:                 "sender",
+			NewStakeMultipleBasisPoints: 1e5,
+			MinFeeRateNanosPerKB:        apiServer.MinFeeRateNanosPerKB,
+		}
+		bodyJSON, err := json.Marshal(body)
+		require.NoError(t, err)
+		request, _ := http.NewRequest("POST", RoutePathUpdateProfile, bytes.NewBuffer(bodyJSON))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.NotContains(t, string(response.Body.Bytes()), "error")
+
+		// Decode response.
+		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+		updateProfileResponse := UpdateProfileResponse{}
+		err = decoder.Decode(&updateProfileResponse)
+		require.NoError(t, err)
+		txn := updateProfileResponse.Transaction
+		require.Equal(
+			t, string(txn.TxnMeta.(*lib.UpdateProfileMetadata).NewUsername), "sender",
+		)
+
+		// Sign txn.
+		require.Nil(t, txn.Signature.Sign)
+		signTxn(t, txn, senderPrivString)
+		require.NotNil(t, txn.Signature.Sign)
+
+		// Submit txn.
+		submitTxn(t, apiServer, txn)
+	}
+	{
 		// Create a UserAssociation.
 		// Send POST request.
 		extraData := map[string]string{"PeerID": "A"}
@@ -91,6 +126,9 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, associationResponse.AssociationType, "ENDORSEMENT")
 		require.Equal(t, associationResponse.AssociationValue, "SQL")
 		require.Equal(t, associationResponse.ExtraData["PeerID"], "A")
+		require.Equal(t, associationResponse.TransactorProfile.Username, "sender")
+		require.Nil(t, associationResponse.TargetUserProfile)
+		require.Nil(t, associationResponse.AppProfile)
 	}
 	{
 		// Count UserAssociations by attributes.
@@ -132,7 +170,7 @@ func TestAssociations(t *testing.T) {
 
 		// Decode response.
 		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
-		countsResponse := AssociationCountsReponse{}
+		countsResponse := AssociationCountsResponse{}
 		err = decoder.Decode(&countsResponse)
 		require.NoError(t, err)
 		require.Zero(t, countsResponse.Counts["JAVASCRIPT"])
@@ -147,6 +185,8 @@ func TestAssociations(t *testing.T) {
 			AssociationType:                "ENDORSEMENT",
 			Limit:                          1,
 			SortDescending:                 true,
+			IncludeTransactorProfile:       true,
+			IncludeAppProfile:              true,
 		}
 		bodyJSON, err := json.Marshal(body)
 		require.NoError(t, err)
@@ -168,6 +208,9 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, queryResponse.Associations[0].AssociationValue, "SQL")
 		require.Equal(t, queryResponse.Associations[0].ExtraData["PeerID"], "A")
 		require.NotNil(t, queryResponse.Associations[0].BlockHeight)
+		require.Equal(t, queryResponse.PublicKeyToProfileEntryResponse[senderPkString].Username, "sender")
+		require.Nil(t, queryResponse.PublicKeyToProfileEntryResponse[recipientPkString])
+		require.Nil(t, queryResponse.PublicKeyToProfileEntryResponse[moneyPkString])
 
 		// Submit invalid query.
 		body = &UserAssociationQuery{}
@@ -187,6 +230,8 @@ func TestAssociations(t *testing.T) {
 			TransactorPublicKeyBase58Check: senderPkString,
 			AssociationType:                "ENDORSEMENT",
 			AssociationValues:              []string{"JAVASCRIPT", "SQL"},
+			IncludeTransactorProfile:       true,
+			IncludeTargetUserProfile:       true,
 		}
 		bodyJSON, err := json.Marshal(body)
 		require.NoError(t, err)
@@ -208,6 +253,9 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, queryResponse.Associations[0].AssociationValue, "SQL")
 		require.Equal(t, queryResponse.Associations[0].ExtraData["PeerID"], "A")
 		require.NotNil(t, queryResponse.Associations[0].BlockHeight)
+		require.Equal(t, queryResponse.PublicKeyToProfileEntryResponse[senderPkString].Username, "sender")
+		require.Nil(t, queryResponse.PublicKeyToProfileEntryResponse[recipientPkString])
+		require.Nil(t, queryResponse.PublicKeyToProfileEntryResponse[moneyPkString])
 	}
 	{
 		// Delete a UserAssociation.
@@ -360,6 +408,10 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, associationResponse.AssociationType, "REACTION")
 		require.Equal(t, associationResponse.AssociationValue, "HEART")
 		require.Equal(t, associationResponse.ExtraData["PeerID"], "B")
+		require.Equal(t, associationResponse.TransactorProfile.Username, "sender")
+		require.Equal(t, associationResponse.PostEntry.Body, "Hello, world!")
+		require.Equal(t, associationResponse.PostAuthorProfile.Username, "sender")
+		require.Nil(t, associationResponse.AppProfile)
 	}
 	{
 		// Count PostAssociations by attributes.
@@ -401,7 +453,7 @@ func TestAssociations(t *testing.T) {
 
 		// Decode response.
 		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
-		countsResponse := AssociationCountsReponse{}
+		countsResponse := AssociationCountsResponse{}
 		err = decoder.Decode(&countsResponse)
 		require.NoError(t, err)
 		require.Equal(t, countsResponse.Counts["HEART"], uint64(1))
@@ -416,6 +468,7 @@ func TestAssociations(t *testing.T) {
 			AssociationTypePrefix: "REACT",
 			Limit:                 1,
 			SortDescending:        true,
+			IncludePostEntry:      true,
 		}
 		bodyJSON, err := json.Marshal(body)
 		require.NoError(t, err)
@@ -437,6 +490,9 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, queryResponse.Associations[0].AssociationValue, "HEART")
 		require.Equal(t, queryResponse.Associations[0].ExtraData["PeerID"], "B")
 		require.NotNil(t, queryResponse.Associations[0].BlockHeight)
+		require.Nil(t, queryResponse.PublicKeyToProfileEntryResponse[senderPkString])
+		require.Equal(t, queryResponse.PostHashHexToPostEntryResponse[postHashHex].Body, "Hello, world!")
+		require.Nil(t, queryResponse.PublicKeyToProfileEntryResponse[moneyPkString])
 
 		// Submit invalid query.
 		body = &PostAssociationQuery{}
@@ -453,9 +509,11 @@ func TestAssociations(t *testing.T) {
 		// Query for PostAssociations by multiple AssociationValues.
 		// Send POST request.
 		body := &PostAssociationQuery{
-			PostHashHex:       postHashHex,
-			AssociationType:   "REACTION",
-			AssociationValues: []string{"HEART", "LAUGH"},
+			PostHashHex:              postHashHex,
+			AssociationType:          "REACTION",
+			AssociationValues:        []string{"HEART", "LAUGH"},
+			IncludePostAuthorProfile: true,
+			IncludeAppProfile:        true,
 		}
 		bodyJSON, err := json.Marshal(body)
 		require.NoError(t, err)
@@ -477,6 +535,9 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, queryResponse.Associations[0].AssociationValue, "HEART")
 		require.Equal(t, queryResponse.Associations[0].ExtraData["PeerID"], "B")
 		require.NotNil(t, queryResponse.Associations[0].BlockHeight)
+		require.Nil(t, queryResponse.PostHashHexToPostEntryResponse[postHashHex])
+		require.Equal(t, queryResponse.PublicKeyToProfileEntryResponse[senderPkString].Username, "sender")
+		require.Nil(t, queryResponse.PublicKeyToProfileEntryResponse[moneyPkString])
 	}
 	{
 		// Delete a PostAssociation.

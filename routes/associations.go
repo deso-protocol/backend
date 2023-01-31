@@ -53,21 +53,28 @@ type UserAssociationQuery struct {
 	Limit                          int      `safeForLogging:"true"`
 	LastSeenAssociationID          string   `safeForLogging:"true"`
 	SortDescending                 bool     `safeForLogging:"true"`
+	IncludeTransactorProfile       bool     `safeForLogging:"true"`
+	IncludeTargetUserProfile       bool     `safeForLogging:"true"`
+	IncludeAppProfile              bool     `safeForLogging:"true"`
 }
 
 type UserAssociationResponse struct {
-	AssociationID                  string            `safeForLogging:"true"`
-	TransactorPublicKeyBase58Check string            `safeForLogging:"true"`
-	TargetUserPublicKeyBase58Check string            `safeForLogging:"true"`
-	AppPublicKeyBase58Check        string            `safeForLogging:"true"`
-	AssociationType                string            `safeForLogging:"true"`
-	AssociationValue               string            `safeForLogging:"true"`
-	ExtraData                      map[string]string `safeForLogging:"true"`
-	BlockHeight                    uint32            `safeForLogging:"true"`
+	AssociationID                  string                `safeForLogging:"true"`
+	TransactorPublicKeyBase58Check string                `safeForLogging:"true"`
+	TargetUserPublicKeyBase58Check string                `safeForLogging:"true"`
+	AppPublicKeyBase58Check        string                `safeForLogging:"true"`
+	AssociationType                string                `safeForLogging:"true"`
+	AssociationValue               string                `safeForLogging:"true"`
+	ExtraData                      map[string]string     `safeForLogging:"true"`
+	BlockHeight                    uint32                `safeForLogging:"true"`
+	TransactorProfile              *ProfileEntryResponse `safeForLogging:"true"`
+	TargetUserProfile              *ProfileEntryResponse `safeForLogging:"true"`
+	AppProfile                     *ProfileEntryResponse `safeForLogging:"true"`
 }
 
 type UserAssociationsResponse struct {
-	Associations []*UserAssociationResponse
+	Associations                    []*UserAssociationResponse
+	PublicKeyToProfileEntryResponse map[string]*ProfileEntryResponse
 }
 
 type CreatePostAssociationRequest struct {
@@ -93,21 +100,31 @@ type PostAssociationQuery struct {
 	Limit                          int      `safeForLogging:"true"`
 	LastSeenAssociationID          string   `safeForLogging:"true"`
 	SortDescending                 bool     `safeForLogging:"true"`
+	IncludeTransactorProfile       bool     `safeForLogging:"true"`
+	IncludePostEntry               bool     `safeForLogging:"true"`
+	IncludePostAuthorProfile       bool     `safeForLogging:"true"`
+	IncludeAppProfile              bool     `safeForLogging:"true"`
 }
 
 type PostAssociationResponse struct {
-	AssociationID                  string            `safeForLogging:"true"`
-	TransactorPublicKeyBase58Check string            `safeForLogging:"true"`
-	PostHashHex                    string            `safeForLogging:"true"`
-	AppPublicKeyBase58Check        string            `safeForLogging:"true"`
-	AssociationType                string            `safeForLogging:"true"`
-	AssociationValue               string            `safeForLogging:"true"`
-	ExtraData                      map[string]string `safeForLogging:"true"`
-	BlockHeight                    uint32            `safeForLogging:"true"`
+	AssociationID                  string                `safeForLogging:"true"`
+	TransactorPublicKeyBase58Check string                `safeForLogging:"true"`
+	PostHashHex                    string                `safeForLogging:"true"`
+	AppPublicKeyBase58Check        string                `safeForLogging:"true"`
+	AssociationType                string                `safeForLogging:"true"`
+	AssociationValue               string                `safeForLogging:"true"`
+	ExtraData                      map[string]string     `safeForLogging:"true"`
+	BlockHeight                    uint32                `safeForLogging:"true"`
+	TransactorProfile              *ProfileEntryResponse `safeForLogging:"true"`
+	PostEntry                      *PostEntryResponse    `safeForLogging:"true"`
+	PostAuthorProfile              *ProfileEntryResponse `safeForLogging:"true"`
+	AppProfile                     *ProfileEntryResponse `safeForLogging:"true"`
 }
 
 type PostAssociationsResponse struct {
-	Associations []*PostAssociationResponse
+	Associations                    []*PostAssociationResponse
+	PublicKeyToProfileEntryResponse map[string]*ProfileEntryResponse
+	PostHashHexToPostEntryResponse  map[string]*PostEntryResponse
 }
 
 type DeleteAssociationRequest struct {
@@ -132,7 +149,7 @@ type AssociationsCountResponse struct {
 	Count uint64
 }
 
-type AssociationCountsReponse struct {
+type AssociationCountsResponse struct {
 	Counts map[string]uint64
 	Total  uint64
 }
@@ -384,11 +401,57 @@ func (fes *APIServer) GetUserAssociationByID(ww http.ResponseWriter, req *http.R
 	// Convert AssociationEntry to AssociationResponse.
 	response := fes._convertUserAssociationEntryToResponse(utxoView, associationEntry)
 
+	// Join TransactorProfile.
+	response.TransactorProfile, err = fes.GetProfileEntryResponseForPublicKeyBase58Check(
+		response.TransactorPublicKeyBase58Check, utxoView,
+	)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetUserAssociationByID: %v", err))
+		return
+	}
+
+	// Join TargetUserProfile.
+	response.TargetUserProfile, err = fes.GetProfileEntryResponseForPublicKeyBase58Check(
+		response.TargetUserPublicKeyBase58Check, utxoView,
+	)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetUserAssociationByID: %v", err))
+		return
+	}
+
+	// Join AppProfile.
+	response.AppProfile, err = fes.GetProfileEntryResponseForPublicKeyBase58Check(
+		response.AppPublicKeyBase58Check, utxoView,
+	)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetUserAssociationByID: %v", err))
+		return
+	}
+
 	// JSON encode response.
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
 		_AddInternalServerError(ww, "GetUserAssociationByID: problem encoding response as JSON")
 		return
 	}
+}
+
+func (fes *APIServer) AddProfileEntryResponseToMap(
+	publicKeyBase58Check string,
+	profileEntryResponseMap map[string]*ProfileEntryResponse,
+	utxoView *lib.UtxoView,
+) error {
+	if _, exists := profileEntryResponseMap[publicKeyBase58Check]; exists {
+		return nil
+	}
+	var profile *ProfileEntryResponse
+	profile, err := fes.GetProfileEntryResponseForPublicKeyBase58Check(
+		publicKeyBase58Check, utxoView,
+	)
+	if err != nil {
+		return err
+	}
+	profileEntryResponseMap[publicKeyBase58Check] = profile
+	return nil
 }
 
 func (fes *APIServer) GetUserAssociations(ww http.ResponseWriter, req *http.Request) {
@@ -400,7 +463,7 @@ func (fes *APIServer) GetUserAssociations(ww http.ResponseWriter, req *http.Requ
 	}
 
 	// Construct association queries.
-	associationQueries, err := fes._constructUserAssociationQueriesFromParams(utxoView, req.Body, AssociationQueryTypeQuery)
+	requestData, associationQueries, err := fes._constructUserAssociationQueriesFromParams(utxoView, req.Body, AssociationQueryTypeQuery)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetUserAssociations: %v", err))
 		return
@@ -417,16 +480,50 @@ func (fes *APIServer) GetUserAssociations(ww http.ResponseWriter, req *http.Requ
 		associationEntries = append(associationEntries, currentAssociationEntries...)
 	}
 
-	// Convert AssociationEntries to AssociationResponses.
+	// Convert AssociationEntries to AssociationResponses and populate map of
+	// public key to ProfileEntryResponse.
 	associationResponses := []*UserAssociationResponse{}
+	publicKeyToProfileEntryResponseMap := make(map[string]*ProfileEntryResponse)
 	for _, associationEntry := range associationEntries {
-		associationResponses = append(
-			associationResponses, fes._convertUserAssociationEntryToResponse(utxoView, associationEntry),
-		)
+		associationResponse := fes._convertUserAssociationEntryToResponse(utxoView, associationEntry)
+		// Lookup TransactorProfile if specified.
+		if requestData.IncludeTransactorProfile {
+			if err = fes.AddProfileEntryResponseToMap(
+				associationResponse.TransactorPublicKeyBase58Check, publicKeyToProfileEntryResponseMap, utxoView,
+			); err != nil {
+				_AddInternalServerError(ww, fmt.Sprintf("GetUserAssociations: %v", err))
+				return
+			}
+		}
+
+		// Lookup TargetUserProfile if specified.
+		if requestData.IncludeTargetUserProfile {
+			if err = fes.AddProfileEntryResponseToMap(
+				associationResponse.TargetUserPublicKeyBase58Check, publicKeyToProfileEntryResponseMap, utxoView,
+			); err != nil {
+				_AddInternalServerError(ww, fmt.Sprintf("GetUserAssociations: %v", err))
+				return
+			}
+		}
+
+		// Lookup AppProfile if specified.
+		if requestData.IncludeAppProfile {
+			if err = fes.AddProfileEntryResponseToMap(
+				associationResponse.AppPublicKeyBase58Check, publicKeyToProfileEntryResponseMap, utxoView,
+			); err != nil {
+				_AddInternalServerError(ww, fmt.Sprintf("GetUserAssociations: %v", err))
+				return
+			}
+		}
+
+		associationResponses = append(associationResponses, associationResponse)
 	}
 
 	// JSON encode response.
-	response := UserAssociationsResponse{Associations: associationResponses}
+	response := UserAssociationsResponse{
+		Associations:                    associationResponses,
+		PublicKeyToProfileEntryResponse: publicKeyToProfileEntryResponseMap,
+	}
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
 		_AddInternalServerError(ww, "GetUserAssociations: problem encoding response as JSON")
 		return
@@ -442,7 +539,7 @@ func (fes *APIServer) CountUserAssociations(ww http.ResponseWriter, req *http.Re
 	}
 
 	// Construct association queries.
-	associationQueries, err := fes._constructUserAssociationQueriesFromParams(utxoView, req.Body, AssociationQueryTypeCount)
+	_, associationQueries, err := fes._constructUserAssociationQueriesFromParams(utxoView, req.Body, AssociationQueryTypeCount)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CountUserAssociations: %v", err))
 		return
@@ -472,7 +569,7 @@ func (fes *APIServer) CountUserAssociationsByValue(ww http.ResponseWriter, req *
 	}
 
 	// Construct association queries.
-	associationQueries, err := fes._constructUserAssociationQueriesFromParams(
+	_, associationQueries, err := fes._constructUserAssociationQueriesFromParams(
 		utxoView, req.Body, AssociationQueryTypeCountByValue,
 	)
 	if err != nil {
@@ -494,7 +591,7 @@ func (fes *APIServer) CountUserAssociationsByValue(ww http.ResponseWriter, req *
 	}
 
 	// JSON encode response.
-	response := AssociationCountsReponse{Counts: counts, Total: total}
+	response := AssociationCountsResponse{Counts: counts, Total: total}
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
 		_AddInternalServerError(ww, "CountUserAssociationsByValue: problem encoding response as JSON")
 		return
@@ -518,31 +615,31 @@ func (fes *APIServer) _convertUserAssociationEntryToResponse(
 
 func (fes *APIServer) _constructUserAssociationQueriesFromParams(
 	utxoView *lib.UtxoView, requestBody io.ReadCloser, queryType AssociationQueryType,
-) ([]*lib.UserAssociationQuery, error) {
+) (*UserAssociationQuery, []*lib.UserAssociationQuery, error) {
 	var err error
 
 	// Decode request body.
 	decoder := json.NewDecoder(io.LimitReader(requestBody, MaxRequestBodySizeBytes))
 	requestData := UserAssociationQuery{}
 	if err = decoder.Decode(&requestData); err != nil {
-		return nil, errors.New("problem parsing request body")
+		return nil, nil, errors.New("problem parsing request body")
 	}
 
 	// Parse Limit.
 	switch queryType {
 	case AssociationQueryTypeQuery:
 		if requestData.Limit < 0 || requestData.Limit > MaxAssociationsPerQueryLimit {
-			return nil, errors.New("invalid Limit provided")
+			return nil, nil, errors.New("invalid Limit provided")
 		}
 		if requestData.Limit == 0 {
 			requestData.Limit = MaxAssociationsPerQueryLimit
 		}
 	case AssociationQueryTypeCount, AssociationQueryTypeCountByValue:
 		if requestData.Limit != 0 {
-			return nil, errors.New("unsupported Limit param for count operation")
+			return nil, nil, errors.New("unsupported Limit param for count operation")
 		}
 	default:
-		return nil, errors.New("invalid query type") // This can never happen.
+		return nil, nil, errors.New("invalid query type") // This can never happen.
 	}
 
 	// Parse LastSeenAssociationID (BlockHash) from LastSeenAssociationIdHex (string).
@@ -552,21 +649,27 @@ func (fes *APIServer) _constructUserAssociationQueriesFromParams(
 		if requestData.LastSeenAssociationID != "" {
 			lastSeenAssociationIdBytes, err := hex.DecodeString(requestData.LastSeenAssociationID)
 			if err != nil {
-				return nil, errors.New("invalid LastSeenAssociationID provided")
+				return nil, nil, errors.New("invalid LastSeenAssociationID provided")
 			}
 			lastSeenAssociationID = lib.NewBlockHash(lastSeenAssociationIdBytes)
 		}
 	case AssociationQueryTypeCount, AssociationQueryTypeCountByValue:
 		if requestData.LastSeenAssociationID != "" {
-			return nil, errors.New("unsupported LastSeenAssociationID param for count operation")
+			return nil, nil, errors.New("unsupported LastSeenAssociationID param for count operation")
 		}
 	default:
-		return nil, errors.New("invalid query type") // This can never happen.
+		return nil, nil, errors.New("invalid query type") // This can never happen.
 	}
 
 	// Validate SortDescending.
 	if (queryType == AssociationQueryTypeCount || queryType == AssociationQueryTypeCountByValue) && requestData.SortDescending {
-		return nil, errors.New("unsupported SortDescending param for count operation")
+		return nil, nil, errors.New("unsupported SortDescending param for count operation")
+	}
+
+	// Validate IncludeTransactorProfile, IncludeTargetUserProfile, and IncludeAppProfile.
+	if (queryType == AssociationQueryTypeCount || queryType == AssociationQueryTypeCountByValue) &&
+		(requestData.IncludeTransactorProfile || requestData.IncludeTargetUserProfile || requestData.IncludeAppProfile) {
+		return nil, nil, errors.New("unsupported IncludeProfile param for count operation")
 	}
 
 	// Parse other query params.
@@ -578,14 +681,14 @@ func (fes *APIServer) _constructUserAssociationQueriesFromParams(
 		requestData.AppPublicKeyBase58Check,
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Construct association queries.
 	var associationQueries []*lib.UserAssociationQuery
 	if len(requestData.AssociationValues) > 0 {
 		if err = _isValidUserAssociationValuesParam(requestData, queryType); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, associationValue := range requestData.AssociationValues {
 			associationQuery := &lib.UserAssociationQuery{
@@ -613,7 +716,7 @@ func (fes *APIServer) _constructUserAssociationQueriesFromParams(
 		}
 		associationQueries = append(associationQueries, associationQuery)
 	}
-	return associationQueries, nil
+	return &requestData, associationQueries, nil
 }
 
 func (fes *APIServer) CreatePostAssociation(ww http.ResponseWriter, req *http.Request) {
@@ -850,6 +953,40 @@ func (fes *APIServer) GetPostAssociationByID(ww http.ResponseWriter, req *http.R
 	// Convert AssociationEntry to AssociationResponse.
 	response := fes._convertPostAssociationEntryToResponse(utxoView, associationEntry)
 
+	// Join TransactorProfile.
+	response.TransactorProfile, err = fes.GetProfileEntryResponseForPublicKeyBase58Check(
+		response.TransactorPublicKeyBase58Check, utxoView,
+	)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociationByID: %v", err))
+		return
+	}
+
+	// Join PostEntry.
+	postHash := associationEntry.PostHash
+	postEntry := utxoView.GetPostEntryForPostHash(postHash)
+	if postEntry == nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociationByID: post entry not found for %v", postHash))
+		return
+	}
+	response.PostEntry, err = fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, nil, 2)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociationByID: %v", err))
+		return
+	}
+
+	// Join PostAuthorProfile.
+	response.PostAuthorProfile = fes.GetProfileEntryResponseForPublicKeyBytes(postEntry.PosterPublicKey, utxoView)
+
+	// Join AppProfile.
+	response.AppProfile, err = fes.GetProfileEntryResponseForPublicKeyBase58Check(
+		response.AppPublicKeyBase58Check, utxoView,
+	)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociationByID: %v", err))
+		return
+	}
+
 	// JSON encode response.
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
 		_AddInternalServerError(ww, "GetPostAssociationByID: problem encoding response as JSON")
@@ -866,7 +1003,7 @@ func (fes *APIServer) GetPostAssociations(ww http.ResponseWriter, req *http.Requ
 	}
 
 	// Construct association queries.
-	associationQueries, err := fes._constructPostAssociationQueriesFromParams(utxoView, req.Body, AssociationQueryTypeQuery)
+	requestData, associationQueries, err := fes._constructPostAssociationQueriesFromParams(utxoView, req.Body, AssociationQueryTypeQuery)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetPostAssociations: %v", err))
 		return
@@ -883,16 +1020,79 @@ func (fes *APIServer) GetPostAssociations(ww http.ResponseWriter, req *http.Requ
 		associationEntries = append(associationEntries, currentAssociationEntries...)
 	}
 
-	// Convert AssociationEntries to AssociationResponses.
+	// Convert AssociationEntries to AssociationResponses and populate map of public key to
+	// ProfileEntryResponse and post hash hex to PostEntryResponse.
 	associationResponses := []*PostAssociationResponse{}
+	publicKeyToProfileEntryResponseMap := make(map[string]*ProfileEntryResponse)
+	postHashHexToPostEntryResponse := make(map[string]*PostEntryResponse)
 	for _, associationEntry := range associationEntries {
-		associationResponses = append(
-			associationResponses, fes._convertPostAssociationEntryToResponse(utxoView, associationEntry),
-		)
+		associationResponse := fes._convertPostAssociationEntryToResponse(utxoView, associationEntry)
+
+		// Lookup TransactorProfile if specified.
+		if requestData.IncludeTransactorProfile {
+			if err = fes.AddProfileEntryResponseToMap(
+				associationResponse.TransactorPublicKeyBase58Check, publicKeyToProfileEntryResponseMap, utxoView,
+			); err != nil {
+				_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociations: %v", err))
+				return
+			}
+		}
+
+		// Lookup PostEntry and/or PostAuthorProfile if specified.
+		if requestData.IncludePostEntry || requestData.IncludePostAuthorProfile {
+			postHash := associationEntry.PostHash
+			postEntry := utxoView.GetPostEntryForPostHash(postHash)
+			if postEntry == nil {
+				_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociations: post entry not found for %v", postHash))
+				return
+			}
+
+			// Lookup PostEntry.
+			if requestData.IncludePostEntry {
+				postHashHex := hex.EncodeToString(postHash[:])
+				if _, exists := postHashHexToPostEntryResponse[postHashHex]; exists {
+					continue
+				}
+				var postEntryResponse *PostEntryResponse
+				postEntryResponse, err = fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, nil, 2)
+				if err != nil {
+					_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociations: %v", err))
+					return
+				}
+				postHashHexToPostEntryResponse[postHashHex] = postEntryResponse
+			}
+
+			// Lookup PostAuthorProfile.
+			if requestData.IncludePostAuthorProfile {
+				authorPublicKeyBase58Check := lib.Base58CheckEncode(postEntry.PosterPublicKey, false, fes.Params)
+				if err = fes.AddProfileEntryResponseToMap(
+					authorPublicKeyBase58Check, publicKeyToProfileEntryResponseMap, utxoView,
+				); err != nil {
+					_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociations: %v", err))
+					return
+				}
+			}
+		}
+
+		// Lookup AppProfile if specified.
+		if requestData.IncludeAppProfile {
+			if err = fes.AddProfileEntryResponseToMap(
+				associationResponse.AppPublicKeyBase58Check, publicKeyToProfileEntryResponseMap, utxoView,
+			); err != nil {
+				_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociations: %v", err))
+				return
+			}
+		}
+
+		associationResponses = append(associationResponses, associationResponse)
 	}
 
 	// JSON encode response.
-	response := PostAssociationsResponse{Associations: associationResponses}
+	response := PostAssociationsResponse{
+		Associations:                    associationResponses,
+		PublicKeyToProfileEntryResponse: publicKeyToProfileEntryResponseMap,
+		PostHashHexToPostEntryResponse:  postHashHexToPostEntryResponse,
+	}
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
 		_AddInternalServerError(ww, "GetPostAssociations: problem encoding response as JSON")
 		return
@@ -908,7 +1108,7 @@ func (fes *APIServer) CountPostAssociations(ww http.ResponseWriter, req *http.Re
 	}
 
 	// Construct association queries.
-	associationQueries, err := fes._constructPostAssociationQueriesFromParams(utxoView, req.Body, AssociationQueryTypeCount)
+	_, associationQueries, err := fes._constructPostAssociationQueriesFromParams(utxoView, req.Body, AssociationQueryTypeCount)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CountPostAssociations: %v", err))
 		return
@@ -938,7 +1138,7 @@ func (fes *APIServer) CountPostAssociationsByValue(ww http.ResponseWriter, req *
 	}
 
 	// Construct association queries.
-	associationQueries, err := fes._constructPostAssociationQueriesFromParams(
+	_, associationQueries, err := fes._constructPostAssociationQueriesFromParams(
 		utxoView, req.Body, AssociationQueryTypeCountByValue,
 	)
 	if err != nil {
@@ -960,7 +1160,7 @@ func (fes *APIServer) CountPostAssociationsByValue(ww http.ResponseWriter, req *
 	}
 
 	// JSON encode response.
-	response := AssociationCountsReponse{Counts: counts, Total: total}
+	response := AssociationCountsResponse{Counts: counts, Total: total}
 	if err = json.NewEncoder(ww).Encode(response); err != nil {
 		_AddInternalServerError(ww, "CountPostAssociationsByValue: problem encoding response as JSON")
 		return
@@ -984,31 +1184,31 @@ func (fes *APIServer) _convertPostAssociationEntryToResponse(
 
 func (fes *APIServer) _constructPostAssociationQueriesFromParams(
 	utxoView *lib.UtxoView, requestBody io.ReadCloser, queryType AssociationQueryType,
-) ([]*lib.PostAssociationQuery, error) {
+) (*PostAssociationQuery, []*lib.PostAssociationQuery, error) {
 	var err error
 
 	// Decode request body.
 	decoder := json.NewDecoder(io.LimitReader(requestBody, MaxRequestBodySizeBytes))
 	requestData := PostAssociationQuery{}
 	if err = decoder.Decode(&requestData); err != nil {
-		return nil, errors.New("problem parsing request body")
+		return nil, nil, errors.New("problem parsing request body")
 	}
 
 	// Parse Limit.
 	switch queryType {
 	case AssociationQueryTypeQuery:
 		if requestData.Limit < 0 || requestData.Limit > MaxAssociationsPerQueryLimit {
-			return nil, errors.New("invalid Limit provided")
+			return nil, nil, errors.New("invalid Limit provided")
 		}
 		if requestData.Limit == 0 {
 			requestData.Limit = MaxAssociationsPerQueryLimit
 		}
 	case AssociationQueryTypeCount, AssociationQueryTypeCountByValue:
 		if requestData.Limit != 0 {
-			return nil, errors.New("unsupported Limit param for count operation")
+			return nil, nil, errors.New("unsupported Limit param for count operation")
 		}
 	default:
-		return nil, errors.New("invalid query type") // This can never happen.
+		return nil, nil, errors.New("invalid query type") // This can never happen.
 	}
 
 	// Parse LastSeenAssociationID (BlockHash) from LastSeenAssociationIdHex (string).
@@ -1018,21 +1218,27 @@ func (fes *APIServer) _constructPostAssociationQueriesFromParams(
 		if requestData.LastSeenAssociationID != "" {
 			lastSeenAssociationIdBytes, err := hex.DecodeString(requestData.LastSeenAssociationID)
 			if err != nil {
-				return nil, errors.New("invalid LastSeenAssociationID provided")
+				return nil, nil, errors.New("invalid LastSeenAssociationID provided")
 			}
 			lastSeenAssociationID = lib.NewBlockHash(lastSeenAssociationIdBytes)
 		}
 	case AssociationQueryTypeCount, AssociationQueryTypeCountByValue:
 		if requestData.LastSeenAssociationID != "" {
-			return nil, errors.New("unsupported Limit param for count operation")
+			return nil, nil, errors.New("unsupported Limit param for count operation")
 		}
 	default:
-		return nil, errors.New("invalid query type") // This can never happen.
+		return nil, nil, errors.New("invalid query type") // This can never happen.
 	}
 
 	// Validate SortDescending.
 	if (queryType == AssociationQueryTypeCount || queryType == AssociationQueryTypeCountByValue) && requestData.SortDescending {
-		return nil, errors.New("unsupported SortDescending param for count operation")
+		return nil, nil, errors.New("unsupported SortDescending param for count operation")
+	}
+
+	// Validate IncludeTransactorProfile, IncludePostEntry, IncludePostAuthorProfile, and IncludeAppProfile.
+	if (queryType == AssociationQueryTypeCount || queryType == AssociationQueryTypeCountByValue) &&
+		(requestData.IncludeTransactorProfile || requestData.IncludePostEntry || requestData.IncludePostAuthorProfile || requestData.IncludeAppProfile) {
+		return nil, nil, errors.New("unsupported IncludeProfile param for count operation")
 	}
 
 	// Parse other query params.
@@ -1044,14 +1250,14 @@ func (fes *APIServer) _constructPostAssociationQueriesFromParams(
 		requestData.AppPublicKeyBase58Check,
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Construct association queries.
 	var associationQueries []*lib.PostAssociationQuery
 	if len(requestData.AssociationValues) > 0 {
 		if err = _isValidPostAssociationValuesParam(requestData, queryType); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, associationValue := range requestData.AssociationValues {
 			associationQuery := &lib.PostAssociationQuery{
@@ -1079,7 +1285,7 @@ func (fes *APIServer) _constructPostAssociationQueriesFromParams(
 		}
 		associationQueries = append(associationQueries, associationQuery)
 	}
-	return associationQueries, nil
+	return &requestData, associationQueries, nil
 }
 
 func (fes *APIServer) _parseAssociationQueryParams(
