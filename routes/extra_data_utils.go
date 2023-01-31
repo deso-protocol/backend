@@ -25,6 +25,7 @@ type ExtraDataEncoding struct {
 var specialExtraDataKeysToEncoding = map[string]ExtraDataEncoding{
 	lib.RepostedPostHash:  {Decode: DecodeHexString, Encode: EncodeHexString},
 	lib.IsQuotedRepostKey: {Decode: DecodeBoolString, Encode: EncodeBoolString},
+	lib.IsFrozenKey:       {Decode: DecodeBoolString, Encode: EncodeBoolString},
 
 	lib.USDCentsPerBitcoinKey:      {Decode: Decode64BitUintString, Encode: Encode64BitUintString},
 	lib.MinNetworkFeeNanosPerKBKey: {Decode: Decode64BitUintString, Encode: Encode64BitUintString},
