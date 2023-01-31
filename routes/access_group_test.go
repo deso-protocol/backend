@@ -168,14 +168,14 @@ func TestAPIAccessGroups(t *testing.T) {
 	// values for access group keys.
 	groupName1String := "group1"
 
-	apiServer, _, _ := newTestAPIServer(t, "" /*globalStateRemoteNode*/)
+	apiServer := newTestApiServer(t)
 
 	// Create a request to create an access group.
 	values := CreateAccessGroupRequest{
 		AccessGroupOwnerPublicKeyBase58Check: senderPkString,
 		AccessGroupPublicKeyBase58Check:      lib.Base58CheckEncode(groupPk1, false, apiServer.Params),
 		AccessGroupKeyName:                   groupName1String,
-		MinFeeRateNanosPerKB:                 10,
+		MinFeeRateNanosPerKB:                 apiServer.MinFeeRateNanosPerKB,
 		TransactionFees:                      nil,
 	}
 
@@ -238,7 +238,7 @@ func TestAPIAccessGroups(t *testing.T) {
 		AccessGroupOwnerPublicKeyBase58Check: senderPkString,
 		AccessGroupKeyName:                   groupName1String,
 		AccessGroupMemberList:                []AccessGroupMember{accessGroupMember1},
-		MinFeeRateNanosPerKB:                 10,
+		MinFeeRateNanosPerKB:                 apiServer.MinFeeRateNanosPerKB,
 	}
 
 	requestbody, err = json.Marshal(memberAdd)

@@ -197,7 +197,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	coreConfig.MinerPublicKeys = []string{senderPkString}
 	coreConfig.NumMiningThreads = 1
 	coreConfig.HyperSync = false
-	coreConfig.MinFeerate = 2000
+	coreConfig.MinFeerate = 10
 	coreConfig.LogDirectory = badgerDir
 	coreConfig.PrivateMode = true
 	coreConfig.DisableNetworking = true
@@ -211,6 +211,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 		node.TXIndex, node.Params, publicConfig,
 		node.Config.MinFeerate, globalStateDB, nil, node.Config.BlockCypherAPIKey)
 	require.NoError(err)
+	publicApiServer.MinFeeRateNanosPerKB = node.Config.MinFeerate
 
 	// Calling initState() initializes the state of the APIServer and the router as well.
 	publicApiServer.initState()
@@ -221,6 +222,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 		node.TXIndex, node.Params, privateConfig,
 		node.Config.MinFeerate, globalStateDB, nil, node.Config.BlockCypherAPIKey)
 	require.NoError(err)
+	privateApiServer.MinFeeRateNanosPerKB = node.Config.MinFeerate
 
 	// Calling initState() initializes the state of the APIServer and the router as well.
 	privateApiServer.initState()
