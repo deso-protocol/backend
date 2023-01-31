@@ -644,7 +644,7 @@ func (fes *APIServer) _constructUserAssociationQueriesFromParams(
 	}
 
 	// Validate IncludeTransactorProfile, IncludeTargetUserProfile, and IncludeAppProfile.
-	if (queryType == AssociationQueryTypeQuery || queryType == AssociationQueryTypeCountByValue) &&
+	if (queryType == AssociationQueryTypeCount || queryType == AssociationQueryTypeCountByValue) &&
 		(requestData.IncludeTransactorProfile || requestData.IncludeTargetUserProfile || requestData.IncludeAppProfile) {
 		return nil, nil, errors.New("unsupported IncludeProfile param for count operation")
 	}
@@ -1038,18 +1038,6 @@ func (fes *APIServer) GetPostAssociations(ww http.ResponseWriter, req *http.Requ
 					postEntry.PosterPublicKey, utxoView,
 				)
 			}
-		}
-
-		// Join PostAuthorProfile if specified.
-		if requestData.IncludePostAuthorProfile {
-			profile, err := fes.GetProfileEntryResponseForPublicKeyBase58Check(
-				associationResponse.TransactorPublicKeyBase58Check, utxoView,
-			)
-			if err != nil {
-				_AddInternalServerError(ww, fmt.Sprintf("GetPostAssociations: %v", err))
-				return
-			}
-			associationResponse.TransactorProfile = profile
 		}
 
 		// Join AppProfile if specified.

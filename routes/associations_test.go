@@ -30,6 +30,8 @@ func TestAssociations(t *testing.T) {
 		body := &UpdateProfileRequest{
 			UpdaterPublicKeyBase58Check: senderPkString,
 			NewUsername:                 "sender",
+			NewStakeMultipleBasisPoints: 1e5,
+			MinFeeRateNanosPerKB:        apiServer.MinFeeRateNanosPerKB,
 		}
 		bodyJSON, err := json.Marshal(body)
 		require.NoError(t, err)
@@ -183,6 +185,8 @@ func TestAssociations(t *testing.T) {
 			AssociationType:                "ENDORSEMENT",
 			Limit:                          1,
 			SortDescending:                 true,
+			IncludeTransactorProfile:       true,
+			IncludeAppProfile:              true,
 		}
 		bodyJSON, err := json.Marshal(body)
 		require.NoError(t, err)
@@ -204,6 +208,9 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, queryResponse.Associations[0].AssociationValue, "SQL")
 		require.Equal(t, queryResponse.Associations[0].ExtraData["PeerID"], "A")
 		require.NotNil(t, queryResponse.Associations[0].BlockHeight)
+		require.Equal(t, queryResponse.Associations[0].TransactorProfile.Username, "sender")
+		require.Nil(t, queryResponse.Associations[0].TargetUserProfile)
+		require.Nil(t, queryResponse.Associations[0].AppProfile)
 
 		// Submit invalid query.
 		body = &UserAssociationQuery{}
@@ -223,6 +230,8 @@ func TestAssociations(t *testing.T) {
 			TransactorPublicKeyBase58Check: senderPkString,
 			AssociationType:                "ENDORSEMENT",
 			AssociationValues:              []string{"JAVASCRIPT", "SQL"},
+			IncludeTransactorProfile:       true,
+			IncludeTargetUserProfile:       true,
 		}
 		bodyJSON, err := json.Marshal(body)
 		require.NoError(t, err)
@@ -244,6 +253,9 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, queryResponse.Associations[0].AssociationValue, "SQL")
 		require.Equal(t, queryResponse.Associations[0].ExtraData["PeerID"], "A")
 		require.NotNil(t, queryResponse.Associations[0].BlockHeight)
+		require.Equal(t, queryResponse.Associations[0].TransactorProfile.Username, "sender")
+		require.Nil(t, queryResponse.Associations[0].TargetUserProfile)
+		require.Nil(t, queryResponse.Associations[0].AppProfile)
 	}
 	{
 		// Delete a UserAssociation.
@@ -396,6 +408,10 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, associationResponse.AssociationType, "REACTION")
 		require.Equal(t, associationResponse.AssociationValue, "HEART")
 		require.Equal(t, associationResponse.ExtraData["PeerID"], "B")
+		require.Equal(t, associationResponse.TransactorProfile.Username, "sender")
+		require.Equal(t, associationResponse.PostEntry.Body, "Hello, world!")
+		require.Equal(t, associationResponse.PostAuthorProfile.Username, "sender")
+		require.Nil(t, associationResponse.AppProfile)
 	}
 	{
 		// Count PostAssociations by attributes.
@@ -452,6 +468,7 @@ func TestAssociations(t *testing.T) {
 			AssociationTypePrefix: "REACT",
 			Limit:                 1,
 			SortDescending:        true,
+			IncludePostEntry:      true,
 		}
 		bodyJSON, err := json.Marshal(body)
 		require.NoError(t, err)
@@ -473,6 +490,10 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, queryResponse.Associations[0].AssociationValue, "HEART")
 		require.Equal(t, queryResponse.Associations[0].ExtraData["PeerID"], "B")
 		require.NotNil(t, queryResponse.Associations[0].BlockHeight)
+		require.Nil(t, queryResponse.Associations[0].TransactorProfile)
+		require.Equal(t, queryResponse.Associations[0].PostEntry.Body, "Hello, world!")
+		require.Nil(t, queryResponse.Associations[0].PostAuthorProfile)
+		require.Nil(t, queryResponse.Associations[0].AppProfile)
 
 		// Submit invalid query.
 		body = &PostAssociationQuery{}
@@ -489,9 +510,11 @@ func TestAssociations(t *testing.T) {
 		// Query for PostAssociations by multiple AssociationValues.
 		// Send POST request.
 		body := &PostAssociationQuery{
-			PostHashHex:       postHashHex,
-			AssociationType:   "REACTION",
-			AssociationValues: []string{"HEART", "LAUGH"},
+			PostHashHex:              postHashHex,
+			AssociationType:          "REACTION",
+			AssociationValues:        []string{"HEART", "LAUGH"},
+			IncludePostAuthorProfile: true,
+			IncludeAppProfile:        true,
 		}
 		bodyJSON, err := json.Marshal(body)
 		require.NoError(t, err)
@@ -513,6 +536,10 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, queryResponse.Associations[0].AssociationValue, "HEART")
 		require.Equal(t, queryResponse.Associations[0].ExtraData["PeerID"], "B")
 		require.NotNil(t, queryResponse.Associations[0].BlockHeight)
+		require.Nil(t, queryResponse.Associations[0].TransactorProfile)
+		require.Nil(t, queryResponse.Associations[0].PostEntry)
+		require.Equal(t, queryResponse.Associations[0].PostAuthorProfile.Username, "sender")
+		require.Nil(t, queryResponse.Associations[0].AppProfile)
 	}
 	{
 		// Delete a PostAssociation.
