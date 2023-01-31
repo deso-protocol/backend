@@ -571,7 +571,6 @@ func newTestApiServer(t *testing.T) *APIServer {
 	apiServer.MinFeeRateNanosPerKB = node.Config.MinFeerate
 	apiServer.initState()
 
-
 	miner := node.Server.GetMiner()
 	_, err = miner.MineAndProcessSingleBlock(0, node.Server.GetMempool())
 	require.NoError(t, err)
