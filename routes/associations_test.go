@@ -531,7 +531,6 @@ func newTestApiServer(t *testing.T) *APIServer {
 	coreConfig.Params = &lib.DeSoTestnetParams
 	coreConfig.DataDirectory = badgerDir
 	coreConfig.MempoolDumpDirectory = badgerDir
-	coreConfig.Regtest = true
 	coreConfig.TXIndex = false
 	coreConfig.MinerPublicKeys = []string{senderPkString}
 	coreConfig.NumMiningThreads = 1
@@ -571,6 +570,13 @@ func newTestApiServer(t *testing.T) *APIServer {
 	// Initialize api server.
 	apiServer.MinFeeRateNanosPerKB = node.Config.MinFeerate
 	apiServer.initState()
+
+
+	miner := node.Server.GetMiner()
+	_, err = miner.MineAndProcessSingleBlock(0, node.Server.GetMempool())
+	require.NoError(t, err)
+	_, err = miner.MineAndProcessSingleBlock(0, node.Server.GetMempool())
+	require.NoError(t, err)
 	return apiServer
 }
 
