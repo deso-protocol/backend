@@ -59,6 +59,7 @@ type Config struct {
 	BuyDESOETHAddress string
 	BuyDESOSeed       string
 	InfuraProjectID   string
+	EtherscanAPIKey   string
 
 	// Emails
 	SendgridApiKey         string
@@ -161,6 +162,8 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.BuyDESOETHAddress = viper.GetString("buy-deso-eth-address")
 	// Project ID for Infura requests
 	config.InfuraProjectID = viper.GetString("infura-project-id")
+	// Etherscan API Key
+	config.EtherscanAPIKey = viper.GetString("etherscan-api-key")
 
 	// Seed from which DeSo will be sent for orders placed through Wyre and "Buy With BTC" purchases
 	config.BuyDESOSeed = viper.GetString("buy-deso-seed")
