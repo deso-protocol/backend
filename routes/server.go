@@ -165,10 +165,11 @@ const (
 	RoutePathUpdateTutorialStatus = "/api/v0/update-tutorial-status"
 
 	// eth.go
-	RoutePathSubmitETHTx       = "/api/v0/submit-eth-tx"
-	RoutePathMetamaskSignIn    = "/api/v0/send-starter-deso-for-metamask-account"
-	RoutePathQueryETHRPC       = "/api/v0/query-eth-rpc"
-	RoutePathAdminProcessETHTx = "/api/v0/admin/process-eth-tx"
+	RoutePathSubmitETHTx                     = "/api/v0/submit-eth-tx"
+	RoutePathMetamaskSignIn                  = "/api/v0/send-starter-deso-for-metamask-account"
+	RoutePathQueryETHRPC                     = "/api/v0/query-eth-rpc"
+	RoutePathGetETHTransactionsForETHAddress = "/api/v0/get-eth-transactions-for-eth-address"
+	RoutePathAdminProcessETHTx               = "/api/v0/admin/process-eth-tx"
 
 	// wyre.go
 	RoutePathGetWyreWalletOrderQuotation     = "/api/v0/get-wyre-wallet-order-quotation"
@@ -1331,6 +1332,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathQueryETHRPC,
 			fes.QueryETHRPC,
+			PublicAccess,
+		},
+		{
+			"GetETHTransactionsForETHAddress",
+			[]string{"GET"},
+			RoutePathGetETHTransactionsForETHAddress + "/{ethAddress:0x[a-fA-F0-9]+$}",
+			fes.GetETHTransactionsForETHAddress,
 			PublicAccess,
 		},
 		{
