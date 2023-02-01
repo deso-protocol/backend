@@ -352,7 +352,7 @@ type InfuraTx struct {
 	Type                 string  `json:"type"`
 	MaxPriorityFeePerGas *string `json:"maxPriorityFeePerGas"`
 	MaxFeePerGas         *string `json:"maxFeePerGas"`
-	ChainID			     *string `json:"chainID"`
+	ChainId              *string `json:"chainId"`
 }
 
 type QueryETHRPCRequest struct {
