@@ -750,13 +750,13 @@ func (fes *APIServer) GetPaginatedMessagesForGroupChatThread(ww http.ResponseWri
 		messages = append(messages, message)
 		// Add the sender's profile to the response.
 		senderPublicKeyBase58Check := message.SenderInfo.OwnerPublicKeyBase58Check
-		if _, ok := publicKeyToProfileEntryResponseMap[senderPublicKeyBase58Check]; ok {
+		if _, ok := publicKeyToProfileEntryResponseMap[senderPublicKeyBase58Check]; !ok {
 			publicKeyToProfileEntryResponseMap[senderPublicKeyBase58Check] = fes.GetProfileEntryResponseForPublicKeyBytes(
 				threadMsg.SenderAccessGroupOwnerPublicKey.ToBytes(), utxoView)
 		}
 
 		// Add the recipient's profile to the response.
-		if _, ok := publicKeyToProfileEntryResponseMap[message.RecipientInfo.OwnerPublicKeyBase58Check]; ok {
+		if _, ok := publicKeyToProfileEntryResponseMap[message.RecipientInfo.OwnerPublicKeyBase58Check]; !ok {
 			publicKeyToProfileEntryResponseMap[message.RecipientInfo.OwnerPublicKeyBase58Check] = fes.GetProfileEntryResponseForPublicKeyBytes(
 				threadMsg.RecipientAccessGroupOwnerPublicKey.ToBytes(), utxoView)
 		}
