@@ -8,6 +8,9 @@ WORKDIR /deso/src
 
 RUN git clone https://github.com/deso-protocol/core.git
 
+WORKDIR /deso/src/core
+RUN git pull
+
 WORKDIR /deso/src/backend
 
 COPY go.mod .

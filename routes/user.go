@@ -3020,7 +3020,7 @@ func (fes *APIServer) IsFollowingPublicKey(ww http.ResponseWriter, req *http.Req
 	followEntry := utxoView.GetFollowEntryForFollowerPublicKeyCreatorPublicKey(userPublicKeyBytes, isFollowingPublicKeyBytes)
 
 	res := IsFolllowingPublicKeyResponse{
-		IsFollowing: followEntry != nil,
+		IsFollowing: followEntry != nil && !followEntry.IsDeleted(),
 	}
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
@@ -3082,7 +3082,7 @@ func (fes *APIServer) IsHodlingPublicKey(ww http.ResponseWriter, req *http.Reque
 
 	hodlBalanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(
 		userPublicKeyBytes, isHodlingPublicKeyBytes, requestData.IsDAOCoin)
-	if hodlBalanceEntry != nil {
+	if hodlBalanceEntry != nil && !hodlBalanceEntry.IsDeleted() {
 		hodlingProfileEntry := utxoView.GetProfileEntryForPublicKey(isHodlingPublicKeyBytes)
 		BalanceEntry = fes._balanceEntryToResponse(
 			hodlBalanceEntry, hodlBalanceEntry.BalanceNanos.Uint64(), hodlingProfileEntry, utxoView)
