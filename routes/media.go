@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/gorilla/mux"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -289,47 +290,65 @@ func (fes *APIServer) GetFullTikTokURL(ww http.ResponseWriter, req *http.Request
 	}
 }
 
-// UploadVideo creates a Livepeer upload URL to be used
+type LivepeerResponse struct {
+	TusEndpoint string `json:"tusEndpoint"`
+	Asset       struct {
+		Id         string `json:"id"`
+		PlaybackId string `json:"playbackId"`
+	} `json:"asset"`
+}
+
+// UploadVideo creates a Livepeer upload URL to be used by tus on the frontend to upload the video asset to Livepeer.
 func (fes *APIServer) UploadVideo(ww http.ResponseWriter, req *http.Request) {
 	if fes.Config.LivepeerToken == "" {
-		_AddBadRequestError(ww, fmt.Sprintf("UploadVideoOld: This node is not configured to support video uploads"))
+		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: This node is not configured to support video uploads"))
 		return
 	}
-
-	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%v/stream?direct_user=true", fes.Config.CloudflareAccountId)
+	url := fmt.Sprintf("https://livepeer.studio/api/asset/request-upload")
 	client := &http.Client{}
 
+	body := `{"name": "deso upload"}`
+
 	// Create the request and set relevant headers
-	request, err := http.NewRequest("POST", url, nil)
+	request, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte(body)))
 	// Set Cloudflare token
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %v", fes.Config.LivepeerToken))
+	request.Header.Set("Authorization", fmt.Sprintf("Bearer %v", fes.Config.LivepeerToken))
 	request.Header.Add("Tus-Resumable", "1.0.0")
 	// Tells Cloudflare expected file size in bytes
 	request.Header.Add("Upload-Length", req.Header.Get("Upload-Length"))
 	// Upload-Metadata options are described here: https://developers.cloudflare.com/stream/uploading-videos/upload-video-file#supported-options-in-upload-metadata
 	request.Header.Add("Upload-Metadata", req.Header.Get("Upload-Metadata"))
+	request.Header.Set("Content-Type", "application/json")
 	// Perform the request
 	resp, err := client.Do(request)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"UploadVideoOld: error performing POST request: %v", err))
+			"UploadVideo: error performing POST request: %v", err))
 		return
 	}
-	if resp.StatusCode != 201 {
-		_AddBadRequestError(ww, fmt.Sprintf("UploadVideoOld: POST request did not return 201 status code but instead a status code of %v", resp.StatusCode))
+	if resp.StatusCode != 200 {
+		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: POST request did not return 201 status code but instead a status code of %v", resp.StatusCode))
 		return
 	}
-	// Allow Location and Stream-Media-Id headers so these headers can be used on the client size
-	ww.Header().Add("Access-Control-Expose-Headers", "Location, Stream-Media-Id")
-	// The Location header specifies the one-time tokenized URL
-	ww.Header().Add("Location", resp.Header.Get("Location"))
-	if ww.Header().Get("Access-Control-Allow-Origin") != "" {
-		ww.Header().Set("Access-Control-Allow-Origin", "*")
+	// Read the response body
+	respBody, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: Error reading response body %v", err))
+		return
 	}
-	if ww.Header().Get("Access-Control-Allow-Headers") != "*" {
-		ww.Header().Set("Access-Control-Allow-Headers", "*")
+
+	// Unmarshal the response body into a struct
+	var response LivepeerResponse
+	err = json.Unmarshal(respBody, &response)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: Error unmarshalling response body %v", err))
+		return
 	}
-	ww.WriteHeader(200)
+
+	if err = json.NewEncoder(ww).Encode(response); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: Problem encoding response as JSON: %v", err))
+		return
+	}
 }
 
 // UploadVideoOld creates a one-time tokenized URL that can be used to upload larger video files using the tus protocol.
@@ -398,6 +417,68 @@ type CFVideoDetailsResponse struct {
 	Messages []interface{}          `json:"messages"`
 }
 
+type GetVideoStatusResponseOld struct {
+	ReadyToStream bool
+	Duration      float64
+	Dimensions    map[string]interface{}
+}
+
+func (fes *APIServer) GetVideoStatusOld(ww http.ResponseWriter, req *http.Request) {
+	if fes.Config.CloudflareStreamToken == "" || fes.Config.CloudflareAccountId == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("UploadVideoOld: This node is not configured to support video uploads"))
+		return
+	}
+	vars := mux.Vars(req)
+	videoId, videoIdExists := vars["videoId"]
+	if !videoIdExists {
+		_AddBadRequestError(ww, fmt.Sprintf("GetVideoStatusOld: Missing videoId"))
+		return
+	}
+	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%v/stream/%v", fes.Config.CloudflareAccountId, videoId)
+	client := &http.Client{}
+	request, err := http.NewRequest("GET", url, nil)
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %v", fes.Config.CloudflareStreamToken))
+	request.Header.Add("Content-Type", "application/json")
+	resp, err := client.Do(request)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetVideoStatusOld: error performing GET request: %v", err))
+		return
+	}
+	if resp.StatusCode != 200 {
+		_AddBadRequestError(ww, fmt.Sprintf("GetVideoStatusOld: GET request did not return 200 status code but instead a status code of %v", resp.StatusCode))
+		return
+	}
+	cfVideoDetailsResponse := &CFVideoDetailsResponse{}
+	if err = json.NewDecoder(resp.Body).Decode(&cfVideoDetailsResponse); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetVideoStatusOld: failed decoding body: %v", err))
+		return
+	}
+	if err = resp.Body.Close(); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetVideoStatusOld: failed closing body: %v", err))
+		return
+	}
+	isReady, _ := cfVideoDetailsResponse.Result["readyToStream"]
+	duration, _ := cfVideoDetailsResponse.Result["duration"]
+	dimensions, _ := cfVideoDetailsResponse.Result["input"]
+
+	res := &GetVideoStatusResponseOld{
+		ReadyToStream: isReady.(bool),
+		Duration:      duration.(float64),
+		Dimensions:    dimensions.(map[string]interface{}),
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetVideoStatusOld: Problem serializing object to JSON: %v", err))
+		return
+	}
+}
+
+type LivepeerVideoDetailsResponse struct {
+	Status struct {
+		Phase string `json:"phase"`
+	} `json:"status"`
+}
+
 type GetVideoStatusResponse struct {
 	ReadyToStream bool
 	Duration      float64
@@ -405,8 +486,8 @@ type GetVideoStatusResponse struct {
 }
 
 func (fes *APIServer) GetVideoStatus(ww http.ResponseWriter, req *http.Request) {
-	if fes.Config.CloudflareStreamToken == "" || fes.Config.CloudflareAccountId == "" {
-		_AddBadRequestError(ww, fmt.Sprintf("UploadVideoOld: This node is not configured to support video uploads"))
+	if fes.Config.LivepeerToken == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("GetVideoStatus: This node is not configured to support video uploads"))
 		return
 	}
 	vars := mux.Vars(req)
@@ -415,10 +496,10 @@ func (fes *APIServer) GetVideoStatus(ww http.ResponseWriter, req *http.Request) 
 		_AddBadRequestError(ww, fmt.Sprintf("GetVideoStatus: Missing videoId"))
 		return
 	}
-	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%v/stream/%v", fes.Config.CloudflareAccountId, videoId)
+	url := fmt.Sprintf("https://livepeer.studio/api/asset/%v", videoId)
 	client := &http.Client{}
 	request, err := http.NewRequest("GET", url, nil)
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %v", fes.Config.CloudflareStreamToken))
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %v", fes.Config.LivepeerToken))
 	request.Header.Add("Content-Type", "application/json")
 	resp, err := client.Do(request)
 	if err != nil {
@@ -430,8 +511,8 @@ func (fes *APIServer) GetVideoStatus(ww http.ResponseWriter, req *http.Request) 
 		_AddBadRequestError(ww, fmt.Sprintf("GetVideoStatus: GET request did not return 200 status code but instead a status code of %v", resp.StatusCode))
 		return
 	}
-	cfVideoDetailsResponse := &CFVideoDetailsResponse{}
-	if err = json.NewDecoder(resp.Body).Decode(&cfVideoDetailsResponse); err != nil {
+	livepeerVideoDetailsResponse := &LivepeerVideoDetailsResponse{}
+	if err = json.NewDecoder(resp.Body).Decode(&livepeerVideoDetailsResponse); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetVideoStatus: failed decoding body: %v", err))
 		return
 	}
@@ -439,16 +520,8 @@ func (fes *APIServer) GetVideoStatus(ww http.ResponseWriter, req *http.Request) 
 		_AddBadRequestError(ww, fmt.Sprintf("GetVideoStatus: failed closing body: %v", err))
 		return
 	}
-	isReady, _ := cfVideoDetailsResponse.Result["readyToStream"]
-	duration, _ := cfVideoDetailsResponse.Result["duration"]
-	dimensions, _ := cfVideoDetailsResponse.Result["input"]
 
-	res := &GetVideoStatusResponse{
-		ReadyToStream: isReady.(bool),
-		Duration:      duration.(float64),
-		Dimensions:    dimensions.(map[string]interface{}),
-	}
-	if err = json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(livepeerVideoDetailsResponse); err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetVideoStatus: Problem serializing object to JSON: %v", err))
 		return
 	}

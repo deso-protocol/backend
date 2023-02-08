@@ -132,11 +132,12 @@ const (
 	RoutePathGetAcceptedBidHistory     = "/api/v0/accepted-bid-history"
 
 	// media.go
-	RoutePathUploadImage      = "/api/v0/upload-image"
-	RoutePathGetFullTikTokURL = "/api/v0/get-full-tiktok-url"
-	RoutePathUploadVideoOld   = "/api/v0/upload-video"
-	RoutePathUploadVideo      = "/api/v1/upload-video"
-	RoutePathGetVideoStatus   = "/api/v0/get-video-status"
+	RoutePathUploadImage       = "/api/v0/upload-image"
+	RoutePathGetFullTikTokURL  = "/api/v0/get-full-tiktok-url"
+	RoutePathUploadVideoOld    = "/api/v0/upload-video"
+	RoutePathUploadVideo       = "/api/v1/upload-video"
+	RoutePathGetVideoStatusOld = "/api/v0/get-video-status"
+	RoutePathGetVideoStatus    = "/api/v1/get-video-status"
 
 	// message.go
 	RoutePathSendMessageStateless       = "/api/v0/send-message-stateless"
@@ -1725,9 +1726,16 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"GetVideoStatusOld",
+			[]string{"GET"},
+			RoutePathGetVideoStatusOld + "/{videoId:[0-9a-z]{25,35}}",
+			fes.GetVideoStatusOld,
+			PublicAccess,
+		},
+		{
 			"GetVideoStatus",
 			[]string{"GET"},
-			RoutePathGetVideoStatus + "/{videoId:[0-9a-z]{25,35}}",
+			RoutePathGetVideoStatus + "/{videoId:[0-9a-z-]{25,45}}",
 			fes.GetVideoStatus,
 			PublicAccess,
 		},
@@ -1948,8 +1956,8 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 			// We set the headers for all requests to public routes.
 			// This allows third-party frontends to access this endpoint
 			match = true
-		} else if strings.HasPrefix(r.RequestURI, RoutePathGetVideoStatus) || strings.HasPrefix(r.RequestURI, RoutePathGetUserMetadata) {
-			// We don't match the RoutePathGetVideoStatus and RoutePathGetUserMetadata paths exactly since there is a
+		} else if strings.HasPrefix(r.RequestURI, RoutePathGetVideoStatusOld) || strings.HasPrefix(r.RequestURI, RoutePathGetUserMetadata) {
+			// We don't match the RoutePathGetVideoStatusOld and RoutePathGetUserMetadata paths exactly since there is a
 			// variable param. Check for the prefix instead.
 			match = true
 		} else if r.Method == "POST" && mediaType != "application/json" && r.RequestURI != RoutePathJumioCallback {
