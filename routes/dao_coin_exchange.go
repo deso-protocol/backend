@@ -891,7 +891,7 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 
 		// Get DAO coin balance base units.
 		balanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(transactorPublicKey, sellingPublicKey, true)
-		if balanceEntry == nil {
+		if balanceEntry == nil || balanceEntry.IsDeleted() {
 			return errors.New("Error getting transactor DAO coin balance not found")
 		}
 		transactorSellingBalanceBaseUnits = &balanceEntry.BalanceNanos
@@ -987,7 +987,7 @@ func (fes *APIServer) validateDAOCoinOrderTransferRestriction(
 	if profileEntry.DAOCoinEntry.TransferRestrictionStatus == lib.TransferRestrictionStatusDAOMembersOnly {
 		// Retrieve transactor's DAO coin balance. Error if balance is zero.
 		balanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(transactorPublicKey, buyingCoinPublicKey, true)
-		if balanceEntry == nil || balanceEntry.BalanceNanos.IsZero() {
+		if balanceEntry == nil || balanceEntry.BalanceNanos.IsZero() || balanceEntry.IsDeleted() {
 			return errors.New("Buying this DAO coin is restricted to users who already own this DAO coin")
 		}
 	}
@@ -1092,7 +1092,7 @@ func (fes *APIServer) getTransactorDesoOrDaoCoinBalance(
 
 	// Get DAO coin balance base units.
 	balanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(transactorPublicKey, daoCoinCreatorPublicKey, true)
-	if balanceEntry == nil {
+	if balanceEntry == nil || balanceEntry.IsDeleted() {
 		return nil, errors.New("Error getting transactor DAO coin balance")
 	}
 	return &balanceEntry.BalanceNanos, nil
