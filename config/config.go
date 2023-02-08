@@ -75,6 +75,7 @@ type Config struct {
 	// Video Upload
 	CloudflareStreamToken string
 	CloudflareAccountId   string
+	LivepeerToken         string
 
 	// Global State
 	ExposeGlobalState bool
@@ -180,6 +181,7 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	// Video Upload
 	config.CloudflareStreamToken = viper.GetString("cloudflare-stream-token")
 	config.CloudflareAccountId = viper.GetString("cloudflare-account-id")
+	config.LivepeerToken = "f5578f07-e1df-4c09-ac6c-819cab8b38e8"
 
 	// Global State
 	config.ExposeGlobalState = viper.GetBool("expose-global-state")

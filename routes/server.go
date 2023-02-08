@@ -134,7 +134,8 @@ const (
 	// media.go
 	RoutePathUploadImage      = "/api/v0/upload-image"
 	RoutePathGetFullTikTokURL = "/api/v0/get-full-tiktok-url"
-	RoutePathUploadVideo      = "/api/v0/upload-video"
+	RoutePathUploadVideoOld   = "/api/v0/upload-video"
+	RoutePathUploadVideo      = "/api/v1/upload-video"
 	RoutePathGetVideoStatus   = "/api/v0/get-video-status"
 
 	// message.go
@@ -1710,6 +1711,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"UploadVideoOld",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUploadVideoOld,
+			fes.UploadVideoOld,
+			PublicAccess,
+		},
+		{
 			"UploadVideo",
 			[]string{"POST", "OPTIONS"},
 			RoutePathUploadVideo,
@@ -1871,7 +1879,7 @@ func Logger(inner http.Handler, name string) http.Handler {
 
 var publicRoutes = map[string]interface{}{
 	RoutePathGetJumioStatusForPublicKey:     nil,
-	RoutePathUploadVideo:                    nil,
+	RoutePathUploadVideoOld:                 nil,
 	RoutePathGetReferralInfoForReferralHash: nil,
 	RoutePathGetReferralInfoForUser:         nil,
 	RoutePathGetVerifiedUsernames:           nil,
@@ -1952,7 +1960,7 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 			// Needed in order for the user's browser to set a cookie
 			w.Header().Add("Access-Control-Allow-Credentials", "true")
 
-			if r.RequestURI != RoutePathUploadVideo {
+			if r.RequestURI != RoutePathUploadVideoOld {
 				w.Header().Set("Access-Control-Allow-Origin", actualOrigin)
 				w.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept")
 			} else {
