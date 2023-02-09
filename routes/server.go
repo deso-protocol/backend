@@ -132,12 +132,14 @@ const (
 	RoutePathGetAcceptedBidHistory     = "/api/v0/accepted-bid-history"
 
 	// media.go
-	RoutePathUploadImage       = "/api/v0/upload-image"
-	RoutePathGetFullTikTokURL  = "/api/v0/get-full-tiktok-url"
-	RoutePathUploadVideoOld    = "/api/v0/upload-video"
-	RoutePathUploadVideo       = "/api/v1/upload-video"
-	RoutePathGetVideoStatusOld = "/api/v0/get-video-status"
-	RoutePathGetVideoStatus    = "/api/v1/get-video-status"
+	RoutePathUploadImage         = "/api/v0/upload-image"
+	RoutePathGetFullTikTokURL    = "/api/v0/get-full-tiktok-url"
+	RoutePathUploadVideoOld      = "/api/v0/upload-video"
+	RoutePathUploadVideo         = "/api/v1/upload-video"
+	RoutePathGetVideoStatusOld   = "/api/v0/get-video-status"
+	RoutePathGetVideoStatus      = "/api/v1/get-video-status"
+	RoutePathGetVideoDimensions  = "/api/v0/get-video-dimensions"
+	RoutePathEnableVideoDownload = "/api/v0/enable-video-download"
 
 	// message.go
 	RoutePathSendMessageStateless       = "/api/v0/send-message-stateless"
@@ -165,10 +167,11 @@ const (
 	RoutePathUpdateTutorialStatus = "/api/v0/update-tutorial-status"
 
 	// eth.go
-	RoutePathSubmitETHTx       = "/api/v0/submit-eth-tx"
-	RoutePathMetamaskSignIn    = "/api/v0/send-starter-deso-for-metamask-account"
-	RoutePathQueryETHRPC       = "/api/v0/query-eth-rpc"
-	RoutePathAdminProcessETHTx = "/api/v0/admin/process-eth-tx"
+	RoutePathSubmitETHTx                     = "/api/v0/submit-eth-tx"
+	RoutePathMetamaskSignIn                  = "/api/v0/send-starter-deso-for-metamask-account"
+	RoutePathQueryETHRPC                     = "/api/v0/query-eth-rpc"
+	RoutePathGetETHTransactionsForETHAddress = "/api/v0/get-eth-transactions-for-eth-address"
+	RoutePathAdminProcessETHTx               = "/api/v0/admin/process-eth-tx"
 
 	// wyre.go
 	RoutePathGetWyreWalletOrderQuotation     = "/api/v0/get-wyre-wallet-order-quotation"
@@ -272,6 +275,40 @@ const (
 	RoutePathGetTotalSupply       = "/api/v0/total-supply"
 	RoutePathGetRichList          = "/api/v0/rich-list"
 	RoutePathGetCountKeysWithDESO = "/api/v0/count-keys-with-deso"
+
+	// access_group.go
+	RoutePathCreateAccessGroup                = "/api/v0/create-access-group"
+	RoutePathUpdateAccessGroup                = "/api/v0/update-access-group"
+	RoutePathAddAccessGroupMembers            = "/api/v0/add-access-group-members"
+	RoutePathRemoveAccessGroupMembers         = "/api/v0/remove-access-group-members"
+	RoutePathUpdateAccessGroupMembers         = "/api/v0/update-access-group-members"
+	RoutePathGetAllUserAccessGroups           = "/api/v0/get-all-user-access-groups"
+	RoutePathGetAllUserAccessGroupsOwned      = "/api/v0/get-all-user-access-groups-owned"
+	RoutePathGetAllUserAccessGroupsMemberOnly = "/api/v0/get-all-user-access-groups-member-only"
+	RoutePathCheckPartyAccessGroups           = "/api/v0/check-party-access-groups"
+	RoutePathGetAccessGroupInfo               = "/api/v0/get-access-group-info"
+	RoutePathGetAccessGroupMemberInfo         = "/api/v0/get-access-group-member-info"
+	RoutePathGetPaginatedAccessGroupMembers   = "/api/v0/get-paginated-access-group-members"
+	RoutePathGetBulkAccessGroupEntries        = "/api/v0/get-bulk-access-group-entries"
+
+	// new_message.go
+	RoutePathSendDmMessage                             = "/api/v0/send-dm-message"
+	RoutePathUpdateDmMessage                           = "/api/v0/update-dm-message"
+	RoutePathSendGroupChatMessage                      = "/api/v0/send-group-chat-message"
+	RoutePathUpdateGroupChatMessage                    = "/api/v0/update-group-chat-message"
+	RoutePathGetUserDmThreadsOrderedByTimestamp        = "/api/v0/get-user-dm-threads-ordered-by-timestamp"
+	RoutePathGetPaginatedMessagesForDmThread           = "/api/v0/get-paginated-messages-for-dm-thread"
+	RoutePathGetUserGroupChatThreadsOrderedByTimestamp = "/api/v0/get-user-group-chat-threads-ordered-by-timestamp"
+	RoutePathGetPaginatedMessagesForGroupChatThread    = "/api/v0/get-paginated-messages-for-group-chat-thread"
+	RoutePathGetAllUserMessageThreads                  = "/api/v0/get-all-user-message-threads"
+
+	// associations.go
+	RoutePathUserAssociations = "/api/v0/user-associations"
+	RoutePathPostAssociations = "/api/v0/post-associations"
+
+	// snapshot.go
+	RoutePathSnapshotEpochMetadata = "/api/v0/snapshot-epoch-metadata"
+	RoutePathStateChecksum         = "/api/v0/state-checksum"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -1134,6 +1171,90 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetTransactorDAOCoinLimitOrders,
 			PublicAccess,
 		},
+		{
+			"CreateUserAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/create",
+			fes.CreateUserAssociation,
+			PublicAccess,
+		},
+		{
+			"DeleteUserAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/delete",
+			fes.DeleteUserAssociation,
+			PublicAccess,
+		},
+		{
+			"GetUserAssociationByID",
+			[]string{"GET"},
+			RoutePathUserAssociations + "/{associationID:[a-fA-F0-9]+$}",
+			fes.GetUserAssociationByID,
+			PublicAccess,
+		},
+		{
+			"GetUserAssociations",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/query",
+			fes.GetUserAssociations,
+			PublicAccess,
+		},
+		{
+			"CountUserAssociations",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/count",
+			fes.CountUserAssociations,
+			PublicAccess,
+		},
+		{
+			"CountUserAssociationsByValue",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUserAssociations + "/counts",
+			fes.CountUserAssociationsByValue,
+			PublicAccess,
+		},
+		{
+			"CreatePostAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/create",
+			fes.CreatePostAssociation,
+			PublicAccess,
+		},
+		{
+			"DeletePostAssociation",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/delete",
+			fes.DeletePostAssociation,
+			PublicAccess,
+		},
+		{
+			"GetPostAssociationByID",
+			[]string{"GET"},
+			RoutePathPostAssociations + "/{associationID:[a-fA-F0-9]+$}",
+			fes.GetPostAssociationByID,
+			PublicAccess,
+		},
+		{
+			"GetPostAssociations",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/query",
+			fes.GetPostAssociations,
+			PublicAccess,
+		},
+		{
+			"CountPostAssociations",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/count",
+			fes.CountPostAssociations,
+			PublicAccess,
+		},
+		{
+			"CountPostAssociationsByValue",
+			[]string{"POST", "OPTIONS"},
+			RoutePathPostAssociations + "/counts",
+			fes.CountPostAssociationsByValue,
+			PublicAccess,
+		},
 		// Jumio Routes
 		{
 			"JumioBegin",
@@ -1213,6 +1334,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathQueryETHRPC,
 			fes.QueryETHRPC,
+			PublicAccess,
+		},
+		{
+			"GetETHTransactionsForETHAddress",
+			[]string{"GET"},
+			RoutePathGetETHTransactionsForETHAddress + "/{ethAddress:0x[a-fA-F0-9]+$}",
+			fes.GetETHTransactionsForETHAddress,
 			PublicAccess,
 		},
 		{
@@ -1687,6 +1815,21 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.GetBulkMessagingPublicKeys,
 			PublicAccess,
 		},
+		// Snapshot endpoints
+		{
+			"SnapshotEpochMetadata",
+			[]string{"GET"},
+			RoutePathSnapshotEpochMetadata,
+			fes.GetSnapshotEpochMetadata,
+			PublicAccess,
+		},
+		{
+			"StateChecksum",
+			[]string{"GET"},
+			RoutePathStateChecksum,
+			fes.GetStateChecksum,
+			PublicAccess,
+		},
 
 		// Paths for the mining pool
 		{
@@ -1737,6 +1880,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetVideoStatus + "/{videoId:[0-9a-z-]{25,45}}",
 			fes.GetVideoStatus,
+			PublicAccess,
+		},
+		{
+			"EnableVideoDownload",
+			[]string{"POST", "OPTIONS"},
+			RoutePathEnableVideoDownload + "/{videoId:[0-9a-z]{25,35}}",
+			fes.EnableVideoDownload,
+			PublicAccess,
+		},
+		{
+			"GetVideoDimensions",
+			[]string{"GET"},
+			RoutePathGetVideoDimensions + "/{videoId:[0-9a-z]{25,35}}",
+			fes.GetVideoDimensions,
 			PublicAccess,
 		},
 		// Paths for wyre
@@ -1810,6 +1967,162 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetCountKeysWithDESO,
 			fes.GetCountKeysWithDESO,
+			PublicAccess,
+		},
+		// registering the routes related to access groups
+		{
+			"CreateAccessGroup",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateAccessGroup,
+			fes.CreateAccessGroup,
+			PublicAccess,
+		},
+		{
+			"UpdateAccessGroup",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateAccessGroup,
+			fes.UpdateAccessGroup,
+			PublicAccess,
+		},
+		{
+			"AddAccessGroupMembers",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAddAccessGroupMembers,
+			fes.AddAccessGroupMembers,
+			PublicAccess,
+		},
+		{
+			"RemoveAccessGroupMembers",
+			[]string{"POST", "OPTIONS"},
+			RoutePathRemoveAccessGroupMembers,
+			fes.RemoveAccessGroupMembers,
+			PublicAccess,
+		},
+		{
+			"UpdateAccessGroupMembers",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateAccessGroupMembers,
+			fes.UpdateAccessGroupMembers,
+			PublicAccess,
+		},
+		{
+			"GetAllUserAccessGroups",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAllUserAccessGroups,
+			fes.GetAllUserAccessGroups,
+			PublicAccess,
+		},
+		{
+			"GetAllUserAccessGroupsOwned",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAllUserAccessGroupsOwned,
+			fes.GetAllUserAccessGroupsOwned,
+			PublicAccess,
+		},
+		{
+			"GetAllUserAccessGroupsMemberOnly",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAllUserAccessGroupsMemberOnly,
+			fes.GetAllUserAccessGroupsMemberOnly,
+			PublicAccess,
+		},
+		{
+			"CheckPartyAccessGroups",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCheckPartyAccessGroups,
+			fes.CheckPartyAccessGroups,
+			PublicAccess,
+		},
+		{
+			"GetAccessGroupInfo",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAccessGroupInfo,
+			fes.GetAccessGroupInfo,
+			PublicAccess,
+		},
+		{
+			"GetAccessGroupMemberInfo",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAccessGroupMemberInfo,
+			fes.GetAccessGroupMemberInfo,
+			PublicAccess,
+		},
+		{
+			"GetPaginatedAccessGroupMembers",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPaginatedAccessGroupMembers,
+			fes.GetPaginatedAccessGroupMembers,
+			PublicAccess,
+		},
+		{
+			"GetBulkAccessGroupEntries",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetBulkAccessGroupEntries,
+			fes.GetBulkAccessGroupEntries,
+			PublicAccess,
+		},
+		// access group message APIs.
+		{
+			"SendDmMessage",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSendDmMessage,
+			fes.SendDmMessage,
+			PublicAccess,
+		},
+		{
+			"UpdateDmMessage",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateDmMessage,
+			fes.UpdateDmMessage,
+			PublicAccess,
+		},
+		{
+			"SendGroupChatMessage",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSendGroupChatMessage,
+			fes.SendGroupChatMessage,
+			PublicAccess,
+		},
+		{
+			"UpdateGroupChatMessage",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateGroupChatMessage,
+			fes.UpdateGroupChatMessage,
+			PublicAccess,
+		},
+		{
+			"GetUserDmThreadsOrderedByTimestamp",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetUserDmThreadsOrderedByTimestamp,
+			fes.GetUserDmThreadsOrderedByTimestamp,
+			PublicAccess,
+		},
+		{
+			"GetPaginatedMessagesForDmThread",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPaginatedMessagesForDmThread,
+			fes.GetPaginatedMessagesForDmThread,
+			PublicAccess,
+		},
+		{
+			"GetUserGroupChatThreadsOrderedByTimestamp",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetUserGroupChatThreadsOrderedByTimestamp,
+			fes.GetUserGroupChatThreadsOrderedByTimestamp,
+			PublicAccess,
+		},
+		{
+			"GetPaginatedMessagesForGroupChatThread",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetPaginatedMessagesForGroupChatThread,
+			fes.GetPaginatedMessagesForGroupChatThread,
+			PublicAccess,
+		},
+		{
+			"GetAllUserMessageThreads",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetAllUserMessageThreads,
+			fes.GetAllUserMessageThreads,
 			PublicAccess,
 		},
 	}
@@ -1888,6 +2201,8 @@ func Logger(inner http.Handler, name string) http.Handler {
 var publicRoutes = map[string]interface{}{
 	RoutePathGetJumioStatusForPublicKey:     nil,
 	RoutePathUploadVideoOld:                 nil,
+	RoutePathUploadVideo:                    nil,
+	RoutePathEnableVideoDownload:            nil,
 	RoutePathGetReferralInfoForReferralHash: nil,
 	RoutePathGetReferralInfoForUser:         nil,
 	RoutePathGetVerifiedUsernames:           nil,
@@ -2329,6 +2644,9 @@ func (fes *APIServer) StartGlobalStateMonitoring() {
 }
 
 func (fes *APIServer) SetGlobalStateCache() {
+	if fes.backendServer == nil {
+		return
+	}
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		glog.Errorf("SetGlobalStateCache: problem with GetAugmentedUniversalView: %v", err)

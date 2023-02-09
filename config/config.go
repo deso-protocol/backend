@@ -59,6 +59,7 @@ type Config struct {
 	BuyDESOETHAddress string
 	BuyDESOSeed       string
 	InfuraProjectID   string
+	EtherscanAPIKey   string
 
 	// Emails
 	SendgridApiKey         string
@@ -162,6 +163,8 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.BuyDESOETHAddress = viper.GetString("buy-deso-eth-address")
 	// Project ID for Infura requests
 	config.InfuraProjectID = viper.GetString("infura-project-id")
+	// Etherscan API Key
+	config.EtherscanAPIKey = viper.GetString("etherscan-api-key")
 
 	// Seed from which DeSo will be sent for orders placed through Wyre and "Buy With BTC" purchases
 	config.BuyDESOSeed = viper.GetString("buy-deso-seed")
@@ -181,7 +184,7 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	// Video Upload
 	config.CloudflareStreamToken = viper.GetString("cloudflare-stream-token")
 	config.CloudflareAccountId = viper.GetString("cloudflare-account-id")
-	config.LivepeerToken = "f5578f07-e1df-4c09-ac6c-819cab8b38e8"
+	config.LivepeerToken = viper.GetString("livepeer-token")
 
 	// Global State
 	config.ExposeGlobalState = viper.GetBool("expose-global-state")
@@ -210,14 +213,18 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 
 	// Metamask minimal Eth in Wei required to receive an airdrop.
 	metamaskAirdropMinStr := viper.GetString("metamask-airdrop-eth-minimum")
-	metamaskAirdropMinBigint, ok := big.NewInt(0).SetString(metamaskAirdropMinStr, 10)
-	if !ok {
-		panic(fmt.Sprintf("Error parsing metamask-airdrop-eth-minimum into bigint: %v", metamaskAirdropMinStr))
-	}
-	var overflow bool
-	config.MetamaskAirdropEthMinimum, overflow = uint256.FromBig(metamaskAirdropMinBigint)
-	if overflow {
-		panic(fmt.Sprintf("metamask-airdrop-eth-minimum value %v overflows uint256", metamaskAirdropMinStr))
+	if metamaskAirdropMinStr != "" {
+		metamaskAirdropMinBigint, ok := big.NewInt(0).SetString(metamaskAirdropMinStr, 10)
+		if !ok {
+			panic(fmt.Sprintf("Error parsing metamask-airdrop-eth-minimum into bigint: %v", metamaskAirdropMinStr))
+		}
+		var overflow bool
+		config.MetamaskAirdropEthMinimum, overflow = uint256.FromBig(metamaskAirdropMinBigint)
+		if overflow {
+			panic(fmt.Sprintf("metamask-airdrop-eth-minimum value %v overflows uint256", metamaskAirdropMinStr))
+		}
+	} else {
+		config.MetamaskAirdropEthMinimum = uint256.NewInt()
 	}
 	config.MetamaskAirdropDESONanosAmount = viper.GetUint64("metamask-airdrop-deso-nanos-amount")
 

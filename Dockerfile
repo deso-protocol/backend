@@ -2,7 +2,7 @@ FROM alpine:latest AS backend
 
 RUN apk update
 RUN apk upgrade
-RUN apk add --update go gcc g++ vips-dev
+RUN apk add --update go gcc g++ vips-dev ffmpeg
 
 WORKDIR /deso/src
 

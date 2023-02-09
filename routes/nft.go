@@ -4,12 +4,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/gorilla/mux"
+	"github.com/golang/glog"
 	"io"
 	"net/http"
 	"reflect"
 	"sort"
 	"time"
+
+	"github.com/gorilla/mux"
 
 	"github.com/deso-protocol/core/lib"
 )
@@ -2085,6 +2087,10 @@ func (fes *APIServer) GetNFTsCreatedByPublicKey(ww http.ResponseWriter, req *htt
 			postEntryResponse.PostEntryReaderState = postEntryReaderState
 		}
 		nftEntries := utxoView.GetNFTEntriesForPostHash(post.PostHash)
+		if len(nftEntries) == 0 {
+			glog.Errorf("No nft entries found for NFT post %v", post.PostHash.String())
+			continue
+		}
 		var nftEntryResponses []*NFTEntryResponse
 		for _, nftEntry := range nftEntries {
 			nftEntryResponses = append(nftEntryResponses, fes._nftEntryToResponse(nftEntry, nil, utxoView, false, readerPKID))

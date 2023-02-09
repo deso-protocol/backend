@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/gorilla/mux"
 	"io"
 	"io/ioutil"
 	"math"
@@ -113,7 +114,7 @@ func (fes *APIServer) SubmitETHTx(ww http.ResponseWriter, req *http.Request) {
 
 	// Submit the transaction. Note that the SignedHashes is actually the whole transaction serialized with signature.
 	params := []interface{}{fmt.Sprintf("0x%v", requestData.SignedHashes[0])}
-	response, err := fes.ExecuteETHRPCRequest("eth_sendRawTransaction", params)
+	response, err := fes.ExecuteETHRPCRequest("eth_sendRawTransaction", params, nil)
 
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitETHTx: Error sending raw transaction: %v", err))
@@ -334,25 +335,30 @@ type InfuraResponse struct {
 }
 
 type InfuraTx struct {
-	BlockHash        *string `json:"blockHash"`
-	BlockNumber      *string `json:"blockNumber"`
-	From             string  `json:"from"`
-	Gas              string  `json:"gas"`
-	GasPrice         string  `json:"gasPrice"`
-	Hash             string  `json:"hash"`
-	Input            string  `json:"input"`
-	Nonce            string  `json:"nonce"`
-	To               *string `json:"to"`
-	TransactionIndex *string `json:"transactionIndex"`
-	Value            string  `json:"value"`
-	V                string  `json:"v"`
-	R                string  `json:"r"`
-	S                string  `json:"s"`
+	BlockHash            *string `json:"blockHash"`
+	BlockNumber          *string `json:"blockNumber"`
+	From                 string  `json:"from"`
+	Gas                  string  `json:"gas"`
+	GasPrice             string  `json:"gasPrice"`
+	Hash                 string  `json:"hash"`
+	Input                string  `json:"input"`
+	Nonce                string  `json:"nonce"`
+	To                   *string `json:"to"`
+	TransactionIndex     *string `json:"transactionIndex"`
+	Value                string  `json:"value"`
+	V                    string  `json:"v"`
+	R                    string  `json:"r"`
+	S                    string  `json:"s"`
+	Type                 string  `json:"type"`
+	MaxPriorityFeePerGas *string `json:"maxPriorityFeePerGas"`
+	MaxFeePerGas         *string `json:"maxFeePerGas"`
+	ChainId              *string `json:"chainId"`
 }
 
 type QueryETHRPCRequest struct {
-	Method string
-	Params []interface{}
+	Method     string
+	Params     []interface{}
+	UseNetwork *string
 }
 
 // QueryETHRPC is an endpoint used to execute queries through Infura
@@ -363,7 +369,7 @@ func (fes *APIServer) QueryETHRPC(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("QueryETHRPC: Problem parsing request body: %v", err))
 		return
 	}
-	res, err := fes.ExecuteETHRPCRequest(requestData.Method, requestData.Params)
+	res, err := fes.ExecuteETHRPCRequest(requestData.Method, requestData.Params, requestData.UseNetwork)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("QueryETHRPC: Error executing request: %v", err))
 		return
@@ -438,7 +444,7 @@ func (fes *APIServer) MetamaskSignIn(ww http.ResponseWriter, req *http.Request) 
 	}
 	// validate the user's eth balance
 	params := []interface{}{recipientEthAddress, "latest"}
-	infuraResponse, err := fes.ExecuteETHRPCRequest("eth_getBalance", params)
+	infuraResponse, err := fes.ExecuteETHRPCRequest("eth_getBalance", params, nil)
 	// infura did something funky when getting the user balance
 	if infuraResponse == nil || err != nil {
 		balanceRequestErr := fmt.Sprintf("Infura balance request: %v", err)
@@ -534,16 +540,25 @@ func (fes *APIServer) GetMetamaskAirdropMetadata(publicKey []byte) (*MetamaskAir
 }
 
 // ExecuteETHRPCRequest makes a request to Infura to fetch information about the Ethereum blockchain
-func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) (response *InfuraResponse, _err error) {
+func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}, useNetwork *string) (response *InfuraResponse, _err error) {
 	projectId := fes.Config.InfuraProjectID
 	if projectId == "" {
 		return nil, fmt.Errorf("ExecuteETHRPCRequest: Project ID not set. Airdrop can only be " +
 			"given if project ID is set via commandline flags when node is started")
 	}
-	URL := fmt.Sprintf("https://mainnet.infura.io/v3/%v", projectId)
-	if fes.Params.NetworkType == lib.NetworkType_TESTNET {
-		URL = fmt.Sprintf("https://goerli.infura.io/v3/%v", projectId)
+	var networkString string
+	if useNetwork == nil {
+		networkString = "mainnet"
+		if fes.Params.NetworkType == lib.NetworkType_TESTNET {
+			networkString = "goerli"
+		}
+	} else {
+		if *useNetwork != "mainnet" && *useNetwork != "goerli" {
+			return nil, fmt.Errorf("ExecuteETHRPCRequest: Invalid network type. Must be mainnet or goerli")
+		}
+		networkString = *useNetwork
 	}
+	URL := fmt.Sprintf("https://%v.infura.io/v3/%v", networkString, projectId)
 	jsonData, err := json.Marshal(InfuraRequest{
 		JSONRPC: "2.0",
 		Method:  method,
@@ -586,7 +601,7 @@ func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}) 
 // GetETHTransactionByHash is a helper function to fetch transaction details and parse it into an InfuraTx struct
 func (fes *APIServer) GetETHTransactionByHash(hash string) (_tx *InfuraTx, _err error) {
 	params := []interface{}{hash}
-	txRes, err := fes.ExecuteETHRPCRequest("eth_getTransactionByHash", params)
+	txRes, err := fes.ExecuteETHRPCRequest("eth_getTransactionByHash", params, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -607,4 +622,113 @@ func publicKeyToEthAddress(address []byte) (str string, err error) {
 	sum := hash.Sum(nil)
 	str = "0x" + hex.EncodeToString(sum[12:])
 	return str, nil
+}
+
+type ETHNetwork string
+
+const (
+	UNDEFINED   ETHNetwork = ""
+	ETH_MAINNET ETHNetwork = "mainnet"
+	ETH_GOERLI  ETHNetwork = "goerli"
+)
+
+type EtherscanTransaction struct {
+	BlockNumber       string `json:"blockNumber"`
+	Timestamp         string `json:"timeStamp"`
+	Hash              string `json:"hash"`
+	Nonce             string `json:"nonce"`
+	BlockHash         string `json:"blockHash"`
+	TransactionIndex  string `json:"transactionIndex"`
+	From              string `json:"from"`
+	To                string `json:"to"`
+	Value             string `json:"value"`
+	Gas               string `json:"gas"`
+	GasPrice          string `json:"gasPrice"`
+	IsError           string `json:"isError"`
+	TxreceiptStatus   string `json:"txreceipt_status"`
+	Input             string `json:"input"`
+	ContractAddress   string `json:"contractAddress"`
+	CumulativeGasUsed string `json:"cumulativeGasUsed"`
+	GasUsed           string `json:"gasUsed"`
+	Confirmations     string `json:"confirmations"`
+	MethodId          string `json:"methodId"`
+	FunctionName      string `json:"functionName"`
+}
+
+type EtherscanTransactionsByAddressResponse struct {
+	Status  string                 `json:"status"`
+	Message string                 `json:"message"`
+	Result  []EtherscanTransaction `json:"result"`
+}
+
+func (fes *APIServer) GetETHTransactionsForETHAddress(ww http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+
+	ethAddress := vars["ethAddress"]
+
+	ethNetworkString := req.URL.Query().Get("eth_network")
+	if ethNetworkString != "" && ethNetworkString != string(ETH_MAINNET) && ethNetworkString != string(ETH_GOERLI) {
+		_AddBadRequestError(ww, fmt.Sprintf("GetETHTransactionsForETHAddress: Invalid network type. Must be mainnet or goerli"))
+		return
+	}
+	ethNetwork := ETHNetwork(ethNetworkString)
+	if ethNetwork == UNDEFINED {
+		ethNetwork = ETH_MAINNET
+		if fes.Params.NetworkType == lib.NetworkType_TESTNET {
+			ethNetwork = ETH_GOERLI
+		}
+	}
+	ethTransactions, err := fes.GetETHTransactionsForETHAddressHandler(ethAddress, ethNetwork)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetETHTransactionsForETHAddress: Problem getting transactions for ETH address: %v", err))
+		return
+	}
+	if err = json.NewEncoder(ww).Encode(ethTransactions); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetETHTransactionsForETHAddress: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) GetETHTransactionsForETHAddressHandler(
+	ethAddress string,
+	ethereumNetwork ETHNetwork,
+) (*EtherscanTransactionsByAddressResponse, error) {
+	etherscanAPIKey := fes.Config.EtherscanAPIKey
+	if etherscanAPIKey == "" {
+		return nil, fmt.Errorf("GetETHTransactionsForETHAddress: Etherscan API key not set")
+	}
+	var apiSuffix string
+	if ethereumNetwork != ETH_MAINNET {
+		apiSuffix = "-" + string(ethereumNetwork)
+	}
+	url := fmt.Sprintf(
+		"https://api%v.etherscan.io/api?module=account&action=txlist&address=%v&apikey=%v",
+		apiSuffix,
+		ethAddress,
+		etherscanAPIKey,
+	)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("GetETHTransactionsForETHAddress: Etherscan returned an error: %v", resp)
+	}
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	responseData := &EtherscanTransactionsByAddressResponse{}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	if err = decoder.Decode(&responseData); err != nil {
+		return nil, fmt.Errorf("GetETHTransactionsForETHAddress: Problem decoding response JSON: %v, response: %v, error: %v", responseData, resp, err)
+	}
+	return responseData, nil
 }

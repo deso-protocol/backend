@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net/http"
 	"reflect"
@@ -2856,6 +2857,12 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 	} else if txnMeta.TxnType == lib.TxnTypeBasicTransfer.String() {
 		// Someone paid you
 		return true
+	} else if txnMeta.CreateUserAssociationTxindexMetadata != nil {
+		// Someone created an association referring to you
+		return true
+	} else if txnMeta.CreatePostAssociationTxindexMetadata != nil {
+		// Some created an association referring to one of your posts
+		return true
 	}
 	return false
 }
@@ -3413,7 +3420,7 @@ func (fes *APIServer) GetAccessBytes(ww http.ResponseWriter, req *http.Request) 
 
 func (fes *APIServer) GetTransactionSpendingLimitResponseFromHex(ww http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
-
+	query := req.URL.Query()
 	transactionSpendingLimitHex, transactionSpendingLimitHexExists := vars["transactionSpendingLimitHex"]
 	if !transactionSpendingLimitHexExists {
 		_AddBadRequestError(ww, fmt.Sprintf(
@@ -3430,6 +3437,20 @@ func (fes *APIServer) GetTransactionSpendingLimitResponseFromHex(ww http.Respons
 
 	var transactionSpendingLimit lib.TransactionSpendingLimit
 	blockHeight := uint64(fes.blockchain.BlockTip().Height)
+	if blockHeightString, ok := query["blockHeight"]; ok {
+		if len(blockHeightString) > 0 {
+			blockHeightInt, err := strconv.ParseInt(blockHeightString[0], 10, 64)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpendingLimitResponseFromHex: Error parsing blockHeight query param: %v", err))
+				return
+			}
+			if blockHeightInt < 0 || blockHeightInt > math.MaxInt64 {
+				_AddBadRequestError(ww, fmt.Sprint("GetTransactionSpendingLimitResponseFromHex: blockHeight query param must be uint64"))
+				return
+			}
+			blockHeight = uint64(blockHeightInt)
+		}
+	}
 	rr := bytes.NewReader(tslBytes)
 	if err = transactionSpendingLimit.FromBytes(blockHeight, rr); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
@@ -3596,4 +3617,22 @@ func (fes *APIServer) GetPublicKeyPrefix() string {
 	} else {
 		return "tBC"
 	}
+}
+
+func (fes *APIServer) GetProfileEntryResponseForPublicKeyBase58Check(publicKeyBase58Check string, utxoView *lib.UtxoView) (
+	*ProfileEntryResponse, error) {
+	publicKeyBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
+	if err != nil {
+		return nil, err
+	}
+	return fes.GetProfileEntryResponseForPublicKeyBytes(publicKeyBytes, utxoView), nil
+}
+
+func (fes *APIServer) GetProfileEntryResponseForPublicKeyBytes(publicKeyBytes []byte, utxoView *lib.UtxoView) *ProfileEntryResponse {
+	profileEntry := utxoView.GetProfileEntryForPublicKey(publicKeyBytes)
+	var profileEntryResponse *ProfileEntryResponse
+	if profileEntry != nil {
+		profileEntryResponse = fes._profileEntryToResponse(profileEntry, utxoView)
+	}
+	return profileEntryResponse
 }
