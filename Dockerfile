@@ -36,7 +36,7 @@ RUN GOOS=linux go build -mod=mod -a -installsuffix cgo -o bin/backend main.go
 # create tiny image
 FROM alpine:latest
 
-RUN apk add --update vips-dev
+RUN apk add --update vips-dev ffmpeg
 
 COPY --from=backend /deso/src/backend/bin/backend /deso/bin/backend
 
