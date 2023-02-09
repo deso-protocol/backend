@@ -355,7 +355,7 @@ func (fes *APIServer) UploadVideo(ww http.ResponseWriter, req *http.Request) {
 	contentType := header.Header.Get("Content-Type")
 	if contentType != "video/quicktime" && contentType != "video/mp4" && contentType != "video/x-ms-wmv" {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"UploadVideo: %v content type not supported: %v", contentType))
+			"UploadVideo: %v content type not supported", contentType))
 		return
 	}
 
