@@ -157,6 +157,7 @@ func init() {
 	// Video Upload
 	runCmd.PersistentFlags().String("cloudflare-stream-token", "", "API Token with Edit access to Cloudflare's stream service")
 	runCmd.PersistentFlags().String("cloudflare-account-id", "", "Cloudflare Account ID")
+	runCmd.PersistentFlags().String("livepeer-token", "", "API Token with Edit access to Livepeer's stream service")
 
 	// Global State
 	runCmd.PersistentFlags().Bool("expose-global-state", false, "Expose global state data to all origins")
