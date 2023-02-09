@@ -302,7 +302,8 @@ type LivepeerResponse struct {
 	} `json:"asset"`
 }
 
-// UploadVideo creates a Livepeer upload URL to be used by tus on the frontend to upload the video asset to Livepeer.
+// UploadVideo validates that a file is a valid upload file, requests an upload URL from livepeer, and uploads
+// that file to livepeer.
 func (fes *APIServer) UploadVideo(ww http.ResponseWriter, req *http.Request) {
 	// Ensure that livepeer token is present in config.
 	if fes.Config.LivepeerToken == "" {

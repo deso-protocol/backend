@@ -2271,8 +2271,8 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 			// We set the headers for all requests to public routes.
 			// This allows third-party frontends to access this endpoint
 			match = true
-		} else if strings.HasPrefix(r.RequestURI, RoutePathGetVideoStatusOld) || strings.HasPrefix(r.RequestURI, RoutePathGetUserMetadata) {
-			// We don't match the RoutePathGetVideoStatusOld and RoutePathGetUserMetadata paths exactly since there is a
+		} else if strings.HasPrefix(r.RequestURI, RoutePathGetVideoStatusOld) || strings.HasPrefix(r.RequestURI, RoutePathGetVideoStatus) || strings.HasPrefix(r.RequestURI, RoutePathGetUserMetadata) {
+			// We don't match the RoutePathGetVideoStatus and RoutePathGetUserMetadata paths exactly since there is a
 			// variable param. Check for the prefix instead.
 			match = true
 		} else if r.Method == "POST" && mediaType != "application/json" && r.RequestURI != RoutePathJumioCallback {
