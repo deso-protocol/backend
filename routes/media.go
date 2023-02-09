@@ -345,8 +345,8 @@ func (fes *APIServer) UploadVideo(ww http.ResponseWriter, req *http.Request) {
 	}
 	defer file.Close()
 
-	// Ensure file is less than 250MB
-	if header.Size > 250*1024*1024 {
+	// Ensure file is less than 65MB
+	if header.Size > 65*1024*1024 {
 		_AddBadRequestError(ww, fmt.Sprintf("UploadVideo: Files must be less than 250MB"))
 		return
 	}
