@@ -2767,6 +2767,12 @@ func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredO
 		txnMeta.TxnType == lib.TxnTypeDAOCoinTransfer.String() ||
 		txnMeta.TxnType == lib.TxnTypeDAOCoinLimitOrder.String() {
 		return !filteredOutCategories["dao coin"]
+	} else if txnMeta.TxnType == lib.TxnTypeCreatePostAssociation.String() ||
+		txnMeta.TxnType == lib.TxnTypeDeletePostAssociation.String() {
+		return !filteredOutCategories["post association"]
+	} else if txnMeta.TxnType == lib.TxnTypeCreateUserAssociation.String() ||
+		txnMeta.TxnType == lib.TxnTypeDeleteUserAssociation.String() {
+		return !filteredOutCategories["user association"]
 	}
 	// If the transaction type doesn't fall into any of the previous steps, we don't want it
 	return false
