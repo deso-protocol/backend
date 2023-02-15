@@ -59,7 +59,6 @@ func TestExtraDataEncodingDecodingErrors(t *testing.T) {
 		lib.DESORoyaltiesMapKey:              "",    // encoding not supported
 		lib.CoinRoyaltiesMapKey:              "",    // encoding not supported
 		lib.NodeSourceMapKey:                 "-1",  // uint64 can't be negative
-		lib.DerivedKeyMemoKey:                "zzz", // non-hex encoded string
 		lib.TransactionSpendingLimitKey:      "",    // encoding not supported
 	}
 

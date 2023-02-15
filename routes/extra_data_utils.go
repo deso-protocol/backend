@@ -55,7 +55,7 @@ var specialExtraDataKeysToEncoding = map[string]ExtraDataEncoding{
 
 	lib.NodeSourceMapKey: {Decode: Decode64BitUintString, Encode: Encode64BitUintString},
 
-	lib.DerivedKeyMemoKey: {Decode: DecodeHexString, Encode: EncodeHexString},
+	lib.DerivedKeyMemoKey: {Decode: DecodeDerivedKeyMemo, Encode: EncodeDerivedKeyMemo},
 
 	lib.TransactionSpendingLimitKey: {Decode: DecodeTransactionSpendingLimit, Encode: ReservedFieldCannotEncode},
 }
@@ -198,4 +198,16 @@ func DecodeTransactionSpendingLimit(spendingBytes []byte, params *lib.DeSoParams
 		return ""
 	}
 	return string(responseJSON)
+}
+
+func EncodeDerivedKeyMemo(str string) ([]byte, error) {
+	memo := make([]byte, hex.EncodedLen(len([]byte(str))))
+	_ = hex.Encode(memo, []byte(str))
+	return memo, nil
+}
+
+func DecodeDerivedKeyMemo(encodedBytes []byte, _ *lib.DeSoParams, _ *lib.UtxoView) string {
+	decodedBytes := make([]byte, hex.DecodedLen(len(encodedBytes)))
+	_, _ = hex.Decode(decodedBytes, encodedBytes)
+	return string(decodedBytes)
 }
