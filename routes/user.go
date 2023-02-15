@@ -3333,7 +3333,7 @@ func (fes *APIServer) DerivedKeyEntryToUserDerivedKey(entry *lib.DerivedKeyEntry
 		IsValid:                     isValid,
 		ExtraData:                   DecodeExtraDataMap(fes.Params, utxoView, entry.ExtraData),
 		TransactionSpendingLimit:    TransactionSpendingLimitToResponse(entry.TransactionSpendingLimitTracker, utxoView, fes.Params),
-		Memo:                        hex.EncodeToString(entry.Memo),
+		Memo:                        DecodeDerivedKeyMemo(entry.Memo, fes.Params, utxoView),
 	}
 }
 
