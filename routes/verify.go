@@ -466,6 +466,15 @@ type VerifyEmailRequest struct {
 	EmailHash string
 }
 
+type SGContact struct {
+	Email        string            `json:"email"`
+	CustomFields map[string]string `json:"custom_fields"`
+}
+
+type SGRequestBody struct {
+	Contacts []SGContact `json:"contacts"`
+}
+
 func (fes *APIServer) VerifyEmail(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := VerifyEmailRequest{}
@@ -500,6 +509,78 @@ func (fes *APIServer) VerifyEmail(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("VerifyEmail: Failed to save user: %v", err))
 		return
 	}
+
+	if !fes.IsConfiguredForSendgrid() {
+		return
+	}
+
+	sgContact := SGContact{
+		Email: userMetadata.Email,
+		CustomFields: map[string]string{
+			// Public key custom field.
+			"e5_T": requestData.PublicKey,
+		},
+	}
+
+	var utxoView *lib.UtxoView
+	utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
+
+	// If the utxoview errors, just create the contact as is.
+	if err != nil {
+		fes.createSendgridContact(&sgContact)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("VerifyEmail: Failed to create sendgrid contact: %v", err))
+			return
+		}
+		return
+	}
+
+	profileEntry := utxoView.GetProfileEntryForPublicKey(userPublicKeyBytes)
+	if profileEntry == nil || profileEntry.IsDeleted() {
+		err = fes.createSendgridContact(&sgContact)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("VerifyEmail: Failed to create sendgrid contact: %v", err))
+			return
+		}
+		return
+	}
+
+	// Username custom field.
+	sgContact.CustomFields["e4_T"] = string(profileEntry.Username)
+	err = fes.createSendgridContact(&sgContact)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("VerifyEmail: Failed to create sendgrid contact: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) createSendgridContact(contact *SGContact) error {
+	if !fes.IsConfiguredForSendgrid() {
+		return fmt.Errorf("Sendgrid not configured")
+	}
+
+	rb := SGRequestBody{
+		Contacts: []SGContact{
+			*contact,
+		},
+	}
+
+	jsonData, err := json.Marshal(rb)
+	if err != nil {
+		return fmt.Errorf("Error constructing contact: %v", err)
+	}
+
+	request := sendgrid.GetRequest(fes.Config.SendgridApiKey, "/v3/marketing/contacts", "https://api.sendgrid.com")
+	request.Method = "PUT"
+
+	request.Body = jsonData
+
+	_, err = sendgrid.API(request)
+	if err != nil {
+		return fmt.Errorf("Error creating contact: %v", err)
+	}
+
+	return nil
 }
 
 func (fes *APIServer) sendVerificationEmail(emailAddress string, publicKey string) {
