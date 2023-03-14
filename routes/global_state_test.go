@@ -19,8 +19,6 @@ func TestGlobalStateServicePutGetDeleteWithDB(t *testing.T) {
 
 	apiServer, _, _ := newTestAPIServer(
 		t, "" /*globalStateRemoteNode*/)
-	defer apiServer.backendServer.Stop()
-	defer apiServer.Stop()
 
 	// Getting when no value is present should return nil without an
 	// error.
@@ -65,8 +63,6 @@ func TestGlobalStateServicePutGetDeleteWithRemoteNode(t *testing.T) {
 
 	apiServer, _, _ := newTestAPIServer(
 		t, "" /*globalStateRemoteNode*/)
-	defer apiServer.backendServer.Stop()
-	defer apiServer.Stop()
 
 	// Getting when no value is present should return nil without an
 	// error.
@@ -194,8 +190,6 @@ func TestGlobalStateServiceURLCreation(t *testing.T) {
 
 	apiServer, _, _ := newTestAPIServer(
 		t, "https://deso.com:17001" /*globalStateRemoteNode*/)
-	defer apiServer.backendServer.Stop()
-	defer apiServer.Stop()
 
 	{
 		url, _, err := apiServer.GlobalState.CreateGetRequest([]byte("woo"))

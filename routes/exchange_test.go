@@ -224,6 +224,15 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	require.NoError(err)
 	_, err = miner.MineAndProcessSingleBlock(0, node.Server.GetMempool())
 	require.NoError(err)
+
+	t.Cleanup(func() {
+		miner.Stop()
+		publicApiServer.backendServer.Stop()
+		publicApiServer.Stop()
+		privateApiServer.backendServer.Stop()
+		privateApiServer.Stop()
+		node.Stop()
+	})
 	return publicApiServer, privateApiServer, miner
 }
 
@@ -234,8 +243,6 @@ func TestAPI(t *testing.T) {
 	_, _ = assert, require
 
 	apiServer, _, miner := newTestAPIServer(t, "" /*globalStateRemoteNode*/)
-	defer apiServer.backendServer.Stop()
-	defer apiServer.Stop()
 
 	{
 		request, _ := http.NewRequest("GET", RoutePathAPIBase, nil)

@@ -18,8 +18,6 @@ import (
 func TestAssociations(t *testing.T) {
 	var associationID string
 	apiServer := newTestApiServer(t)
-	defer apiServer.backendServer.Stop()
-	defer apiServer.Stop()
 
 	//
 	// UserAssociations
@@ -632,6 +630,12 @@ func newTestApiServer(t *testing.T) *APIServer {
 	// Initialize api server.
 	apiServer.MinFeeRateNanosPerKB = node.Config.MinFeerate
 	apiServer.initState()
+
+	t.Cleanup(func() {
+		apiServer.backendServer.Stop()
+		apiServer.Stop()
+		node.Stop()
+	})
 	return apiServer
 }
 
