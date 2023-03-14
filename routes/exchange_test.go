@@ -229,9 +229,7 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	t.Cleanup(func() {
 		globalStateDB.Close()
 		miner.Stop()
-		publicApiServer.backendServer.Stop()
 		publicApiServer.Stop()
-		privateApiServer.backendServer.Stop()
 		privateApiServer.Stop()
 		node.Stop()
 	})

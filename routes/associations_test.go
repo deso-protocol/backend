@@ -631,7 +631,6 @@ func newTestApiServer(t *testing.T) *APIServer {
 	apiServer.initState()
 
 	t.Cleanup(func() {
-		apiServer.backendServer.Stop()
 		apiServer.Stop()
 		node.Stop()
 	})
