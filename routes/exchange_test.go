@@ -52,6 +52,8 @@ func GetTestBadgerDb() (_db *badger.DB, _dir string) {
 	opts := badger.DefaultOptions(dir)
 	opts.Dir = dir
 	opts.ValueDir = dir
+	// No logger when running tests
+	opts.Logger = nil
 	db, err := badger.Open(opts)
 	if err != nil {
 		log.Fatal(err)

@@ -6,6 +6,7 @@ RUN apk add --update go gcc g++ vips-dev git
 
 WORKDIR /deso/src
 
+ARG CACHEBUST=1
 RUN git clone https://github.com/deso-protocol/core.git
 
 WORKDIR /deso/src/core
