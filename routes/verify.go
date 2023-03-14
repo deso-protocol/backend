@@ -573,14 +573,10 @@ func (fes *APIServer) createSendgridContact(contact *SGContact) error {
 
 	request.Body = jsonData
 
-	response, err := sendgrid.API(request)
+	_, err = sendgrid.API(request)
 	if err != nil {
 		return fmt.Errorf("Error creating contact: %v", err)
 	}
-	fmt.Println("VERIFY EMAIL RESPONSE: ")
-	fmt.Println(response.StatusCode)
-	fmt.Println(response.Body)
-	fmt.Println(response.Headers)
 
 	return nil
 }
