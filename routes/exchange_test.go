@@ -186,7 +186,6 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	coreConfig := coreCmd.LoadConfig()
 	coreConfig.Params = &lib.DeSoTestnetParams
 	coreConfig.DataDirectory = badgerDir
-	coreConfig.MempoolDumpDirectory = badgerDir
 	coreConfig.TXIndex = true
 	coreConfig.MinerPublicKeys = []string{senderPkString}
 	coreConfig.NumMiningThreads = 1

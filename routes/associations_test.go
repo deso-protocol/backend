@@ -589,7 +589,6 @@ func newTestApiServer(t *testing.T) *APIServer {
 	coreConfig := coreCmd.LoadConfig()
 	coreConfig.Params = &lib.DeSoTestnetParams
 	coreConfig.DataDirectory = badgerDir
-	coreConfig.MempoolDumpDirectory = badgerDir
 	coreConfig.Regtest = true
 	coreConfig.TXIndex = false
 	coreConfig.MinerPublicKeys = []string{senderPkString}
