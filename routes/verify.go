@@ -517,7 +517,8 @@ func (fes *APIServer) VerifyEmail(ww http.ResponseWriter, req *http.Request) {
 	sgContact := SGContact{
 		Email: userMetadata.Email,
 		CustomFields: map[string]string{
-			"public_key": requestData.PublicKey,
+			// Public key custom field.
+			"e5_T": requestData.PublicKey,
 		},
 	}
 
@@ -544,7 +545,8 @@ func (fes *APIServer) VerifyEmail(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	sgContact.CustomFields["username"] = string(profileEntry.Username)
+	// Username custom field.
+	sgContact.CustomFields["e4_T"] = string(profileEntry.Username)
 	err = fes.createSendgridContact(&sgContact)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("VerifyEmail: Failed to create sendgrid contact: %v", err))
