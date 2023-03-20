@@ -2254,6 +2254,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		basicTransferMetadata := txnMeta.Metadata.BasicTransferTxindexMetadata
 		createNFTMetadata := txnMeta.Metadata.CreateNFTTxindexMetadata
 		updateNFTMetadata := txnMeta.Metadata.UpdateNFTTxindexMetadata
+		postAssociationMetadata := txnMeta.Metadata.CreatePostAssociationTxindexMetadata
 
 		if postMetadata != nil {
 			addPostForHash(postMetadata.PostHashBeingModifiedHex, userPublicKeyBytes, true)
@@ -2287,6 +2288,8 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 			if basicTransferMetadata.PostHashHex != "" {
 				addPostForHash(basicTransferMetadata.PostHashHex, userPublicKeyBytes, true)
 			}
+		} else if postAssociationMetadata != nil {
+			addPostForHash(postAssociationMetadata.PostHashHex, userPublicKeyBytes, false)
 		}
 
 		// Delete the UTXO ops because they aren't needed for the frontend
