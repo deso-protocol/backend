@@ -2205,13 +2205,21 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	// heavy lifting.
 	postEntryResponses := make(map[string]*PostEntryResponse)
 
+	if requestData.PublicKeyBase58Check == "tBCKWuZkdx4yrfDJTqtt7dQ3Bhi5kqTJordtngRj69CSEVeENkQX4E" {
+		fmt.Printf("\n\n\n\n*******************GettingNotifications for %v\n", requestData.PublicKeyBase58Check)
+	}
+	fmt.Printf("GettingNotifications for %v\n", requestData.PublicKeyBase58Check)
+
 	addPostForHash := func(postHashHex string, readerPK []byte, profileEntryRequired bool) {
+		fmt.Printf("addPostForHash: %s\n", postHashHex)
 		// If we already have the post entry response in the map, just return
 		if _, exists := postEntryResponses[postHashHex]; exists || postHashHex == "" {
+			fmt.Printf("addPostForHash: %s already exists\n", postHashHex)
 			return
 		}
 		postHashBytes, err := hex.DecodeString(postHashHex)
 		if err != nil || len(postHashBytes) != lib.HashSizeBytes {
+			fmt.Printf("addPostForHash: %s is not a valid post hash: %v\n", postHashHex, err)
 			return
 		}
 		postHash := &lib.BlockHash{}
@@ -2219,6 +2227,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 
 		postEntry := utxoView.GetPostEntryForPostHash(postHash)
 		if postEntry == nil {
+			fmt.Printf("addPostForHash: %s is does not exist\n", postHashHex)
 			// We set the post entry response to nil so we can exit early next time we see this post hash hex.
 			postEntryResponses[postHashHex] = nil
 			return
@@ -2228,12 +2237,14 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 
 		// Filter out responses if profile entry is missing and is required
 		if profileEntryRequired && profileEntryResponse == nil {
+			fmt.Printf("addPostForHash: %s excluded because post hash does not exist\n", postHashHex)
 			postEntryResponses[postHashHex] = nil
 			return
 		}
 
 		postEntryResponse, err := fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, userPublicKeyBytes, 2)
 		if err != nil {
+			fmt.Printf("addPostForHash: %s postEntryToResponse failed: %v\n", postHashHex, err)
 			return
 		}
 
@@ -2242,6 +2253,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPK, postEntry)
 
 		postEntryResponses[postHashHex] = postEntryResponse
+		fmt.Printf("PostEntryResponses: %+v\n", postEntryResponses)
 	}
 
 	for _, txnMeta := range finalTxnMetadataList {
@@ -2255,6 +2267,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		createNFTMetadata := txnMeta.Metadata.CreateNFTTxindexMetadata
 		updateNFTMetadata := txnMeta.Metadata.UpdateNFTTxindexMetadata
 		postAssociationMetadata := txnMeta.Metadata.CreatePostAssociationTxindexMetadata
+		fmt.Printf("postMetadata: %+v\n", txnMeta.Metadata)
 
 		if postMetadata != nil {
 			addPostForHash(postMetadata.PostHashBeingModifiedHex, userPublicKeyBytes, true)
@@ -2289,6 +2302,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 				addPostForHash(basicTransferMetadata.PostHashHex, userPublicKeyBytes, true)
 			}
 		} else if postAssociationMetadata != nil {
+			fmt.Printf("POST ASSOCIATION METADATA NOT NIL: %+v\n", txnMeta.Metadata)
 			addPostForHash(postAssociationMetadata.PostHashHex, userPublicKeyBytes, false)
 		}
 
