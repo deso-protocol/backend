@@ -2275,6 +2275,8 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 			addPostForHash(createNFTMetadata.NFTPostHashHex, userPublicKeyBytes, true)
 		} else if updateNFTMetadata != nil {
 			addPostForHash(updateNFTMetadata.NFTPostHashHex, userPublicKeyBytes, true)
+		} else if postAssociationMetadata != nil {
+			addPostForHash(postAssociationMetadata.PostHashHex, userPublicKeyBytes, false)
 		} else if basicTransferMetadata != nil {
 			txnOutputs := txnMeta.Metadata.TxnOutputs
 			for _, output := range txnOutputs {
@@ -2288,8 +2290,6 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 			if basicTransferMetadata.PostHashHex != "" {
 				addPostForHash(basicTransferMetadata.PostHashHex, userPublicKeyBytes, true)
 			}
-		} else if postAssociationMetadata != nil {
-			addPostForHash(postAssociationMetadata.PostHashHex, userPublicKeyBytes, false)
 		}
 
 		// Delete the UTXO ops because they aren't needed for the frontend
