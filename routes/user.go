@@ -2205,7 +2205,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	// heavy lifting.
 	postEntryResponses := make(map[string]*PostEntryResponse)
 
-	if requestData.PublicKeyBase58Check == "BC1YLiUro1G14Zqv5bmB62ZfF9fJEdcidbCDvW1r8iNDdp5qikuNDoe" {
+	if requestData.PublicKeyBase58Check == "tBCKWuZkdx4yrfDJTqtt7dQ3Bhi5kqTJordtngRj69CSEVeENkQX4E" {
 		fmt.Printf("\n\n\n\n*******************GettingNotifications for %v\n", requestData.PublicKeyBase58Check)
 	}
 	fmt.Printf("GettingNotifications for %v\n", requestData.PublicKeyBase58Check)
@@ -2268,6 +2268,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		updateNFTMetadata := txnMeta.Metadata.UpdateNFTTxindexMetadata
 		postAssociationMetadata := txnMeta.Metadata.CreatePostAssociationTxindexMetadata
 		fmt.Printf("postMetadata: %+v\n", txnMeta.Metadata)
+		fmt.Printf("postAssociationMetadata: %+v\n", txnMeta.Metadata.CreatePostAssociationTxindexMetadata)
 
 		if postMetadata != nil {
 			addPostForHash(postMetadata.PostHashBeingModifiedHex, userPublicKeyBytes, true)
@@ -2288,6 +2289,9 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 			addPostForHash(createNFTMetadata.NFTPostHashHex, userPublicKeyBytes, true)
 		} else if updateNFTMetadata != nil {
 			addPostForHash(updateNFTMetadata.NFTPostHashHex, userPublicKeyBytes, true)
+		} else if postAssociationMetadata != nil {
+			fmt.Printf("POST ASSOCIATION METADATA NOT NIL: %+v\n", txnMeta.Metadata)
+			addPostForHash(postAssociationMetadata.PostHashHex, userPublicKeyBytes, false)
 		} else if basicTransferMetadata != nil {
 			txnOutputs := txnMeta.Metadata.TxnOutputs
 			for _, output := range txnOutputs {
@@ -2301,9 +2305,6 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 			if basicTransferMetadata.PostHashHex != "" {
 				addPostForHash(basicTransferMetadata.PostHashHex, userPublicKeyBytes, true)
 			}
-		} else if postAssociationMetadata != nil {
-			fmt.Printf("POST ASSOCIATION METADATA NOT NIL: %+v\n", txnMeta.Metadata)
-			addPostForHash(postAssociationMetadata.PostHashHex, userPublicKeyBytes, false)
 		}
 
 		// Delete the UTXO ops because they aren't needed for the frontend
