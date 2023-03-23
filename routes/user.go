@@ -2205,7 +2205,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	// heavy lifting.
 	postEntryResponses := make(map[string]*PostEntryResponse)
 
-	if requestData.PublicKeyBase58Check == "tBCKWuZkdx4yrfDJTqtt7dQ3Bhi5kqTJordtngRj69CSEVeENkQX4E" {
+	if requestData.PublicKeyBase58Check == "BC1YLiUro1G14Zqv5bmB62ZfF9fJEdcidbCDvW1r8iNDdp5qikuNDoe" {
 		fmt.Printf("\n\n\n\n*******************GettingNotifications for %v\n", requestData.PublicKeyBase58Check)
 	}
 	fmt.Printf("GettingNotifications for %v\n", requestData.PublicKeyBase58Check)
