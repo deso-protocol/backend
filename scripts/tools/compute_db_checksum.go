@@ -19,7 +19,7 @@ func main() {
 		fmt.Printf("Error reading db1 err: %v", err)
 		return
 	}
-	snap, err, _ := lib.NewSnapshot(dbSnap, dirSnap, lib.SnapshotBlockHeightPeriod, false, false, &lib.DeSoMainnetParams, false)
+	snap, err, _ := lib.NewSnapshot(dbSnap, dirSnap, lib.SnapshotBlockHeightPeriod, false, false, &lib.DeSoMainnetParams, false, nil)
 	if err != nil {
 		fmt.Printf("Error reading snap err: %v", err)
 		return
