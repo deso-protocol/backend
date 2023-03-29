@@ -172,6 +172,7 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 		maxCopiesPerNFT,
 		minimumNetworkFeeNanosPerKb,
 		[]byte{},
+		-1,
 		requestData.MinFeeRateNanosPerKB,
 		fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
