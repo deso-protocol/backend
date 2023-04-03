@@ -1,6 +1,6 @@
 module github.com/deso-protocol/backend
 
-go 1.18
+go 1.20
 
 replace github.com/deso-protocol/core => ../core/
 
