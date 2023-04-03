@@ -20,7 +20,8 @@ rm /tmp/main.*.log
   --block-cypher-api-key=092dae962ea44b02809a4c74408b42a1 \
   --min-satoshis-for-profile=0 \
   --connect-ips=deso-seed-2.io:17000 \
-  --run-hot-feed-routine=true
+  --sync-type=hypersync \
+  --run-hot-feed-routine=false
 )
 
 # These are nodes that can be relied upon if the decentralized seed

@@ -36,8 +36,8 @@ rm /tmp/main.*.log
   --block-producer-seed='essence camp ghost remove document vault ladder swim pupil index apart ring' \
   --starter-deso-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
   --data-dir=/tmp/n0_test_00000 \
-  --state-change-file-path=/tmp/state-changes \
-  --state-change-index-file-path=/tmp/state-changes-index \
+  --state-change-file-path=/tmp/state-changes-test \
+  --state-change-index-file-path=/tmp/state-changes-index-test \
   --access-control-allow-origins=http://localhost:4200,http://localhost:80,http://localhost:18002,http://localhost:4201,http://localhost:18001 \
   --secure-header-allow-hosts=localhost:4200 \
   --secure-header-development=true \
