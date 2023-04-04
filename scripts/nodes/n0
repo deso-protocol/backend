@@ -12,7 +12,6 @@ rm /tmp/main.*.log
   --txindex=true \
   --admin-public-keys=* \
   --state-change-file-path=/tmp/state-changes \
-  --state-change-index-file-path=/tmp/state-changes-index \
   --super-admin-public-keys=* \
   --miner-public-keys=BC1YLgKZyfgyNntCMXAZYExM8JooYqrYvVsrR8d8XVxorDruYFdq31p \
   --starter-deso-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
