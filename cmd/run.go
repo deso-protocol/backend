@@ -170,7 +170,6 @@ func init() {
 
 	// State syncer
 	runCmd.PersistentFlags().String("state-change-file-path", "", "Path to state syncer file")
-	runCmd.PersistentFlags().String("state-change-index-file-path", "", "Path to state syncer file")
 
 	// Public keys that need their balances monitored. Map of Label to Public key
 	runCmd.PersistentFlags().String("public-key-balances-to-monitor", "",
