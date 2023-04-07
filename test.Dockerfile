@@ -2,7 +2,7 @@ FROM alpine:latest AS backend
 
 RUN apk update
 RUN apk upgrade
-RUN apk add --update go gcc g++ vips-dev git
+RUN apk add --update bash cmake git go gcc g++ make vips-dev
 
 WORKDIR /deso/src
 
@@ -17,6 +17,7 @@ COPY go.mod .
 COPY go.sum .
 
 RUN go mod download
+RUN /deso/src/core/scripts/install-relic.sh
 
 # include backend src
 COPY apis      apis
@@ -30,4 +31,4 @@ COPY main.go   .
 # build backend
 RUN GOOS=linux go build -mod=mod -a -installsuffix cgo -o bin/backend main.go
 
-ENTRYPOINT ["go", "test", "-v", "github.com/deso-protocol/backend/routes"]
+ENTRYPOINT ["go", "test", "-tags", "relic", "-v", "github.com/deso-protocol/backend/routes"]
