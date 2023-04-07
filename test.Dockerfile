@@ -2,14 +2,14 @@ FROM alpine:latest AS backend
 
 RUN apk update
 RUN apk upgrade
-RUN apk add --update bash cmake git go gcc g++ make vips-dev
+RUN apk add --update bash cmake go gcc g++ make vips-dev git
 
 WORKDIR /deso/src
 
 RUN git clone https://github.com/deso-protocol/core.git
 
 WORKDIR /deso/src/core
-RUN git pull
+RUN git checkout mf/add-bls-signature-utils && git pull origin mf/add-bls-signature-utils
 
 WORKDIR /deso/src/backend
 
