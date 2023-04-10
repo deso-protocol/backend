@@ -231,7 +231,7 @@ type AdminUpdateUsernameBlacklistRequest struct {
 // AdminUpdateUsernameBlacklist...
 //
 // This endpoint allows an admin to blacklist or graylist an account by username.
-// This is important as it prevents malicous users using a deceiptful username from continuing to username change
+// This is important as it prevents malicious users using a deceitful username from continuing to username change
 // once their public key is blocked, as the username itself is the entity being blacklisted/graylisted.
 func (fes *APIServer) AdminUpdateUsernameBlacklist(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
