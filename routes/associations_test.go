@@ -10,6 +10,7 @@ import (
 	"github.com/deso-protocol/core/lib"
 	"github.com/stretchr/testify/require"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -604,6 +605,10 @@ func newTestApiServer(t *testing.T) *APIServer {
 	shutdownListener := make(chan struct{})
 	node := coreCmd.NewNode(coreConfig)
 	node.Start(&shutdownListener)
+
+	node.Params.ForkHeights.BalanceModelBlockHeight = math.MaxUint32
+	node.Params.EncoderMigrationHeights = lib.GetEncoderMigrationHeights(&node.Params.ForkHeights)
+	node.Params.EncoderMigrationHeightsList = lib.GetEncoderMigrationHeightsList(&node.Params.ForkHeights)
 
 	// Set api server's config.
 	config := config.LoadConfig(coreConfig)
