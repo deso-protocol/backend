@@ -214,6 +214,87 @@ func (fes *APIServer) AdminUpdateUserGlobalMetadata(ww http.ResponseWriter, req 
 	// Simply return with a 200 status code
 }
 
+// AdminUpdateUsernameBlacklistRequest...
+type AdminUpdateUsernameBlacklistRequest struct {
+	// The username associated with the blacklist/graylist update.
+	Username string `safeForLogging:"true"`
+
+	// Whether we are updating the blacklist (true) or the graylist (false).
+	IsBlacklistUpdate bool
+
+	// Set to true if this user's content should not show up anywhere on the site.
+	AddUserToList bool `safeForLogging:"true"`
+
+	AdminPublicKey string
+}
+
+// AdminUpdateUsernameBlacklist...
+//
+// This endpoint allows an admin to blacklist or graylist an account by username.
+// This is important as it prevents malicious users using a deceitful username from continuing to username change
+// once their public key is blocked, as the username itself is the entity being blacklisted/graylisted.
+func (fes *APIServer) AdminUpdateUsernameBlacklist(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminUpdateUsernameBlacklistRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUsernameBlacklist: Problem parsing request body: %v", err))
+		return
+	}
+
+	if requestData.Username == "" {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("AdminUpdateUsernameBlacklist: Must provide a valid username."))
+		return
+	}
+
+	username := strings.ToLower(requestData.Username)
+
+	// If we are adding a user to the blacklist or removing the user from all lists, update their value in the global state.
+	if requestData.IsBlacklistUpdate || !requestData.AddUserToList {
+		blacklistKey := GlobalStateKeyForBlacklistedProfileByUsername(username)
+		blacklistVal := lib.NotBlacklisted
+		blacklistAction := "removing from"
+		if requestData.AddUserToList {
+			blacklistVal = lib.IsBlacklisted
+			blacklistAction = "adding to"
+		}
+
+		if requestData.AddUserToList && reflect.DeepEqual(fes.GetBlacklistStateForUsername(username), IsBlacklisted) {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUsernameBlacklist: username %v is already blacklisted", username))
+			return
+		}
+
+		if err := fes.GlobalState.Put(blacklistKey, blacklistVal); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUsernameBlacklist: Problem %v blacklist: %v", blacklistAction, err))
+			return
+		}
+	}
+
+	// If we are adding a user to the graylist or removing the user from all lists, update their value in the global state.
+	if !requestData.IsBlacklistUpdate || !requestData.AddUserToList {
+		// We need to update global state's list of graylisted users.
+		graylistkey := GlobalStateKeyForGraylistedProfileByUsername(username)
+		graylistVal := lib.NotGraylisted
+		graylistAction := "removing from"
+		if requestData.AddUserToList {
+			graylistVal = lib.IsGraylisted
+			graylistAction = "adding to"
+		}
+		if reflect.DeepEqual(fes.GetGraylistStateForUsername(username), IsGraylisted) {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUsernameBlacklist: username %v is already graylisted", username))
+			return
+		}
+		if err := fes.GlobalState.Put(graylistkey, graylistVal); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateUsernameBlacklist: Problem %v graylist: %v", graylistAction, err))
+			return
+		}
+	}
+	// Force Blacklist and Graylist to update instantly.
+	fes.SetBlacklistedUsernameMap()
+	fes.SetGraylistedUsernameMap()
+
+}
+
 type AdminResetPhoneNumberRequest struct {
 	PhoneNumber string
 }
