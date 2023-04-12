@@ -9,8 +9,6 @@ WORKDIR /deso/src
 RUN git clone https://github.com/deso-protocol/core.git
 
 WORKDIR /deso/src/core
-ARG CORE_BRANCH=main
-RUN if ["$CORE_BRANCH" != "main"]; then git checkout main ; else (git branch -D "$CORE_BRANCH" || true) && (git checkout -b "$CORE_BRANCH" origin/"$CORE_BRANCH" || true); fi
 RUN git pull
 
 WORKDIR /deso/src/backend
