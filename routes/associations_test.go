@@ -10,7 +10,6 @@ import (
 	"github.com/deso-protocol/core/lib"
 	"github.com/stretchr/testify/require"
 	"io"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -95,11 +94,9 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, txnMeta.TargetUserPublicKey, lib.NewPublicKey(targetUserPkBytes))
 		require.Equal(t, txnMeta.AssociationType, []byte("ENDORSEMENT"))
 		require.Equal(t, txnMeta.AssociationValue, []byte("SQL"))
-
-		// There is a GoLang JSON-decoding issue where the nested Txn.ExtraData isn't
-		// decoded properly. For now, we just reset the Txn.ExtraData here.
-		txn.ExtraData, err = EncodeExtraDataMap(extraData)
+		extraDataEncoded, err := EncodeExtraDataMap(extraData)
 		require.NoError(t, err)
+		require.Equal(t, txn.ExtraData, extraDataEncoded)
 
 		// Sign txn.
 		require.Nil(t, txn.Signature.Sign)
@@ -376,11 +373,9 @@ func TestAssociations(t *testing.T) {
 		txnMeta := txn.TxnMeta.(*lib.CreatePostAssociationMetadata)
 		require.Equal(t, txnMeta.AssociationType, []byte("REACTION"))
 		require.Equal(t, txnMeta.AssociationValue, []byte("HEART"))
-
-		// There is a GoLang JSON-decoding issue where the nested Txn.ExtraData isn't
-		// decoded properly. For now, we just reset the Txn.ExtraData here.
-		txn.ExtraData, err = EncodeExtraDataMap(extraData)
+		extraDataEncoded, err := EncodeExtraDataMap(extraData)
 		require.NoError(t, err)
+		require.Equal(t, txn.ExtraData, extraDataEncoded)
 
 		// Sign txn.
 		require.Nil(t, txn.Signature.Sign)
@@ -605,10 +600,6 @@ func newTestApiServer(t *testing.T) *APIServer {
 	shutdownListener := make(chan struct{})
 	node := coreCmd.NewNode(coreConfig)
 	node.Start(&shutdownListener)
-
-	node.Params.ForkHeights.BalanceModelBlockHeight = math.MaxUint32
-	node.Params.EncoderMigrationHeights = lib.GetEncoderMigrationHeights(&node.Params.ForkHeights)
-	node.Params.EncoderMigrationHeightsList = lib.GetEncoderMigrationHeightsList(&node.Params.ForkHeights)
 
 	// Set api server's config.
 	config := config.LoadConfig(coreConfig)
