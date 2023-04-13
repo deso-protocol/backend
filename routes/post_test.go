@@ -128,6 +128,7 @@ func TestFreezingPost(t *testing.T) {
 		require.Len(t, posts, 1)
 		post = posts[0]
 		require.Equal(t, post.Body, "Hello, world!")
+		require.False(t, post.IsFrozen)
 	}
 	{
 		// Update the post body.
@@ -143,13 +144,13 @@ func TestFreezingPost(t *testing.T) {
 		require.Len(t, posts, 1)
 		post = posts[0]
 		require.Equal(t, post.Body, "Hello, world... again!")
+		require.False(t, post.IsFrozen)
 	}
 	{
 		// Update the post to frozen.
 		err := _submitPost(&SubmitPostRequest{
 			UpdaterPublicKeyBase58Check: senderPkString,
 			PostHashHexToModify:         post.PostHashHex,
-			BodyObj:                     &lib.DeSoBodySchema{Body: "Hello, world... again!"},
 			PostExtraData:               map[string]string{"IsFrozen": "1"},
 			MinFeeRateNanosPerKB:        apiServer.MinFeeRateNanosPerKB,
 		})
@@ -158,6 +159,8 @@ func TestFreezingPost(t *testing.T) {
 		posts := _getPostsForUsername("sender")
 		require.Len(t, posts, 1)
 		post = posts[0]
+		require.Equal(t, post.Body, "Hello, world... again!")
+		require.True(t, post.IsFrozen)
 		// The IsFrozen key gets deleted from the ExtraData.
 		require.Equal(t, post.PostExtraData["IsFrozen"], "")
 	}
@@ -176,5 +179,6 @@ func TestFreezingPost(t *testing.T) {
 		require.Len(t, posts, 1)
 		post = posts[0]
 		require.Equal(t, post.Body, "Hello, world... again!")
+		require.True(t, post.IsFrozen)
 	}
 }
