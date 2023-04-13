@@ -11,7 +11,6 @@ import (
 	"github.com/deso-protocol/core/lib"
 	"github.com/stretchr/testify/require"
 	"io"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,7 +22,6 @@ func TestAssociations(t *testing.T) {
 	apiServer := newTestApiServer(t)
 	defer apiServer.backendServer.Stop()
 	defer apiServer.Stop()
-	var nonce uint64
 
 	//
 	// UserAssociations
@@ -54,11 +52,6 @@ func TestAssociations(t *testing.T) {
 		require.Equal(
 			t, string(txn.TxnMeta.(*lib.UpdateProfileMetadata).NewUsername), "sender",
 		)
-
-		// Set nonce.
-		txn.TxnVersion = 1
-		txn.TxnNonce = &lib.DeSoNonce{ExpirationBlockHeight: math.MaxUint64, PartialID: nonce}
-		nonce += 1
 
 		// Sign txn.
 		require.Nil(t, txn.Signature.Sign)
@@ -107,11 +100,6 @@ func TestAssociations(t *testing.T) {
 		extraDataEncoded, err := EncodeExtraDataMap(extraData)
 		require.NoError(t, err)
 		require.Equal(t, txn.ExtraData, extraDataEncoded)
-
-		// Set nonce.
-		txn.TxnVersion = 1
-		txn.TxnNonce = &lib.DeSoNonce{ExpirationBlockHeight: math.MaxUint64, PartialID: nonce}
-		nonce += 1
 
 		// Sign txn.
 		require.Nil(t, txn.Signature.Sign)
@@ -299,11 +287,6 @@ func TestAssociations(t *testing.T) {
 		txnMeta := txn.TxnMeta.(*lib.DeleteUserAssociationMetadata)
 		require.NotNil(t, txnMeta.AssociationID)
 
-		// Set nonce.
-		txn.TxnVersion = 1
-		txn.TxnNonce = &lib.DeSoNonce{ExpirationBlockHeight: math.MaxUint64, PartialID: nonce}
-		nonce += 1
-
 		// Sign txn.
 		require.Nil(t, txn.Signature.Sign)
 		signTxn(t, txn, senderPrivString)
@@ -353,11 +336,6 @@ func TestAssociations(t *testing.T) {
 		txnMeta := txn.TxnMeta.(*lib.SubmitPostMetadata)
 		require.NotNil(t, txnMeta.Body)
 
-		// Set nonce.
-		txn.TxnVersion = 1
-		txn.TxnNonce = &lib.DeSoNonce{ExpirationBlockHeight: math.MaxUint64, PartialID: nonce}
-		nonce += 1
-
 		// Sign txn.
 		require.Nil(t, txn.Signature.Sign)
 		signTxn(t, txn, senderPrivString)
@@ -404,11 +382,6 @@ func TestAssociations(t *testing.T) {
 		extraDataEncoded, err := EncodeExtraDataMap(extraData)
 		require.NoError(t, err)
 		require.Equal(t, txn.ExtraData, extraDataEncoded)
-
-		// Set nonce.
-		txn.TxnVersion = 1
-		txn.TxnNonce = &lib.DeSoNonce{ExpirationBlockHeight: math.MaxUint64, PartialID: nonce}
-		nonce += 1
 
 		// Sign txn.
 		require.Nil(t, txn.Signature.Sign)
@@ -596,11 +569,6 @@ func TestAssociations(t *testing.T) {
 		require.Equal(t, txn.PublicKey, transactorPkBytes)
 		txnMeta := txn.TxnMeta.(*lib.DeletePostAssociationMetadata)
 		require.NotNil(t, txnMeta.AssociationID)
-
-		// Set nonce.
-		txn.TxnVersion = 1
-		txn.TxnNonce = &lib.DeSoNonce{ExpirationBlockHeight: math.MaxUint64, PartialID: nonce}
-		nonce += 1
 
 		// Sign txn.
 		require.Nil(t, txn.Signature.Sign)

@@ -16,9 +16,7 @@ func TestFreezingPost(t *testing.T) {
 	apiServer := newTestApiServer(t)
 	defer apiServer.backendServer.Stop()
 	defer apiServer.Stop()
-
 	var post *PostEntryResponse
-	var nonce uint64
 
 	// Helper utils.
 	_submitPost := func(body *SubmitPostRequest) error {
@@ -37,11 +35,6 @@ func TestFreezingPost(t *testing.T) {
 		err = decoder.Decode(&submitPostResponse)
 		require.NoError(t, err)
 		txn := submitPostResponse.Transaction
-
-		// Set nonce.
-		txn.TxnVersion = 1
-		txn.TxnNonce = &lib.DeSoNonce{ExpirationBlockHeight: math.MaxUint64, PartialID: nonce}
-		nonce += 1
 
 		// Sign txn.
 		require.Nil(t, txn.Signature.Sign)
@@ -100,11 +93,6 @@ func TestFreezingPost(t *testing.T) {
 		require.Equal(
 			t, string(txn.TxnMeta.(*lib.UpdateProfileMetadata).NewUsername), "sender",
 		)
-
-		// Set nonce.
-		txn.TxnVersion = 1
-		txn.TxnNonce = &lib.DeSoNonce{ExpirationBlockHeight: math.MaxUint64, PartialID: nonce}
-		nonce += 1
 
 		// Sign txn.
 		require.Nil(t, txn.Signature.Sign)
