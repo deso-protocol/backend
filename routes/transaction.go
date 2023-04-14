@@ -1270,6 +1270,9 @@ type SubmitPostRequest struct {
 	TransactionFees []TransactionFee `safeForLogging:"true"`
 
 	InTutorial bool `safeForLogging:"true"`
+
+	// If true, the post will be "frozen", i.e. no longer editable.
+	IsFrozen bool `safeForLogging:"true"`
 }
 
 // SubmitPostResponse ...
@@ -1438,6 +1441,13 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Problem decoding ExtraData: %v", err))
 		return
+	}
+	if requestData.IsFrozen {
+		if _, exists := postExtraData[lib.IsFrozenKey]; exists {
+			_AddBadRequestError(ww, "SubmitPost: Cannot specify both IsFrozen and PostExtraData.IsFrozen")
+			return
+		}
+		postExtraData[lib.IsFrozenKey] = lib.IsFrozenPostVal
 	}
 
 	// Try and create the SubmitPost for the user.
