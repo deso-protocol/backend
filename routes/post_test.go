@@ -3,12 +3,14 @@ package routes
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"github.com/deso-protocol/core/lib"
 	"github.com/stretchr/testify/require"
 	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -27,7 +29,9 @@ func TestFreezingPost(t *testing.T) {
 		request.Header.Set("Content-Type", "application/json")
 		response := httptest.NewRecorder()
 		apiServer.router.ServeHTTP(response, request)
-		require.NotContains(t, string(response.Body.Bytes()), "error")
+		if strings.Contains(string(response.Body.Bytes()), "{\"error\":") {
+			return errors.New(string(response.Body.Bytes()))
+		}
 
 		// Decode response.
 		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
@@ -135,12 +139,34 @@ func TestFreezingPost(t *testing.T) {
 		require.False(t, post.IsFrozen)
 	}
 	{
-		// Update the post to frozen.
+		// Specify IsFrozen and PostExtraData.IsFrozen. Fails.
 		err := _submitPost(&SubmitPostRequest{
 			UpdaterPublicKeyBase58Check: senderPkString,
 			PostHashHexToModify:         post.PostHashHex,
 			PostExtraData:               map[string]string{"IsFrozen": "1"},
 			MinFeeRateNanosPerKB:        apiServer.MinFeeRateNanosPerKB,
+			IsFrozen:                    true,
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Cannot specify both IsFrozen and PostExtraData.IsFrozen")
+
+		err = _submitPost(&SubmitPostRequest{
+			UpdaterPublicKeyBase58Check: senderPkString,
+			PostHashHexToModify:         post.PostHashHex,
+			PostExtraData:               map[string]string{"IsFrozen": "0"},
+			MinFeeRateNanosPerKB:        apiServer.MinFeeRateNanosPerKB,
+			IsFrozen:                    true,
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Cannot specify both IsFrozen and PostExtraData.IsFrozen")
+	}
+	{
+		// Update the post to frozen.
+		err := _submitPost(&SubmitPostRequest{
+			UpdaterPublicKeyBase58Check: senderPkString,
+			PostHashHexToModify:         post.PostHashHex,
+			MinFeeRateNanosPerKB:        apiServer.MinFeeRateNanosPerKB,
+			IsFrozen:                    true,
 		})
 		require.NoError(t, err)
 
@@ -149,8 +175,6 @@ func TestFreezingPost(t *testing.T) {
 		post = posts[0]
 		require.Equal(t, post.Body, "Hello, world... again!")
 		require.True(t, post.IsFrozen)
-		// The IsFrozen key gets deleted from the ExtraData.
-		require.Equal(t, post.PostExtraData["IsFrozen"], "")
 	}
 	{
 		// Try to update the frozen post. Fails.
