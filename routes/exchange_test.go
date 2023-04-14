@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -42,7 +43,20 @@ const (
 	blockSignerPk   = "BC1YLiQ86kwXUy3nfK391xht7N72UmbFY6bGrUsds1A7QKZrs4jJsxo"
 )
 
-func GetTestBadgerDb() (_db *badger.DB, _dir string) {
+func CleanUpBadger(db *badger.DB) {
+	// Close the database.
+	err := db.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Delete the database directory.
+	err = os.RemoveAll(db.Opts().Dir)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func GetTestBadgerDb(t *testing.T) (_db *badger.DB, _dir string) {
 	dir, err := ioutil.TempDir("", "badgerdb-"+uuid.New().String())
 	if err != nil {
 		log.Fatal(err)
@@ -52,29 +66,33 @@ func GetTestBadgerDb() (_db *badger.DB, _dir string) {
 	opts := badger.DefaultOptions(dir)
 	opts.Dir = dir
 	opts.ValueDir = dir
+	// No logger when running tests
+	opts.Logger = nil
 	db, err := badger.Open(opts)
 	if err != nil {
 		log.Fatal(err)
 	}
-
+	t.Cleanup(func() {
+		CleanUpBadger(db)
+	})
 	return db, dir
 }
 
-func NewLowDifficultyBlockchain() (*lib.Blockchain, *lib.DeSoParams, *badger.DB, string) {
+func NewLowDifficultyBlockchain(t *testing.T) (*lib.Blockchain, *lib.DeSoParams, *badger.DB, string) {
 
 	// Set the number of txns per view regeneration to one while creating the txns
 	lib.ReadOnlyUtxoViewRegenerationIntervalTxns = 1
 
-	return NewLowDifficultyBlockchainWithParams(&lib.DeSoTestnetParams)
+	return NewLowDifficultyBlockchainWithParams(t, &lib.DeSoTestnetParams)
 }
 
-func NewLowDifficultyBlockchainWithParams(params *lib.DeSoParams) (
+func NewLowDifficultyBlockchainWithParams(t *testing.T, params *lib.DeSoParams) (
 	*lib.Blockchain, *lib.DeSoParams, *badger.DB, string) {
 
 	// Set the number of txns per view regeneration to one while creating the txns
 	lib.ReadOnlyUtxoViewRegenerationIntervalTxns = 1
 
-	db, dir := GetTestBadgerDb()
+	db, dir := GetTestBadgerDb(t)
 	timesource := chainlib.NewMedianTime()
 
 	// Set some special parameters for testing. If the blocks above are changed
@@ -164,12 +182,12 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	require := require.New(t)
 	_, _ = assert, require
 
-	_, badgerDir := GetTestBadgerDb()
+	_, badgerDir := GetTestBadgerDb(t)
 
 	// Create a global state db only if a remote node was not provided
 	var globalStateDB *badger.DB
 	if globalStateRemoteNode == "" {
-		globalStateDB, _ = GetTestBadgerDb()
+		globalStateDB, _ = GetTestBadgerDb(t)
 	}
 	publicConfig := &config.Config{
 		APIPort:                    testJSONPort,
@@ -184,7 +202,6 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	coreConfig := coreCmd.LoadConfig()
 	coreConfig.Params = &lib.DeSoTestnetParams
 	coreConfig.DataDirectory = badgerDir
-	coreConfig.MempoolDumpDirectory = badgerDir
 	coreConfig.TXIndex = true
 	coreConfig.MinerPublicKeys = []string{senderPkString}
 	coreConfig.NumMiningThreads = 1
@@ -224,6 +241,13 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *
 	require.NoError(err)
 	_, err = miner.MineAndProcessSingleBlock(0, node.Server.GetMempool())
 	require.NoError(err)
+
+	t.Cleanup(func() {
+		miner.Stop()
+		publicApiServer.Stop()
+		privateApiServer.Stop()
+		node.Stop()
+	})
 	return publicApiServer, privateApiServer, miner
 }
 
@@ -234,8 +258,6 @@ func TestAPI(t *testing.T) {
 	_, _ = assert, require
 
 	apiServer, _, miner := newTestAPIServer(t, "" /*globalStateRemoteNode*/)
-	defer apiServer.backendServer.Stop()
-	defer apiServer.Stop()
 
 	{
 		request, _ := http.NewRequest("GET", RoutePathAPIBase, nil)
