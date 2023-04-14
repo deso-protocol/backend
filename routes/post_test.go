@@ -16,8 +16,6 @@ import (
 
 func TestFreezingPost(t *testing.T) {
 	apiServer := newTestApiServer(t)
-	defer apiServer.backendServer.Stop()
-	defer apiServer.Stop()
 	var post *PostEntryResponse
 
 	// Helper utils.

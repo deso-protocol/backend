@@ -20,8 +20,6 @@ import (
 func TestAssociations(t *testing.T) {
 	var associationID string
 	apiServer := newTestApiServer(t)
-	defer apiServer.backendServer.Stop()
-	defer apiServer.Stop()
 
 	//
 	// UserAssociations
@@ -589,13 +587,12 @@ func TestAssociations(t *testing.T) {
 
 func newTestApiServer(t *testing.T) *APIServer {
 	// Create a badger db instance.
-	badgerDB, badgerDir := GetTestBadgerDb()
+	badgerDB, badgerDir := GetTestBadgerDb(t)
 
 	// Set core node's config.
 	coreConfig := coreCmd.LoadConfig()
 	coreConfig.Params = &lib.DeSoTestnetParams
 	coreConfig.DataDirectory = badgerDir
-	coreConfig.MempoolDumpDirectory = badgerDir
 	coreConfig.Regtest = true
 	coreConfig.TXIndex = false
 	coreConfig.MinerPublicKeys = []string{senderPkString}
@@ -636,6 +633,11 @@ func newTestApiServer(t *testing.T) *APIServer {
 	// Initialize api server.
 	apiServer.MinFeeRateNanosPerKB = node.Config.MinFeerate
 	apiServer.initState()
+
+	t.Cleanup(func() {
+		apiServer.Stop()
+		node.Stop()
+	})
 	return apiServer
 }
 
