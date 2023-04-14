@@ -139,15 +139,21 @@ func Encode64BitUintString(str string) ([]byte, error) {
 	return buffer, nil
 }
 
-func DecodeBoolString(bytes []byte, params *lib.DeSoParams, utxoView *lib.UtxoView) string {
-	return Decode64BitUintString(bytes, params, utxoView)
+func DecodeBoolString(inputBytes []byte, params *lib.DeSoParams, utxoView *lib.UtxoView) string {
+	if bytes.Equal(inputBytes, []byte{1}) {
+		return "1"
+	}
+	return "0"
 }
 
 func EncodeBoolString(str string) ([]byte, error) {
-	if str != "0" && str != "1" {
-		return nil, errors.Errorf("%v is not a boolean string. Only values \"0\" or \"1\" are supported", str)
+	if str == "0" {
+		return []byte{0}, nil
 	}
-	return Encode64BitUintString(str)
+	if str == "1" {
+		return []byte{1}, nil
+	}
+	return nil, errors.Errorf("%v is not a boolean string. Only values \"0\" or \"1\" are supported", str)
 }
 
 func DecodeHexString(bytes []byte, _ *lib.DeSoParams, _ *lib.UtxoView) string {

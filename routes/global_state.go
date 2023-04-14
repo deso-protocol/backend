@@ -232,7 +232,15 @@ var (
 	// same ID.
 	//
 
-	// NEXT_TAG: 46
+	// The prefix for accessing the graylisted users by username.
+	// <prefix, username> -> <IsGraylisted>
+	_GlobalStatePrefixUsernameToGraylistState = []byte{46}
+
+	// The prefix for accesing the blacklisted users by username.
+	// <prefix, username> -> <IsBlacklisted>
+	_GlobalStatePrefixUsernameToBlacklistState = []byte{47}
+
+	// NEXT_TAG: 48
 
 )
 
@@ -630,10 +638,17 @@ func GlobalStateKeyForWhitelistAuditLogs(username string) []byte {
 	return key
 }
 
-// Key for accessing a graylisted user.
+// Key for accessing a graylisted user by public key.
 func GlobalStateKeyForGraylistedProfile(profilePubKey []byte) []byte {
 	key := append([]byte{}, _GlobalStatePrefixPublicKeyToGraylistState...)
 	key = append(key, profilePubKey...)
+	return key
+}
+
+// Key for accessing a graylisted user by username.
+func GlobalStateKeyForGraylistedProfileByUsername(username string) []byte {
+	key := append([]byte{}, _GlobalStatePrefixUsernameToGraylistState...)
+	key = append(key, []byte(strings.ToLower(username))...)
 	return key
 }
 
@@ -644,10 +659,17 @@ func GlobalStateKeyForGraylistAuditLogs(username string) []byte {
 	return key
 }
 
-// Key for accessing a blacklisted user.
+// Key for accessing a blacklisted user by public key.
 func GlobalStateKeyForBlacklistedProfile(profilePubKey []byte) []byte {
 	key := append([]byte{}, _GlobalStatePrefixPublicKeyToBlacklistState...)
 	key = append(key, profilePubKey...)
+	return key
+}
+
+// Key for accessing a blacklisted user by username.
+func GlobalStateKeyForBlacklistedProfileByUsername(username string) []byte {
+	key := append([]byte{}, _GlobalStatePrefixUsernameToBlacklistState...)
+	key = append(key, []byte(strings.ToLower(username))...)
 	return key
 }
 

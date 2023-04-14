@@ -1366,10 +1366,14 @@ func (fes *APIServer) FilterOutRestrictedPubKeysFromMap(profilePubKeyMap map[lib
 	filteredPubKeyMap := make(map[lib.PkMapKey][]byte)
 	for pkMapKey, publicKey := range profilePubKeyMap {
 		pkid := utxoView.GetPKIDForPublicKey(publicKey).PKID
+
+		usernameGraylistState := fes.GetUsernameGraylistStateForPkid(pkid, utxoView)
+		usernameBlacklistState := fes.GetUsernameBlacklistStateForPkid(pkid, utxoView)
+
 		// If the key is restricted based on the current moderation type and the pkMapKey does not equal that of the currentPoster,
 		// we can filter out this public key.  We need to check the currentPoster's PK to support hiding comments from
 		// greylisted users (moderationType = "leaderboard") but still support getting posts from greylisted users.
-		if IsRestrictedPubKey(fes.GetGraylistState(pkid), fes.GetBlacklistState(pkid), moderationType) {
+		if IsRestrictedPubKey(fes.GetGraylistStateForPkid(pkid), usernameGraylistState, fes.GetBlacklistStateForPkid(pkid), usernameBlacklistState, moderationType) {
 			continue
 		} else {
 			// If a public key does isn't restricted, add it to the map.
@@ -1393,7 +1397,11 @@ func (fes *APIServer) FilterOutRestrictedPubKeysFromList(profilePubKeys [][]byte
 	filteredPubKeys := [][]byte{}
 	for _, profilePubKey := range profilePubKeys {
 		pkid := utxoView.GetPKIDForPublicKey(profilePubKey).PKID
-		if IsRestrictedPubKey(fes.GetGraylistState(pkid), fes.GetBlacklistState(pkid), moderationType) {
+
+		usernameGraylistState := fes.GetUsernameGraylistStateForPkid(pkid, utxoView)
+		usernameBlacklistState := fes.GetUsernameBlacklistStateForPkid(pkid, utxoView)
+
+		if IsRestrictedPubKey(fes.GetGraylistStateForPkid(pkid), usernameGraylistState, fes.GetBlacklistStateForPkid(pkid), usernameBlacklistState, moderationType) {
 			// Always let the reader access their content.
 			if reflect.DeepEqual(readerPK, profilePubKey) {
 				filteredPubKeys = append(filteredPubKeys, profilePubKey)
@@ -1408,12 +1416,12 @@ func (fes *APIServer) FilterOutRestrictedPubKeysFromList(profilePubKeys [][]byte
 	return filteredPubKeys, nil
 }
 
-func IsRestrictedPubKey(userGraylistState []byte, userBlacklistState []byte, moderationType string) bool {
+func IsRestrictedPubKey(userGraylistStatePkid []byte, usernameGraylistState []byte, userBlacklistStatePkid []byte, usernameBlacklistState []byte, moderationType string) bool {
 	if moderationType == "unrestricted" {
 		return false
-	} else if reflect.DeepEqual(userBlacklistState, IsBlacklisted) {
+	} else if reflect.DeepEqual(userBlacklistStatePkid, IsBlacklisted) || reflect.DeepEqual(usernameBlacklistState, IsBlacklisted) {
 		return true
-	} else if moderationType == "leaderboard" && reflect.DeepEqual(userGraylistState, IsGraylisted) {
+	} else if moderationType == "leaderboard" && (reflect.DeepEqual(userGraylistStatePkid, IsGraylisted) || reflect.DeepEqual(usernameGraylistState, IsGraylisted)) {
 		return true
 	} else {
 		return false

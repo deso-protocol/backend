@@ -212,6 +212,7 @@ const (
 	RoutePathAdminGetUsernameVerificationAuditLogs = "/api/v0/admin/get-username-verification-audit-logs"
 	RoutePathAdminGetUserAdminData                 = "/api/v0/admin/get-user-admin-data"
 	RoutePathAdminResetPhoneNumber                 = "/api/v0/admin/reset-phone-number"
+	RoutePathAdminUpdateUsernameBlacklist          = "/api/v0/admin/update-username-blacklist"
 
 	// admin_feed.go
 	RoutePathAdminUpdateGlobalFeed = "/api/v0/admin/update-global-feed"
@@ -267,6 +268,8 @@ const (
 	RoutePathGetVerifiedUsernames     = "/api/v0/get-verified-usernames"
 	RoutePathGetBlacklistedPublicKeys = "/api/v0/get-blacklisted-public-keys"
 	RoutePathGetGraylistedPublicKeys  = "/api/v0/get-graylisted-public-keys"
+	RoutePathGetBlacklistedUsernames  = "/api/v0/get-blacklisted-usernames"
+	RoutePathGetGraylistedUsernames   = "/api/v0/get-graylisted-usernames"
 	RoutePathGetGlobalFeed            = "/api/v0/get-global-feed"
 
 	// supply.go
@@ -412,6 +415,9 @@ type APIServer struct {
 	// BlacklistedPKIDMap is a map of PKID to a byte slice representing the PKID of a user as the key and the current
 	// blacklist state of that user as the key. If a PKID is not present in this map, then the user is NOT blacklisted.
 	BlacklistedPKIDMap map[lib.PKID][]byte
+	// BlacklistedUsernameMap is a map of username to a byte slice representing the username of a user as the key and the current
+	// blacklist state of that user as the key. If a username is not present in this map, then the username is NOT blacklisted.
+	BlacklistedUsernameMap map[string][]byte
 	// BlacklistedResponseMap is a map of PKIDs converted to base58-encoded string to a byte slice. This is computed
 	// from the BlacklistedPKIDMap above and is a JSON-encodable version of that map. This map is only used when
 	// responding to requests for this node's blacklist. A JSON-encoded response is easier for any language to digest
@@ -420,6 +426,9 @@ type APIServer struct {
 	// GraylistedPKIDMap is a map of PKID to a byte slice representing the PKID of a user as the key and the current
 	// graylist state of that user as the key. If a PKID is not present in this map, then the user is NOT graylisted.
 	GraylistedPKIDMap map[lib.PKID][]byte
+	// GraylistedUsernameMap is a map of username to a byte slice representing the username of a user as the key and the current
+	// graylist state of that user as the key. If a username is not present in this map, then the username is NOT graylisted.
+	GraylistedUsernameMap map[string][]byte
 	// GraylistedResponseMap is a map of PKIDs converted to base58-encoded string to a byte slice. This is computed
 	// from the GraylistedPKIDMap above and is a JSON-encodable version of that map. This map is only used when
 	// responding to requests for this node's graylist. A JSON-encoded response is easier for any language to digest
@@ -1366,6 +1375,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			AdminAccess,
 		},
 		{
+			"AdminUpdateUsernameBlacklist",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateUsernameBlacklist,
+			fes.AdminUpdateUsernameBlacklist,
+			AdminAccess,
+		},
+		{
 			"AdminGetVerifiedUsers",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminGetVerifiedUsers,
@@ -1923,6 +1939,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathGetGraylistedPublicKeys,
 			fes.GetGraylistedPublicKeys,
+			PublicAccess,
+		},
+		{
+			"GetBlacklistedUsernames",
+			[]string{"GET"},
+			RoutePathGetBlacklistedUsernames,
+			fes.GetBlacklistedUsernames,
+			PublicAccess,
+		},
+		{
+			"GetGraylistedUsernames",
+			[]string{"GET"},
+			RoutePathGetGraylistedUsernames,
+			fes.GetGraylistedUsernames,
 			PublicAccess,
 		},
 		{
@@ -2638,6 +2668,8 @@ func (fes *APIServer) SetGlobalStateCache() {
 	fes.SetVerifiedUsernameMap()
 	fes.SetBlacklistedPKIDMap(utxoView)
 	fes.SetGraylistedPKIDMap(utxoView)
+	fes.SetBlacklistedUsernameMap()
+	fes.SetGraylistedUsernameMap()
 	fes.SetGlobalFeedPostHashes(utxoView)
 	fes.SetAllCountrySignUpBonusMetadata()
 	fes.SetUSDCentsToDeSoReserveExchangeRateFromGlobalState()
@@ -2678,6 +2710,24 @@ func (fes *APIServer) SetGraylistedPKIDMap(utxoView *lib.UtxoView) {
 		// node's global state. Sending a JSON-encoded version is preferable over a gob-encoded one so that any
 		// language can easily decode the response.
 		fes.GraylistedResponseMap = fes.makePKIDMapJSONEncodable(graylistMap)
+	}
+}
+
+func (fes *APIServer) SetBlacklistedUsernameMap() {
+	blacklistMap, err := fes.GetUsernameBlacklist()
+	if err != nil {
+		glog.Errorf("SetBlacklistedUsernameMap: Error getting blacklist: %v", err)
+	} else {
+		fes.BlacklistedUsernameMap = blacklistMap
+	}
+}
+
+func (fes *APIServer) SetGraylistedUsernameMap() {
+	graylistMap, err := fes.GetUsernameGraylist()
+	if err != nil {
+		glog.Errorf("SetGraylistedUsernameMap: Error getting blacklist: %v", err)
+	} else {
+		fes.GraylistedUsernameMap = graylistMap
 	}
 }
 
