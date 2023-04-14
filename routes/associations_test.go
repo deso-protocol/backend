@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/config"
 	coreCmd "github.com/deso-protocol/core/cmd"
@@ -12,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -57,7 +59,8 @@ func TestAssociations(t *testing.T) {
 		require.NotNil(t, txn.Signature.Sign)
 
 		// Submit txn.
-		submitTxn(t, apiServer, txn)
+		_, err = submitTxn(t, apiServer, txn)
+		require.NoError(t, err)
 	}
 	{
 		// Create a UserAssociation.
@@ -104,7 +107,8 @@ func TestAssociations(t *testing.T) {
 		require.NotNil(t, txn.Signature.Sign)
 
 		// Submit txn.
-		submitTxnResponse := submitTxn(t, apiServer, txn)
+		submitTxnResponse, err := submitTxn(t, apiServer, txn)
+		require.NoError(t, err)
 		associationID = submitTxnResponse.TxnHashHex
 	}
 	{
@@ -289,7 +293,8 @@ func TestAssociations(t *testing.T) {
 		require.NotNil(t, txn.Signature.Sign)
 
 		// Submit txn.
-		submitTxn(t, apiServer, txn)
+		_, err = submitTxn(t, apiServer, txn)
+		require.NoError(t, err)
 
 		// Try to GET deleted association by ID. Errors.
 		getRequest, _ := http.NewRequest("GET", RoutePathUserAssociations+"/"+associationID, nil)
@@ -337,7 +342,8 @@ func TestAssociations(t *testing.T) {
 		require.NotNil(t, txn.Signature.Sign)
 
 		// Submit txn.
-		submitTxnResponse := submitTxn(t, apiServer, txn)
+		submitTxnResponse, err := submitTxn(t, apiServer, txn)
+		require.NoError(t, err)
 		postHashHex = submitTxnResponse.TxnHashHex
 	}
 	{
@@ -383,7 +389,8 @@ func TestAssociations(t *testing.T) {
 		require.NotNil(t, txn.Signature.Sign)
 
 		// Submit txn.
-		submitTxnResponse := submitTxn(t, apiServer, txn)
+		submitTxnResponse, err := submitTxn(t, apiServer, txn)
+		require.NoError(t, err)
 		associationID = submitTxnResponse.TxnHashHex
 	}
 	{
@@ -569,7 +576,8 @@ func TestAssociations(t *testing.T) {
 		require.NotNil(t, txn.Signature.Sign)
 
 		// Submit txn.
-		submitTxn(t, apiServer, txn)
+		_, err = submitTxn(t, apiServer, txn)
+		require.NoError(t, err)
 
 		// Try to GET deleted association by ID. Errors.
 		getRequest, _ := http.NewRequest("GET", RoutePathPostAssociations+"/"+associationID, nil)
@@ -602,12 +610,12 @@ func newTestApiServer(t *testing.T) *APIServer {
 	node.Start(&shutdownListener)
 
 	// Set api server's config.
-	config := config.LoadConfig(coreConfig)
-	config.APIPort = testJSONPort
-	config.GlobalStateRemoteNode = ""
-	config.GlobalStateRemoteSecret = globalStateSharedSecret
-	config.RunHotFeedRoutine = false
-	config.RunSupplyMonitoringRoutine = false
+	apiConfig := config.LoadConfig(coreConfig)
+	apiConfig.APIPort = testJSONPort
+	apiConfig.GlobalStateRemoteNode = ""
+	apiConfig.GlobalStateRemoteSecret = globalStateSharedSecret
+	apiConfig.RunHotFeedRoutine = false
+	apiConfig.RunSupplyMonitoringRoutine = false
 
 	// Create an api server.
 	apiServer, err := NewAPIServer(
@@ -617,7 +625,7 @@ func newTestApiServer(t *testing.T) *APIServer {
 		node.Server.GetBlockProducer(),
 		node.TXIndex,
 		node.Params,
-		config,
+		apiConfig,
 		node.Config.MinFeerate,
 		badgerDB,
 		nil,
@@ -640,7 +648,7 @@ func signTxn(t *testing.T, txn *lib.MsgDeSoTxn, privKeyBase58Check string) {
 	txn.Signature.SetSignature(txnSignature)
 }
 
-func submitTxn(t *testing.T, apiServer *APIServer, txn *lib.MsgDeSoTxn) *SubmitTransactionResponse {
+func submitTxn(t *testing.T, apiServer *APIServer, txn *lib.MsgDeSoTxn) (*SubmitTransactionResponse, error) {
 	// Convert txn to txn hex.
 	txnBytes, err := txn.ToBytes(false)
 	require.NoError(t, err)
@@ -656,12 +664,14 @@ func submitTxn(t *testing.T, apiServer *APIServer, txn *lib.MsgDeSoTxn) *SubmitT
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	apiServer.router.ServeHTTP(response, request)
-	require.NotContains(t, string(response.Body.Bytes()), "error")
+	if strings.Contains(string(response.Body.Bytes()), "{\"error\":") {
+		return nil, errors.New(string(response.Body.Bytes()))
+	}
 
 	// Decode response.
 	decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
 	txnResponse := SubmitTransactionResponse{}
 	err = decoder.Decode(&txnResponse)
 	require.NoError(t, err)
-	return &txnResponse
+	return &txnResponse, nil
 }

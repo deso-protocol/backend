@@ -10,6 +10,7 @@ func TestExtraDataEncodingDecodingSuccess(t *testing.T) {
 	successTestCases := map[string]string{
 		lib.RepostedPostHash:                 "00001dd90015139e385143d40a2c77c890ec207a6c8f3394f0d5af5ce3e00f15",
 		lib.IsQuotedRepostKey:                "1",
+		lib.IsFrozenKey:                      "1",
 		lib.USDCentsPerBitcoinKey:            "123456789",
 		lib.MinNetworkFeeNanosPerKBKey:       "0",
 		lib.CreateProfileFeeNanosKey:         "1",
@@ -44,6 +45,7 @@ func TestExtraDataEncodingDecodingErrors(t *testing.T) {
 	errorTestCases := map[string]string{
 		lib.RepostedPostHash:                 "zzz", // not a hex-encoded string
 		lib.IsQuotedRepostKey:                "2",   // not a boolean string value
+		lib.IsFrozenKey:                      "-1",  // not a boolean string value
 		lib.USDCentsPerBitcoinKey:            "-1",  // uvarint can't be negative
 		lib.MinNetworkFeeNanosPerKBKey:       "-1",  // uvarint can't be negative
 		lib.CreateProfileFeeNanosKey:         "-1",  // uvarint can't be negative
