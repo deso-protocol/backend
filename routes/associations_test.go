@@ -587,7 +587,7 @@ func TestAssociations(t *testing.T) {
 
 func newTestApiServer(t *testing.T) *APIServer {
 	// Create a badger db instance.
-	badgerDB, badgerDir := GetTestBadgerDb()
+	badgerDB, badgerDir := GetTestBadgerDb(t)
 
 	// Set core node's config.
 	coreConfig := coreCmd.LoadConfig()
