@@ -3857,22 +3857,58 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 		return
 	}
 
-	// If transaction has no inputs we can return immediately.
-	if len(txn.TxInputs) == 0 && txn.TxnFeeNanos == 0 {
-		// Return the final transaction spending.
-		res := GetTransactionSpendingResponse{
-			TotalSpendingNanos: 0,
-		}
-		if err := json.NewEncoder(ww).Encode(res); err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem encoding response as JSON: %v", err))
-		}
-		return
-	}
-
 	// Get augmented universal view from mempool.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem getting AugmentedUniversalView: %v", err))
+		return
+	}
+
+	if txn.TxnFeeNanos != 0 {
+		var utxoOperations []*lib.UtxoOperation
+		utxoOperations, _, _, _, err = fes.simulateSubmitTransaction(utxoView, txn)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: error simulating txn: %v", err))
+			return
+		}
+		var spendBalanceAmount, addBalanceAmount uint64
+		for _, utxoOperation := range utxoOperations {
+			if utxoOperation.Type == lib.OperationTypeSpendBalance && bytes.Equal(utxoOperation.BalancePublicKey, txn.PublicKey) {
+				spendBalanceAmount, err = lib.SafeUint64().Add(spendBalanceAmount, utxoOperation.BalanceAmountNanos)
+				if err != nil {
+					_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: error summing spend balance amount: %v", err))
+				}
+			}
+			if utxoOperation.Type == lib.OperationTypeAddBalance && bytes.Equal(utxoOperation.BalancePublicKey, txn.PublicKey) {
+				addBalanceAmount, err = lib.SafeUint64().Add(addBalanceAmount, utxoOperation.BalanceAmountNanos)
+				if err != nil {
+					_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: error summing add balance amount: %v", err))
+				}
+			}
+		}
+		var totalSpendingNanos uint64
+		if spendBalanceAmount > addBalanceAmount {
+			totalSpendingNanos = spendBalanceAmount - addBalanceAmount
+		}
+
+		// Return the final transaction spending.
+		res := GetTransactionSpendingResponse{
+			TotalSpendingNanos: totalSpendingNanos,
+		}
+		if err = json.NewEncoder(ww).Encode(res); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem encoding response as JSON: %v", err))
+		}
+	}
+
+	// If transaction has no inputs we can return immediately.
+	if len(txn.TxInputs) == 0 {
+		// Return the final transaction spending.
+		res := GetTransactionSpendingResponse{
+			TotalSpendingNanos: 0,
+		}
+		if err = json.NewEncoder(ww).Encode(res); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem encoding response as JSON: %v", err))
+		}
 		return
 	}
 
@@ -3889,12 +3925,9 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 
 	// Get nanos sent back to the sender from outputs.
 	changeAmountNanos := uint64(0)
-	outputsToOthers := uint64(0)
 	for _, txOutput := range txn.TxOutputs {
 		if reflect.DeepEqual(txOutput.PublicKey, txn.PublicKey) {
 			changeAmountNanos += txOutput.AmountNanos
-		} else {
-			outputsToOthers += txOutput.AmountNanos
 		}
 	}
 
@@ -3905,15 +3938,8 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 	}
 
 	// Return the final transaction spending.
-	var totalSpendingNanos uint64
-	if totalInputNanos > changeAmountNanos {
-		totalSpendingNanos = totalInputNanos - changeAmountNanos
-	}
-	if txn.TxnFeeNanos != 0 {
-		totalSpendingNanos = txn.TxnFeeNanos + outputsToOthers
-	}
 	res := GetTransactionSpendingResponse{
-		TotalSpendingNanos: totalSpendingNanos,
+		TotalSpendingNanos: totalInputNanos - changeAmountNanos,
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem encoding response as JSON: %v", err))
@@ -3921,9 +3947,9 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 	return
 }
 
-func (fes *APIServer) simulateSubmitTransaction(utxoView *lib.UtxoView, txn *lib.MsgDeSoTxn) (uint64, error) {
+func (fes *APIServer) simulateSubmitTransaction(utxoView *lib.UtxoView, txn *lib.MsgDeSoTxn) (_utxoOperations []*lib.UtxoOperation, _totalInput uint64, _totalOutput uint64, _fees uint64, _err error) {
 	bestHeight := fes.blockchain.BlockTip().Height + 1
-	_, _, _, fees, err := utxoView.ConnectTransaction(
+	return utxoView.ConnectTransaction(
 		txn,
 		txn.Hash(),
 		0,
@@ -3931,5 +3957,4 @@ func (fes *APIServer) simulateSubmitTransaction(utxoView *lib.UtxoView, txn *lib
 		false,
 		false,
 	)
-	return fees, err
 }
