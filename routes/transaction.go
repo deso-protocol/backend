@@ -3950,7 +3950,7 @@ func (fes *APIServer) GetSignatureIndex(ww http.ResponseWriter, req *http.Reques
 	}
 
 	res := &GetSignatureIndexResponse{
-		SignatureIndex: len(txnBytes) - rr.Len(),
+		SignatureIndex: len(txnBytes) - rr.Len() - 1,
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetSignatureIndex: Problem encoding response as JSON: %v", err))
