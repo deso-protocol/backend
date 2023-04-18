@@ -3898,6 +3898,7 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 		if err = json.NewEncoder(ww).Encode(res); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem encoding response as JSON: %v", err))
 		}
+		return
 	}
 
 	// If transaction has no inputs we can return immediately.
