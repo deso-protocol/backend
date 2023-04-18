@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/gorilla/mux"
 	"io"
 	"math/big"
 	"net/http"
@@ -3920,4 +3921,39 @@ func (fes *APIServer) simulateSubmitTransaction(utxoView *lib.UtxoView, txn *lib
 		false,
 	)
 	return fees, err
+}
+
+type GetSignatureIndexResponse struct {
+	SignatureIndex int
+}
+
+func (fes *APIServer) GetSignatureIndex(ww http.ResponseWriter, req *http.Request) {
+	// Parse TransactionHex from URL.
+	vars := mux.Vars(req)
+	transactionHex, transactionHexExists := vars["transactionHex"]
+	if !transactionHexExists {
+		_AddBadRequestError(ww, fmt.Sprint("GetSignatureIndex: must provide a TransactionHex"))
+		return
+	}
+
+	txnBytes, err := hex.DecodeString(transactionHex)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSignatureIndex: unable to decode transaction hex %v: %v", transactionHex, err))
+		return
+	}
+
+	rr := bytes.NewReader(txnBytes)
+	txn := &lib.MsgDeSoTxn{}
+	if err = lib.ReadTransactionV0Fields(rr, txn); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSignatureIndex: unable to read v0 fields of transaction hex %v: %v", transactionHex, err))
+		return
+	}
+
+	res := &GetSignatureIndexResponse{
+		SignatureIndex: len(txnBytes) - rr.Len() - 1,
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSignatureIndex: Problem encoding response as JSON: %v", err))
+	}
+	return
 }

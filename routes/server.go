@@ -67,6 +67,7 @@ const (
 	RoutePathCancelDAOCoinLimitOrder  = "/api/v0/cancel-dao-coin-limit-order"
 	RoutePathAppendExtraData          = "/api/v0/append-extra-data"
 	RoutePathGetTransactionSpending   = "/api/v0/get-transaction-spending"
+	RoutePathGetSignatureIndex        = "/api/v0/signature-index"
 
 	RoutePathGetUsersStateless                          = "/api/v0/get-users-stateless"
 	RoutePathDeleteIdentities                           = "/api/v0/delete-identities"
@@ -994,6 +995,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetTransactionSpending,
 			fes.GetTransactionSpending,
+			PublicAccess,
+		},
+		{
+			"GetSignatureIndex",
+			[]string{"GET"},
+			RoutePathGetSignatureIndex + "/{transactionHex:[a-fA-F0-9]+}",
+			fes.GetSignatureIndex,
 			PublicAccess,
 		},
 		{
