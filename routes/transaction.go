@@ -3831,9 +3831,6 @@ type GetTransactionSpendingResponse struct {
 // This endpoint allows you to calculate transaction total spending
 // by subtracting transaction output to sender from transaction inputs.
 // Note, this endpoint doesn't check if transaction is valid.
-// Note, for balance model, this does not take into account "extra"
-// spend for transactions such as creator coin buys, NFT purchases,
-// DAO Coin limit orders, create NFT fees, and create Profile fees.
 func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetTransactionSpendingRequest{}
@@ -3939,8 +3936,9 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 	}
 
 	// Return the final transaction spending.
+	totalSpendingNanos := totalInputNanos - changeAmountNanos
 	res := GetTransactionSpendingResponse{
-		TotalSpendingNanos: totalInputNanos - changeAmountNanos,
+		TotalSpendingNanos: totalSpendingNanos,
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem encoding response as JSON: %v", err))
