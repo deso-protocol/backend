@@ -3831,6 +3831,9 @@ type GetTransactionSpendingResponse struct {
 // This endpoint allows you to calculate transaction total spending
 // by subtracting transaction output to sender from transaction inputs.
 // Note, this endpoint doesn't check if transaction is valid.
+// Note, for balance model, this does not take into account "extra"
+// spend for transactions such as creator coin buys, NFT purchases,
+// DAO Coin limit orders, create NFT fees, and create Profile fees.
 func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetTransactionSpendingRequest{}
@@ -3855,7 +3858,7 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 	}
 
 	// If transaction has no inputs we can return immediately.
-	if len(txn.TxInputs) == 0 {
+	if len(txn.TxInputs) == 0 && txn.TxnFeeNanos == 0 {
 		// Return the final transaction spending.
 		res := GetTransactionSpendingResponse{
 			TotalSpendingNanos: 0,
@@ -3886,9 +3889,12 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 
 	// Get nanos sent back to the sender from outputs.
 	changeAmountNanos := uint64(0)
+	outputsToOthers := uint64(0)
 	for _, txOutput := range txn.TxOutputs {
 		if reflect.DeepEqual(txOutput.PublicKey, txn.PublicKey) {
 			changeAmountNanos += txOutput.AmountNanos
+		} else {
+			outputsToOthers += txOutput.AmountNanos
 		}
 	}
 
@@ -3899,11 +3905,17 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 	}
 
 	// Return the final transaction spending.
-	totalSpendingNanos := totalInputNanos - changeAmountNanos
+	var totalSpendingNanos uint64
+	if totalInputNanos > changeAmountNanos {
+		totalSpendingNanos = totalInputNanos - changeAmountNanos
+	}
+	if txn.TxnFeeNanos != 0 {
+		totalSpendingNanos = txn.TxnFeeNanos + outputsToOthers
+	}
 	res := GetTransactionSpendingResponse{
 		TotalSpendingNanos: totalSpendingNanos,
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem encoding response as JSON: %v", err))
 	}
 	return
