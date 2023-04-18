@@ -1011,7 +1011,7 @@ func (fes *APIServer) getDAOCoinLimitOrderSimulatedExecutionResult(
 		return nil, err
 	}
 
-	txnFees, err := fes.simulateSubmitTransaction(utxoView, txn)
+	_, _, _, txnFees, err := fes.simulateSubmitTransaction(utxoView, txn)
 	if err != nil {
 		return nil, err
 	}
