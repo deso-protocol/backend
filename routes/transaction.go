@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/gorilla/mux"
 	"io"
 	"math/big"
 	"net/http"
@@ -3959,19 +3958,22 @@ func (fes *APIServer) simulateSubmitTransaction(utxoView *lib.UtxoView, txn *lib
 	)
 }
 
+type GetSignatureIndexRequest struct {
+	TransactionHex string
+}
+
 type GetSignatureIndexResponse struct {
 	SignatureIndex int
 }
 
 func (fes *APIServer) GetSignatureIndex(ww http.ResponseWriter, req *http.Request) {
-	// Parse TransactionHex from URL.
-	vars := mux.Vars(req)
-	transactionHex, transactionHexExists := vars["transactionHex"]
-	if !transactionHexExists {
-		_AddBadRequestError(ww, fmt.Sprint("GetSignatureIndex: must provide a TransactionHex"))
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetSignatureIndexRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSignatureIndex: Problem parsing request body: %v", err))
 		return
 	}
-
+	transactionHex := requestData.TransactionHex
 	txnBytes, err := hex.DecodeString(transactionHex)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetSignatureIndex: unable to decode transaction hex %v: %v", transactionHex, err))

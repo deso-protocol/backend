@@ -999,8 +999,8 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		},
 		{
 			"GetSignatureIndex",
-			[]string{"GET"},
-			RoutePathGetSignatureIndex + "/{transactionHex:[a-fA-F0-9]+}",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetSignatureIndex,
 			fes.GetSignatureIndex,
 			PublicAccess,
 		},
