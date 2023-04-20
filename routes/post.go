@@ -478,11 +478,9 @@ func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
 	}
 	profileEntries := make(map[lib.PkMapKey]*lib.ProfileEntry)
 	for _, postEntry := range allCorePosts {
-		{
-			profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
-			if profileEntry != nil {
-				profileEntries[lib.MakePkMapKey(profileEntry.PublicKey)] = profileEntry
-			}
+		profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
+		if profileEntry != nil {
+			profileEntries[lib.MakePkMapKey(profileEntry.PublicKey)] = profileEntry
 		}
 	}
 
