@@ -478,17 +478,22 @@ func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
 	}
 	profileEntries := make(map[lib.PkMapKey]*lib.ProfileEntry)
 	for _, postEntry := range allCorePosts {
-		{
-			profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
-			if profileEntry != nil {
-				profileEntries[lib.MakePkMapKey(profileEntry.PublicKey)] = profileEntry
-			}
+		profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
+		if profileEntry != nil {
+			profileEntries[lib.MakePkMapKey(profileEntry.PublicKey)] = profileEntry
 		}
 	}
 
 	// Order the posts by the poster's coin price.
 	sort.Slice(allCorePosts, func(ii, jj int) bool {
-		return profileEntries[lib.MakePkMapKey(allCorePosts[ii].PosterPublicKey)].CreatorCoinEntry.DeSoLockedNanos > profileEntries[lib.MakePkMapKey(allCorePosts[jj].PosterPublicKey)].CreatorCoinEntry.DeSoLockedNanos
+		var iiDeSoLocked, jjDeSoLocked uint64
+		if allCorePosts[ii] != nil && profileEntries[lib.MakePkMapKey(allCorePosts[ii].PosterPublicKey)] != nil {
+			iiDeSoLocked = profileEntries[lib.MakePkMapKey(allCorePosts[ii].PosterPublicKey)].CreatorCoinEntry.DeSoLockedNanos
+		}
+		if allCorePosts[jj] != nil && profileEntries[lib.MakePkMapKey(allCorePosts[jj].PosterPublicKey)] != nil {
+			jjDeSoLocked = profileEntries[lib.MakePkMapKey(allCorePosts[jj].PosterPublicKey)].CreatorCoinEntry.DeSoLockedNanos
+		}
+		return iiDeSoLocked > jjDeSoLocked
 	})
 	// Select the top numToFetch posts.
 	if len(allCorePosts) > numToFetch {
