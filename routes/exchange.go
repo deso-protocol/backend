@@ -456,6 +456,11 @@ type TransactionResponse struct {
 
 	// The ExtraData added to this transaction
 	ExtraData map[string]string `json:",omitempty"`
+
+	// Balance Model Fields
+	TxnNonce    *lib.DeSoNonce     `json:",omitempty"`
+	TxnFeeNanos uint64             `json:",omitempty"`
+	TxnVersion  lib.DeSoTxnVersion `json:",omitempty"`
 }
 
 // TransactionInfoResponse contains information about the transaction
@@ -526,6 +531,7 @@ func APITransactionToResponse(
 	params *lib.DeSoParams) *TransactionResponse {
 
 	signatureHex := ""
+
 	if txnn.Signature.Sign != nil {
 		signatureHex = hex.EncodeToString(txnn.Signature.Sign.Serialize())
 	}
@@ -548,6 +554,9 @@ func APITransactionToResponse(
 		SignatureHex:             signatureHex,
 		TransactionType:          txnn.TxnMeta.GetTxnType().String(),
 		TransactionMetadata:      &txnMetaResponse,
+		TxnNonce:                 txnn.TxnNonce,
+		TxnFeeNanos:              txnn.TxnFeeNanos,
+		TxnVersion:               txnn.TxnVersion,
 		// Inputs, Outputs, ExtraData, and some txnMeta fields set below.
 	}
 	for _, input := range txnn.TxInputs {
@@ -558,7 +567,7 @@ func APITransactionToResponse(
 	}
 	for _, output := range txnn.TxOutputs {
 		ret.Outputs = append(ret.Outputs, &OutputResponse{
-			PublicKeyBase58Check: lib.PkToString(output.PublicKey, params),
+			PublicKeyBase58Check: lib.Base58CheckEncode(output.PublicKey, false, params),
 			AmountNanos:          output.AmountNanos,
 		})
 	}
