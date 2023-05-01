@@ -31,14 +31,15 @@ const MaxAssociationValuesPerQueryLimit = 12
 // ------------
 
 type CreateUserAssociationRequest struct {
-	TransactorPublicKeyBase58Check string            `safeForLogging:"true"`
-	TargetUserPublicKeyBase58Check string            `safeForLogging:"true"`
-	AppPublicKeyBase58Check        string            `safeForLogging:"true"`
-	AssociationType                string            `safeForLogging:"true"`
-	AssociationValue               string            `safeForLogging:"true"`
-	ExtraData                      map[string]string `safeForLogging:"true"`
-	MinFeeRateNanosPerKB           uint64            `safeForLogging:"true"`
-	TransactionFees                []TransactionFee  `safeForLogging:"true"`
+	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
+	TargetUserPublicKeyBase58Check string `safeForLogging:"true"`
+	AppPublicKeyBase58Check        string `safeForLogging:"true"`
+	AssociationType                string `safeForLogging:"true"`
+	// blog-slug:introducing-the-deso-long-form-content-standard
+	AssociationValue     string            `safeForLogging:"true"`
+	ExtraData            map[string]string `safeForLogging:"true"`
+	MinFeeRateNanosPerKB uint64            `safeForLogging:"true"`
+	TransactionFees      []TransactionFee  `safeForLogging:"true"`
 }
 
 type UserAssociationQuery struct {
