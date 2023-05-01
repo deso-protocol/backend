@@ -27,6 +27,18 @@ func (fes *APIServer) GetGraylistedPublicKeys(ww http.ResponseWriter, req *http.
 	fes.WriteGlobalStateDataToResponse(fes.GraylistedResponseMap, "GetGraylistedPublicKeys", ww)
 }
 
+// GetBlacklistedUsernames returns a map of usernames to Blacklist state bytes if global state
+// is exposed.
+func (fes *APIServer) GetBlacklistedUsernames(ww http.ResponseWriter, req *http.Request) {
+	fes.WriteGlobalStateDataToResponse(fes.BlacklistedUsernameMap, "GetBlacklistedUsernames", ww)
+}
+
+// GetGraylistedUsernames returns a map of usernames to Graylist state bytes if global state
+// is exposed.
+func (fes *APIServer) GetGraylistedUsernames(ww http.ResponseWriter, req *http.Request) {
+	fes.WriteGlobalStateDataToResponse(fes.GraylistedUsernameMap, "GetGraylistedUsernames", ww)
+}
+
 // GetGlobalFeed returns the post hashes in the global feed for the last 7 days
 func (fes *APIServer) GetGlobalFeed(ww http.ResponseWriter, req *http.Request) {
 	fes.WriteGlobalStateDataToResponse(fes.GlobalFeedPostHashes, "GetGlobalFeed", ww)
@@ -97,6 +109,22 @@ func (fes *APIServer) GetGraylist(utxoView *lib.UtxoView) (
 	return fes.GetRestrictedPublicKeys(_GlobalStatePrefixPublicKeyToGraylistState, utxoView, RoutePathGetGraylistedPublicKeys)
 }
 
+// GetUsernameBlacklist returns both a slice of strings and a map of PKID to []byte representing the current state of
+// blacklisted users.
+func (fes *APIServer) GetUsernameBlacklist() (
+	_blacklistedUsernameMap map[string][]byte, _err error,
+) {
+	return fes.GetRestrictedUsernames(_GlobalStatePrefixUsernameToBlacklistState, RoutePathGetBlacklistedUsernames)
+}
+
+// GetUsernameGraylist returns both a slice of strings and a map of PKID to []byte representing the current state of
+// graylisted users.
+func (fes *APIServer) GetUsernameGraylist() (
+	_blacklistedUsernameMap map[string][]byte, _err error,
+) {
+	return fes.GetRestrictedUsernames(_GlobalStatePrefixUsernameToGraylistState, RoutePathGetGraylistedUsernames)
+}
+
 // GetRestrictedPublicKeys fetches the blacklisted or graylisted public keys from the configured external global state
 // (if available) and merges it with this node's global state. This returns a map of PKID to restricted bytes.
 func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, utxoView *lib.UtxoView, routePath string) (
@@ -148,6 +176,47 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, utxoView *lib.UtxoV
 		pkidMap[*pkid.PKID] = states[ii]
 	}
 	return pkidMap, nil
+}
+
+// GetRestrictedUsernames fetches the blacklisted or graylisted usernames from the configured external global state
+// (if available) and merges it with this node's global state. This returns a map of usernames to restricted bytes.
+func (fes *APIServer) GetRestrictedUsernames(prefix []byte, routePath string) (
+	_usernameMap map[string][]byte, _err error,
+) {
+	usernameMap := make(map[string][]byte)
+	// Hit GlobalStateAPIUrl for restricted public keys.
+	if fes.Config.GlobalStateAPIUrl != "" {
+		// Fetch the bytes from the external global state.
+		restrictedPublicKeyMapBytes, err := fes.FetchFromExternalGlobalState(routePath)
+		if err != nil {
+			return nil, err
+		}
+		// Decode the response into the appropriate struct.
+		decoder := json.NewDecoder(bytes.NewReader(restrictedPublicKeyMapBytes))
+		if err = decoder.Decode(&usernameMap); err != nil {
+			return nil, fmt.Errorf("GetRestrictedUsernames: Error decoding bytes: %v", err)
+		}
+	}
+	// Now, we're using our own global state. Seek global state for all restricted public keys of this type.
+	publicKeys, states, err := fes.GlobalState.Seek(
+		prefix,
+		prefix, /*validForPrefix*/
+		0,      /*maxKeyLen -- ignored since reverse is false*/
+		0,      /*numToFetch -- 0 is ignored*/
+		false,  /*reverse*/
+		true,   /*fetchValues*/
+	)
+	if err != nil {
+		return nil, err
+	}
+	// Iterate over all restricted public keys from the local global state and merge into the map.
+	for ii, usernameWithPrefix := range publicKeys {
+		// Remove the prefix byte
+		usernameBytes := usernameWithPrefix[1:]
+		username := string(usernameBytes)
+		usernameMap[username] = states[ii]
+	}
+	return usernameMap, nil
 }
 
 func (fes *APIServer) GetGlobalFeedCache(utxoView *lib.UtxoView) (_postHashes []*lib.BlockHash, _postEntries []*lib.PostEntry, _err error) {
