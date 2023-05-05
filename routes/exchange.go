@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"reflect"
 	"sort"
@@ -371,45 +372,70 @@ func (fes *APIServer) APIBalance(ww http.ResponseWriter, rr *http.Request) {
 		APIAddError(ww, fmt.Sprintf("APIBalanceRequest: Problem getting UTXOs for public key: %v", err))
 		return
 	}
-	utxoEntries, err := utxoView.GetUnspentUtxoEntrysForPublicKey(publicKeyBytes)
-	if err != nil {
-		APIAddError(ww, fmt.Sprintf("APIBalanceRequest: Problem getting UTXO entries for public key: %v", err))
-		return
-	}
 
 	// Get the height of the current block tip.
 	blockTipHeight := fes.blockchain.BlockTip().Height
-
-	// Populate the response by looping over the UTXOs we found.
 	balanceResponse := &APIBalanceResponse{}
-	balanceResponse.UTXOs = []*UTXOEntryResponse{}
-	for _, utxoEntry := range utxoEntries {
-		// The height of UTXOs in the mempool is tip+1 so confirmations will
-		// be (tip - (tip+1) + 1) = 0 for these, and >0 for anything that's
-		// confirmed.
-		confirmations := int64(blockTipHeight) - int64(utxoEntry.BlockHeight) + 1
-
-		// Ignore UTXOs that don't have enough confirmations on them.
-		if confirmations < int64(balanceRequest.Confirmations) {
-			continue
+	if blockTipHeight >= utxoView.Params.ForkHeights.BalanceModelBlockHeight {
+		unconfirmedBalance, err := utxoView.GetDeSoBalanceNanosForPublicKey(publicKeyBytes)
+		if err != nil {
+			APIAddError(ww, fmt.Sprintf("APIBalanceRequest: Problem getting unconfirmed balance: %v", err))
+			return
 		}
-
-		if confirmations > 0 {
-			balanceResponse.ConfirmedBalanceNanos += int64(utxoEntry.AmountNanos)
-		} else {
-			balanceResponse.UnconfirmedBalanceNanos += int64(utxoEntry.AmountNanos)
+		if unconfirmedBalance > uint64(math.MaxInt64) {
+			APIAddError(ww, fmt.Sprintf("APIBalanceRequest: Unconfirmed balance %d is too large", unconfirmedBalance))
+			return
 		}
+		balanceResponse.UnconfirmedBalanceNanos = int64(unconfirmedBalance)
+		confirmedBalance, err := lib.DbGetDeSoBalanceNanosForPublicKey(
+			fes.blockchain.DB(), fes.blockchain.Snapshot(), publicKeyBytes)
+		if err != nil {
+			APIAddError(ww, fmt.Sprintf("APIBalanceRequest: Problem getting confirmed balance: %v", err))
+			return
+		}
+		if confirmedBalance > uint64(math.MaxInt64) {
+			APIAddError(ww, fmt.Sprintf("APIBalanceRequest: Confirmed balance %d is too large", confirmedBalance))
+			return
+		}
+		balanceResponse.ConfirmedBalanceNanos = int64(confirmedBalance)
+	} else {
 
-		balanceResponse.UTXOs = append(balanceResponse.UTXOs, &UTXOEntryResponse{
-			TransactionIDBase58Check: lib.PkToString(utxoEntry.UtxoKey.TxID[:], fes.Params),
-			Index:                    int64(utxoEntry.UtxoKey.Index),
-			AmountNanos:              utxoEntry.AmountNanos,
-			PublicKeyBase58Check:     lib.PkToString(utxoEntry.PublicKey, fes.Params),
-			Confirmations:            confirmations,
-			UtxoType:                 utxoEntry.UtxoType.String(),
-			BlockHeight:              int64(utxoEntry.BlockHeight),
-		})
+		utxoEntries, err := utxoView.GetUnspentUtxoEntrysForPublicKey(publicKeyBytes)
+		if err != nil {
+			APIAddError(ww, fmt.Sprintf("APIBalanceRequest: Problem getting UTXO entries for public key: %v", err))
+			return
+		}
+		// Populate the response by looping over the UTXOs we found.
+		balanceResponse.UTXOs = []*UTXOEntryResponse{}
+		for _, utxoEntry := range utxoEntries {
+			// The height of UTXOs in the mempool is tip+1 so confirmations will
+			// be (tip - (tip+1) + 1) = 0 for these, and >0 for anything that's
+			// confirmed.
+			confirmations := int64(blockTipHeight) - int64(utxoEntry.BlockHeight) + 1
+
+			// Ignore UTXOs that don't have enough confirmations on them.
+			if confirmations < int64(balanceRequest.Confirmations) {
+				continue
+			}
+
+			if confirmations > 0 {
+				balanceResponse.ConfirmedBalanceNanos += int64(utxoEntry.AmountNanos)
+			} else {
+				balanceResponse.UnconfirmedBalanceNanos += int64(utxoEntry.AmountNanos)
+			}
+
+			balanceResponse.UTXOs = append(balanceResponse.UTXOs, &UTXOEntryResponse{
+				TransactionIDBase58Check: lib.PkToString(utxoEntry.UtxoKey.TxID[:], fes.Params),
+				Index:                    int64(utxoEntry.UtxoKey.Index),
+				AmountNanos:              utxoEntry.AmountNanos,
+				PublicKeyBase58Check:     lib.PkToString(utxoEntry.PublicKey, fes.Params),
+				Confirmations:            confirmations,
+				UtxoType:                 utxoEntry.UtxoType.String(),
+				BlockHeight:              int64(utxoEntry.BlockHeight),
+			})
+		}
 	}
+
 	if err := json.NewEncoder(ww).Encode(balanceResponse); err != nil {
 		APIAddError(ww, fmt.Sprintf("APIBalance: Problem encoding response as JSON: %v", err))
 		return
