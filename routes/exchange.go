@@ -1,7 +1,6 @@
 package routes
 
 import (
-	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -1158,23 +1157,7 @@ func (fes *APIServer) APINodeInfo(ww http.ResponseWriter, rr *http.Request) {
 	reqBodyObj := &NodeControlRequest{
 		OperationType: "get_info",
 	}
-	bb, err := json.Marshal(reqBodyObj)
-	if err != nil {
-		APIAddError(ww, fmt.Sprintf("APINodeInfo: Problem serializing request "+
-			"to node-control endpoint: %v", err))
-		return
-	}
-	request, err := http.NewRequest("POST", RoutePathNodeControl,
-		bytes.NewBuffer(bb))
-
-	if err != nil {
-		APIAddError(ww, fmt.Sprintf("APINodeInfo: Problem creating request "+
-			"to node-control endpoint: %v", err))
-		return
-	}
-
-	request.Header.Set("Content-Type", "application/json")
-	fes.router.ServeHTTP(ww, request)
+	fes._handleNodeControlGetInfo(reqBodyObj, ww)
 }
 
 // APIBlockRequest specifies the params for a call to the
