@@ -57,49 +57,49 @@ func (fes *APIServer) APIRoutes() []Route {
 			[]string{"GET"},
 			RoutePathAPIBase,
 			fes.APIBase,
-			PublicAccess, // CheckSecret
+			PublicAccess,
 		},
 		{
 			"APIKeyPair",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAPIKeyPair,
 			fes.APIKeyPair,
-			PublicAccess, // CheckSecret
+			PublicAccess,
 		},
 		{
 			"APIBalance",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAPIBalance,
 			fes.APIBalance,
-			PublicAccess, // CheckSecret
+			PublicAccess,
 		},
 		{
 			"APITransferDeSo",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAPITransferDeSo,
 			fes.APITransferDeSo,
-			PublicAccess, // CheckSecret
+			PublicAccess,
 		},
 		{
 			"APITransactionInfo",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAPITransactionInfo,
 			fes.APITransactionInfo,
-			PublicAccess, // CheckSecret
+			PublicAccess,
 		},
 		{
 			"APINodeInfo",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAPINodeInfo,
 			fes.APINodeInfo,
-			AdminAccess, // CheckSecret
+			PublicAccess,
 		},
 		{
 			"APIBlock",
 			[]string{"POST", "OPTIONS"},
 			RoutePathAPIBlock,
 			fes.APIBlock,
-			PublicAccess, // CheckSecret
+			PublicAccess,
 		},
 	}
 
