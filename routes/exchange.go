@@ -1049,12 +1049,15 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		BalanceNanos: totalBalanceNanos,
 	}
 	res.Transactions = []*TransactionResponse{}
+	lastPublicKeyTransactionIndex := transactionInfoRequest.LastPublicKeyTransactionIndex
+
+	FetchTxns:
 
 	validForPrefix := lib.DbTxindexPublicKeyPrefix(publicKeyBytes)
 	// If FetchStartIndex is specified then the startPrefix is the public key with FetchStartIndex appended.
 	// Otherwise, we leave off the index so that the seek will start from the end of the transaction list.
 	startPrefix := lib.DbTxindexPublicKeyPrefix(publicKeyBytes)
-	if transactionInfoRequest.LastPublicKeyTransactionIndex > 0 {
+	if lastPublicKeyTransactionIndex > 0 {
 		startPrefix = lib.DbTxindexPublicKeyIndexToTxnKey(publicKeyBytes, uint32(transactionInfoRequest.LastPublicKeyTransactionIndex))
 	}
 	// The maximum key length is the length of the DB key constructed from the public key plus the size of the uint64 appended to it.
@@ -1130,6 +1133,12 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		// The index comes after the <_Prefix, PublicKey> bytes.
 		lastKeyIndexBytes := lastKey[len(lib.DbTxindexPublicKeyPrefix(publicKeyBytes)):]
 		res.LastPublicKeyTransactionIndex = int64(lib.DecodeUint32(lastKeyIndexBytes))
+	}
+
+	if len(res.Transactions) < int(limit) && len(valsFound) > 0 {
+		limit = limit - uint64(len(res.Transactions))
+		lastPublicKeyTransactionIndex = res.LastPublicKeyTransactionIndex
+		goto FetchTxns
 	}
 
 	if transactionInfoRequest.EndTime == nil || transactionInfoRequest.LastPublicKeyTransactionIndex <= 0 {
