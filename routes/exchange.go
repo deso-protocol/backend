@@ -1051,7 +1051,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	res.Transactions = []*TransactionResponse{}
 	lastPublicKeyTransactionIndex := transactionInfoRequest.LastPublicKeyTransactionIndex
 
-	FetchTxns:
+FetchTxns:
 
 	validForPrefix := lib.DbTxindexPublicKeyPrefix(publicKeyBytes)
 	// If FetchStartIndex is specified then the startPrefix is the public key with FetchStartIndex appended.
@@ -1136,8 +1136,8 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	}
 
 	if len(res.Transactions) < int(limit) && len(valsFound) > 0 {
-		limit = limit - uint64(len(res.Transactions))
-		lastPublicKeyTransactionIndex = res.LastPublicKeyTransactionIndex
+		limit = limit - uint64(len(valsFound))
+		lastPublicKeyTransactionIndex = res.LastPublicKeyTransactionIndex + 1
 		goto FetchTxns
 	}
 
