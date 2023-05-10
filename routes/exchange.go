@@ -1147,7 +1147,7 @@ FetchTxns:
 		goto FetchTxns
 	}
 
-	if transactionInfoRequest.EndTime == nil || transactionInfoRequest.LastPublicKeyTransactionIndex <= 0 {
+	if transactionInfoRequest.EndTime == nil && transactionInfoRequest.LastPublicKeyTransactionIndex <= 0 {
 
 		// Start with the mempool
 		poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
