@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"reflect"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/deso-protocol/core/lib"
@@ -176,7 +177,7 @@ func (fes *APIServer) APIBase(ww http.ResponseWriter, rr *http.Request) {
 
 		res.Transactions = append(
 			res.Transactions, APITransactionToResponse(
-				txn, txnMeta, utxoView, fes.Params))
+				txn, txnMeta, blockMsg, utxoView, fes.Params))
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
@@ -453,6 +454,11 @@ type OutputResponse struct {
 	AmountNanos          uint64
 }
 
+type TransactionBlockInfo struct {
+	Height        uint64
+	TimestampSecs uint64
+}
+
 // TransactionResponse ...
 // TODO: This is redundant with TransactionInfo in frontend_utils.
 type TransactionResponse struct {
@@ -477,6 +483,8 @@ type TransactionResponse struct {
 	// into the "block" endpoint.
 	BlockHashHex string `json:",omitempty"`
 
+	BlockInfo *TransactionBlockInfo `json:",omitempty"`
+
 	TransactionMetadata *lib.TransactionMetadata `json:",omitempty"`
 
 	// The ExtraData added to this transaction
@@ -486,6 +494,9 @@ type TransactionResponse struct {
 	TxnNonce    *lib.DeSoNonce     `json:",omitempty"`
 	TxnFeeNanos uint64             `json:",omitempty"`
 	TxnVersion  lib.DeSoTxnVersion `json:",omitempty"`
+
+	// Raw Metadata
+	RawTxnMetadata lib.DeSoTxnMetadata `json:",omitempty"`
 }
 
 // TransactionInfoResponse contains information about the transaction
@@ -552,6 +563,7 @@ type APITransferDeSoResponse struct {
 func APITransactionToResponse(
 	txnn *lib.MsgDeSoTxn,
 	txnMeta *lib.TransactionMetadata,
+	block *lib.MsgDeSoBlock,
 	utxoView *lib.UtxoView,
 	params *lib.DeSoParams) *TransactionResponse {
 
@@ -582,6 +594,7 @@ func APITransactionToResponse(
 		TxnNonce:                 txnn.TxnNonce,
 		TxnFeeNanos:              txnn.TxnFeeNanos,
 		TxnVersion:               txnn.TxnVersion,
+		RawTxnMetadata:           txnn.TxnMeta,
 		// Inputs, Outputs, ExtraData, and some txnMeta fields set below.
 	}
 	for _, input := range txnn.TxInputs {
@@ -600,6 +613,13 @@ func APITransactionToResponse(
 
 	if txnMeta != nil {
 		ret.BlockHashHex = txnMeta.BlockHashHex
+	}
+
+	if block != nil && block.Header != nil {
+		ret.BlockInfo = &TransactionBlockInfo{
+			Height:        block.Header.Height,
+			TimestampSecs: block.Header.TstampSecs,
+		}
 	}
 
 	return ret
@@ -768,7 +788,7 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 	}
 	// The block hash param is empty because this transaction clearly hasn't been
 	// mined yet.
-	res.Transaction = APITransactionToResponse(txnn, nil, utxoView, fes.Params)
+	res.Transaction = APITransactionToResponse(txnn, nil, nil, utxoView, fes.Params)
 	txnBytes, _ := txnn.ToBytes(false /*preSignature*/)
 	res.TransactionInfo = &TransactionInfoResponse{
 		TotalInputNanos:               totalInputt,
@@ -804,6 +824,17 @@ type APITransactionInfoRequest struct {
 
 	// Only return transaction IDs
 	IDsOnly bool
+
+	// Supports filtering by txn type when fetching transactions for user
+	FilterByTxnType *string
+
+	// Supports filtering by transactor public key when fetching transactions for user
+	FilterByTransactorPublicKeyBase58Check *string
+
+	// Supports filtering by min and max block time when fetching transactions for user
+	StartTime *uint64
+
+	EndTime *uint64
 
 	// Offset from which a page should be fetched
 	LastTransactionIDBase58Check string
@@ -921,7 +952,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 				res.Transactions = append(res.Transactions,
 					&TransactionResponse{TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params)})
 			} else {
-				res.Transactions = append(res.Transactions, APITransactionToResponse(poolTx.Tx, poolTx.TxMeta, utxoView, fes.Params))
+				res.Transactions = append(res.Transactions, APITransactionToResponse(poolTx.Tx, poolTx.TxMeta, nil, utxoView, fes.Params))
 			}
 
 			// If we've filled up the page, exit.
@@ -983,7 +1014,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 
 		res := &APITransactionInfoResponse{}
 		res.Transactions = []*TransactionResponse{
-			APITransactionToResponse(txn, txnMeta, utxoView, fes.Params),
+			APITransactionToResponse(txn, txnMeta, nil, utxoView, fes.Params),
 		}
 
 		if err := json.NewEncoder(ww).Encode(res); err != nil {
@@ -992,6 +1023,15 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		}
 
 		return
+	}
+
+	if transactionInfoRequest.IDsOnly {
+		// Validate filtering params
+		if transactionInfoRequest.FilterByTxnType != nil || transactionInfoRequest.FilterByTransactorPublicKeyBase58Check != nil ||
+			transactionInfoRequest.StartTime != nil || transactionInfoRequest.EndTime != nil {
+			APIAddError(ww, fmt.Sprintf("APITransactionInfo: IDsOnly requests do not support filtering params"))
+			return
+		}
 	}
 
 	// At this point, we know we're looking up all the transactions for a particular public key
@@ -1013,12 +1053,15 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		BalanceNanos: totalBalanceNanos,
 	}
 	res.Transactions = []*TransactionResponse{}
+	lastPublicKeyTransactionIndex := transactionInfoRequest.LastPublicKeyTransactionIndex
+
+FetchTxns:
 
 	validForPrefix := lib.DbTxindexPublicKeyPrefix(publicKeyBytes)
 	// If FetchStartIndex is specified then the startPrefix is the public key with FetchStartIndex appended.
 	// Otherwise, we leave off the index so that the seek will start from the end of the transaction list.
 	startPrefix := lib.DbTxindexPublicKeyPrefix(publicKeyBytes)
-	if transactionInfoRequest.LastPublicKeyTransactionIndex > 0 {
+	if lastPublicKeyTransactionIndex > 0 {
 		startPrefix = lib.DbTxindexPublicKeyIndexToTxnKey(publicKeyBytes, uint32(transactionInfoRequest.LastPublicKeyTransactionIndex))
 	}
 	// The maximum key length is the length of the DB key constructed from the public key plus the size of the uint64 appended to it.
@@ -1033,10 +1076,13 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	}
 
 	// Speed up calls to GetBlock with a local cache
-	blockMap := make(map[*lib.BlockHash]*lib.MsgDeSoBlock)
+	blockMap := make(map[lib.BlockHash]*lib.MsgDeSoBlock)
 
 	// The API response returns oldest -> newest so we need to iterate over the results backwards
 	for ii := len(valsFound) - 1; ii >= 0; ii-- {
+		if uint64(len(res.Transactions)) >= limit {
+			break
+		}
 		txIDBytes := valsFound[ii]
 		txID := &lib.BlockHash{}
 		copy(txID[:], txIDBytes)
@@ -1048,6 +1094,16 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		} else {
 			// In this case we need to look up the full transaction and convert it into a proper transaction response.
 			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), nil, txID)
+			// If the transaction type doesn't meet the txn type filtering, skip it.
+			if transactionInfoRequest.FilterByTxnType != nil &&
+				!strings.EqualFold(*transactionInfoRequest.FilterByTxnType, txnMeta.TxnType) {
+				continue
+			}
+			// If the transactor doesn't meet the txn transactor filtering, skip it.
+			if transactionInfoRequest.FilterByTransactorPublicKeyBase58Check != nil &&
+				!strings.EqualFold(*transactionInfoRequest.FilterByTransactorPublicKeyBase58Check, txnMeta.TransactorPublicKeyBase58Check) {
+				continue
+			}
 			blockHashBytes, err := hex.DecodeString(txnMeta.BlockHashHex)
 			if err != nil {
 				APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error parsing block: %v %v", txnMeta.BlockHashHex, err))
@@ -1055,22 +1111,27 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			}
 
 			// Fetch the block
-			blockHash := &lib.BlockHash{}
+			blockHash := lib.BlockHash{}
 			copy(blockHash[:], blockHashBytes)
 			block := blockMap[blockHash]
 			if block == nil {
-				block, err = lib.GetBlock(blockHash, fes.blockchain.DB(), fes.blockchain.Snapshot())
+				block, err = lib.GetBlock(&blockHash, fes.blockchain.DB(), fes.blockchain.Snapshot())
 				if block == nil || err != nil {
-					fmt.Errorf("DbGetTxindexFullTransactionByTxID: Block corresponding to txn not found")
+					APIAddError(ww, fmt.Sprintf("APITransactionInfo: Block corresponding to txn not found: block hash: %v, err: %v", blockHash, err))
 					return
 				}
 				blockMap[blockHash] = block
 			}
 
+			if (transactionInfoRequest.StartTime != nil && block.Header.TstampSecs < *transactionInfoRequest.StartTime) ||
+				(transactionInfoRequest.EndTime != nil && block.Header.TstampSecs > *transactionInfoRequest.EndTime) {
+				continue
+			}
+
 			// Fetch the transaction
 			fullTxn := block.Txns[txnMeta.TxnIndexInBlock]
 
-			res.Transactions = append(res.Transactions, APITransactionToResponse(fullTxn, txnMeta, utxoView, fes.Params))
+			res.Transactions = append(res.Transactions, APITransactionToResponse(fullTxn, txnMeta, block, utxoView, fes.Params))
 		}
 	}
 
@@ -1081,20 +1142,35 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		res.LastPublicKeyTransactionIndex = int64(lib.DecodeUint32(lastKeyIndexBytes))
 	}
 
-	// Start with the mempool
-	poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
-	if err != nil {
-		APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error getting txns from mempool: %v", err))
-		return
+	if uint64(len(res.Transactions)) < limit && len(valsFound) > 0 {
+		lastPublicKeyTransactionIndex = res.LastPublicKeyTransactionIndex + 1
+		goto FetchTxns
 	}
 
-	// Go from most recent to least recent
-	// TODO: Support pagination for mempool transactions
-	// Tack on mempool transactions if LastPublicKeyTransactionIndex is not specified
-	if transactionInfoRequest.LastPublicKeyTransactionIndex <= 0 {
+	if transactionInfoRequest.EndTime == nil && transactionInfoRequest.LastPublicKeyTransactionIndex <= 0 {
+
+		// Start with the mempool
+		poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
+		if err != nil {
+			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error getting txns from mempool: %v", err))
+			return
+		}
+
+		// Go from most recent to least recent
+		// TODO: Support pagination for mempool transactions
+		// Tack on mempool transactions if LastPublicKeyTransactionIndex is not specified
 		for _, poolTx := range poolTxns {
 			txnMeta := poolTx.TxMeta
 
+			if transactionInfoRequest.FilterByTxnType != nil &&
+				!strings.EqualFold(*transactionInfoRequest.FilterByTxnType, txnMeta.TxnType) {
+				continue
+			}
+			// If the transactor doesn't meet the txn transactor filtering, skip it.
+			if transactionInfoRequest.FilterByTransactorPublicKeyBase58Check != nil &&
+				!strings.EqualFold(*transactionInfoRequest.FilterByTransactorPublicKeyBase58Check, txnMeta.TransactorPublicKeyBase58Check) {
+				continue
+			}
 			isRelevantTxn := false
 			// Iterate over the affected public keys to see if any of them hit the one we're looking for.
 			for _, affectedPks := range txnMeta.AffectedPublicKeys {
@@ -1114,11 +1190,23 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 				txRes := &TransactionResponse{TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params)}
 				res.Transactions = append(res.Transactions, txRes)
 			} else {
-				res.Transactions = append(res.Transactions, APITransactionToResponse(poolTx.Tx, txnMeta, utxoView, fes.Params))
+				res.Transactions = append(res.Transactions, APITransactionToResponse(poolTx.Tx, txnMeta, nil, utxoView, fes.Params))
 			}
 		}
 	}
 
+	// Sort the results
+	sort.Slice(res.Transactions, func(ii, jj int) bool {
+		txii := res.Transactions[ii]
+		txjj := res.Transactions[jj]
+		if txii.BlockInfo == nil {
+			return true
+		}
+		if txjj.BlockInfo == nil {
+			return false
+		}
+		return txii.BlockInfo.Height > txjj.BlockInfo.Height
+	})
 	// At this point, all the transactions should have been added to the request.
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem encoding response "+
@@ -1279,7 +1367,7 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 
 			res.Transactions = append(
 				res.Transactions, APITransactionToResponse(
-					txn, txnMeta, utxoView, fes.Params))
+					txn, txnMeta, blockMsg, utxoView, fes.Params))
 		}
 	}
 
