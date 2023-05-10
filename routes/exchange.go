@@ -494,6 +494,9 @@ type TransactionResponse struct {
 	TxnNonce    *lib.DeSoNonce     `json:",omitempty"`
 	TxnFeeNanos uint64             `json:",omitempty"`
 	TxnVersion  lib.DeSoTxnVersion `json:",omitempty"`
+
+	// Raw Metadata
+	RawTxnMetadata lib.DeSoTxnMetadata `json:",omitempty"`
 }
 
 // TransactionInfoResponse contains information about the transaction
@@ -591,6 +594,7 @@ func APITransactionToResponse(
 		TxnNonce:                 txnn.TxnNonce,
 		TxnFeeNanos:              txnn.TxnFeeNanos,
 		TxnVersion:               txnn.TxnVersion,
+		RawTxnMetadata:           txnn.TxnMeta,
 		// Inputs, Outputs, ExtraData, and some txnMeta fields set below.
 	}
 	for _, input := range txnn.TxInputs {
