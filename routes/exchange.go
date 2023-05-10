@@ -1077,6 +1077,9 @@ FetchTxns:
 
 	// The API response returns oldest -> newest so we need to iterate over the results backwards
 	for ii := len(valsFound) - 1; ii >= 0; ii-- {
+		if uint64(len(res.Transactions)) >= initialLimit {
+			break
+		}
 		txIDBytes := valsFound[ii]
 		txID := &lib.BlockHash{}
 		copy(txID[:], txIDBytes)
@@ -1137,7 +1140,6 @@ FetchTxns:
 	}
 
 	if uint64(len(res.Transactions)) < initialLimit && len(valsFound) > 0 {
-		limit = initialLimit - uint64(len(res.Transactions))
 		lastPublicKeyTransactionIndex = res.LastPublicKeyTransactionIndex + 1
 		goto FetchTxns
 	}
