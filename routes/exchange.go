@@ -917,7 +917,6 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		// Legacy support for unpaginated requests
 		limit = 1000
 	}
-	initialLimit := limit
 
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
@@ -1077,7 +1076,7 @@ FetchTxns:
 
 	// The API response returns oldest -> newest so we need to iterate over the results backwards
 	for ii := len(valsFound) - 1; ii >= 0; ii-- {
-		if uint64(len(res.Transactions)) >= initialLimit {
+		if uint64(len(res.Transactions)) >= limit {
 			break
 		}
 		txIDBytes := valsFound[ii]
@@ -1139,7 +1138,7 @@ FetchTxns:
 		res.LastPublicKeyTransactionIndex = int64(lib.DecodeUint32(lastKeyIndexBytes))
 	}
 
-	if uint64(len(res.Transactions)) < initialLimit && len(valsFound) > 0 {
+	if uint64(len(res.Transactions)) < limit && len(valsFound) > 0 {
 		lastPublicKeyTransactionIndex = res.LastPublicKeyTransactionIndex + 1
 		goto FetchTxns
 	}
