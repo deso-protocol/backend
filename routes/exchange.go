@@ -1075,6 +1075,8 @@ FetchTxns:
 		return
 	}
 
+	var startTimeExceeded bool
+
 	// Speed up calls to GetBlock with a local cache
 	blockMap := make(map[lib.BlockHash]*lib.MsgDeSoBlock)
 
@@ -1123,9 +1125,13 @@ FetchTxns:
 				blockMap[blockHash] = block
 			}
 
-			if (transactionInfoRequest.StartTime != nil && block.Header.TstampSecs < *transactionInfoRequest.StartTime) ||
-				(transactionInfoRequest.EndTime != nil && block.Header.TstampSecs > *transactionInfoRequest.EndTime) {
+			if transactionInfoRequest.EndTime != nil && block.Header.TstampSecs > *transactionInfoRequest.EndTime {
 				continue
+			}
+
+			if transactionInfoRequest.StartTime != nil && block.Header.TstampSecs < *transactionInfoRequest.StartTime {
+				startTimeExceeded = true
+				break
 			}
 
 			// Fetch the transaction
@@ -1142,7 +1148,7 @@ FetchTxns:
 		res.LastPublicKeyTransactionIndex = int64(lib.DecodeUint32(lastKeyIndexBytes))
 	}
 
-	if uint64(len(res.Transactions)) < limit && len(valsFound) > 0 {
+	if uint64(len(res.Transactions)) < limit && len(valsFound) > 0 && !startTimeExceeded {
 		lastPublicKeyTransactionIndex = res.LastPublicKeyTransactionIndex + 1
 		goto FetchTxns
 	}
