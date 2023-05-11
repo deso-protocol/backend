@@ -1054,7 +1054,6 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	}
 	res.Transactions = []*TransactionResponse{}
 	lastPublicKeyTransactionIndex := transactionInfoRequest.LastPublicKeyTransactionIndex
-
 FetchTxns:
 
 	validForPrefix := lib.DbTxindexPublicKeyPrefix(publicKeyBytes)
@@ -1149,7 +1148,7 @@ FetchTxns:
 	}
 
 	if uint64(len(res.Transactions)) < limit && len(valsFound) > 0 && !startTimeExceeded {
-		lastPublicKeyTransactionIndex = res.LastPublicKeyTransactionIndex + 1
+		lastPublicKeyTransactionIndex = res.LastPublicKeyTransactionIndex - 1
 		goto FetchTxns
 	}
 
@@ -1164,7 +1163,7 @@ FetchTxns:
 
 		// Go from most recent to least recent
 		// TODO: Support pagination for mempool transactions
-		// Tack on mempool transactions if LastPublicKeyTransactionIndex is not specified
+		// Tack on mempool transactions if LastPublicKeyTransactionIndex is not specified.
 		for _, poolTx := range poolTxns {
 			txnMeta := poolTx.TxMeta
 
