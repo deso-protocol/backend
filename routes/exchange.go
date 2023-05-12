@@ -464,6 +464,8 @@ type TransactionResponse struct {
 	// A string that uniquely identifies this transaction. This is a sha256 hash
 	// of the transaction’s data encoded using base58 check encoding.
 	TransactionIDBase58Check string
+	// Hash of the transaction in hex format.
+	TransactionHashHex string
 	// The raw hex of the transaction data. This can be fully-constructed from
 	// the human-readable portions of this object.
 	RawTransactionHex string `json:",omitempty"`
@@ -587,6 +589,7 @@ func APITransactionToResponse(
 	ret := &TransactionResponse{
 		TransactionIDBase58Check: lib.PkToString(txnn.Hash()[:], params),
 		RawTransactionHex:        hex.EncodeToString(txnBytes),
+		TransactionHashHex:       txnn.Hash().String(),
 		SignatureHex:             signatureHex,
 		TransactionType:          txnn.TxnMeta.GetTxnType().String(),
 		TransactionMetadata:      &txnMetaResponse,
