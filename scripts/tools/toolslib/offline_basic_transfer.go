@@ -75,7 +75,7 @@ func _computeFee(txn *lib.MsgDeSoTxn, feeRateNanosPerKB uint64) (*lib.MsgDeSoTxn
 		}
 		txnWithSigLen := len(preSigBytes) + 74 // 71 is the maximum length of a signature, but some places have 74. Using 74 to be safe.
 		feeAmountNanos = int(feeRateNanosPerKB * uint64(txnWithSigLen) / 1000)
-		if (uint64(txnWithSigLen) * feeRateNanosPerKB)% 1000 != 0 {
+		if (uint64(txnWithSigLen)*feeRateNanosPerKB)%1000 != 0 {
 			feeAmountNanos++
 		}
 		txn.TxnFeeNanos = uint64(feeAmountNanos)
