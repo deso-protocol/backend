@@ -1168,7 +1168,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		{
 			"GetPublicKeyForUsername",
 			[]string{"GET"},
-			RoutePathGetPublicKeyForUsername + "/{username:[a-zA-Z0-9_]{1,26}",
+			RoutePathGetPublicKeyForUsername + "/{username:[a-zA-Z0-9_]{1,26}}",
 			fes.GetPublicKeyForUsername,
 			PublicAccess,
 		},

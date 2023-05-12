@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"reflect"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/deso-protocol/core/lib"
@@ -825,17 +824,6 @@ type APITransactionInfoRequest struct {
 	// Only return transaction IDs
 	IDsOnly bool
 
-	// Supports filtering by txn type when fetching transactions for user
-	FilterByTxnType *string
-
-	// Supports filtering by transactor public key when fetching transactions for user
-	FilterByTransactorPublicKeyBase58Check *string
-
-	// Supports filtering by min and max block time when fetching transactions for user
-	StartTime *uint64
-
-	EndTime *uint64
-
 	// Offset from which a page should be fetched
 	LastTransactionIDBase58Check string
 
@@ -1025,15 +1013,6 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		return
 	}
 
-	if transactionInfoRequest.IDsOnly {
-		// Validate filtering params
-		if transactionInfoRequest.FilterByTxnType != nil || transactionInfoRequest.FilterByTransactorPublicKeyBase58Check != nil ||
-			transactionInfoRequest.StartTime != nil || transactionInfoRequest.EndTime != nil {
-			APIAddError(ww, fmt.Sprintf("APITransactionInfo: IDsOnly requests do not support filtering params"))
-			return
-		}
-	}
-
 	// At this point, we know we're looking up all the transactions for a particular public key
 
 	// Parse the public key
@@ -1055,8 +1034,6 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	res.Transactions = []*TransactionResponse{}
 	lastPublicKeyTransactionIndex := transactionInfoRequest.LastPublicKeyTransactionIndex
 
-FetchTxns:
-
 	validForPrefix := lib.DbTxindexPublicKeyPrefix(publicKeyBytes)
 	// If FetchStartIndex is specified then the startPrefix is the public key with FetchStartIndex appended.
 	// Otherwise, we leave off the index so that the seek will start from the end of the transaction list.
@@ -1075,16 +1052,11 @@ FetchTxns:
 		return
 	}
 
-	var startTimeExceeded bool
-
 	// Speed up calls to GetBlock with a local cache
 	blockMap := make(map[lib.BlockHash]*lib.MsgDeSoBlock)
 
 	// The API response returns oldest -> newest so we need to iterate over the results backwards
 	for ii := len(valsFound) - 1; ii >= 0; ii-- {
-		if uint64(len(res.Transactions)) >= limit {
-			break
-		}
 		txIDBytes := valsFound[ii]
 		txID := &lib.BlockHash{}
 		copy(txID[:], txIDBytes)
@@ -1096,16 +1068,7 @@ FetchTxns:
 		} else {
 			// In this case we need to look up the full transaction and convert it into a proper transaction response.
 			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), nil, txID)
-			// If the transaction type doesn't meet the txn type filtering, skip it.
-			if transactionInfoRequest.FilterByTxnType != nil &&
-				!strings.EqualFold(*transactionInfoRequest.FilterByTxnType, txnMeta.TxnType) {
-				continue
-			}
-			// If the transactor doesn't meet the txn transactor filtering, skip it.
-			if transactionInfoRequest.FilterByTransactorPublicKeyBase58Check != nil &&
-				!strings.EqualFold(*transactionInfoRequest.FilterByTransactorPublicKeyBase58Check, txnMeta.TransactorPublicKeyBase58Check) {
-				continue
-			}
+
 			blockHashBytes, err := hex.DecodeString(txnMeta.BlockHashHex)
 			if err != nil {
 				APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error parsing block: %v %v", txnMeta.BlockHashHex, err))
@@ -1125,15 +1088,6 @@ FetchTxns:
 				blockMap[blockHash] = block
 			}
 
-			if transactionInfoRequest.EndTime != nil && block.Header.TstampSecs > *transactionInfoRequest.EndTime {
-				continue
-			}
-
-			if transactionInfoRequest.StartTime != nil && block.Header.TstampSecs < *transactionInfoRequest.StartTime {
-				startTimeExceeded = true
-				break
-			}
-
 			// Fetch the transaction
 			fullTxn := block.Txns[txnMeta.TxnIndexInBlock]
 
@@ -1148,12 +1102,7 @@ FetchTxns:
 		res.LastPublicKeyTransactionIndex = int64(lib.DecodeUint32(lastKeyIndexBytes))
 	}
 
-	if uint64(len(res.Transactions)) < limit && len(valsFound) > 0 && !startTimeExceeded {
-		lastPublicKeyTransactionIndex = res.LastPublicKeyTransactionIndex + 1
-		goto FetchTxns
-	}
-
-	if transactionInfoRequest.EndTime == nil && transactionInfoRequest.LastPublicKeyTransactionIndex <= 0 {
+	if transactionInfoRequest.LastPublicKeyTransactionIndex <= 0 {
 
 		// Start with the mempool
 		poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
@@ -1168,15 +1117,6 @@ FetchTxns:
 		for _, poolTx := range poolTxns {
 			txnMeta := poolTx.TxMeta
 
-			if transactionInfoRequest.FilterByTxnType != nil &&
-				!strings.EqualFold(*transactionInfoRequest.FilterByTxnType, txnMeta.TxnType) {
-				continue
-			}
-			// If the transactor doesn't meet the txn transactor filtering, skip it.
-			if transactionInfoRequest.FilterByTransactorPublicKeyBase58Check != nil &&
-				!strings.EqualFold(*transactionInfoRequest.FilterByTransactorPublicKeyBase58Check, txnMeta.TransactorPublicKeyBase58Check) {
-				continue
-			}
 			isRelevantTxn := false
 			// Iterate over the affected public keys to see if any of them hit the one we're looking for.
 			for _, affectedPks := range txnMeta.AffectedPublicKeys {
