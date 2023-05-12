@@ -1057,9 +1057,6 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 
 	// The API response returns oldest -> newest so we need to iterate over the results backwards
 	for ii := len(valsFound) - 1; ii >= 0; ii-- {
-		if uint64(len(res.Transactions)) >= limit {
-			break
-		}
 		txIDBytes := valsFound[ii]
 		txID := &lib.BlockHash{}
 		copy(txID[:], txIDBytes)
