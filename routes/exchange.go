@@ -497,7 +497,53 @@ type TransactionResponse struct {
 	TxnVersion  lib.DeSoTxnVersion `json:",omitempty"`
 
 	// Raw Metadata
-	RawTxnMetadata lib.DeSoTxnMetadata `json:",omitempty"`
+	RawTxnMetadata *lib.DeSoTxnMetadata `json:",omitempty"`
+}
+
+// Parses the TransactionResponse type from JSON, excluding the RawTxnMetadata field.
+// The field is an interface type, meaning we lose information on its concrete
+// struct type when serializing it to JSON. To ensure a safe unmarshal operation,
+// we set it to null when parsing.
+func (response *TransactionResponse) UnmarshalJSON(data []byte) error {
+	// Define an anonymous struct with identical fields to the TransactionResponse
+	// type above, but excluding the RawTxnMetadata field.
+	parsedResponse := struct {
+		TransactionIDBase58Check string
+		TransactionHashHex       string
+		RawTransactionHex        string
+		Inputs                   []*InputResponse
+		Outputs                  []*OutputResponse
+		SignatureHex             string
+		TransactionType          string
+		BlockHashHex             string
+		BlockInfo                *TransactionBlockInfo
+		TransactionMetadata      *lib.TransactionMetadata
+		ExtraData                map[string]string
+		TxnNonce                 *lib.DeSoNonce
+		TxnFeeNanos              uint64
+		TxnVersion               lib.DeSoTxnVersion
+	}{}
+	json.Unmarshal(data, &parsedResponse)
+
+	response.TransactionIDBase58Check = parsedResponse.TransactionIDBase58Check
+	response.TransactionHashHex = parsedResponse.TransactionHashHex
+	response.RawTransactionHex = parsedResponse.RawTransactionHex
+	response.Inputs = parsedResponse.Inputs
+	response.Outputs = parsedResponse.Outputs
+	response.SignatureHex = parsedResponse.SignatureHex
+	response.TransactionType = parsedResponse.TransactionType
+	response.BlockHashHex = parsedResponse.BlockHashHex
+	response.BlockInfo = parsedResponse.BlockInfo
+	response.TransactionMetadata = parsedResponse.TransactionMetadata
+	response.ExtraData = parsedResponse.ExtraData
+	response.TxnNonce = parsedResponse.TxnNonce
+	response.TxnFeeNanos = parsedResponse.TxnFeeNanos
+	response.TxnVersion = parsedResponse.TxnVersion
+	// Manually set the RawTxnMetadata field to nil since we do not
+	// want to unmarshal it here.
+	response.RawTxnMetadata = nil
+
+	return nil
 }
 
 // TransactionInfoResponse contains information about the transaction
@@ -596,7 +642,7 @@ func APITransactionToResponse(
 		TxnNonce:                 txnn.TxnNonce,
 		TxnFeeNanos:              txnn.TxnFeeNanos,
 		TxnVersion:               txnn.TxnVersion,
-		RawTxnMetadata:           txnn.TxnMeta,
+		RawTxnMetadata:           &txnn.TxnMeta,
 		// Inputs, Outputs, ExtraData, and some txnMeta fields set below.
 	}
 	for _, input := range txnn.TxInputs {
