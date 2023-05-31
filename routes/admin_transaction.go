@@ -182,11 +182,11 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 
 	extraData := make(map[string][]byte)
 
-	if requestData.StakeLockupEpochDuration > 0 && requestData.StakeLockupEpochDuration != utxoView.GetStakeLockupEpochDuration() {
+	if requestData.StakeLockupEpochDuration > 0 && requestData.StakeLockupEpochDuration != utxoView.GetStakeLockupEpochDuration(0) {
 		extraData[lib.StakeLockupEpochDuration] = lib.UintToBuf(requestData.StakeLockupEpochDuration)
 	}
 
-	if requestData.ValidatorJailEpochDuration > 0 && requestData.ValidatorJailEpochDuration != utxoView.GetValidatorJailEpochDuration() {
+	if requestData.ValidatorJailEpochDuration > 0 && requestData.ValidatorJailEpochDuration != utxoView.GetValidatorJailEpochDuration(0) {
 		extraData[lib.ValidatorJailEpochDuration] = lib.UintToBuf(requestData.ValidatorJailEpochDuration)
 	}
 
