@@ -84,6 +84,14 @@ type UpdateGlobalParamsRequest struct {
 	// heights on nonces.
 	MaxNonceExpirationBlockHeightOffset int64 `safeForLogging:"true"`
 
+	// StakeLockupEpochDuration is the number of epochs that a
+	// user must wait before unlocking their unstaked stake.
+	StakeLockupEpochDuration uint64 `safeForLogging:"true"`
+
+	// ValidatorJailEpochDuration is the number of epochs that a validator must
+	// wait after being jailed before submitting an UnjailValidator txn.
+	ValidatorJailEpochDuration uint64 `safeForLogging:"true"`
+
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
@@ -172,6 +180,16 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 		maxNonceExpirationBlockHeightOffset = requestData.MaxNonceExpirationBlockHeightOffset
 	}
 
+	extraData := make(map[string][]byte)
+
+	if requestData.StakeLockupEpochDuration > 0 && requestData.StakeLockupEpochDuration != utxoView.GetStakeLockupEpochDuration() {
+		extraData[lib.StakeLockupEpochDuration] = lib.UintToBuf(requestData.StakeLockupEpochDuration)
+	}
+
+	if requestData.ValidatorJailEpochDuration > 0 && requestData.ValidatorJailEpochDuration != utxoView.GetValidatorJailEpochDuration() {
+		extraData[lib.ValidatorJailEpochDuration] = lib.UintToBuf(requestData.ValidatorJailEpochDuration)
+	}
+
 	// Try and create the update txn for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateUpdateGlobalParamsTxn(
 		updaterPkBytes,
@@ -182,6 +200,7 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 		minimumNetworkFeeNanosPerKb,
 		[]byte{},
 		maxNonceExpirationBlockHeightOffset,
+		extraData,
 		requestData.MinFeeRateNanosPerKB,
 		fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
