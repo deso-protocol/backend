@@ -256,9 +256,9 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 	}
 
 	// Check if the user is blacklisted/graylisted
-	user.IsBlacklisted = fes.IsUserBlacklisted(pkid.PKID)
+	user.IsBlacklisted = fes.IsUserBlacklisted(pkid.PKID, utxoView)
 
-	user.IsGraylisted = fes.IsUserGraylisted(pkid.PKID)
+	user.IsGraylisted = fes.IsUserGraylisted(pkid.PKID, utxoView)
 
 	// Only set User.IsAdmin in GetUsersStateless
 	// We don't want or need to set this on every endpoint that generates a ProfileEntryResponse
@@ -1253,8 +1253,8 @@ func (fes *APIServer) GetSingleProfile(ww http.ResponseWriter, req *http.Request
 
 	// Check if the user is blacklisted/graylisted
 	pkid := utxoView.GetPKIDForPublicKey(publicKeyBytes)
-	res.IsBlacklisted = fes.IsUserBlacklisted(pkid.PKID)
-	res.IsGraylisted = fes.IsUserGraylisted(pkid.PKID)
+	res.IsBlacklisted = fes.IsUserBlacklisted(pkid.PKID, utxoView)
+	res.IsGraylisted = fes.IsUserGraylisted(pkid.PKID, utxoView)
 
 	var userMetadata *UserMetadata
 	userMetadata, err = fes.getUserMetadataFromGlobalState(publicKeyBase58Check)
@@ -2456,7 +2456,7 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 			}
 			// Skip transactions from blacklisted public keys
 			transactorPKID := utxoView.GetPKIDForPublicKey(transactorPkBytes)
-			if transactorPKID == nil || fes.IsUserBlacklisted(transactorPKID.PKID) {
+			if transactorPKID == nil || fes.IsUserBlacklisted(transactorPKID.PKID, utxoView) {
 				continue
 			}
 			currentIndexBytes := keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]
@@ -2572,7 +2572,7 @@ func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest,
 				}
 				// Skip blacklisted public keys
 				transactorPKID := utxoView.GetPKIDForPublicKey(transactorPkBytes)
-				if transactorPKID == nil || fes.IsUserBlacklisted(transactorPKID.PKID) {
+				if transactorPKID == nil || fes.IsUserBlacklisted(transactorPKID.PKID, utxoView) {
 					continue
 				}
 
@@ -3570,23 +3570,65 @@ func (fes *APIServer) DeletePII(ww http.ResponseWriter, rr *http.Request) {
 }
 
 // IsUserGraylisted returns true if the user is graylisted based on the current Graylist state.
-func (fes *APIServer) IsUserGraylisted(pkid *lib.PKID) bool {
-	return reflect.DeepEqual(fes.GetGraylistState(pkid), IsGraylisted)
+func (fes *APIServer) IsUserGraylisted(pkid *lib.PKID, utxoView *lib.UtxoView) bool {
+	pkidGraylisted := reflect.DeepEqual(fes.GetGraylistStateForPkid(pkid), IsGraylisted)
+
+	usernameGraylistState := fes.GetUsernameGraylistStateForPkid(pkid, utxoView)
+	usernameGraylisted := reflect.DeepEqual(usernameGraylistState, IsGraylisted)
+
+	return pkidGraylisted || usernameGraylisted
 }
 
-// GetGraylistState returns the graylist state bytes based on the current Graylist state.
-func (fes *APIServer) GetGraylistState(pkid *lib.PKID) []byte {
+// GetGraylistStateForPkid returns the graylist state bytes based on the current Graylist state.
+func (fes *APIServer) GetGraylistStateForPkid(pkid *lib.PKID) []byte {
 	return fes.GraylistedPKIDMap[*pkid]
 }
 
-// IsUserBlacklisted returns true if the user is blacklisted based on the current Blacklist state.
-func (fes *APIServer) IsUserBlacklisted(pkid *lib.PKID) bool {
-	return reflect.DeepEqual(fes.GetBlacklistState(pkid), IsBlacklisted)
+// GetGraylistStateForUsername returns the graylist state bytes based on the current Graylist state for a username.
+func (fes *APIServer) GetGraylistStateForUsername(username string) []byte {
+	return fes.GraylistedUsernameMap[username]
 }
 
-// GetBlacklistState returns the blacklist state bytes based on the current Blacklist state.
-func (fes *APIServer) GetBlacklistState(pkid *lib.PKID) []byte {
+func (fes *APIServer) GetUsernameGraylistStateForPkid(pkid *lib.PKID, utxoView *lib.UtxoView) []byte {
+	// Get profile entry for user, in order to check if the username is graylisted or blacklisted.
+	profileEntry := utxoView.GetProfileEntryForPKID(pkid)
+	usernameGraylistState := []byte{0}
+	if profileEntry != nil && strings.ToLower(string(profileEntry.Username)) != "" {
+		lowercaseUsernameString := strings.ToLower(string(profileEntry.Username))
+		usernameGraylistState = fes.GetGraylistStateForUsername(lowercaseUsernameString)
+	}
+	return usernameGraylistState
+}
+
+// IsUserBlacklisted returns true if the user is blacklisted based on the current Blacklist state.
+func (fes *APIServer) IsUserBlacklisted(pkid *lib.PKID, utxoView *lib.UtxoView) bool {
+	pkidBlacklisted := reflect.DeepEqual(fes.GetBlacklistStateForPkid(pkid), IsBlacklisted)
+
+	usernameBlacklistState := fes.GetUsernameBlacklistStateForPkid(pkid, utxoView)
+	usernameBlacklisted := reflect.DeepEqual(usernameBlacklistState, IsBlacklisted)
+
+	return pkidBlacklisted || usernameBlacklisted
+}
+
+// GetBlacklistStateForPkid returns the blacklist state bytes based on the current Blacklist state.
+func (fes *APIServer) GetBlacklistStateForPkid(pkid *lib.PKID) []byte {
 	return fes.BlacklistedPKIDMap[*pkid]
+}
+
+// GetBlacklistStateForUsername returns the blacklist state bytes based on the current Blacklist state for a username.
+func (fes *APIServer) GetBlacklistStateForUsername(username string) []byte {
+	return fes.BlacklistedUsernameMap[username]
+}
+
+func (fes *APIServer) GetUsernameBlacklistStateForPkid(pkid *lib.PKID, utxoView *lib.UtxoView) []byte {
+	// Get profile entry for user, in order to check if the username is graylisted or blacklisted.
+	profileEntry := utxoView.GetProfileEntryForPKID(pkid)
+	usernameBlacklistState := []byte{0}
+	if profileEntry != nil && strings.ToLower(string(profileEntry.Username)) != "" {
+		lowercaseUsernameString := strings.ToLower(string(profileEntry.Username))
+		usernameBlacklistState = fes.GetBlacklistStateForUsername(lowercaseUsernameString)
+	}
+	return usernameBlacklistState
 }
 
 func (fes *APIServer) GetPubKeyAndProfileEntryForUsernameOrPublicKeyBase58Check(

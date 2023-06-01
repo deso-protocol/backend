@@ -98,6 +98,7 @@ type PostEntryResponse struct {
 
 	// NFT info.
 	IsNFT                          bool
+	IsFrozen                       bool
 	NumNFTCopies                   uint64
 	NumNFTCopiesForSale            uint64
 	NumNFTCopiesBurned             uint64
@@ -249,6 +250,7 @@ func (fes *APIServer) _postEntryToResponse(postEntry *lib.PostEntry, addGlobalFe
 		QuoteRepostCount:               postEntry.QuoteRepostCount,
 		IsPinned:                       &postEntry.IsPinned,
 		IsNFT:                          postEntry.IsNFT,
+		IsFrozen:                       postEntry.IsFrozen,
 		NumNFTCopies:                   postEntry.NumNFTCopies,
 		NumNFTCopiesForSale:            postEntry.NumNFTCopiesForSale,
 		NumNFTCopiesBurned:             postEntry.NumNFTCopiesBurned,
@@ -476,17 +478,22 @@ func (fes *APIServer) GetPostEntriesByDESOAfterTimePaginated(readerPK []byte,
 	}
 	profileEntries := make(map[lib.PkMapKey]*lib.ProfileEntry)
 	for _, postEntry := range allCorePosts {
-		{
-			profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
-			if profileEntry != nil {
-				profileEntries[lib.MakePkMapKey(profileEntry.PublicKey)] = profileEntry
-			}
+		profileEntry := utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey)
+		if profileEntry != nil {
+			profileEntries[lib.MakePkMapKey(profileEntry.PublicKey)] = profileEntry
 		}
 	}
 
 	// Order the posts by the poster's coin price.
 	sort.Slice(allCorePosts, func(ii, jj int) bool {
-		return profileEntries[lib.MakePkMapKey(allCorePosts[ii].PosterPublicKey)].CreatorCoinEntry.DeSoLockedNanos > profileEntries[lib.MakePkMapKey(allCorePosts[jj].PosterPublicKey)].CreatorCoinEntry.DeSoLockedNanos
+		var iiDeSoLocked, jjDeSoLocked uint64
+		if allCorePosts[ii] != nil && profileEntries[lib.MakePkMapKey(allCorePosts[ii].PosterPublicKey)] != nil {
+			iiDeSoLocked = profileEntries[lib.MakePkMapKey(allCorePosts[ii].PosterPublicKey)].CreatorCoinEntry.DeSoLockedNanos
+		}
+		if allCorePosts[jj] != nil && profileEntries[lib.MakePkMapKey(allCorePosts[jj].PosterPublicKey)] != nil {
+			jjDeSoLocked = profileEntries[lib.MakePkMapKey(allCorePosts[jj].PosterPublicKey)].CreatorCoinEntry.DeSoLockedNanos
+		}
+		return iiDeSoLocked > jjDeSoLocked
 	})
 	// Select the top numToFetch posts.
 	if len(allCorePosts) > numToFetch {
@@ -1337,7 +1344,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	if _, ok := filteredProfilePubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)]; !ok {
 		currentPosterPKID := utxoView.GetPKIDForPublicKey(postEntry.PosterPublicKey)
 		// If the currentPoster's userMetadata doesn't exist, then they are no greylisted, so we can exit.
-		if fes.IsUserGraylisted(currentPosterPKID.PKID) && !fes.IsUserBlacklisted(currentPosterPKID.PKID) {
+		if fes.IsUserGraylisted(currentPosterPKID.PKID, utxoView) && !fes.IsUserBlacklisted(currentPosterPKID.PKID, utxoView) {
 			// If the currentPoster is not blacklisted (removed everywhere) and is greylisted (removed from leaderboard)
 			// add them back to the filteredProfilePubKeyMap and note that the currentPoster is greylisted.
 			isCurrentPosterGreylisted = true

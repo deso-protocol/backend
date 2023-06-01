@@ -80,6 +80,10 @@ type UpdateGlobalParamsRequest struct {
 	// The new minimum fee the network will accept
 	MinimumNetworkFeeNanosPerKB int64 `safeForLogging:"true"`
 
+	// The new maximum buffer nodes will accept for expiration block
+	// heights on nonces.
+	MaxNonceExpirationBlockHeightOffset int64 `safeForLogging:"true"`
+
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
@@ -163,6 +167,11 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 		maxCopiesPerNFT = requestData.MaxCopiesPerNFT
 	}
 
+	maxNonceExpirationBlockHeightOffset := int64(-1)
+	if requestData.MaxNonceExpirationBlockHeightOffset >= 0 && uint64(requestData.MaxNonceExpirationBlockHeightOffset) != utxoView.GlobalParamsEntry.MaxNonceExpirationBlockHeightOffset {
+		maxNonceExpirationBlockHeightOffset = requestData.MaxNonceExpirationBlockHeightOffset
+	}
+
 	// Try and create the update txn for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateUpdateGlobalParamsTxn(
 		updaterPkBytes,
@@ -172,6 +181,7 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 		maxCopiesPerNFT,
 		minimumNetworkFeeNanosPerKb,
 		[]byte{},
+		maxNonceExpirationBlockHeightOffset,
 		requestData.MinFeeRateNanosPerKB,
 		fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {

@@ -8,7 +8,9 @@ import (
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
+	"io"
 	"strconv"
+	"strings"
 )
 
 type ExtraDataDecoderFunc func([]byte, *lib.DeSoParams, *lib.UtxoView) string
@@ -139,15 +141,21 @@ func Encode64BitUintString(str string) ([]byte, error) {
 	return buffer, nil
 }
 
-func DecodeBoolString(bytes []byte, params *lib.DeSoParams, utxoView *lib.UtxoView) string {
-	return Decode64BitUintString(bytes, params, utxoView)
+func DecodeBoolString(inputBytes []byte, params *lib.DeSoParams, utxoView *lib.UtxoView) string {
+	if bytes.Equal(inputBytes, []byte{1}) {
+		return "1"
+	}
+	return "0"
 }
 
 func EncodeBoolString(str string) ([]byte, error) {
-	if str != "0" && str != "1" {
-		return nil, errors.Errorf("%v is not a boolean string. Only values \"0\" or \"1\" are supported", str)
+	if str == "0" {
+		return []byte{0}, nil
 	}
-	return Encode64BitUintString(str)
+	if str == "1" {
+		return []byte{1}, nil
+	}
+	return nil, errors.Errorf("%v is not a boolean string. Only values \"0\" or \"1\" are supported", str)
 }
 
 func DecodeHexString(bytes []byte, _ *lib.DeSoParams, _ *lib.UtxoView) string {
@@ -181,16 +189,32 @@ func DecodePubKeyToUint64MapString(bytes []byte, params *lib.DeSoParams, _ *lib.
 
 func DecodeTransactionSpendingLimit(spendingBytes []byte, params *lib.DeSoParams, utxoView *lib.UtxoView) string {
 	var transactionSpendingLimit lib.TransactionSpendingLimit
-	blockHeight, err := lib.GetBlockTipHeight(utxoView.Handle, false)
+	tipHeight, err := lib.GetBlockTipHeight(utxoView.Handle, false)
 	if err != nil {
 		glog.Errorf("Error getting block tip height from the db")
 		return ""
 	}
-	rr := bytes.NewReader(spendingBytes)
-	if err := transactionSpendingLimit.FromBytes(blockHeight, rr); err != nil {
-		glog.Errorf("Error decoding transaction spending limits: %v", err)
-		return ""
+	// Note: we will have to update this with every migration on transaction spending limits
+	blockHeights := []uint64{
+		tipHeight,
+		uint64(utxoView.Params.ForkHeights.BalanceModelBlockHeight),
+		uint64(utxoView.Params.ForkHeights.AssociationsAndAccessGroupsBlockHeight),
+		uint64(utxoView.Params.ForkHeights.DeSoUnlimitedDerivedKeysBlockHeight),
+		0,
 	}
+
+	for _, blockHeight := range blockHeights {
+		rr := bytes.NewReader(spendingBytes)
+		if err := transactionSpendingLimit.FromBytes(blockHeight, rr); err != nil {
+			if strings.Contains(err.Error(), io.EOF.Error()) {
+				// Try to decode the old format.
+				continue
+			}
+			glog.Errorf("Error decoding transaction spending limits: %v", err)
+			return ""
+		}
+	}
+
 	response := TransactionSpendingLimitToResponse(&transactionSpendingLimit, utxoView, params)
 	responseJSON, err := json.Marshal(response)
 	if err != nil {

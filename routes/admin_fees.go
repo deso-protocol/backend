@@ -255,7 +255,7 @@ func (fes *APIServer) GetTransactionFeeMapFromGlobalState() map[lib.TxnType][]*l
 			var feeOutputs []*lib.DeSoOutput
 			// Decode the bytes into the slice of DeSoOutputs
 			if err = gob.NewDecoder(bytes.NewReader(desoOutputBytes)).Decode(&feeOutputs); err != nil {
-				glog.Errorf("Error decoding desoOutputBytes to slice of DeSoOutputs: %v - default to no additional fees", err)
+				glog.Infof("Error decoding desoOutputBytes to slice of DeSoOutputs: %v - default to no additional fees", err)
 				// Default to an empty slice.
 				transactionFeeMap[txnType] = []*lib.DeSoOutput{}
 			} else {

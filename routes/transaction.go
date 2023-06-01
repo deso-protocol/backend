@@ -1270,6 +1270,9 @@ type SubmitPostRequest struct {
 	TransactionFees []TransactionFee `safeForLogging:"true"`
 
 	InTutorial bool `safeForLogging:"true"`
+
+	// If true, the post will be "frozen", i.e. no longer editable.
+	IsFrozen bool `safeForLogging:"true"`
 }
 
 // SubmitPostResponse ...
@@ -1438,6 +1441,13 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Problem decoding ExtraData: %v", err))
 		return
+	}
+	if requestData.IsFrozen {
+		if _, exists := postExtraData[lib.IsFrozenKey]; exists {
+			_AddBadRequestError(ww, "SubmitPost: Cannot specify both IsFrozen and PostExtraData.IsFrozen")
+			return
+		}
+		postExtraData[lib.IsFrozenKey] = lib.IsFrozenPostVal
 	}
 
 	// Try and create the SubmitPost for the user.
@@ -3844,22 +3854,59 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 		return
 	}
 
+	// Get augmented universal view from mempool.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem getting AugmentedUniversalView: %v", err))
+		return
+	}
+
+	if txn.TxnFeeNanos != 0 {
+		var utxoOperations []*lib.UtxoOperation
+		utxoOperations, _, _, _, err = fes.simulateSubmitTransaction(utxoView, txn)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: error simulating txn: %v", err))
+			return
+		}
+		var spendBalanceAmount, addBalanceAmount uint64
+		for _, utxoOperation := range utxoOperations {
+			if utxoOperation.Type == lib.OperationTypeSpendBalance && bytes.Equal(utxoOperation.BalancePublicKey, txn.PublicKey) {
+				spendBalanceAmount, err = lib.SafeUint64().Add(spendBalanceAmount, utxoOperation.BalanceAmountNanos)
+				if err != nil {
+					_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: error summing spend balance amount: %v", err))
+				}
+			}
+			if utxoOperation.Type == lib.OperationTypeAddBalance && bytes.Equal(utxoOperation.BalancePublicKey, txn.PublicKey) {
+				addBalanceAmount, err = lib.SafeUint64().Add(addBalanceAmount, utxoOperation.BalanceAmountNanos)
+				if err != nil {
+					_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: error summing add balance amount: %v", err))
+				}
+			}
+		}
+		var totalSpendingNanos uint64
+		if spendBalanceAmount > addBalanceAmount {
+			totalSpendingNanos = spendBalanceAmount - addBalanceAmount
+		}
+
+		// Return the final transaction spending.
+		res := GetTransactionSpendingResponse{
+			TotalSpendingNanos: totalSpendingNanos,
+		}
+		if err = json.NewEncoder(ww).Encode(res); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem encoding response as JSON: %v", err))
+		}
+		return
+	}
+
 	// If transaction has no inputs we can return immediately.
 	if len(txn.TxInputs) == 0 {
 		// Return the final transaction spending.
 		res := GetTransactionSpendingResponse{
 			TotalSpendingNanos: 0,
 		}
-		if err := json.NewEncoder(ww).Encode(res); err != nil {
+		if err = json.NewEncoder(ww).Encode(res); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem encoding response as JSON: %v", err))
 		}
-		return
-	}
-
-	// Get augmented universal view from mempool.
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem getting AugmentedUniversalView: %v", err))
 		return
 	}
 
@@ -3893,15 +3940,15 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 	res := GetTransactionSpendingResponse{
 		TotalSpendingNanos: totalSpendingNanos,
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTransactionSpending: Problem encoding response as JSON: %v", err))
 	}
 	return
 }
 
-func (fes *APIServer) simulateSubmitTransaction(utxoView *lib.UtxoView, txn *lib.MsgDeSoTxn) (uint64, error) {
+func (fes *APIServer) simulateSubmitTransaction(utxoView *lib.UtxoView, txn *lib.MsgDeSoTxn) (_utxoOperations []*lib.UtxoOperation, _totalInput uint64, _totalOutput uint64, _fees uint64, _err error) {
 	bestHeight := fes.blockchain.BlockTip().Height + 1
-	_, _, _, fees, err := utxoView.ConnectTransaction(
+	return utxoView.ConnectTransaction(
 		txn,
 		txn.Hash(),
 		0,
@@ -3909,5 +3956,42 @@ func (fes *APIServer) simulateSubmitTransaction(utxoView *lib.UtxoView, txn *lib
 		false,
 		false,
 	)
-	return fees, err
+}
+
+type GetSignatureIndexRequest struct {
+	TransactionHex string
+}
+
+type GetSignatureIndexResponse struct {
+	SignatureIndex int
+}
+
+func (fes *APIServer) GetSignatureIndex(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetSignatureIndexRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSignatureIndex: Problem parsing request body: %v", err))
+		return
+	}
+	transactionHex := requestData.TransactionHex
+	txnBytes, err := hex.DecodeString(transactionHex)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSignatureIndex: unable to decode transaction hex %v: %v", transactionHex, err))
+		return
+	}
+
+	rr := bytes.NewReader(txnBytes)
+	txn := &lib.MsgDeSoTxn{}
+	if err = lib.ReadTransactionV0Fields(rr, txn); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSignatureIndex: unable to read v0 fields of transaction hex %v: %v", transactionHex, err))
+		return
+	}
+
+	res := &GetSignatureIndexResponse{
+		SignatureIndex: len(txnBytes) - rr.Len() - 1,
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetSignatureIndex: Problem encoding response as JSON: %v", err))
+	}
+	return
 }
