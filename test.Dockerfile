@@ -2,14 +2,21 @@ FROM alpine:latest AS backend
 
 RUN apk update
 RUN apk upgrade
-RUN apk add --update bash cmake go gcc g++ make vips-dev git
+RUN apk add --update bash cmake gcc g++ make vips-dev git
+
+COPY --from=golang:1.20-alpine /usr/local/go/ /usr/local/go/
+ENV PATH="/usr/local/go/bin:${PATH}"
 
 WORKDIR /deso/src
 
 RUN git clone https://github.com/deso-protocol/core.git
 
 WORKDIR /deso/src/core
-RUN git checkout mf/add-bls-signature-utils && git pull origin mf/add-bls-signature-utils
+RUN git checkout mf/add-bls-signature-utils && \
+    git pull origin mf/add-bls-signature-utils # TODO: Revert to `git pull` once core PR is merged.
+
+RUN go mod download
+RUN ./scripts/install-relic.sh
 
 WORKDIR /deso/src/backend
 
@@ -17,7 +24,6 @@ COPY go.mod .
 COPY go.sum .
 
 RUN go mod download
-RUN /deso/src/core/scripts/install-relic.sh
 
 # include backend src
 COPY apis      apis
