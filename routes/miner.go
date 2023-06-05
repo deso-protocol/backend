@@ -1,10 +1,10 @@
 package routes
 
 import (
-	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"io"
@@ -163,25 +163,29 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 	blockFound.Txns[0].TxOutputs[0].PublicKey = pkBytes
 	blockFound.Txns[0].TxnMeta.(*lib.BlockRewardMetadataa).ExtraData = lib.UintToBuf(requestData.ExtraData)
 
+	blockRewardOutputPublicKey, err := btcec.ParsePubKey(pkBytes, btcec.S256())
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitBlock: Problem parsing block reward output public key: %v", err))
+		return
+	}
+
 	// Find all transactions in block that have transactor == block reward output public key
-	// and sum fees to reduce the total block reward.
-	totalFeesByBlockRewardOutputPublicKey := uint64(0)
+	// and sum fees to calculate the block reward
+	totalFees := uint64(0)
 	for _, txn := range blockFound.Txns[1:] {
-		if bytes.Equal(txn.PublicKey, pkBytes) {
-			totalFeesByBlockRewardOutputPublicKey, err = lib.SafeUint64().Add(totalFeesByBlockRewardOutputPublicKey, txn.TxnFeeNanos)
+		transactorPublicKey, err := btcec.ParsePubKey(txn.PublicKey, btcec.S256())
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitBlock: Problem parsing public key: %v", err))
+		}
+		if !transactorPublicKey.IsEqual(blockRewardOutputPublicKey) {
+			totalFees, err = lib.SafeUint64().Add(totalFees, txn.TxnFeeNanos)
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf("SubmitBlock: Problem summing txn fee nanos: %v", err))
 				return
 			}
 		}
 	}
-	blockRewardAmountNanos := blockFound.Txns[0].TxOutputs[0].AmountNanos
-	if totalFeesByBlockRewardOutputPublicKey > blockRewardAmountNanos {
-		blockRewardAmountNanos = 0
-	} else {
-		blockRewardAmountNanos -= totalFeesByBlockRewardOutputPublicKey
-	}
-	blockFound.Txns[0].TxOutputs[0].AmountNanos = blockRewardAmountNanos
+	blockFound.Txns[0].TxOutputs[0].AmountNanos = lib.CalcBlockRewardNanos(uint32(blockFound.Header.Height)) + totalFees
 
 	// Recompute the block reward.
 
