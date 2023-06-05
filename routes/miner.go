@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -161,6 +162,28 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 	// Swap in the ExtraNonce and the public key from the request.
 	blockFound.Txns[0].TxOutputs[0].PublicKey = pkBytes
 	blockFound.Txns[0].TxnMeta.(*lib.BlockRewardMetadataa).ExtraData = lib.UintToBuf(requestData.ExtraData)
+
+	// Find all transactions in block that have transactor == block reward output public key
+	// and sum fees to reduce the total block reward.
+	totalFeesByBlockRewardOutputPublicKey := uint64(0)
+	for _, txn := range blockFound.Txns[1:] {
+		if bytes.Equal(txn.PublicKey, pkBytes) {
+			totalFeesByBlockRewardOutputPublicKey, err = lib.SafeUint64().Add(totalFeesByBlockRewardOutputPublicKey, txn.TxnFeeNanos)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("SubmitBlock: Problem summing txn fee nanos: %v", err))
+				return
+			}
+		}
+	}
+	blockRewardAmountNanos := blockFound.Txns[0].TxOutputs[0].AmountNanos
+	if totalFeesByBlockRewardOutputPublicKey > blockRewardAmountNanos {
+		blockRewardAmountNanos = 0
+	} else {
+		blockRewardAmountNanos -= totalFeesByBlockRewardOutputPublicKey
+	}
+	blockFound.Txns[0].TxOutputs[0].AmountNanos = blockRewardAmountNanos
+
+	// Recompute the block reward.
 
 	header := &lib.MsgDeSoHeader{}
 	if err := header.FromBytes(requestData.Header); err != nil {
