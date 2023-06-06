@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"io"
@@ -163,31 +162,11 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 	blockFound.Txns[0].TxOutputs[0].PublicKey = pkBytes
 	blockFound.Txns[0].TxnMeta.(*lib.BlockRewardMetadataa).ExtraData = lib.UintToBuf(requestData.ExtraData)
 
-	blockRewardOutputPublicKey, err := btcec.ParsePubKey(pkBytes, btcec.S256())
+	blockFound, err = lib.RecomputeBlockRewardWithBlockRewardOutputPublicKey(blockFound, pkBytes)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitBlock: Problem parsing block reward output public key: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitBlock: Problem recomputing block reward: %v", err))
 		return
 	}
-
-	// Find all transactions in block that have transactor == block reward output public key
-	// and sum fees to calculate the block reward
-	totalFees := uint64(0)
-	for _, txn := range blockFound.Txns[1:] {
-		transactorPublicKey, err := btcec.ParsePubKey(txn.PublicKey, btcec.S256())
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SubmitBlock: Problem parsing public key: %v", err))
-		}
-		if !transactorPublicKey.IsEqual(blockRewardOutputPublicKey) {
-			totalFees, err = lib.SafeUint64().Add(totalFees, txn.TxnFeeNanos)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("SubmitBlock: Problem summing txn fee nanos: %v", err))
-				return
-			}
-		}
-	}
-	blockFound.Txns[0].TxOutputs[0].AmountNanos = lib.CalcBlockRewardNanos(uint32(blockFound.Header.Height)) + totalFees
-
-	// Recompute the block reward.
 
 	header := &lib.MsgDeSoHeader{}
 	if err := header.FromBytes(requestData.Header); err != nil {
