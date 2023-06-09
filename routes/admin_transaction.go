@@ -231,7 +231,7 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 	}
 
 	if requestData.LeaderScheduleMaxNumValidators > 0 &&
-		requestData.ValidatorJailEpochDuration != utxoView.GetCurrentGlobalParam(lib.LeaderScheduleMaxNumValidators) {
+		requestData.LeaderScheduleMaxNumValidators != utxoView.GetCurrentGlobalParam(lib.LeaderScheduleMaxNumValidators) {
 		extraData[lib.LeaderScheduleMaxNumValidators.ToString()] = lib.UintToBuf(requestData.LeaderScheduleMaxNumValidators)
 	}
 

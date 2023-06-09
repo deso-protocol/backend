@@ -45,11 +45,13 @@ func TestUpdateGlobalParams(t *testing.T) {
 	updateGlobalParams := func(body *UpdateGlobalParamsRequest) {
 		// Add JWT auth to body of request.
 		type MergedBody struct {
-			UpdateGlobalParamsRequest
 			AdminRequest
+			UpdateGlobalParamsRequest
 		}
 		mergedBody := MergedBody{
-			AdminRequest:              AdminRequest{JWT: adminJWT, AdminPublicKey: adminPublicKeyBase58Check},
+			AdminRequest: AdminRequest{
+				JWT: adminJWT, AdminPublicKey: adminPublicKeyBase58Check,
+			},
 			UpdateGlobalParamsRequest: *body,
 		}
 
@@ -110,13 +112,26 @@ func TestUpdateGlobalParams(t *testing.T) {
 		require.Equal(t, globalParams.StakeLockupEpochDuration, uint64(4))
 		require.Equal(t, globalParams.ValidatorJailEpochDuration, uint64(4))
 		require.Equal(t, globalParams.LeaderScheduleMaxNumValidators, uint64(101))
-		//require.Equal(t, globalParams.EpochDurationNumBlocks, uint64(3601))
-		//require.Equal(t, globalParams.JailInactiveValidatorGracePeriodEpochs, uint64(49))
+		require.Equal(t, globalParams.EpochDurationNumBlocks, uint64(3601))
+		require.Equal(t, globalParams.JailInactiveValidatorGracePeriodEpochs, uint64(49))
 	}
 	{
 		// Update only one GlobalParam field.
+		updateGlobalParams(&UpdateGlobalParamsRequest{
+			UpdaterPublicKeyBase58Check:            senderPkString,
+			MinimumNetworkFeeNanosPerKB:            99,
+			JailInactiveValidatorGracePeriodEpochs: 50,
+			MinFeeRateNanosPerKB:                   99,
+		})
 	}
 	{
 		// Verify updated GlobalParam field. And other fields retain old values.
+		globalParams := getGlobalParams()
+		require.Equal(t, globalParams.MinimumNetworkFeeNanosPerKB, uint64(99))
+		require.Equal(t, globalParams.StakeLockupEpochDuration, uint64(4))
+		require.Equal(t, globalParams.ValidatorJailEpochDuration, uint64(4))
+		require.Equal(t, globalParams.LeaderScheduleMaxNumValidators, uint64(101))
+		require.Equal(t, globalParams.EpochDurationNumBlocks, uint64(3601))
+		require.Equal(t, globalParams.JailInactiveValidatorGracePeriodEpochs, uint64(50))
 	}
 }
