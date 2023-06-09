@@ -12,8 +12,8 @@ WORKDIR /deso/src
 RUN git clone https://github.com/deso-protocol/core.git
 
 WORKDIR /deso/src/core
-RUN git checkout mf/add-bls-signature-utils && \
-    git pull origin mf/add-bls-signature-utils # TODO: Revert to `git pull` once core PR is merged.
+RUN git checkout mf/pos-merge-20230605 && \
+    git pull origin mf/pos-merge-20230605 # TODO: Revert to `git pull` once core PR is merged.
 
 RUN go mod download
 RUN ./scripts/install-relic.sh
