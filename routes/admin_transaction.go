@@ -31,6 +31,26 @@ type GetGlobalParamsResponse struct {
 
 	// The maximum number of copies a single NFT can have.
 	MaxCopiesPerNFT uint64 `safeForLogging:"true"`
+
+	// StakeLockupEpochDuration is the number of epochs that a
+	// user must wait before unlocking their unstaked stake.
+	StakeLockupEpochDuration uint64 `safeForLogging:"true"`
+
+	// ValidatorJailEpochDuration is the number of epochs that a validator must
+	// wait after being jailed before submitting an UnjailValidator txn.
+	ValidatorJailEpochDuration uint64 `safeForLogging:"true"`
+
+	// LeaderScheduleMaxNumValidators is the maximum number of validators that
+	// are included when generating a new Proof-of-Stake leader schedule.
+	LeaderScheduleMaxNumValidators uint64 `safeForLogging:"true"`
+
+	// EpochDurationNumBlocks is the number of blocks included in one epoch.
+	EpochDurationNumBlocks uint64 `safeForLogging:"true"`
+
+	// JailInactiveValidatorGracePeriodEpochs is the number of epochs we
+	// allow a validator to be inactive for (neither voting nor proposing
+	// blocks) before they are jailed.
+	JailInactiveValidatorGracePeriodEpochs uint64 `safeForLogging:"true"`
 }
 
 func (fes *APIServer) GetGlobalParams(ww http.ResponseWriter, req *http.Request) {
@@ -50,11 +70,16 @@ func (fes *APIServer) GetGlobalParams(ww http.ResponseWriter, req *http.Request)
 	globalParamsEntry := utxoView.GlobalParamsEntry
 	// Return all the data associated with the transaction in the response
 	res := GetGlobalParamsResponse{
-		USDCentsPerBitcoin:          globalParamsEntry.USDCentsPerBitcoin,
-		CreateProfileFeeNanos:       globalParamsEntry.CreateProfileFeeNanos,
-		MinimumNetworkFeeNanosPerKB: globalParamsEntry.MinimumNetworkFeeNanosPerKB,
-		CreateNFTFeeNanos:           globalParamsEntry.CreateNFTFeeNanos,
-		MaxCopiesPerNFT:             globalParamsEntry.MaxCopiesPerNFT,
+		USDCentsPerBitcoin:                     globalParamsEntry.USDCentsPerBitcoin,
+		CreateProfileFeeNanos:                  globalParamsEntry.CreateProfileFeeNanos,
+		MinimumNetworkFeeNanosPerKB:            globalParamsEntry.MinimumNetworkFeeNanosPerKB,
+		CreateNFTFeeNanos:                      globalParamsEntry.CreateNFTFeeNanos,
+		MaxCopiesPerNFT:                        globalParamsEntry.MaxCopiesPerNFT,
+		StakeLockupEpochDuration:               utxoView.GetCurrentGlobalParam(lib.StakeLockupEpochDuration),
+		ValidatorJailEpochDuration:             utxoView.GetCurrentGlobalParam(lib.ValidatorJailEpochDuration),
+		LeaderScheduleMaxNumValidators:         utxoView.GetCurrentGlobalParam(lib.LeaderScheduleMaxNumValidators),
+		EpochDurationNumBlocks:                 utxoView.GetCurrentGlobalParam(lib.EpochDurationNumBlocks),
+		JailInactiveValidatorGracePeriodEpochs: utxoView.GetCurrentGlobalParam(lib.JailInactiveValidatorGracePeriodEpochs),
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetGlobalParams: Problem encoding response as JSON: %v", err))
@@ -91,6 +116,18 @@ type UpdateGlobalParamsRequest struct {
 	// ValidatorJailEpochDuration is the number of epochs that a validator must
 	// wait after being jailed before submitting an UnjailValidator txn.
 	ValidatorJailEpochDuration uint64 `safeForLogging:"true"`
+
+	// LeaderScheduleMaxNumValidators is the maximum number of validators that
+	// are included when generating a new Proof-of-Stake leader schedule.
+	LeaderScheduleMaxNumValidators uint64 `safeForLogging:"true"`
+
+	// EpochDurationNumBlocks is the number of blocks included in one epoch.
+	EpochDurationNumBlocks uint64 `safeForLogging:"true"`
+
+	// JailInactiveValidatorGracePeriodEpochs is the number of epochs we
+	// allow a validator to be inactive for (neither voting nor proposing
+	// blocks) before they are jailed.
+	JailInactiveValidatorGracePeriodEpochs uint64 `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
@@ -182,12 +219,30 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 
 	extraData := make(map[string][]byte)
 
-	if requestData.StakeLockupEpochDuration > 0 && requestData.StakeLockupEpochDuration != utxoView.GetStakeLockupEpochDuration(0) {
-		extraData[lib.StakeLockupEpochDuration] = lib.UintToBuf(requestData.StakeLockupEpochDuration)
+	// Update Proof of Stake consensus related global params if they have changed.
+	if requestData.StakeLockupEpochDuration > 0 &&
+		requestData.StakeLockupEpochDuration != utxoView.GetCurrentGlobalParam(lib.StakeLockupEpochDuration) {
+		extraData[lib.StakeLockupEpochDuration.ToString()] = lib.UintToBuf(requestData.StakeLockupEpochDuration)
 	}
 
-	if requestData.ValidatorJailEpochDuration > 0 && requestData.ValidatorJailEpochDuration != utxoView.GetValidatorJailEpochDuration(0) {
-		extraData[lib.ValidatorJailEpochDuration] = lib.UintToBuf(requestData.ValidatorJailEpochDuration)
+	if requestData.ValidatorJailEpochDuration > 0 &&
+		requestData.ValidatorJailEpochDuration != utxoView.GetCurrentGlobalParam(lib.ValidatorJailEpochDuration) {
+		extraData[lib.ValidatorJailEpochDuration.ToString()] = lib.UintToBuf(requestData.ValidatorJailEpochDuration)
+	}
+
+	if requestData.LeaderScheduleMaxNumValidators > 0 &&
+		requestData.ValidatorJailEpochDuration != utxoView.GetCurrentGlobalParam(lib.LeaderScheduleMaxNumValidators) {
+		extraData[lib.LeaderScheduleMaxNumValidators.ToString()] = lib.UintToBuf(requestData.LeaderScheduleMaxNumValidators)
+	}
+
+	if requestData.EpochDurationNumBlocks > 0 &&
+		requestData.EpochDurationNumBlocks != utxoView.GetCurrentGlobalParam(lib.EpochDurationNumBlocks) {
+		extraData[lib.EpochDurationNumBlocks.ToString()] = lib.UintToBuf(requestData.EpochDurationNumBlocks)
+	}
+
+	if requestData.JailInactiveValidatorGracePeriodEpochs > 0 &&
+		requestData.JailInactiveValidatorGracePeriodEpochs != utxoView.GetCurrentGlobalParam(lib.JailInactiveValidatorGracePeriodEpochs) {
+		extraData[lib.JailInactiveValidatorGracePeriodEpochs.ToString()] = lib.UintToBuf(requestData.JailInactiveValidatorGracePeriodEpochs)
 	}
 
 	// Try and create the update txn for the user.
