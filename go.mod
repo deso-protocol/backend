@@ -41,6 +41,7 @@ require (
 	cloud.google.com/go v0.81.0 // indirect
 	github.com/DataDog/datadog-go v4.5.0+incompatible // indirect
 	github.com/Microsoft/go-winio v0.4.16 // indirect
+	github.com/btcsuite/btcd/btcec/v2 v2.2.1 // indirect
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f // indirect
 	github.com/bwesterb/go-ristretto v1.2.0 // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
@@ -82,6 +83,7 @@ require (
 	github.com/mattn/goveralls v0.0.6 // indirect
 	github.com/mgutz/ansi v0.0.0-20170206155736-9520e82c474b // indirect
 	github.com/oleiade/lane v1.0.1 // indirect
+	github.com/onflow/flow-go/crypto v0.24.7 // indirect
 	github.com/pelletier/go-toml v1.7.0 // indirect
 	github.com/petermattis/goid v0.0.0-20180202154549-b0b1615b78e5 // indirect
 	github.com/philhofer/fwd v1.1.1 // indirect
