@@ -13,8 +13,8 @@ RUN git clone https://github.com/deso-protocol/core.git
 
 WORKDIR /deso/src/core
 RUN git pull && \
-    git checkout mf/fix-bugs-in-updating-global-params && \
-    git pull origin mf/fix-bugs-in-updating-global-params # TODO: Revert to `git pull` once core PR is merged.
+    git checkout mf/pos-merge-20230605 && \
+    git pull origin mf/pos-merge-20230605 # TODO: Revert to `git pull` once core PR is merged.
 
 RUN go mod download
 RUN ./scripts/install-relic.sh
