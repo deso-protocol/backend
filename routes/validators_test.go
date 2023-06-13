@@ -1,0 +1,124 @@
+//go:build relic
+
+package routes
+
+import (
+	"bytes"
+	"encoding/json"
+	"github.com/deso-protocol/core/bls"
+	"github.com/deso-protocol/core/lib"
+	"github.com/stretchr/testify/require"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+func TestValidatorRegistration(t *testing.T) {
+	apiServer := newTestApiServer(t)
+
+	// Convert senderPkString to senderPkBytes.
+	senderPkBytes, _, err := lib.Base58CheckDecode(senderPkString)
+	require.NoError(t, err)
+
+	{
+		// sender registers as a validator.
+
+		// Send POST request.
+		votingPublicKey, votingSignature := _generateVotingPublicKeyAndSignature(t, senderPkBytes)
+		extraData := map[string]string{"Foo": "Bar"}
+		body := &RegisterAsValidatorRequest{
+			TransactorPublicKeyBase58Check: senderPkString,
+			Domains:                        []string{"https://sender-001.deso.com", "https://sender-002.deso.com"},
+			DisableDelegatedStake:          false,
+			VotingPublicKey:                votingPublicKey.ToString(),
+			VotingPublicKeySignature:       votingSignature.ToString(),
+			ExtraData:                      extraData,
+			MinFeeRateNanosPerKB:           apiServer.MinFeeRateNanosPerKB,
+			TransactionFees:                []TransactionFee{},
+		}
+		bodyJSON, err := json.Marshal(body)
+		require.NoError(t, err)
+		request, _ := http.NewRequest("POST", RoutePathValidators+"/register", bytes.NewBuffer(bodyJSON))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.NotContains(t, string(response.Body.Bytes()), "error")
+
+		// Decode response.
+		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+		txnResponse := ValidatorTxnResponse{}
+		err = decoder.Decode(&txnResponse)
+		require.NoError(t, err)
+
+		// Test response fields.
+		txn := txnResponse.Transaction
+		require.Equal(t, txn.PublicKey, senderPkBytes)
+		txnMeta := txn.TxnMeta.(*lib.RegisterAsValidatorMetadata)
+		require.Len(t, txnMeta.Domains, 2)
+		require.Equal(t, txnMeta.Domains[0], []byte("https://sender-001.deso.com"))
+		require.Equal(t, txnMeta.Domains[1], []byte("https://sender-002.deso.com"))
+		require.False(t, txnMeta.DisableDelegatedStake)
+		require.True(t, txnMeta.VotingPublicKey.Eq(votingPublicKey))
+		require.True(t, txnMeta.VotingPublicKeySignature.Eq(votingSignature))
+		extraDataEncoded, err := EncodeExtraDataMap(extraData)
+		require.NoError(t, err)
+		require.Equal(t, txn.ExtraData, extraDataEncoded)
+
+		// Sign txn.
+		require.Nil(t, txn.Signature.Sign)
+		signTxn(t, txn, senderPrivString)
+		require.NotNil(t, txn.Signature.Sign)
+
+		// Submit txn.
+		_, err = submitTxn(t, apiServer, txn)
+		require.NoError(t, err)
+	}
+	{
+		// sender unregisters as a validator.
+
+		// Send POST request.
+		body := &UnregisterAsValidatorRequest{
+			TransactorPublicKeyBase58Check: senderPkString,
+			ExtraData:                      map[string]string{},
+			MinFeeRateNanosPerKB:           apiServer.MinFeeRateNanosPerKB,
+			TransactionFees:                []TransactionFee{},
+		}
+		bodyJSON, err := json.Marshal(body)
+		require.NoError(t, err)
+		request, _ := http.NewRequest("POST", RoutePathValidators+"/unregister", bytes.NewBuffer(bodyJSON))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.NotContains(t, string(response.Body.Bytes()), "error")
+
+		// Decode response.
+		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+		txnResponse := ValidatorTxnResponse{}
+		err = decoder.Decode(&txnResponse)
+		require.NoError(t, err)
+
+		// Test response fields.
+		txn := txnResponse.Transaction
+		require.Equal(t, txn.PublicKey, senderPkBytes)
+
+		// Sign txn.
+		require.Nil(t, txn.Signature.Sign)
+		signTxn(t, txn, senderPrivString)
+		require.NotNil(t, txn.Signature.Sign)
+
+		// Submit txn.
+		_, err = submitTxn(t, apiServer, txn)
+		require.NoError(t, err)
+	}
+}
+
+func _generateVotingPublicKeyAndSignature(t *testing.T, transactorPkBytes []byte) (*bls.PublicKey, *bls.Signature) {
+	blsPrivateKey, err := bls.NewPrivateKey()
+	require.NoError(t, err)
+	votingPublicKey := blsPrivateKey.PublicKey()
+	signaturePayload := lib.CreateValidatorVotingSignaturePayload(transactorPkBytes)
+	votingSignature, err := blsPrivateKey.Sign(signaturePayload)
+	require.NoError(t, err)
+	return votingPublicKey, votingSignature
+}
