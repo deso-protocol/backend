@@ -311,6 +311,9 @@ const (
 	// snapshot.go
 	RoutePathSnapshotEpochMetadata = "/api/v0/snapshot-epoch-metadata"
 	RoutePathStateChecksum         = "/api/v0/state-checksum"
+
+	// validators.go
+	RoutePathValidators = "/api/v0/validators"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -1268,6 +1271,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathPostAssociations + "/counts",
 			fes.CountPostAssociationsByValue,
+			PublicAccess,
+		},
+		{
+			"RegisterAsValidator",
+			[]string{"POST", "OPTIONS"},
+			RoutePathValidators + "/register",
+			fes.RegisterAsValidator,
+			PublicAccess,
+		},
+		{
+			"UnregisterAsValidator",
+			[]string{"POST", "OPTIONS"},
+			RoutePathValidators + "/unregister",
+			fes.UnregisterAsValidator,
 			PublicAccess,
 		},
 		// Jumio Routes
