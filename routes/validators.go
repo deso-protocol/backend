@@ -11,21 +11,21 @@ import (
 )
 
 type RegisterAsValidatorRequest struct {
-	TransactorPublicKeyBase58Check string   `safeForLogging:"true"`
-	Domains                        []string `safeForLogging:"true"`
-	DisableDelegatedStake          bool     `safeForLogging:"true"`
-	VotingPublicKey                string   `safeForLogging:"true"`
-	VotingPublicKeySignature       string   `safeForLogging:"true"`
-	ExtraData                      map[string]string
-	MinFeeRateNanosPerKB           uint64           `safeForLogging:"true"`
-	TransactionFees                []TransactionFee `safeForLogging:"true"`
+	TransactorPublicKeyBase58Check string            `safeForLogging:"true"`
+	Domains                        []string          `safeForLogging:"true"`
+	DisableDelegatedStake          bool              `safeForLogging:"true"`
+	VotingPublicKey                string            `safeForLogging:"true"`
+	VotingPublicKeySignature       string            `safeForLogging:"true"`
+	ExtraData                      map[string]string `safeForLogging:"true"`
+	MinFeeRateNanosPerKB           uint64            `safeForLogging:"true"`
+	TransactionFees                []TransactionFee  `safeForLogging:"true"`
 }
 
 type UnregisterAsValidatorRequest struct {
-	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
-	ExtraData                      map[string]string
-	MinFeeRateNanosPerKB           uint64           `safeForLogging:"true"`
-	TransactionFees                []TransactionFee `safeForLogging:"true"`
+	TransactorPublicKeyBase58Check string            `safeForLogging:"true"`
+	ExtraData                      map[string]string `safeForLogging:"true"`
+	MinFeeRateNanosPerKB           uint64            `safeForLogging:"true"`
+	TransactionFees                []TransactionFee  `safeForLogging:"true"`
 }
 
 type ValidatorTxnResponse struct {
