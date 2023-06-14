@@ -1289,8 +1289,8 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		},
 		{
 			"GetValidatorByPublicKeyBase58Check",
-			[]string{"GET", "OPTIONS"},
-			RoutePathValidators + "/{publicKeyBase58Check:[0-9a-zA-Z]{54,55}}",
+			[]string{"GET"},
+			RoutePathValidators + "/{publicKeyBase58Check:t?BC[1-9A-HJ-NP-Za-km-z]{51,53}}",
 			fes.GetValidatorByPublicKeyBase58Check,
 			PublicAccess,
 		},

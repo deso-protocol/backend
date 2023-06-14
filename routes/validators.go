@@ -260,6 +260,27 @@ func (fes *APIServer) GetValidatorByPublicKeyBase58Check(ww http.ResponseWriter,
 		return
 	}
 
+	// Encode response.
+	validatorResponse := _convertValidatorEntryToResponse(utxoView, validatorEntry, fes.Params)
+	if err = json.NewEncoder(ww).Encode(validatorResponse); err != nil {
+		_AddInternalServerError(ww, "GetValidatorByPublicKeyBase58Check: problem encoding response as JSON")
+		return
+	}
+}
+
+func _convertValidatorEntryToResponse(
+	utxoView *lib.UtxoView, validatorEntry *lib.ValidatorEntry, params *lib.DeSoParams,
+) *ValidatorResponse {
+	// Nil check: this should never happen but just to be safe.
+	if validatorEntry == nil {
+		return &ValidatorResponse{}
+	}
+
+	// Convert ValidatorPKID to ValidatorPublicKeyBase58Check.
+	validatorPublicKeyBase58Check := lib.Base58CheckEncode(
+		utxoView.GetPublicKeyForPKID(validatorEntry.ValidatorPKID), false, params,
+	)
+
 	// Convert Domains [][]byte to []string.
 	var domains []string
 	for _, domain := range validatorEntry.Domains {
@@ -267,7 +288,7 @@ func (fes *APIServer) GetValidatorByPublicKeyBase58Check(ww http.ResponseWriter,
 	}
 
 	// Convert ValidatorEntry to ValidatorResponse.
-	validatorResponse := &ValidatorResponse{
+	return &ValidatorResponse{
 		ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
 		Domains:                       domains,
 		DisableDelegatedStake:         validatorEntry.DisableDelegatedStake,
@@ -277,12 +298,6 @@ func (fes *APIServer) GetValidatorByPublicKeyBase58Check(ww http.ResponseWriter,
 		Status:                        validatorEntry.Status().ToString(),
 		LastActiveAtEpochNumber:       validatorEntry.LastActiveAtEpochNumber,
 		JailedAtEpochNumber:           validatorEntry.JailedAtEpochNumber,
-		ExtraData:                     DecodeExtraDataMap(fes.Params, utxoView, validatorEntry.ExtraData),
-	}
-
-	// Encode response.
-	if err = json.NewEncoder(ww).Encode(validatorResponse); err != nil {
-		_AddInternalServerError(ww, "GetValidatorByPublicKeyBase58Check: problem encoding response as JSON")
-		return
+		ExtraData:                     DecodeExtraDataMap(params, utxoView, validatorEntry.ExtraData),
 	}
 }
