@@ -21,19 +21,20 @@ func TestValidatorRegistration(t *testing.T) {
 	senderPkBytes, _, err := lib.Base58CheckDecode(senderPkString)
 	require.NoError(t, err)
 
+	// sender creates a VotingPublicKey and VotingSignature.
+	votingPublicKey, votingSignature := _generateVotingPublicKeyAndSignature(t, senderPkBytes)
+
 	{
 		// sender registers as a validator.
 
 		// Send POST request.
-		votingPublicKey, votingSignature := _generateVotingPublicKeyAndSignature(t, senderPkBytes)
-		extraData := map[string]string{"Foo": "Bar"}
 		body := &RegisterAsValidatorRequest{
 			TransactorPublicKeyBase58Check: senderPkString,
 			Domains:                        []string{"https://sender-001.deso.com", "https://sender-002.deso.com"},
 			DisableDelegatedStake:          false,
 			VotingPublicKey:                votingPublicKey.ToString(),
 			VotingPublicKeySignature:       votingSignature.ToString(),
-			ExtraData:                      extraData,
+			ExtraData:                      map[string]string{"Foo": "Bar"},
 			MinFeeRateNanosPerKB:           apiServer.MinFeeRateNanosPerKB,
 			TransactionFees:                []TransactionFee{},
 		}
@@ -51,7 +52,7 @@ func TestValidatorRegistration(t *testing.T) {
 		err = decoder.Decode(&txnResponse)
 		require.NoError(t, err)
 
-		// Test response fields.
+		// Verify response fields.
 		txn := txnResponse.Transaction
 		require.Equal(t, txn.PublicKey, senderPkBytes)
 		txnMeta := txn.TxnMeta.(*lib.RegisterAsValidatorMetadata)
@@ -61,9 +62,8 @@ func TestValidatorRegistration(t *testing.T) {
 		require.False(t, txnMeta.DisableDelegatedStake)
 		require.True(t, txnMeta.VotingPublicKey.Eq(votingPublicKey))
 		require.True(t, txnMeta.VotingPublicKeySignature.Eq(votingSignature))
-		extraDataEncoded, err := EncodeExtraDataMap(extraData)
-		require.NoError(t, err)
-		require.Equal(t, txn.ExtraData, extraDataEncoded)
+		require.NotNil(t, txn.ExtraData)
+		require.Equal(t, txn.ExtraData["Foo"], []byte("Bar"))
 
 		// Sign txn.
 		require.Nil(t, txn.Signature.Sign)
@@ -73,6 +73,36 @@ func TestValidatorRegistration(t *testing.T) {
 		// Submit txn.
 		_, err = submitTxn(t, apiServer, txn)
 		require.NoError(t, err)
+	}
+	{
+		// get sender validator by PublicKeyBase58Check
+
+		// Send GET request.
+		request, _ := http.NewRequest("GET", RoutePathValidators+"/"+senderPkString, nil)
+		response := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		require.NotContains(t, string(response.Body.Bytes()), "error")
+
+		// Decode response.
+		decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+		validatorResponse := ValidatorResponse{}
+		err := decoder.Decode(&validatorResponse)
+		require.NoError(t, err)
+
+		// Verify response fields.
+		require.Equal(t, validatorResponse.ValidatorPublicKeyBase58Check, senderPkString)
+		require.Len(t, validatorResponse.Domains, 2)
+		require.Equal(t, validatorResponse.Domains[0], "https://sender-001.deso.com")
+		require.Equal(t, validatorResponse.Domains[1], "https://sender-002.deso.com")
+		require.False(t, validatorResponse.DisableDelegatedStake)
+		require.Equal(t, validatorResponse.VotingPublicKey, votingPublicKey.ToString())
+		require.Equal(t, validatorResponse.VotingPublicKeySignature, votingSignature.ToString())
+		require.Equal(t, validatorResponse.TotalStakeAmountNanos.Uint64(), uint64(0))
+		require.Equal(t, validatorResponse.Status, "Active")
+		require.Equal(t, validatorResponse.LastActiveAtEpochNumber, uint64(0))
+		require.Equal(t, validatorResponse.JailedAtEpochNumber, uint64(0))
+		require.NotNil(t, validatorResponse.ExtraData)
+		require.Equal(t, validatorResponse.ExtraData["Foo"], "Bar")
 	}
 	{
 		// sender unregisters as a validator.
@@ -98,7 +128,7 @@ func TestValidatorRegistration(t *testing.T) {
 		err = decoder.Decode(&txnResponse)
 		require.NoError(t, err)
 
-		// Test response fields.
+		// Verify response fields.
 		txn := txnResponse.Transaction
 		require.Equal(t, txn.PublicKey, senderPkBytes)
 
@@ -110,6 +140,19 @@ func TestValidatorRegistration(t *testing.T) {
 		// Submit txn.
 		_, err = submitTxn(t, apiServer, txn)
 		require.NoError(t, err)
+	}
+	{
+		// get sender validator by PublicKeyBase58Check
+
+		// Send GET request.
+		request, _ := http.NewRequest("GET", RoutePathValidators+"/"+senderPkString, nil)
+		response := httptest.NewRecorder()
+		apiServer.router.ServeHTTP(response, request)
+		responseBody := string(response.Body.Bytes())
+
+		// errors: doesn't exist
+		require.Contains(t, responseBody, "error")
+		require.Contains(t, responseBody, "validator not found")
 	}
 }
 
