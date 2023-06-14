@@ -1287,6 +1287,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			fes.UnregisterAsValidator,
 			PublicAccess,
 		},
+		{
+			"GetValidatorByPublicKeyBase58Check",
+			[]string{"GET"},
+			RoutePathValidators + "/{publicKeyBase58Check:t?BC[1-9A-HJ-NP-Za-km-z]{51,53}}",
+			fes.GetValidatorByPublicKeyBase58Check,
+			PublicAccess,
+		},
 		// Jumio Routes
 		{
 			"JumioBegin",

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"github.com/deso-protocol/core/bls"
 	"github.com/deso-protocol/core/lib"
+	"github.com/gorilla/mux"
+	"github.com/holiman/uint256"
 	"io"
 	"net/http"
 )
@@ -36,6 +38,19 @@ type ValidatorTxnResponse struct {
 	Transaction       *lib.MsgDeSoTxn
 	TransactionHex    string
 	TxnHashHex        string
+}
+
+type ValidatorResponse struct {
+	ValidatorPublicKeyBase58Check string
+	Domains                       []string
+	DisableDelegatedStake         bool
+	VotingPublicKey               string
+	VotingPublicKeySignature      string
+	TotalStakeAmountNanos         *uint256.Int
+	Status                        string
+	LastActiveAtEpochNumber       uint64
+	JailedAtEpochNumber           uint64
+	ExtraData                     map[string]string
 }
 
 func (fes *APIServer) RegisterAsValidator(ww http.ResponseWriter, req *http.Request) {
@@ -208,5 +223,81 @@ func (fes *APIServer) UnregisterAsValidator(ww http.ResponseWriter, req *http.Re
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, "UnregisterAsValidator: problem encoding response as JSON")
 		return
+	}
+}
+
+func (fes *APIServer) GetValidatorByPublicKeyBase58Check(ww http.ResponseWriter, req *http.Request) {
+	// Parse ValidatorPublicKeyBase58Check from URL.
+	vars := mux.Vars(req)
+	validatorPublicKeyBase58Check, exists := vars["publicKeyBase58Check"]
+	if !exists {
+		_AddBadRequestError(ww, "GetValidatorByPublicKeyBase58Check: must provide a ValidatorPublicKeyBase58Check")
+		return
+	}
+
+	// Create UTXO view.
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, "GetValidatorByPublicKeyBase58Check: problem getting UTXO view")
+		return
+	}
+
+	// Convert ValidatorPublicKeyBase58Check to ValidatorPKID.
+	validatorPKID, err := fes.getPKIDFromPublicKeyBase58Check(utxoView, validatorPublicKeyBase58Check)
+	if err != nil || validatorPKID == nil {
+		_AddInternalServerError(ww, "GetValidatorByPublicKeyBase58Check: problem retrieving validator PKID")
+		return
+	}
+
+	// Get validator by PKID.
+	validatorEntry, err := utxoView.GetValidatorByPKID(validatorPKID)
+	if err != nil {
+		_AddInternalServerError(ww, "GetValidatorByPublicKeyBase58Check: problem retrieving validator")
+		return
+	}
+	if validatorEntry == nil {
+		_AddNotFoundError(ww, "GetValidatorByPublicKeyBase58Check: validator not found")
+		return
+	}
+
+	// Encode response.
+	validatorResponse := _convertValidatorEntryToResponse(utxoView, validatorEntry, fes.Params)
+	if err = json.NewEncoder(ww).Encode(validatorResponse); err != nil {
+		_AddInternalServerError(ww, "GetValidatorByPublicKeyBase58Check: problem encoding response as JSON")
+		return
+	}
+}
+
+func _convertValidatorEntryToResponse(
+	utxoView *lib.UtxoView, validatorEntry *lib.ValidatorEntry, params *lib.DeSoParams,
+) *ValidatorResponse {
+	// Nil check: this should never happen but just to be safe.
+	if validatorEntry == nil {
+		return &ValidatorResponse{}
+	}
+
+	// Convert ValidatorPKID to ValidatorPublicKeyBase58Check.
+	validatorPublicKeyBase58Check := lib.Base58CheckEncode(
+		utxoView.GetPublicKeyForPKID(validatorEntry.ValidatorPKID), false, params,
+	)
+
+	// Convert Domains [][]byte to []string.
+	var domains []string
+	for _, domain := range validatorEntry.Domains {
+		domains = append(domains, string(domain))
+	}
+
+	// Convert ValidatorEntry to ValidatorResponse.
+	return &ValidatorResponse{
+		ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
+		Domains:                       domains,
+		DisableDelegatedStake:         validatorEntry.DisableDelegatedStake,
+		VotingPublicKey:               validatorEntry.VotingPublicKey.ToString(),
+		VotingPublicKeySignature:      validatorEntry.VotingPublicKeySignature.ToString(),
+		TotalStakeAmountNanos:         validatorEntry.TotalStakeAmountNanos.Clone(),
+		Status:                        validatorEntry.Status().ToString(),
+		LastActiveAtEpochNumber:       validatorEntry.LastActiveAtEpochNumber,
+		JailedAtEpochNumber:           validatorEntry.JailedAtEpochNumber,
+		ExtraData:                     DecodeExtraDataMap(params, utxoView, validatorEntry.ExtraData),
 	}
 }
