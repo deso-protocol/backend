@@ -2,7 +2,10 @@ FROM alpine:latest AS backend
 
 RUN apk update
 RUN apk upgrade
-RUN apk add --update go gcc g++ vips-dev
+RUN apk add --update bash cmake g++ gcc git make vips-dev
+
+COPY --from=golang:1.20-alpine /usr/local/go/ /usr/local/go/
+ENV PATH="/usr/local/go/bin:${PATH}"
 
 WORKDIR /deso/src
 
@@ -26,13 +29,16 @@ COPY backend/main.go   .
 
 # include core src
 COPY core/bls      ../core/bls
-COPY core/desohash ../core/desohash
 COPY core/cmd      ../core/cmd
+COPY core/desohash ../core/desohash
 COPY core/lib      ../core/lib
 COPY core/migrate  ../core/migrate
+COPY core/scripts  ../core/scripts
+
+RUN ../core/scripts/install-relic.sh
 
 # build backend
-RUN GOOS=linux go build -mod=mod -a -installsuffix cgo -o bin/backend main.go
+RUN GOOS=linux go build -mod=mod -a -installsuffix cgo -o bin/backend -tags=relic main.go
 
 # create tiny image
 FROM alpine:latest
