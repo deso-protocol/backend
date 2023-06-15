@@ -17,7 +17,7 @@ type RegisterAsValidatorRequest struct {
 	Domains                        []string          `safeForLogging:"true"`
 	DisableDelegatedStake          bool              `safeForLogging:"true"`
 	VotingPublicKey                string            `safeForLogging:"true"`
-	VotingPublicKeySignature       string            `safeForLogging:"true"`
+	VotingAuthorization            string            `safeForLogging:"true"`
 	ExtraData                      map[string]string `safeForLogging:"true"`
 	MinFeeRateNanosPerKB           uint64            `safeForLogging:"true"`
 	TransactionFees                []TransactionFee  `safeForLogging:"true"`
@@ -45,7 +45,7 @@ type ValidatorResponse struct {
 	Domains                       []string
 	DisableDelegatedStake         bool
 	VotingPublicKey               string
-	VotingPublicKeySignature      string
+	VotingAuthorization           string
 	TotalStakeAmountNanos         *uint256.Int
 	Status                        string
 	LastActiveAtEpochNumber       uint64
@@ -86,10 +86,10 @@ func (fes *APIServer) RegisterAsValidator(ww http.ResponseWriter, req *http.Requ
 		return
 	}
 
-	// Convert VotingPublicKeySignatureString to VotingPublicKeySignature.
-	votingPublicKeySignature, err := (&bls.Signature{}).FromString(requestData.VotingPublicKeySignature)
+	// Convert VotingAuthorizationString to VotingAuthorization.
+	votingAuthorization, err := (&bls.Signature{}).FromString(requestData.VotingAuthorization)
 	if err != nil {
-		_AddBadRequestError(ww, "RegisterAsValidator: problem parsing VotingPublicKeySignature")
+		_AddBadRequestError(ww, "RegisterAsValidator: problem parsing VotingAuthorization")
 		return
 	}
 
@@ -116,10 +116,10 @@ func (fes *APIServer) RegisterAsValidator(ww http.ResponseWriter, req *http.Requ
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateRegisterAsValidatorTxn(
 		transactorPublicKeyBytes,
 		&lib.RegisterAsValidatorMetadata{
-			Domains:                  domains,
-			DisableDelegatedStake:    requestData.DisableDelegatedStake,
-			VotingPublicKey:          votingPublicKey,
-			VotingPublicKeySignature: votingPublicKeySignature,
+			Domains:               domains,
+			DisableDelegatedStake: requestData.DisableDelegatedStake,
+			VotingPublicKey:       votingPublicKey,
+			VotingAuthorization:   votingAuthorization,
 		},
 		extraData,
 		requestData.MinFeeRateNanosPerKB,
@@ -293,7 +293,7 @@ func _convertValidatorEntryToResponse(
 		Domains:                       domains,
 		DisableDelegatedStake:         validatorEntry.DisableDelegatedStake,
 		VotingPublicKey:               validatorEntry.VotingPublicKey.ToString(),
-		VotingPublicKeySignature:      validatorEntry.VotingPublicKeySignature.ToString(),
+		VotingAuthorization:           validatorEntry.VotingAuthorization.ToString(),
 		TotalStakeAmountNanos:         validatorEntry.TotalStakeAmountNanos.Clone(),
 		Status:                        validatorEntry.Status().ToString(),
 		LastActiveAtEpochNumber:       validatorEntry.LastActiveAtEpochNumber,
