@@ -21,8 +21,8 @@ func TestValidatorRegistration(t *testing.T) {
 	senderPkBytes, _, err := lib.Base58CheckDecode(senderPkString)
 	require.NoError(t, err)
 
-	// sender creates a VotingPublicKey and VotingSignature.
-	votingPublicKey, votingSignature := _generateVotingPublicKeyAndSignature(t, senderPkBytes)
+	// sender creates a VotingPublicKey and VotingAuthorization.
+	votingPublicKey, votingAuthorization := _generateVotingPublicKeyAndAuthorization(t, senderPkBytes)
 
 	{
 		// sender registers as a validator.
@@ -33,7 +33,7 @@ func TestValidatorRegistration(t *testing.T) {
 			Domains:                        []string{"https://sender-001.deso.com", "https://sender-002.deso.com"},
 			DisableDelegatedStake:          false,
 			VotingPublicKey:                votingPublicKey.ToString(),
-			VotingPublicKeySignature:       votingSignature.ToString(),
+			VotingAuthorization:            votingAuthorization.ToString(),
 			ExtraData:                      map[string]string{"Foo": "Bar"},
 			MinFeeRateNanosPerKB:           apiServer.MinFeeRateNanosPerKB,
 			TransactionFees:                []TransactionFee{},
@@ -61,7 +61,7 @@ func TestValidatorRegistration(t *testing.T) {
 		require.Equal(t, txnMeta.Domains[1], []byte("https://sender-002.deso.com"))
 		require.False(t, txnMeta.DisableDelegatedStake)
 		require.True(t, txnMeta.VotingPublicKey.Eq(votingPublicKey))
-		require.True(t, txnMeta.VotingPublicKeySignature.Eq(votingSignature))
+		require.True(t, txnMeta.VotingAuthorization.Eq(votingAuthorization))
 		require.NotNil(t, txn.ExtraData)
 		require.Equal(t, txn.ExtraData["Foo"], []byte("Bar"))
 
@@ -96,7 +96,7 @@ func TestValidatorRegistration(t *testing.T) {
 		require.Equal(t, validatorResponse.Domains[1], "https://sender-002.deso.com")
 		require.False(t, validatorResponse.DisableDelegatedStake)
 		require.Equal(t, validatorResponse.VotingPublicKey, votingPublicKey.ToString())
-		require.Equal(t, validatorResponse.VotingPublicKeySignature, votingSignature.ToString())
+		require.Equal(t, validatorResponse.VotingAuthorization, votingAuthorization.ToString())
 		require.Equal(t, validatorResponse.TotalStakeAmountNanos.Uint64(), uint64(0))
 		require.Equal(t, validatorResponse.Status, "Active")
 		require.Equal(t, validatorResponse.LastActiveAtEpochNumber, uint64(0))
@@ -156,12 +156,12 @@ func TestValidatorRegistration(t *testing.T) {
 	}
 }
 
-func _generateVotingPublicKeyAndSignature(t *testing.T, transactorPkBytes []byte) (*bls.PublicKey, *bls.Signature) {
+func _generateVotingPublicKeyAndAuthorization(t *testing.T, transactorPkBytes []byte) (*bls.PublicKey, *bls.Signature) {
 	blsPrivateKey, err := bls.NewPrivateKey()
 	require.NoError(t, err)
 	votingPublicKey := blsPrivateKey.PublicKey()
-	signaturePayload := lib.CreateValidatorVotingSignaturePayload(transactorPkBytes)
-	votingSignature, err := blsPrivateKey.Sign(signaturePayload)
+	votingAuthorizationPayload := lib.CreateValidatorVotingAuthorizationPayload(transactorPkBytes)
+	votingAuthorization, err := blsPrivateKey.Sign(votingAuthorizationPayload)
 	require.NoError(t, err)
-	return votingPublicKey, votingSignature
+	return votingPublicKey, votingAuthorization
 }
