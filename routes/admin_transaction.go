@@ -67,7 +67,7 @@ func (fes *APIServer) GetGlobalParams(ww http.ResponseWriter, req *http.Request)
 		_AddBadRequestError(ww, fmt.Sprintf("GetGlobalParams: Error getting utxoView: %v", err))
 		return
 	}
-	globalParamsEntry := utxoView.GlobalParamsEntry
+	globalParamsEntry := utxoView.GetCurrentGlobalParamsEntry()
 	// Return all the data associated with the transaction in the response
 	res := GetGlobalParamsResponse{
 		USDCentsPerBitcoin:                     globalParamsEntry.USDCentsPerBitcoin,
@@ -75,11 +75,11 @@ func (fes *APIServer) GetGlobalParams(ww http.ResponseWriter, req *http.Request)
 		MinimumNetworkFeeNanosPerKB:            globalParamsEntry.MinimumNetworkFeeNanosPerKB,
 		CreateNFTFeeNanos:                      globalParamsEntry.CreateNFTFeeNanos,
 		MaxCopiesPerNFT:                        globalParamsEntry.MaxCopiesPerNFT,
-		StakeLockupEpochDuration:               utxoView.GetCurrentGlobalParam(lib.StakeLockupEpochDuration),
-		ValidatorJailEpochDuration:             utxoView.GetCurrentGlobalParam(lib.ValidatorJailEpochDuration),
-		LeaderScheduleMaxNumValidators:         utxoView.GetCurrentGlobalParam(lib.LeaderScheduleMaxNumValidators),
-		EpochDurationNumBlocks:                 utxoView.GetCurrentGlobalParam(lib.EpochDurationNumBlocks),
-		JailInactiveValidatorGracePeriodEpochs: utxoView.GetCurrentGlobalParam(lib.JailInactiveValidatorGracePeriodEpochs),
+		StakeLockupEpochDuration:               globalParamsEntry.StakeLockupEpochDuration,
+		ValidatorJailEpochDuration:             globalParamsEntry.ValidatorJailEpochDuration,
+		LeaderScheduleMaxNumValidators:         globalParamsEntry.LeaderScheduleMaxNumValidators,
+		EpochDurationNumBlocks:                 globalParamsEntry.EpochDurationNumBlocks,
+		JailInactiveValidatorGracePeriodEpochs: globalParamsEntry.JailInactiveValidatorGracePeriodEpochs,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetGlobalParams: Problem encoding response as JSON: %v", err))
@@ -190,30 +190,32 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 	}
 
 	// Only update values if they have changed. Values less than 0 are excluded from the transaction
+	globalParamsEntry := utxoView.GetCurrentGlobalParamsEntry()
+
 	usdCentsPerBitcoin := int64(-1)
-	if requestData.USDCentsPerBitcoin >= 0 && uint64(requestData.USDCentsPerBitcoin) != utxoView.GlobalParamsEntry.USDCentsPerBitcoin {
+	if requestData.USDCentsPerBitcoin >= 0 && uint64(requestData.USDCentsPerBitcoin) != globalParamsEntry.USDCentsPerBitcoin {
 		usdCentsPerBitcoin = requestData.USDCentsPerBitcoin
 	}
 	createProfileFeeNanos := int64(-1)
-	if requestData.CreateProfileFeeNanos >= 0 && uint64(requestData.CreateProfileFeeNanos) != utxoView.GlobalParamsEntry.CreateProfileFeeNanos {
+	if requestData.CreateProfileFeeNanos >= 0 && uint64(requestData.CreateProfileFeeNanos) != globalParamsEntry.CreateProfileFeeNanos {
 		createProfileFeeNanos = requestData.CreateProfileFeeNanos
 	}
 	createNFTFeeNanos := int64(-1)
-	if requestData.CreateNFTFeeNanos >= 0 && uint64(requestData.CreateNFTFeeNanos) != utxoView.GlobalParamsEntry.CreateNFTFeeNanos {
+	if requestData.CreateNFTFeeNanos >= 0 && uint64(requestData.CreateNFTFeeNanos) != globalParamsEntry.CreateNFTFeeNanos {
 		createNFTFeeNanos = requestData.CreateNFTFeeNanos
 	}
 	minimumNetworkFeeNanosPerKb := int64(-1)
-	if requestData.MinimumNetworkFeeNanosPerKB >= 0 && uint64(requestData.MinimumNetworkFeeNanosPerKB) != utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB {
+	if requestData.MinimumNetworkFeeNanosPerKB >= 0 && uint64(requestData.MinimumNetworkFeeNanosPerKB) != globalParamsEntry.MinimumNetworkFeeNanosPerKB {
 		minimumNetworkFeeNanosPerKb = requestData.MinimumNetworkFeeNanosPerKB
 	}
 
 	maxCopiesPerNFT := int64(-1)
-	if requestData.MaxCopiesPerNFT >= 0 && uint64(requestData.MaxCopiesPerNFT) != utxoView.GlobalParamsEntry.MaxCopiesPerNFT {
+	if requestData.MaxCopiesPerNFT >= 0 && uint64(requestData.MaxCopiesPerNFT) != globalParamsEntry.MaxCopiesPerNFT {
 		maxCopiesPerNFT = requestData.MaxCopiesPerNFT
 	}
 
 	maxNonceExpirationBlockHeightOffset := int64(-1)
-	if requestData.MaxNonceExpirationBlockHeightOffset >= 0 && uint64(requestData.MaxNonceExpirationBlockHeightOffset) != utxoView.GlobalParamsEntry.MaxNonceExpirationBlockHeightOffset {
+	if requestData.MaxNonceExpirationBlockHeightOffset >= 0 && uint64(requestData.MaxNonceExpirationBlockHeightOffset) != globalParamsEntry.MaxNonceExpirationBlockHeightOffset {
 		maxNonceExpirationBlockHeightOffset = requestData.MaxNonceExpirationBlockHeightOffset
 	}
 
@@ -221,28 +223,28 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 
 	// Update Proof of Stake consensus related global params if they have changed.
 	if requestData.StakeLockupEpochDuration > 0 &&
-		requestData.StakeLockupEpochDuration != utxoView.GetCurrentGlobalParam(lib.StakeLockupEpochDuration) {
-		extraData[lib.StakeLockupEpochDuration.ToString()] = lib.UintToBuf(requestData.StakeLockupEpochDuration)
+		requestData.StakeLockupEpochDuration != globalParamsEntry.StakeLockupEpochDuration {
+		extraData[lib.StakeLockupEpochDurationKey] = lib.UintToBuf(requestData.StakeLockupEpochDuration)
 	}
 
 	if requestData.ValidatorJailEpochDuration > 0 &&
-		requestData.ValidatorJailEpochDuration != utxoView.GetCurrentGlobalParam(lib.ValidatorJailEpochDuration) {
-		extraData[lib.ValidatorJailEpochDuration.ToString()] = lib.UintToBuf(requestData.ValidatorJailEpochDuration)
+		requestData.ValidatorJailEpochDuration != globalParamsEntry.ValidatorJailEpochDuration {
+		extraData[lib.ValidatorJailEpochDurationKey] = lib.UintToBuf(requestData.ValidatorJailEpochDuration)
 	}
 
 	if requestData.LeaderScheduleMaxNumValidators > 0 &&
-		requestData.LeaderScheduleMaxNumValidators != utxoView.GetCurrentGlobalParam(lib.LeaderScheduleMaxNumValidators) {
-		extraData[lib.LeaderScheduleMaxNumValidators.ToString()] = lib.UintToBuf(requestData.LeaderScheduleMaxNumValidators)
+		requestData.LeaderScheduleMaxNumValidators != globalParamsEntry.LeaderScheduleMaxNumValidators {
+		extraData[lib.LeaderScheduleMaxNumValidatorsKey] = lib.UintToBuf(requestData.LeaderScheduleMaxNumValidators)
 	}
 
 	if requestData.EpochDurationNumBlocks > 0 &&
-		requestData.EpochDurationNumBlocks != utxoView.GetCurrentGlobalParam(lib.EpochDurationNumBlocks) {
-		extraData[lib.EpochDurationNumBlocks.ToString()] = lib.UintToBuf(requestData.EpochDurationNumBlocks)
+		requestData.EpochDurationNumBlocks != globalParamsEntry.EpochDurationNumBlocks {
+		extraData[lib.EpochDurationNumBlocksKey] = lib.UintToBuf(requestData.EpochDurationNumBlocks)
 	}
 
 	if requestData.JailInactiveValidatorGracePeriodEpochs > 0 &&
-		requestData.JailInactiveValidatorGracePeriodEpochs != utxoView.GetCurrentGlobalParam(lib.JailInactiveValidatorGracePeriodEpochs) {
-		extraData[lib.JailInactiveValidatorGracePeriodEpochs.ToString()] = lib.UintToBuf(requestData.JailInactiveValidatorGracePeriodEpochs)
+		requestData.JailInactiveValidatorGracePeriodEpochs != globalParamsEntry.JailInactiveValidatorGracePeriodEpochs {
+		extraData[lib.JailInactiveValidatorGracePeriodEpochsKey] = lib.UintToBuf(requestData.JailInactiveValidatorGracePeriodEpochs)
 	}
 
 	// Try and create the update txn for the user.
