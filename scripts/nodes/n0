@@ -11,7 +11,7 @@ rm /tmp/main.*.log
   --num-mining-threads=1  \
   --txindex=true \
   --admin-public-keys=* \
-  --state-change-file-path=/tmp/state-changes-2 \
+  --state-change-file-path=/tmp/state-changes \
   --super-admin-public-keys=* \
   --miner-public-keys=BC1YLgKZyfgyNntCMXAZYExM8JooYqrYvVsrR8d8XVxorDruYFdq31p \
   --starter-deso-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
