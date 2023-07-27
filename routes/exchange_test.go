@@ -156,8 +156,8 @@ func NewTestMiner(t *testing.T, chain *lib.Blockchain, params *lib.DeSoParams, i
 
 	mempool := lib.NewDeSoMempool(
 		chain, 0, /* rateLimitFeeRateNanosPerKB */
-		0 /* minFeeRateNanosPerKB */, "", true,
-		"" /*dataDir*/, "")
+		0  /* minFeeRateNanosPerKB */, "", true,
+		"" /*dataDir*/, "", true)
 	minerPubKeys := []string{}
 	if isSender {
 		minerPubKeys = append(minerPubKeys, senderPkString)
