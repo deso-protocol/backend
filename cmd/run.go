@@ -169,7 +169,7 @@ func init() {
 	runCmd.PersistentFlags().Uint64("node-source", 0, "Node ID to tag transaction with. Maps to ../core/lib/nodes.go")
 
 	// State syncer
-	runCmd.PersistentFlags().String("state-change-file-path", "", "Path to state syncer file")
+	runCmd.PersistentFlags().String("state-change-dir", "", "Path to state syncer directory containing the state change file and index files")
 
 	// Public keys that need their balances monitored. Map of Label to Public key
 	runCmd.PersistentFlags().String("public-key-balances-to-monitor", "",

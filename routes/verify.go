@@ -881,7 +881,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 	// Verification status
 	verificationStatus := req.FormValue("verificationStatus")
 
-	// Get Public key bytes and PKID
+	// Get Public key bytes and PublicKey
 	if userReference == "" {
 		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: Public key (customerId) is required"))
 		return
@@ -900,7 +900,7 @@ func (fes *APIServer) JumioCallback(ww http.ResponseWriter, req *http.Request) {
 
 	pkid := utxoView.GetPKIDForPublicKey(publicKeyBytes)
 	if pkid == nil {
-		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: No PKID found for public key: %v", userReference))
+		_AddBadRequestError(ww, fmt.Sprintf("JumioCallback: No PublicKey found for public key: %v", userReference))
 		return
 	}
 
@@ -1178,7 +1178,7 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 
 			kickbackAmountDeSoNanos := fes.GetReferrerSignUpBonusAmount(signUpBonusMetadata,
 				referralInfo.ReferrerAmountUSDCents)
-			// Add an index for logging all the PKIDs referred by a single PKID+ReferralHash pair.
+			// Add an index for logging all the PKIDs referred by a single PublicKey+ReferralHash pair.
 			refereePKID := utxoView.GetPKIDForPublicKey(publicKeyBytes)
 			pkidReferralHashRefereePKIDKey := GlobalStateKeyForPKIDReferralHashRefereePKID(referralInfo.ReferrerPKID, []byte(referralInfo.ReferralHashBase58), refereePKID.PKID)
 			if err = fes.GlobalState.Put(pkidReferralHashRefereePKIDKey, []byte{1}); err != nil {

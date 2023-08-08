@@ -413,8 +413,8 @@ type APIServer struct {
 	// VerifiedUsernameToPKIDMap is a map of lowercase usernames to PKIDs representing the current state of
 	// verifications this node is recognizing.
 	VerifiedUsernameToPKIDMap map[string]*lib.PKID
-	// BlacklistedPKIDMap is a map of PKID to a byte slice representing the PKID of a user as the key and the current
-	// blacklist state of that user as the key. If a PKID is not present in this map, then the user is NOT blacklisted.
+	// BlacklistedPKIDMap is a map of PublicKey to a byte slice representing the PublicKey of a user as the key and the current
+	// blacklist state of that user as the key. If a PublicKey is not present in this map, then the user is NOT blacklisted.
 	BlacklistedPKIDMap map[lib.PKID][]byte
 	// BlacklistedUsernameMap is a map of username to a byte slice representing the username of a user as the key and the current
 	// blacklist state of that user as the key. If a username is not present in this map, then the username is NOT blacklisted.
@@ -424,8 +424,8 @@ type APIServer struct {
 	// responding to requests for this node's blacklist. A JSON-encoded response is easier for any language to digest
 	// than a gob-encoded one.
 	BlacklistedResponseMap map[string][]byte
-	// GraylistedPKIDMap is a map of PKID to a byte slice representing the PKID of a user as the key and the current
-	// graylist state of that user as the key. If a PKID is not present in this map, then the user is NOT graylisted.
+	// GraylistedPKIDMap is a map of PublicKey to a byte slice representing the PublicKey of a user as the key and the current
+	// graylist state of that user as the key. If a PublicKey is not present in this map, then the user is NOT graylisted.
 	GraylistedPKIDMap map[lib.PKID][]byte
 	// GraylistedUsernameMap is a map of username to a byte slice representing the username of a user as the key and the current
 	// graylist state of that user as the key. If a username is not present in this map, then the username is NOT graylisted.
@@ -2750,7 +2750,7 @@ func (fes *APIServer) SetGlobalFeedPostHashes(utxoView *lib.UtxoView) {
 	}
 }
 
-// makePKIDMapJSONEncodable converts a map that has PKID keys into Base58-encoded strings.
+// makePKIDMapJSONEncodable converts a map that has PublicKey keys into Base58-encoded strings.
 // Using gob-encoding when sending responses would make using this API difficult to interact with when using any
 // language other than go.
 func (fes *APIServer) makePKIDMapJSONEncodable(restrictedKeysMap map[lib.PKID][]byte) map[string][]byte {

@@ -188,7 +188,7 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 				"CreateNFT: Problem decoding Additional Coin Royalty public key %s: %v", coinRoyaltyPublicKey, err))
 			return
 		}
-		// PKID must map to an existing profile in order for us to give royalties to that coin
+		// PublicKey must map to an existing profile in order for us to give royalties to that coin
 		profileEntry := utxoView.GetProfileEntryForPublicKey(additionalCoinRoyaltyPublicKeyBytes)
 		if profileEntry == nil || profileEntry.IsDeleted() {
 			_AddBadRequestError(ww, fmt.Sprintf(
@@ -702,7 +702,7 @@ func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
 	bidderPKID := utxoView.GetPKIDForPublicKey(bidderPublicKeyBytes)
 	if bidderPKID == nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"AcceptNFTBid: Error could not find PKID for bidder pub key %v",
+			"AcceptNFTBid: Error could not find PublicKey for bidder pub key %v",
 			requestData.BidderPublicKeyBase58Check))
 		return
 	}

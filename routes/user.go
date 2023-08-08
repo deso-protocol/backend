@@ -236,7 +236,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 		if user.TutorialStatus != COMPLETE && user.TutorialStatus != SKIPPED && userMetadata.CreatorPurchasedInTutorialPKID != nil {
 			tutorialCreatorProfileEntry := utxoView.GetProfileEntryForPKID(userMetadata.CreatorPurchasedInTutorialPKID)
 			if tutorialCreatorProfileEntry == nil {
-				return fmt.Errorf("updateUserFieldsStateless: Did not find profile entry for PKID for creator purchased in tutorial")
+				return fmt.Errorf("updateUserFieldsStateless: Did not find profile entry for PublicKey for creator purchased in tutorial")
 			}
 			username := string(tutorialCreatorProfileEntry.Username)
 			user.CreatorPurchasedInTutorialUsername = &username
@@ -324,7 +324,7 @@ func (fes *APIServer) GetYouHodlMap(pkid *lib.PKIDEntry, fetchProfiles bool, isD
 	return youHodlMap, nil
 }
 
-// Convert list of BalanceEntries to a map of hodler / creator PKID to balance entry response.
+// Convert list of BalanceEntries to a map of hodler / creator PublicKey to balance entry response.
 func (fes *APIServer) getMapFromEntries(entries []*lib.BalanceEntry, profiles []*lib.ProfileEntry, useCreatorPKIDAsKey bool, utxoView *lib.UtxoView) map[string]*BalanceEntryResponse {
 	mapYouHodl := map[string]*BalanceEntryResponse{}
 	for ii, entry := range entries {
@@ -391,12 +391,12 @@ func (fes *APIServer) GetHodlingsForPublicKey(
 				"GetHodlingsForPublicKey: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
 		}
 	}
-	// Get the map of entries this PKID hodls.
+	// Get the map of entries this PublicKey hodls.
 	youHodlMap, err := fes.GetYouHodlMap(pkid, fetchProfiles, isDAOCoin, utxoView)
 	if err != nil {
 		return nil, nil, err
 	}
-	// Get the map of the entries hodlings this PKID
+	// Get the map of the entries hodlings this PublicKey
 	hodlYouMap, err := fes.GetHodlYouMap(pkid, fetchProfiles, isDAOCoin, utxoView)
 	if err != nil {
 		return nil, nil, err
@@ -1508,7 +1508,7 @@ func (fes *APIServer) GetHodlersCountForPublicKeys(ww http.ResponseWriter, req *
 				fmt.Sprintf("GetHolderCountForPublicKeys: unable to decode public key - %v: %v", publicKey, err))
 			return
 		}
-		// Get PKID and then get holders for PKID
+		// Get PublicKey and then get holders for PublicKey
 		pkid := utxoView.GetPKIDForPublicKey(pkBytes)
 		balanceEntries, _, err := utxoView.GetHolders(pkid.PKID, false, requestData.IsDAOCoin)
 		if err != nil {

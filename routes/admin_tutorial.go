@@ -47,7 +47,7 @@ func (fes *APIServer) AdminUpdateTutorialCreator(ww http.ResponseWriter, req *ht
 
 	pkid := utxoView.GetPKIDForPublicKey(userMetadata.PublicKey)
 	if pkid == nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateTutorialCreator: No PKID found for public key: %v", requestData.PublicKeyBase58Check))
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateTutorialCreator: No PublicKey found for public key: %v", requestData.PublicKeyBase58Check))
 		return
 	}
 	var key []byte

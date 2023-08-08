@@ -482,8 +482,8 @@ func (fes *APIServer) UpdateUsernameVerificationAuditLog(usernameToVerify string
 		return errors.Wrap(fmt.Errorf("UpdateUsernameVerificationAuditLog: Failed to decode verifier public key bytes"), "")
 	}
 
-	// Get verifier's PKID and then get profile entry -- This is separated into two steps since we save the
-	// PKID in the VerificationUsernameAuditLog
+	// Get verifier's PublicKey and then get profile entry -- This is separated into two steps since we save the
+	// PublicKey in the VerificationUsernameAuditLog
 	verifierPKID := utxoView.GetPKIDForPublicKey(verifierPublicKeyBytes)
 	verifierProfileEntry := utxoView.GetProfileEntryForPKID(verifierPKID.PKID)
 	verifierUsername := ""
@@ -609,7 +609,7 @@ type VerifiedUsernameToPKID struct {
 type VerificationUsernameAuditLog struct {
 	// Time at which the verification was granted or removed.
 	TimestampNanos uint64
-	// Username and PKID of the admin who verified the user.
+	// Username and PublicKey of the admin who verified the user.
 	VerifierUsername string
 	VerifierPKID     *lib.PKID
 	// The user who was verified or had their verification removed.
@@ -633,7 +633,7 @@ type FilterAuditLog struct {
 	TimestampNanos uint64
 	// The filter type being updated
 	Filter FilterType
-	// Username and PKID of the admin who filtered the user.
+	// Username and PublicKey of the admin who filtered the user.
 	UpdaterUsername string
 	UpdaterPKID     *lib.PKID
 	// The user who was filtered or had their filter removed.
@@ -690,7 +690,7 @@ func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *h
 	}
 	pkidEntryToVerify := utxoView.GetPKIDForPublicKey(pubKey)
 	if pkidEntryToVerify == nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGrantVerificationBadge: PKID not found for username: %s", usernameToVerify))
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGrantVerificationBadge: PublicKey not found for username: %s", usernameToVerify))
 		return
 	}
 
@@ -713,8 +713,8 @@ func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *h
 		_AddBadRequestError(ww, fmt.Sprintf("AdminGrantVerificationBadge: error updating audit log of username verification: %v", err))
 		return
 	}
-	// Add username -> PKID mapping
-	// A username must map to a specific PKID, as someone could change their username
+	// Add username -> PublicKey mapping
+	// A username must map to a specific PublicKey, as someone could change their username
 	// and impersonate someone else. For example:
 	// @elonmusk changes his username to @jeffbezos
 	// We verify the username still matches or else it would transfer over
@@ -760,7 +760,7 @@ type AdminRemoveVerificationBadgeResponse struct {
 
 // AdminRemoveVerificationBadge
 //
-// A valid verification mapping will have an element where map[PKID] = username.
+// A valid verification mapping will have an element where map[PublicKey] = username.
 // If the public key still has the same username, the user is considered verified.
 // In order to "delete" a user efficiently, we simply map their public key to an empty string.
 // Since their public key can never have an underlying username of "", it will never show up as verified.
@@ -795,7 +795,7 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 	}
 	pkidEntryToUnverify := utxoView.GetPKIDForPublicKey(pubKey)
 	if pkidEntryToUnverify == nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: PKID not found for username: %s", usernameToRemove))
+		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: PublicKey not found for username: %s", usernameToRemove))
 		return
 	}
 
@@ -827,7 +827,7 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 		return
 	}
 
-	// We set the value for this username to an empty PKID to signify that it has been removed.
+	// We set the value for this username to an empty PublicKey to signify that it has been removed.
 	verifiedMapStruct.VerifiedUsernameToPKID[strings.ToLower(usernameToRemove)] = &lib.ZeroPKID
 
 	// Encode the updated entry and stick it in the database.

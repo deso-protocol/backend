@@ -214,10 +214,10 @@ func (fes *APIServer) TxnFeeMapToResponse(skipProfileEntryResponses bool) map[st
 			// Get the ProfileEntryResponse if we need it. Save it in the profileEntryResponseMap to expedite lookup
 			// if we have duplicates.
 			if !skipProfileEntryResponses && utxoView != nil {
-				// Get the PKID
+				// Get the PublicKey
 				pkid := utxoView.GetPKIDForPublicKey(output.PublicKey)
 				var exists bool
-				// Check if the PKID exists in the map
+				// Check if the PublicKey exists in the map
 				profileEntryResponse, exists = profileEntryResponseMap[pkid.PKID]
 				// If it doesn't exist, try to get the ProfileEntry and convert it to a response and save it in the map.
 				if !exists {

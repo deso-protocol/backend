@@ -1302,7 +1302,7 @@ func (fes *APIServer) _parseAssociationQueryParams(
 	if transactorPublicKeyBase58Check != "" {
 		transactorPKID, err = fes.getPKIDFromPublicKeyBase58Check(utxoView, transactorPublicKeyBase58Check)
 		if err != nil {
-			return nil, nil, nil, nil, errors.New("problem getting PKID for the transactor")
+			return nil, nil, nil, nil, errors.New("problem getting PublicKey for the transactor")
 		}
 	}
 
@@ -1311,7 +1311,7 @@ func (fes *APIServer) _parseAssociationQueryParams(
 	if targetUserPublicKeyBase58Check != "" {
 		targetUserPKID, err = fes.getPKIDFromPublicKeyBase58Check(utxoView, targetUserPublicKeyBase58Check)
 		if err != nil {
-			return nil, nil, nil, nil, errors.New("problem getting PKID for the target user")
+			return nil, nil, nil, nil, errors.New("problem getting PublicKey for the target user")
 		}
 	}
 
@@ -1330,7 +1330,7 @@ func (fes *APIServer) _parseAssociationQueryParams(
 	if appPublicKeyBase58Check != "" {
 		appPKID, err = fes.getPKIDFromPublicKeyBase58Check(utxoView, appPublicKeyBase58Check)
 		if err != nil {
-			return nil, nil, nil, nil, errors.New("problem getting PKID for the app")
+			return nil, nil, nil, nil, errors.New("problem getting PublicKey for the app")
 		}
 	}
 	return transactorPKID, targetUserPKID, postHash, appPKID, nil

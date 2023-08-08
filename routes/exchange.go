@@ -1624,7 +1624,7 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 		// the old logic.
 		pubKeyForPKID := bav.GetPublicKeyForPKID(followEntry.FollowedPKID)
 		if len(pubKeyForPKID) == 0 {
-			glog.Errorf("GetPostsForFollowFeedForPublicKey found PKID %v that "+
+			glog.Errorf("GetPostsForFollowFeedForPublicKey found PublicKey %v that "+
 				"does not have public key mapping; this should never happen",
 				lib.PkToString(followEntry.FollowedPKID[:], bav.Params))
 			continue
