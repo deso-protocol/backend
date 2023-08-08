@@ -83,7 +83,7 @@ func (fes *APIServer) UpdateTutorialStatus(ww http.ResponseWriter, req *http.Req
 			}
 			pkid := utxoView.GetPKIDForPublicKey(CreatorPurchasedInTutorialPublicKeyBytes)
 			if pkid == nil {
-				_AddBadRequestError(ww, fmt.Sprintf("UpdateTutorialStatus: No PKID found for public key: %v", requestData.CreatorPurchasedInTutorialPublicKey))
+				_AddBadRequestError(ww, fmt.Sprintf("UpdateTutorialStatus: No PublicKey found for public key: %v", requestData.CreatorPurchasedInTutorialPublicKey))
 				return
 			}
 			userMetadata.CreatorPurchasedInTutorialPKID = pkid.PKID
@@ -167,7 +167,7 @@ func (fes *APIServer) GetFeaturedCreators(utxoView *lib.UtxoView, responseLimit 
 	ii := 0
 	for len(profileEntryResponses) <= publicKeysUpperBound && ii < len(keys) {
 		dbKeyBytes := keys[ii]
-		// Chop the PKID out of the db key.
+		// Chop the PublicKey out of the db key.
 		// The dbKeyBytes are: [One Prefix Byte][btcec.PubKeyBytesLenCompressed]
 		pkidBytes := dbKeyBytes[1:]
 		profileEntry := utxoView.GetProfileEntryForPKID(lib.NewPKID(pkidBytes))

@@ -94,8 +94,8 @@ var (
 	_GlobalStatePrefixPhoneNumberToPhoneNumberMetadata = []byte{2}
 
 	// The prefix for accessing the verified users map.
-	// The resulting map takes a username and returns a PKID.
-	// <prefix> -> <map[string]*PKID>
+	// The resulting map takes a username and returns a PublicKey.
+	// <prefix> -> <map[string]*PublicKey>
 	_GlobalStatePrefixForVerifiedMap = []byte{3}
 
 	// The prefix for accessing the pinned posts on the global feed:
@@ -172,11 +172,11 @@ var (
 	// Referral program indexes.
 	// 	- <prefix, referral hash (8 bytes)> -> <ReferralInfo>
 	_GlobalStatePrefixReferralHashToReferralInfo = []byte{24}
-	// 	- <prefix, PKID, referral hash (8 bytes)> -> <IsActive bool>
+	// 	- <prefix, PublicKey, referral hash (8 bytes)> -> <IsActive bool>
 	_GlobalStatePrefixPKIDReferralHashToIsActive = []byte{25}
-	// - <prefix, PKID, referral hash (8 bytes), Referred PKID
+	// - <prefix, PublicKey, referral hash (8 bytes), Referred PublicKey
 	_GlobalStatePrefixPKIDReferralHashRefereePKID = []byte{26}
-	// - <prefix, TimestampNanos, PKID, referral hash (8 bytes), Referred PKID
+	// - <prefix, TimestampNanos, PublicKey, referral hash (8 bytes), Referred PublicKey
 	_GlobalStatePrefixTimestampPKIDReferralHashRefereePKID = []byte{37}
 
 	// ETH purchases <prefix, ETH Txn Hash> -> <Complete bool>
@@ -207,7 +207,7 @@ var (
 
 	// This key is used in a similar way to the _GlobalStatePrefixForHotFeedApprovedPostOps
 	// above except it is used to track changes to the HotFeedPKIDMultiplier map.
-	// <prefix, OperationTimestampNanos, PKID> -> <HotFeedPKIDMultiplierOp>
+	// <prefix, OperationTimestampNanos, PublicKey> -> <HotFeedPKIDMultiplierOp>
 	_GlobalStatePrefixForHotFeedPKIDMultiplierOps = []byte{36}
 
 	// This key is used to manage sign up bonus configurations for a country
@@ -567,7 +567,7 @@ func GlobalStateKeyForHotFeedPKIDMultiplierOp(
 	return key
 }
 
-// Key for seeking the DB for all referral hashes with a specific PKID.
+// Key for seeking the DB for all referral hashes with a specific PublicKey.
 func GlobalStateSeekKeyForPKIDReferralHashes(pkid *lib.PKID) []byte {
 	prefixCopy := append([]byte{}, _GlobalStatePrefixPKIDReferralHashToIsActive...)
 	key := append(prefixCopy, pkid[:]...)

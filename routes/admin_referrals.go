@@ -193,7 +193,7 @@ func (fes *APIServer) AdminCreateReferralHash(ww http.ResponseWriter, req *http.
 		userPublicKeyBytes = profile.PublicKey
 	}
 
-	// Get the PKID for the pub key.
+	// Get the PublicKey for the pub key.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminCreateReferralHash: Problem getting utxoView: %v", err))
@@ -202,7 +202,7 @@ func (fes *APIServer) AdminCreateReferralHash(ww http.ResponseWriter, req *http.
 	referrerPKID := utxoView.GetPKIDForPublicKey(userPublicKeyBytes)
 	if referrerPKID == nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
-			"AdminCreateReferralHash: nil PKID for pubkey: %v", lib.PkToString(userPublicKeyBytes, fes.Params)))
+			"AdminCreateReferralHash: nil PublicKey for pubkey: %v", lib.PkToString(userPublicKeyBytes, fes.Params)))
 		return
 	}
 
@@ -294,7 +294,7 @@ func (fes *APIServer) AdminUpdateReferralHash(ww http.ResponseWriter, req *http.
 	}
 
 	// Make a copy of the referral info. Note that the referrerPKID is a pointer but it should
-	// be safe to leave them pointing to the same PKID in this endpoint.
+	// be safe to leave them pointing to the same PublicKey in this endpoint.
 	updatedReferralInfo := &ReferralInfo{}
 	*updatedReferralInfo = *referralInfo
 
@@ -361,7 +361,7 @@ type AdminGetAllReferralInfoForUserResponse struct {
 func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeReferredUsers bool,
 ) (_referralInfoResponses []ReferralInfoResponse, _err error) {
 
-	// Get the PKID for the pub key passed in.
+	// Get the PublicKey for the pub key passed in.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return nil, fmt.Errorf("putReferralHashWithInfo: Problem getting utxoView: %v", err)
@@ -369,10 +369,10 @@ func (fes *APIServer) getReferralInfoResponsesForPubKey(pkBytes []byte, includeR
 	referrerPKID := utxoView.GetPKIDForPublicKey(pkBytes)
 	if referrerPKID == nil {
 		return nil, fmt.Errorf(
-			"putReferralHashWithInfo: nil PKID for pubkey: %v", lib.PkToString(pkBytes, fes.Params))
+			"putReferralHashWithInfo: nil PublicKey for pubkey: %v", lib.PkToString(pkBytes, fes.Params))
 	}
 
-	// Build a key to seek all of the referral hashes for this PKID.
+	// Build a key to seek all of the referral hashes for this PublicKey.
 	dbSeekKey := GlobalStateSeekKeyForPKIDReferralHashes(referrerPKID.PKID)
 	keysFound, valsFound, err := fes.GlobalState.Seek(
 		dbSeekKey, dbSeekKey, 0, 0, false /*reverse*/, true /*fetchValue*/)
@@ -670,7 +670,7 @@ func (fes *APIServer) updateOrCreateReferralInfoFromCSVRow(row []string) (_err e
 		referralInfo = *existingReferralInfo
 	}
 
-	// Decode and fill the PKID.
+	// Decode and fill the PublicKey.
 	var err error
 	pkBytes, _, err := lib.Base58CheckDecode(row[CSVColumnPKID])
 	if err != nil || len(pkBytes) != btcec.PubKeyBytesLenCompressed {

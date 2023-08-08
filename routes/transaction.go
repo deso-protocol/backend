@@ -1855,7 +1855,7 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 
 		var updateUserMetadata bool
 		// TODO: check that user is buying from list of creators included in tutorial
-		// TODO: Save which creator a user purchased by PKID in user metadata so we can bring them to the same place in the flow
+		// TODO: Save which creator a user purchased by PublicKey in user metadata so we can bring them to the same place in the flow
 		// TODO: Do we need to save how much they bought for usage in tutorial?
 		if operationType == lib.CreatorCoinOperationTypeBuy && (userMetadata.TutorialStatus == CREATE_PROFILE || userMetadata.TutorialStatus == STARTED) && requestData.CreatorPublicKeyBase58Check != requestData.UpdaterPublicKeyBase58Check {
 			if reflect.DeepEqual(updaterPublicKeyBytes, creatorPublicKeyBytes) {
@@ -1864,7 +1864,7 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 			}
 			creatorPKID := utxoView.GetPKIDForPublicKey(creatorPublicKeyBytes)
 			if creatorPKID == nil {
-				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: No PKID found for public key: %v", requestData.CreatorPublicKeyBase58Check))
+				_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: No PublicKey found for public key: %v", requestData.CreatorPublicKeyBase58Check))
 				return
 			}
 			wellKnownVal, err := fes.GlobalState.Get(GlobalStateKeyWellKnownTutorialCreators(creatorPKID.PKID))
@@ -3426,7 +3426,7 @@ func TransactionSpendingLimitToResponse(
 		}
 	}
 
-	// Iterate over the CreatorCoinOperationLimitMap - convert PKID from key into base58Check public key, convert
+	// Iterate over the CreatorCoinOperationLimitMap - convert PublicKey from key into base58Check public key, convert
 	// CreatorCoinLimitOperation to CreatorCoinLimitOperationString. Fill in the nested maps appropriately.
 	if len(transactionSpendingLimit.CreatorCoinOperationLimitMap) > 0 {
 		transactionSpendingLimitResponse.CreatorCoinOperationLimitMap = make(
@@ -3446,7 +3446,7 @@ func TransactionSpendingLimitToResponse(
 		}
 	}
 
-	// Iterate over the DAOCoinOperationLimitMap - convert PKID from key into base58Check public key, convert
+	// Iterate over the DAOCoinOperationLimitMap - convert PublicKey from key into base58Check public key, convert
 	// DAOCoinLimitOperation to DAOCoinLimitOperationString. Fill in the nested maps appropriately.
 	if len(transactionSpendingLimit.DAOCoinOperationLimitMap) > 0 {
 		transactionSpendingLimitResponse.DAOCoinOperationLimitMap = make(
@@ -3492,7 +3492,7 @@ func TransactionSpendingLimitToResponse(
 		}
 	}
 
-	// Iterate over the DAOCoinLimitOrderLimitMap - convert PKID from key into base58Check public key.
+	// Iterate over the DAOCoinLimitOrderLimitMap - convert PublicKey from key into base58Check public key.
 	// Fill in the nested maps appropriately.
 	if len(transactionSpendingLimit.DAOCoinLimitOrderLimitMap) > 0 {
 		transactionSpendingLimitResponse.DAOCoinLimitOrderLimitMap = make(
@@ -3609,7 +3609,7 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 			}
 			pkid := utxoView.GetPKIDForPublicKey(pkBytes)
 			if pkid == nil || pkid.PKID == nil {
-				return nil, fmt.Errorf("No PKID found for public key %v", pubKeyBase58Check)
+				return nil, fmt.Errorf("No PublicKey found for public key %v", pubKeyBase58Check)
 			}
 			creatorPKID = pkid.PKID
 		}
@@ -3621,7 +3621,7 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 		for pubKey, operationToCountMap := range transactionSpendingLimitResponse.CreatorCoinOperationLimitMap {
 			creatorPKID, err := getCreatorPKIDForBase58Check(pubKey)
 			if err != nil {
-				return nil, fmt.Errorf("Error getting PKID for pub key %v", pubKey)
+				return nil, fmt.Errorf("Error getting PublicKey for pub key %v", pubKey)
 			}
 			for operation, count := range operationToCountMap {
 				transactionSpendingLimit.CreatorCoinOperationLimitMap[lib.MakeCreatorCoinOperationLimitKey(
@@ -3635,7 +3635,7 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 		for pubKey, operationToCountMap := range transactionSpendingLimitResponse.DAOCoinOperationLimitMap {
 			creatorPKID, err := getCreatorPKIDForBase58Check(pubKey)
 			if err != nil {
-				return nil, fmt.Errorf("Error getting PKID for pub key %v", pubKey)
+				return nil, fmt.Errorf("Error getting PublicKey for pub key %v", pubKey)
 			}
 			for operation, count := range operationToCountMap {
 				transactionSpendingLimit.DAOCoinOperationLimitMap[lib.MakeDAOCoinOperationLimitKey(

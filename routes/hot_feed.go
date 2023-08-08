@@ -27,9 +27,9 @@ const (
 	DefaultHotFeedTimeDecayBlocks uint64 = 72
 	// Number of blocks per halving for the scoring time decay for a tag hot feed.
 	DefaultHotFeedTagTimeDecayBlocks uint64 = 96
-	// Maximum score amount that any individual PKID can contribute before time decay.
+	// Maximum score amount that any individual PublicKey can contribute before time decay.
 	DefaultHotFeedInteractionCap uint64 = 4e12
-	// Maximum score amount that any individual PKID can contribute before time decay for a particular tag grouping.
+	// Maximum score amount that any individual PublicKey can contribute before time decay for a particular tag grouping.
 	DefaultHotFeedTagInteractionCap uint64 = 4e12
 	// How many iterations of the hot feed calculation until the built-up caches should be reset. (Once per day)
 	ResetCachesIterationLimit int = 288
@@ -56,12 +56,12 @@ type HotFeedInteractionKey struct {
 	InteractionPostHash lib.BlockHash
 }
 
-// Multipliers to help a node operator boost content from PKID's relevant to their node.
+// Multipliers to help a node operator boost content from PublicKey's relevant to their node.
 // For example, a sports-focused node could boost athlete PKIDs.
 type HotFeedPKIDMultiplier struct {
 	// A multiplier applied to the score that each user interaction adds to a post.
 	InteractionMultiplier float64
-	// A multiplier applied to all posts from this specific PKID.
+	// A multiplier applied to all posts from this specific PublicKey.
 	PostsMultiplier float64
 }
 
@@ -219,7 +219,7 @@ func (fes *APIServer) UpdateHotFeedPKIDMultipliersMap(
 
 	// Chop up the keys and process each operation.
 	for opIdx, opKey := range opKeys {
-		// Each key consists of: prefix, timestamp, PKID.
+		// Each key consists of: prefix, timestamp, PublicKey.
 		timestampStartIdx := 1
 		pkidStartIdx := timestampStartIdx + 8
 
@@ -596,7 +596,7 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 					txnHotnessScore = uint64(multiplier * float64(txnHotnessScore))
 				}
 
-				// Check for PKID-specifc multipliers for the poster and the interactor.
+				// Check for PublicKey-specifc multipliers for the poster and the interactor.
 				posterPKIDMultiplier, hasPosterPKIDMultiplier := pkidsToMultipliers[*posterPKID]
 				if hasPosterPKIDMultiplier {
 					txnHotnessScore = uint64(
@@ -848,7 +848,7 @@ func GetPostHashToScoreForTxn(txn *lib.MsgDeSoTxn,
 }
 
 // Returns the post hash that a txn is relevant to and the amount that the txn should contribute
-// to that post's hotness score. The postInteractionMap is used to ensure that each PKID only
+// to that post's hotness score. The postInteractionMap is used to ensure that each PublicKey only
 // gets one interaction per post.
 func (fes *APIServer) GetHotnessScoreInfoForTxn(
 	txn *lib.MsgDeSoTxn,
@@ -1110,10 +1110,10 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 }
 
 type AdminUpdateHotFeedAlgorithmRequest struct {
-	// Maximum score amount that any individual PKID can contribute to the global hot feed score
+	// Maximum score amount that any individual PublicKey can contribute to the global hot feed score
 	// before time decay. Ignored if set to zero.
 	InteractionCap int
-	// Maximum score amount that any individual PKID can contribute to a particular tag's hot feed score
+	// Maximum score amount that any individual PublicKey can contribute to a particular tag's hot feed score
 	// before time decay. Ignored if set to zero.
 	InteractionCapTag int
 	// Number of blocks per halving for the global hot feed score time decay. Ignored if set to zero.
@@ -1332,7 +1332,7 @@ func (fes *APIServer) AdminUpdateHotFeedUserMultiplier(ww http.ResponseWriter, r
 	}
 	pkidEntry := utxoView.GetPKIDForPublicKey(pubKey)
 	if pkidEntry == nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateHotFeedUserMultiplier: PKID not found for username: %s", requestData.Username))
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateHotFeedUserMultiplier: PublicKey not found for username: %s", requestData.Username))
 		return
 	}
 
@@ -1401,11 +1401,11 @@ func (fes *APIServer) AdminGetHotFeedUserMultiplier(ww http.ResponseWriter, req 
 	}
 	pkidEntry := utxoView.GetPKIDForPublicKey(pubKey)
 	if pkidEntry == nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminGetHotFeedUserMultiplier: PKID not found for username: %s", requestData.Username))
+		_AddBadRequestError(ww, fmt.Sprintf("AdminGetHotFeedUserMultiplier: PublicKey not found for username: %s", requestData.Username))
 		return
 	}
 
-	// Grab the current multiplier object for this PKID.
+	// Grab the current multiplier object for this PublicKey.
 	hotFeedMultiplier := fes.HotFeedPKIDMultipliers[*pkidEntry.PKID]
 	if hotFeedMultiplier == nil {
 		hotFeedMultiplier = &HotFeedPKIDMultiplier{

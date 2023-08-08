@@ -15,13 +15,13 @@ func (fes *APIServer) GetVerifiedUsernames(ww http.ResponseWriter, req *http.Req
 	fes.WriteGlobalStateDataToResponse(fes.VerifiedUsernameToPKIDMap, "GetVerifiedUsernames", ww)
 }
 
-// GetBlacklistedPublicKeys returns a map of PKID (as Base58 encoded string) to Blacklist state bytes if global state
+// GetBlacklistedPublicKeys returns a map of PublicKey (as Base58 encoded string) to Blacklist state bytes if global state
 // is exposed.
 func (fes *APIServer) GetBlacklistedPublicKeys(ww http.ResponseWriter, req *http.Request) {
 	fes.WriteGlobalStateDataToResponse(fes.BlacklistedResponseMap, "GetBlacklistedPublicKeys", ww)
 }
 
-// GetGraylistedPublicKeys returns a map of PKID (as Base58 encoded string) to Graylist state bytes if global state
+// GetGraylistedPublicKeys returns a map of PublicKey (as Base58 encoded string) to Graylist state bytes if global state
 // is exposed.
 func (fes *APIServer) GetGraylistedPublicKeys(ww http.ResponseWriter, req *http.Request) {
 	fes.WriteGlobalStateDataToResponse(fes.GraylistedResponseMap, "GetGraylistedPublicKeys", ww)
@@ -93,7 +93,7 @@ func (fes *APIServer) GetVerifiedUsernameMap() (
 	return verifiedUsernameMap, nil
 }
 
-// GetBlacklist returns both a slice of strings and a map of PKID to []byte representing the current state of
+// GetBlacklist returns both a slice of strings and a map of PublicKey to []byte representing the current state of
 // blacklisted users.
 func (fes *APIServer) GetBlacklist(utxoView *lib.UtxoView) (
 	_blacklistedPKIDMap map[lib.PKID][]byte, _err error,
@@ -101,7 +101,7 @@ func (fes *APIServer) GetBlacklist(utxoView *lib.UtxoView) (
 	return fes.GetRestrictedPublicKeys(_GlobalStatePrefixPublicKeyToBlacklistState, utxoView, RoutePathGetBlacklistedPublicKeys)
 }
 
-// GetGraylist returns both a slice of strings and a map of PKID to []byte representing the current state of graylisted
+// GetGraylist returns both a slice of strings and a map of PublicKey to []byte representing the current state of graylisted
 // users.
 func (fes *APIServer) GetGraylist(utxoView *lib.UtxoView) (
 	_graylistedPKIDMap map[lib.PKID][]byte, _err error,
@@ -109,7 +109,7 @@ func (fes *APIServer) GetGraylist(utxoView *lib.UtxoView) (
 	return fes.GetRestrictedPublicKeys(_GlobalStatePrefixPublicKeyToGraylistState, utxoView, RoutePathGetGraylistedPublicKeys)
 }
 
-// GetUsernameBlacklist returns both a slice of strings and a map of PKID to []byte representing the current state of
+// GetUsernameBlacklist returns both a slice of strings and a map of PublicKey to []byte representing the current state of
 // blacklisted users.
 func (fes *APIServer) GetUsernameBlacklist() (
 	_blacklistedUsernameMap map[string][]byte, _err error,
@@ -117,7 +117,7 @@ func (fes *APIServer) GetUsernameBlacklist() (
 	return fes.GetRestrictedUsernames(_GlobalStatePrefixUsernameToBlacklistState, RoutePathGetBlacklistedUsernames)
 }
 
-// GetUsernameGraylist returns both a slice of strings and a map of PKID to []byte representing the current state of
+// GetUsernameGraylist returns both a slice of strings and a map of PublicKey to []byte representing the current state of
 // graylisted users.
 func (fes *APIServer) GetUsernameGraylist() (
 	_blacklistedUsernameMap map[string][]byte, _err error,
@@ -126,7 +126,7 @@ func (fes *APIServer) GetUsernameGraylist() (
 }
 
 // GetRestrictedPublicKeys fetches the blacklisted or graylisted public keys from the configured external global state
-// (if available) and merges it with this node's global state. This returns a map of PKID to restricted bytes.
+// (if available) and merges it with this node's global state. This returns a map of PublicKey to restricted bytes.
 func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, utxoView *lib.UtxoView, routePath string) (
 	_pkidMap map[lib.PKID][]byte, _err error,
 ) {
@@ -138,8 +138,8 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, utxoView *lib.UtxoV
 		if err != nil {
 			return nil, err
 		}
-		// Decode the response into the appropriate struct. To use json encoding, we had to convert PKID to a string
-		// so we'll need to convert back from string to PKID here.
+		// Decode the response into the appropriate struct. To use json encoding, we had to convert PublicKey to a string
+		// so we'll need to convert back from string to PublicKey here.
 		stringifiedPKIDsMap := make(map[string][]byte)
 		decoder := json.NewDecoder(bytes.NewReader(restrictedPublicKeyMapBytes))
 		if err = decoder.Decode(&stringifiedPKIDsMap); err != nil {

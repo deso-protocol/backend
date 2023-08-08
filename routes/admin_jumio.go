@@ -66,7 +66,7 @@ func (fes *APIServer) AdminResetJumioForPublicKey(ww http.ResponseWriter, req *h
 
 	pkid := utxoView.GetPKIDForPublicKey(userMetadata.PublicKey)
 	if pkid == nil {
-		_AddBadRequestError(ww, fmt.Sprintf("AdminResetJumioForPublicKey: No PKID found for public key: %v", requestData.PublicKeyBase58Check))
+		_AddBadRequestError(ww, fmt.Sprintf("AdminResetJumioForPublicKey: No PublicKey found for public key: %v", requestData.PublicKeyBase58Check))
 		return
 	}
 	prefix := GlobalStatePrefixforPKIDTstampnanosToJumioTransaction(pkid.PKID)
