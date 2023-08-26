@@ -43,7 +43,6 @@ rm /tmp/main.*.log
   --min-satoshis-for-profile=0 \
   --expose-global-state=true \
   --show-processing-spinners=true \
-  --hcaptcha-secret='0x0c9B7224C615Cd1E4CDeE60d58844F04F216590D' \
   --comp-profile-creation=true \
   --starter-deso-nanos-captcha=10000 \
   --metamask-airdrop-deso-nanos-amount=1000 )
