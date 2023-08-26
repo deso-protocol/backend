@@ -271,15 +271,15 @@ func (fes *APIServer) HandleCaptchaVerificationRequest(ww http.ResponseWriter, r
 		return
 	}
 
-	//// Validate their permissions
-	//isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
-	//if err != nil {
-	//	_AddBadRequestError(ww, fmt.Sprintf("HandleCaptchaVerificationRequest: Error validating JWT: %v", err))
-	//}
-	//if !isValid {
-	//	_AddBadRequestError(ww, fmt.Sprintf("HandleCaptchaVerificationRequest: Invalid token: %v", err))
-	//	return
-	//}
+	// Validate their permissions
+	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("HandleCaptchaVerificationRequest: Error validating JWT: %v", err))
+	}
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("HandleCaptchaVerificationRequest: Invalid token: %v", err))
+		return
+	}
 
 	txnHashHex, err := fes.verifyHCaptchaTokenAndSendStarterDESO(requestData.Token, requestData.PublicKeyBase58Check)
 
