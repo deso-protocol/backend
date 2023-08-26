@@ -20,6 +20,7 @@ type Config struct {
 	// Onboarding
 	StarterDESOSeed         string
 	StarterDESONanos        uint64
+	StarterDESONanosCaptcha uint64
 	StarterPrefixNanosMap   map[string]uint64
 	TwilioAccountSID        string
 	TwilioAuthToken         string
@@ -94,6 +95,9 @@ type Config struct {
 	MetamaskAirdropEthMinimum *uint256.Int
 	// Amount of DESO in nanos metamask users receive as an airdrop
 	MetamaskAirdropDESONanosAmount uint64
+
+	// Secret used to validate hCaptcha tokens.
+	HCaptchaSecret string
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -108,6 +112,7 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	// Onboarding
 	config.StarterDESOSeed = viper.GetString("starter-deso-seed")
 	config.StarterDESONanos = viper.GetUint64("starter-deso-nanos")
+	config.StarterDESONanosCaptcha = viper.GetUint64("starter-deso-nanos-captcha")
 	starterPrefixNanosMap := viper.GetString("starter-prefix-nanos-map")
 	if len(starterPrefixNanosMap) > 0 {
 		config.StarterPrefixNanosMap = make(map[string]uint64)
@@ -193,6 +198,9 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 
 	// Node source ID
 	config.NodeSource = viper.GetUint64("node-source")
+
+	// hCaptcha secret
+	config.HCaptchaSecret = viper.GetString("hcaptcha-secret")
 
 	// Public keys that need their balances monitored. Map of Label to Public key
 	labelsToPublicKeys := viper.GetString("public-key-balances-to-monitor")

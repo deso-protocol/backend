@@ -389,6 +389,12 @@ type UserMetadata struct {
 	UnreadNotifications uint64
 	// The most recently scanned notification transaction index in the database. Stored in order to prevent unnecessary re-scanning.
 	LatestUnreadNotificationIndex int64
+
+	// The last block height that the user has submitted hcaptcha verification for.
+	LastHcaptchaBlockHeight uint32
+	// HcaptchaShouldCompProfileCreation = True if we should comp the create profile fee because the user went through the
+	// Captcha flow.
+	HcaptchaShouldCompProfileCreation bool
 }
 
 type TutorialStatus string

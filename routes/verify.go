@@ -141,8 +141,9 @@ func (fes *APIServer) canUserCreateProfile(userMetadata *UserMetadata, utxoView 
 		return false, err
 	}
 	// User can create a profile if they have a phone number or if they have enough DeSo to cover the create profile fee.
+	// User can also create a profile if they've successfully filled out a captcha.
 	// The PhoneNumber is only set if the user has passed phone number verification.
-	if userMetadata.PhoneNumber != "" || totalBalanceNanos >= utxoView.GlobalParamsEntry.CreateProfileFeeNanos {
+	if userMetadata.PhoneNumber != "" || totalBalanceNanos >= utxoView.GlobalParamsEntry.CreateProfileFeeNanos || userMetadata.LastHcaptchaBlockHeight > 0 {
 		return true, nil
 	}
 
@@ -249,6 +250,132 @@ func (fes *APIServer) validatePhoneNumberNotAlreadyInUse(phoneNumber string, use
 	}
 
 	return nil
+}
+
+type SubmitCaptchaVerificationRequest struct {
+	Token                string
+	JWT                  string
+	PublicKeyBase58Check string
+}
+
+type SubmitCaptchaVerificationResponse struct {
+	Success    bool
+	TxnHashHex string
+}
+
+func (fes *APIServer) HandleCaptchaVerificationRequest(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := SubmitCaptchaVerificationRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("HandleCaptchaVerificationRequest: Problem parsing request body: %v", err))
+		return
+	}
+
+	//// Validate their permissions
+	//isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
+	//if err != nil {
+	//	_AddBadRequestError(ww, fmt.Sprintf("HandleCaptchaVerificationRequest: Error validating JWT: %v", err))
+	//}
+	//if !isValid {
+	//	_AddBadRequestError(ww, fmt.Sprintf("HandleCaptchaVerificationRequest: Invalid token: %v", err))
+	//	return
+	//}
+
+	txnHashHex, err := fes.verifyHCaptchaTokenAndSendStarterDESO(requestData.Token, requestData.PublicKeyBase58Check)
+
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("HandleCaptchaVerificationRequest: Error verifying captcha: %v", err))
+		return
+	}
+
+	res := SubmitCaptchaVerificationResponse{
+		Success:    true,
+		TxnHashHex: txnHashHex,
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("HandleCaptchaVerificationRequest: Problem encoding response: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) verifyHCaptchaTokenAndSendStarterDESO(token string, publicKeyBase58Check string) (txnHashHex string, err error) {
+	verificationSuccess, err := fes.verifyHCaptchaToken(token)
+
+	if err != nil {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Error verifying captcha: %v", err)
+	}
+
+	if !verificationSuccess {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Captcha verification failed")
+	}
+
+	userMetadata, err := fes.getUserMetadataFromGlobalState(publicKeyBase58Check)
+	if err != nil {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Problem with getUserMetadataFromGlobalState: %v", err)
+	}
+
+	if userMetadata.LastHcaptchaBlockHeight != 0 {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: LastHcaptchaBlockHeight is already set")
+	}
+
+	if fes.Config.StarterDESOSeed == "" {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Starter DESO seed not set")
+	}
+
+	amountToSendNanos := fes.Config.StarterDESONanosCaptcha
+
+	lastBlockheight := fes.blockchain.BlockTip().Height
+	userMetadata.LastHcaptchaBlockHeight = lastBlockheight
+	userMetadata.HcaptchaShouldCompProfileCreation = true
+
+	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Problem with putUserMetadataInGlobalState: %v", err)
+	}
+
+	var txnHash *lib.BlockHash
+	publicKeyBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
+	txnHash, err = fes.SendSeedDeSo(publicKeyBytes, amountToSendNanos, false)
+	if err != nil {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Error sending seed DeSo: %v", err)
+	}
+
+	return txnHash.String(), nil
+}
+
+type VerificationResponse struct {
+	Success    bool     `json:"success"`
+	ErrorCodes []string `json:"error-codes"`
+}
+
+const VERIFY_URL = "https://hcaptcha.com/siteverify"
+
+func (fes *APIServer) verifyHCaptchaToken(token string) (bool, error) {
+	//data := map[string]string{
+	//	"secret":   fes.Config.HCaptchaSecret,
+	//	"response": token,
+	//}
+
+	data := url.Values{}
+	data.Set("secret", fes.Config.HCaptchaSecret)
+	data.Set("response", token)
+
+	fmt.Printf("DATA: %v\n", data)
+
+	resp, err := http.PostForm(VERIFY_URL, data) // This sends a POST request with content-type application/x-www-form-urlencoded
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	var verificationResponse VerificationResponse
+	err = json.NewDecoder(resp.Body).Decode(&verificationResponse)
+	if err != nil {
+		return false, err
+	}
+
+	fmt.Printf("verifyHCaptchaToken: %+v\n", resp.Body)
+	fmt.Printf("Verification Resp: %+v\n", verificationResponse)
+	return verificationResponse.Success, nil
 }
 
 type SubmitPhoneNumberVerificationCodeRequest struct {

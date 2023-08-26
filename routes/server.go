@@ -155,6 +155,7 @@ const (
 	RoutePathSubmitPhoneNumberVerificationCode = "/api/v0/submit-phone-number-verification-code"
 	RoutePathResendVerifyEmail                 = "/api/v0/resend-verify-email"
 	RoutePathVerifyEmail                       = "/api/v0/verify-email"
+	RoutePathVerifyCaptcha                     = "/api/v0/verify-captcha"
 	RoutePathJumioBegin                        = "/api/v0/jumio-begin"
 	RoutePathJumioCallback                     = "/api/v0/jumio-callback"
 	RoutePathJumioFlowFinished                 = "/api/v0/jumio-flow-finished"
@@ -1107,6 +1108,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathVerifyEmail,
 			fes.VerifyEmail,
+			PublicAccess,
+		},
+		{
+			"VerifyCaptcha",
+			[]string{"POST", "OPTIONS"},
+			RoutePathVerifyCaptcha,
+			fes.HandleCaptchaVerificationRequest,
 			PublicAccess,
 		},
 		{

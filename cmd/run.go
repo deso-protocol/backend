@@ -56,6 +56,9 @@ func init() {
 	runCmd.PersistentFlags().Uint64("starter-deso-nanos", 1000000,
 		"The amount of DeSo given to new accounts to get them started. Only "+
 			"active if --starter-deso-seed is set and funded.")
+	runCmd.PersistentFlags().Uint64("starter-deso-nanos-captcha", 2000,
+		"The amount of DeSo given to new accounts to get them started if they solve a captcha. Only "+
+			"active if --starter-deso-seed is set and funded.")
 	runCmd.PersistentFlags().String("starter-prefix-nanos-map", "",
 		"A comma-separated list of 'prefix=nanos' mappings, where prefix is a phone "+
 			"number prefix such as \"+1\". These mappings allow the "+
@@ -177,6 +180,7 @@ func init() {
 	runCmd.PersistentFlags().String("metamask-airdrop-eth-minimum", "100000000000000",
 		"In Wei, amount of Eth required to receive an airdrop during Metamask signup.")
 	runCmd.PersistentFlags().Uint64("metamask-airdrop-deso-nanos-amount", 0, "Amount of DESO in nanos to send to metamask users as an airdrop")
+	runCmd.PersistentFlags().String("hcaptcha-secret", "", "Secret key for hcaptcha service. Used to verify captcha token verifications.")
 	runCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
 		viper.BindPFlag(flag.Name, flag)
 	})
