@@ -354,9 +354,7 @@ func (fes *APIServer) verifyHCaptchaToken(token string) (bool, error) {
 	data.Set("secret", fes.Config.HCaptchaSecret)
 	data.Set("response", token)
 
-	fmt.Printf("DATA: %v\n", data)
-
-	resp, err := http.PostForm(VERIFY_URL, data) // This sends a POST request with content-type application/x-www-form-urlencoded
+	resp, err := http.PostForm(VERIFY_URL, data)
 	if err != nil {
 		return false, err
 	}
@@ -368,8 +366,6 @@ func (fes *APIServer) verifyHCaptchaToken(token string) (bool, error) {
 		return false, err
 	}
 
-	fmt.Printf("verifyHCaptchaToken: %+v\n", resp.Body)
-	fmt.Printf("Verification Resp: %+v\n", verificationResponse)
 	return verificationResponse.Success, nil
 }
 
