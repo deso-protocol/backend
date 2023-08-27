@@ -350,11 +350,6 @@ type VerificationResponse struct {
 const VERIFY_URL = "https://hcaptcha.com/siteverify"
 
 func (fes *APIServer) verifyHCaptchaToken(token string) (bool, error) {
-	//data := map[string]string{
-	//	"secret":   fes.Config.HCaptchaSecret,
-	//	"response": token,
-	//}
-
 	data := url.Values{}
 	data.Set("secret", fes.Config.HCaptchaSecret)
 	data.Set("response", token)
