@@ -358,6 +358,7 @@ type GetAppStateResponse struct {
 	JumioKickbackUSDCents           uint64
 	// CountrySignUpBonus is the sign-up bonus configuration for the country inferred from a request's IP address.
 	CountrySignUpBonus CountryLevelSignUpBonus
+	CaptchaDeSoNanos   uint64
 
 	DefaultFeeRateNanosPerKB uint64
 	TransactionFeeMap        map[string][]TransactionFee
@@ -394,6 +395,11 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		defaultFeeRateNanosPerKB = globalParams.MinimumNetworkFeeNanosPerKB
 	}
 
+	captchaDesoNanos, err := fes.getCaptchaRewardNanosFromGlobalState()
+	if err != nil {
+		captchaDesoNanos = 0
+	}
+
 	res := &GetAppStateResponse{
 		MinSatoshisBurnedForProfileCreation: fes.Config.MinSatoshisForProfile,
 		BlockHeight:                         fes.backendServer.GetBlockchain().BlockTip().Height,
@@ -417,6 +423,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		TransactionFeeMap:                   fes.TxnFeeMapToResponse(true),
 		BuyETHAddress:                       fes.Config.BuyDESOETHAddress,
 		Nodes:                               lib.NODES,
+		CaptchaDeSoNanos:                    captchaDesoNanos,
 
 		// Deprecated
 		USDCentsPerBitCloutExchangeRate: fes.GetExchangeDeSoPrice(),

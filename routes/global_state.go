@@ -240,8 +240,11 @@ var (
 	// <prefix, username> -> <IsBlacklisted>
 	_GlobalStatePrefixUsernameToBlacklistState = []byte{47}
 
-	// NEXT_TAG: 48
+	// The prefix for modifying the starter nanos reward for solving a captcha on signup.
+	// <prefix> -> <uint64>
+	_GlobalStatePrefixToCaptchaReward = []byte{48}
 
+	// NEXT_TAG: 49
 )
 
 type HotFeedApprovedPostOp struct {
@@ -676,6 +679,12 @@ func GlobalStateKeyForBlacklistedProfile(profilePubKey []byte) []byte {
 func GlobalStateKeyForBlacklistedProfileByUsername(username string) []byte {
 	key := append([]byte{}, _GlobalStatePrefixUsernameToBlacklistState...)
 	key = append(key, []byte(strings.ToLower(username))...)
+	return key
+}
+
+// Key for accessing a blacklisted user by username.
+func GlobalStateKeyForCaptchaRewardAmountNanos() []byte {
+	key := append([]byte{}, _GlobalStatePrefixToCaptchaReward...)
 	return key
 }
 

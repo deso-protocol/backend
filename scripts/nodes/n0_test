@@ -44,5 +44,4 @@ rm /tmp/main.*.log
   --expose-global-state=true \
   --show-processing-spinners=true \
   --comp-profile-creation=true \
-  --starter-deso-nanos-captcha=10000 \
   --metamask-airdrop-deso-nanos-amount=1000 )

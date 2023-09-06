@@ -20,7 +20,6 @@ type Config struct {
 	// Onboarding
 	StarterDESOSeed         string
 	StarterDESONanos        uint64
-	StarterDESONanosCaptcha uint64
 	StarterPrefixNanosMap   map[string]uint64
 	TwilioAccountSID        string
 	TwilioAuthToken         string
@@ -112,7 +111,6 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	// Onboarding
 	config.StarterDESOSeed = viper.GetString("starter-deso-seed")
 	config.StarterDESONanos = viper.GetUint64("starter-deso-nanos")
-	config.StarterDESONanosCaptcha = viper.GetUint64("starter-deso-nanos-captcha")
 	starterPrefixNanosMap := viper.GetString("starter-prefix-nanos-map")
 	if len(starterPrefixNanosMap) > 0 {
 		config.StarterPrefixNanosMap = make(map[string]uint64)

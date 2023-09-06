@@ -56,9 +56,6 @@ func init() {
 	runCmd.PersistentFlags().Uint64("starter-deso-nanos", 1000000,
 		"The amount of DeSo given to new accounts to get them started. Only "+
 			"active if --starter-deso-seed is set and funded.")
-	runCmd.PersistentFlags().Uint64("starter-deso-nanos-captcha", 2000,
-		"The amount of DeSo given to new accounts to get them started if they solve a captcha. Only "+
-			"active if --starter-deso-seed is set and funded.")
 	runCmd.PersistentFlags().String("starter-prefix-nanos-map", "",
 		"A comma-separated list of 'prefix=nanos' mappings, where prefix is a phone "+
 			"number prefix such as \"+1\". These mappings allow the "+
