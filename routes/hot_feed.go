@@ -83,13 +83,23 @@ func (fes *APIServer) StartHotFeedRoutine() {
 		for {
 			select {
 			case <-time.After(30 * time.Second):
-				resetCache := false
-				if cacheResetCounter >= ResetCachesIterationLimit {
-					resetCache = true
-					cacheResetCounter = 0
-				}
-				fes.UpdateHotFeed(resetCache)
-				cacheResetCounter += 1
+				// Use an inner function to unlock the mutex with a defer statement.
+				func() {
+					// If we're syncing a snapshot, we need to lock the DB mutex before updating the hot feed.
+					// This is because at the end of a snapshot sync, we re-start the DB, which will cause
+					// the hot feed routine to panic if it's in the middle of updating the hot feed.
+					if fes.backendServer.GetBlockchain().ChainState() == lib.SyncStateSyncingSnapshot {
+						fes.backendServer.DbMutex.Lock()
+						defer fes.backendServer.DbMutex.Unlock()
+					}
+					resetCache := false
+					if cacheResetCounter >= ResetCachesIterationLimit {
+						resetCache = true
+						cacheResetCounter = 0
+					}
+					fes.UpdateHotFeed(resetCache)
+					cacheResetCounter += 1
+				}()
 			case <-fes.quit:
 				break out
 			}

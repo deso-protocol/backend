@@ -2599,11 +2599,20 @@ func (fes *APIServer) StartSeedBalancesMonitoring() {
 					return
 				}
 				tags := []string{}
-				fes.logBalanceForSeed(fes.Config.StarterDESOSeed, "STARTER_DESO", tags)
-				fes.logBalanceForSeed(fes.Config.BuyDESOSeed, "BUY_DESO", tags)
-				for label, publicKey := range fes.Config.PublicKeyBalancesToMonitor {
-					fes.logBalanceForPublicKey(publicKey, label, tags)
-				}
+				// Use an inner function to unlock the mutex with a defer statement.
+				func() {
+					// If we're syncing a snapshot, we need to lock the DB in case the DB is restarted. This happens
+					// at the end of the snapshot sync.
+					if fes.backendServer.GetBlockchain().ChainState() == lib.SyncStateSyncingSnapshot {
+						fes.backendServer.DbMutex.Lock()
+						defer fes.backendServer.DbMutex.Unlock()
+					}
+					fes.logBalanceForSeed(fes.Config.StarterDESOSeed, "STARTER_DESO", tags)
+					fes.logBalanceForSeed(fes.Config.BuyDESOSeed, "BUY_DESO", tags)
+					for label, publicKey := range fes.Config.PublicKeyBalancesToMonitor {
+						fes.logBalanceForPublicKey(publicKey, label, tags)
+					}
+				}()
 			case <-fes.quit:
 				break out
 			}
@@ -2683,6 +2692,12 @@ func (fes *APIServer) StartGlobalStateMonitoring() {
 func (fes *APIServer) SetGlobalStateCache() {
 	if fes.backendServer == nil {
 		return
+	}
+	// If we're syncing a snapshot, we need to lock the DB in case the DB is restarted. This happens at
+	// the end of the snapshot sync.
+	if fes.backendServer.GetBlockchain().ChainState() == lib.SyncStateSyncingSnapshot {
+		fes.backendServer.DbMutex.Lock()
+		defer fes.backendServer.DbMutex.Unlock()
 	}
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
