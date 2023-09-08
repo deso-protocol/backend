@@ -25,7 +25,7 @@ import (
 )
 
 type GetTxnRequest struct {
-	// TxnHash to fetch.
+	// TxnHashHex to fetch.
 	TxnHashHex string `safeForLogging:"true"`
 }
 
@@ -465,7 +465,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	}
 	// Only comp create profile fee if frontend server has both twilio and starter deso seed configured and the user
 	// has verified their profile.
-	if !fes.Config.CompProfileCreation || fes.Config.StarterDESOSeed == "" || fes.Twilio == nil || (userMetadata.PhoneNumber == "" && !userMetadata.JumioVerified && existingMetamaskAirdropMetadata == nil) {
+	if !fes.Config.CompProfileCreation || fes.Config.StarterDESOSeed == "" || (fes.Config.HCaptchaSecret == "" && fes.Twilio == nil) || (userMetadata.PhoneNumber == "" && !userMetadata.JumioVerified && existingMetamaskAirdropMetadata == nil && userMetadata.LastHcaptchaBlockHeight == 0) {
 		return additionalFees, nil, nil
 	}
 	var currentBalanceNanos uint64
@@ -506,9 +506,14 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 			return additionalFees, nil, nil
 		}
 		updateMetamaskAirdropMetadata = true
-	} else {
+	} else if userMetadata.JumioVerified {
 		// User has been Jumio verified but should comp profile creation is false, just return
 		if !userMetadata.JumioShouldCompProfileCreation {
+			return additionalFees, nil, nil
+		}
+	} else if userMetadata.LastHcaptchaBlockHeight != 0 {
+		// User has been captcha verified but should comp profile creation is false, just return
+		if !userMetadata.HcaptchaShouldCompProfileCreation {
 			return additionalFees, nil, nil
 		}
 	}
@@ -529,6 +534,10 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	// We comp the create profile fee minus the minimum starter deso amount divided by 2.
 	// This discourages botting while covering users who verify a phone number.
 	compAmount := createProfileFeeNanos - (minStarterDESONanos / 2)
+	if (minStarterDESONanos / 2) > createProfileFeeNanos {
+		compAmount = createProfileFeeNanos
+	}
+
 	// If the user won't have enough deso to cover the fee, this is an error.
 	if currentBalanceNanos+compAmount < createProfileFeeNanos {
 		return 0, nil, fmt.Errorf("Creating a profile requires DeSo.  Please purchase some to create a profile.")
@@ -545,6 +554,11 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 		}
 		if err = fes.putPhoneNumberMetadataInGlobalState(newPhoneNumberMetadata, userMetadata.PhoneNumber); err != nil {
 			return 0, nil, fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for phone number metadata: %v", err)
+		}
+	} else if userMetadata.LastHcaptchaBlockHeight != 0 {
+		userMetadata.HcaptchaShouldCompProfileCreation = false
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			return 0, nil, fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for jumio user metadata: %v", err)
 		}
 	} else {
 		// Set JumioShouldCompProfileCreation to false so we don't continue to comp profile creation.

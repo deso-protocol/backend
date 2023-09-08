@@ -155,10 +155,12 @@ const (
 	RoutePathSubmitPhoneNumberVerificationCode = "/api/v0/submit-phone-number-verification-code"
 	RoutePathResendVerifyEmail                 = "/api/v0/resend-verify-email"
 	RoutePathVerifyEmail                       = "/api/v0/verify-email"
+	RoutePathVerifyCaptcha                     = "/api/v0/verify-captcha"
 	RoutePathJumioBegin                        = "/api/v0/jumio-begin"
 	RoutePathJumioCallback                     = "/api/v0/jumio-callback"
 	RoutePathJumioFlowFinished                 = "/api/v0/jumio-flow-finished"
 	RoutePathGetJumioStatusForPublicKey        = "/api/v0/get-jumio-status-for-public-key"
+	RoutePathAdminSetCaptchaRewardNanos        = "/api/v0/admin/set-captcha-reward-nanos"
 
 	// tutorial.go
 	RoutePathGetTutorialCreators  = "/api/v0/get-tutorial-creators"
@@ -1110,6 +1112,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"VerifyCaptcha",
+			[]string{"POST", "OPTIONS"},
+			RoutePathVerifyCaptcha,
+			fes.HandleCaptchaVerificationRequest,
+			PublicAccess,
+		},
+		{
 			"GetUserDerivedKeys",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetUserDerivedKeys,
@@ -1727,6 +1736,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminResetPhoneNumber,
 			fes.AdminResetPhoneNumber,
+			SuperAdminAccess,
+		},
+		{
+			"SetCaptchaRewardNanos",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminSetCaptchaRewardNanos,
+			fes.AdminSetCaptchaRewardNanos,
 			SuperAdminAccess,
 		},
 		// End all /admin routes
