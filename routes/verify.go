@@ -368,15 +368,20 @@ func (fes *APIServer) putCaptchaRewardNanosInGlobalState(rewardNanos uint64) err
 
 // verifyHCaptchaTokenAndSendStarterDESO verifies the captcha token and sends the starter DESO to the user.
 func (fes *APIServer) verifyHCaptchaTokenAndSendStarterDESO(token string, publicKeyBase58Check string) (txnHashHex string, err error) {
-	// Verify the token with hCaptcha.
-	verificationSuccess, err := fes.verifyHCaptchaToken(token)
-
-	if err != nil {
-		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Error verifying captcha: %v", err)
+	if fes.Config.StarterDESOSeed == "" {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Starter DESO seed not set")
 	}
 
-	if !verificationSuccess {
-		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Captcha verification failed")
+	// Retrieve the amount of nanos to reward for a successful captcha.
+	amountToSendNanos, err := fes.getCaptchaRewardNanosFromGlobalState()
+	if err != nil {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Problem with getCaptchaRewardNanosFromGlobalState: %v", err)
+	}
+
+	// Decode the public key.
+	publicKeyBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
+	if err != nil {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Problem decoding public key: %v", err)
 	}
 
 	// Ensure the user has not already received the starter DESO for submitting a successful captcha.
@@ -389,14 +394,15 @@ func (fes *APIServer) verifyHCaptchaTokenAndSendStarterDESO(token string, public
 		return "", fmt.Errorf("HandleCaptchaVerificationRequest: LastHcaptchaBlockHeight is already set")
 	}
 
-	if fes.Config.StarterDESOSeed == "" {
-		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Starter DESO seed not set")
+	// Verify the token with hCaptcha.
+	verificationSuccess, err := fes.verifyHCaptchaToken(token)
+
+	if err != nil {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Error verifying captcha: %v", err)
 	}
 
-	// Retrieve the amount of nanos to reward for a successful captcha.
-	amountToSendNanos, err := fes.getCaptchaRewardNanosFromGlobalState()
-	if err != nil {
-		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Problem with getCaptchaRewardNanosFromGlobalState: %v", err)
+	if !verificationSuccess {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Captcha verification failed")
 	}
 
 	// Update the user's metadata to indicate that they have received the starter DESO.
@@ -410,7 +416,6 @@ func (fes *APIServer) verifyHCaptchaTokenAndSendStarterDESO(token string, public
 
 	// Send the starter DESO to the user.
 	var txnHash *lib.BlockHash
-	publicKeyBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
 	txnHash, err = fes.SendSeedDeSo(publicKeyBytes, amountToSendNanos, false)
 	if err != nil {
 		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Error sending seed DeSo: %v", err)

@@ -126,6 +126,7 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.TwilioAccountSID = viper.GetString("twilio-account-sid")
 	config.TwilioAuthToken = viper.GetString("twilio-auth-token")
 	config.TwilioVerifyServiceID = viper.GetString("twilio-verify-service-id")
+	config.CompProfileCreation = viper.GetBool("comp-profile-creation")
 	config.MinSatoshisForProfile = viper.GetUint64("min-satoshis-for-profile")
 	config.PhoneNumberUseThreshold = viper.GetUint64("phone-number-use-threshold")
 

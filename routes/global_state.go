@@ -682,7 +682,7 @@ func GlobalStateKeyForBlacklistedProfileByUsername(username string) []byte {
 	return key
 }
 
-// Key for accessing a blacklisted user by username.
+// Key for accessing the captcha reward amount.
 func GlobalStateKeyForCaptchaRewardAmountNanos() []byte {
 	key := append([]byte{}, _GlobalStatePrefixToCaptchaReward...)
 	return key
