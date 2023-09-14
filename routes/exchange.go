@@ -1187,7 +1187,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			}
 
 			// Skip irrelevant transactions
-			if !isRelevantTxn {
+			if !isRelevantTxn && txnMeta.TransactorPublicKeyBase58Check != transactionInfoRequest.PublicKeyBase58Check {
 				continue
 			}
 
