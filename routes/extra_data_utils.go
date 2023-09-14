@@ -9,6 +9,7 @@ import (
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -189,11 +190,20 @@ func DecodePubKeyToUint64MapString(bytes []byte, params *lib.DeSoParams, _ *lib.
 
 func DecodeTransactionSpendingLimit(spendingBytes []byte, params *lib.DeSoParams, utxoView *lib.UtxoView) string {
 	var transactionSpendingLimit lib.TransactionSpendingLimit
-	tipHeight, err := lib.GetBlockTipHeight(utxoView.Handle, false)
-	if err != nil {
-		glog.Errorf("Error getting block tip height from the db")
-		return ""
+	var tipHeight uint64
+	var err error
+
+	if utxoView.Handle != nil {
+		tipHeight, err = lib.GetBlockTipHeight(utxoView.Handle, false)
+		if err != nil {
+			glog.Errorf("Error getting block tip height from the db")
+			return ""
+		}
+	} else {
+		// If we don't have a db handle, we can't get the tip height, so we just set it to the max uint64.
+		tipHeight = math.MaxUint64
 	}
+
 	// Note: we will have to update this with every migration on transaction spending limits
 	blockHeights := []uint64{
 		tipHeight,
