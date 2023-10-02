@@ -458,7 +458,9 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	}
 	// Additional fee is set to the create profile fee when we are creating a profile
 	additionalFees := utxoView.GlobalParamsEntry.CreateProfileFeeNanos
-
+	if additionalFees == 0 {
+		return 0, nil, nil
+	}
 	existingMetamaskAirdropMetadata, err := fes.GetMetamaskAirdropMetadata(profilePublicKey)
 	if err != nil {
 		return 0, nil, fmt.Errorf("Error geting metamask airdrop metadata from global state: %v", err)
