@@ -100,6 +100,7 @@ func TestUpdateGlobalParams(t *testing.T) {
 			StakeLockupEpochDuration:               4,
 			ValidatorJailEpochDuration:             4,
 			LeaderScheduleMaxNumValidators:         101,
+			ValidatorSetMaxNumValidators:           102,
 			EpochDurationNumBlocks:                 3601,
 			JailInactiveValidatorGracePeriodEpochs: 49,
 			MinFeeRateNanosPerKB:                   99,
@@ -112,6 +113,7 @@ func TestUpdateGlobalParams(t *testing.T) {
 		require.Equal(t, globalParams.StakeLockupEpochDuration, uint64(4))
 		require.Equal(t, globalParams.ValidatorJailEpochDuration, uint64(4))
 		require.Equal(t, globalParams.LeaderScheduleMaxNumValidators, uint64(101))
+		require.Equal(t, globalParams.ValidatorSetMaxNumValidators, uint64(102))
 		require.Equal(t, globalParams.EpochDurationNumBlocks, uint64(3601))
 		require.Equal(t, globalParams.JailInactiveValidatorGracePeriodEpochs, uint64(49))
 	}
@@ -131,6 +133,7 @@ func TestUpdateGlobalParams(t *testing.T) {
 		require.Equal(t, globalParams.StakeLockupEpochDuration, uint64(4))
 		require.Equal(t, globalParams.ValidatorJailEpochDuration, uint64(4))
 		require.Equal(t, globalParams.LeaderScheduleMaxNumValidators, uint64(101))
+		require.Equal(t, globalParams.ValidatorSetMaxNumValidators, uint64(102))
 		require.Equal(t, globalParams.EpochDurationNumBlocks, uint64(3601))
 		require.Equal(t, globalParams.JailInactiveValidatorGracePeriodEpochs, uint64(50))
 	}

@@ -132,7 +132,7 @@ func _headerToResponse(header *lib.MsgDeSoHeader, hash string) *HeaderResponse {
 		Version:                  header.Version,
 		PrevBlockHashHex:         header.PrevBlockHash.String(),
 		TransactionMerkleRootHex: header.TransactionMerkleRoot.String(),
-		TstampSecs:               header.TstampSecs,
+		TstampSecs:               header.GetTstampSecs(),
 		Height:                   header.Height,
 		Nonce:                    header.Nonce,
 		ExtraNonce:               header.ExtraNonce,
@@ -666,7 +666,7 @@ func APITransactionToResponse(
 	if block != nil && block.Header != nil {
 		ret.BlockInfo = &TransactionBlockInfo{
 			Height:        block.Header.Height,
-			TimestampSecs: block.Header.TstampSecs,
+			TimestampSecs: block.Header.GetTstampSecs(),
 		}
 	}
 

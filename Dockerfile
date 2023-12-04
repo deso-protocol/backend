@@ -28,12 +28,14 @@ COPY backend/countries countries
 COPY backend/main.go   .
 
 # include core src
-COPY core/bls      ../core/bls
-COPY core/cmd      ../core/cmd
-COPY core/desohash ../core/desohash
-COPY core/lib      ../core/lib
-COPY core/migrate  ../core/migrate
-COPY core/scripts  ../core/scripts
+COPY core/bls         ../core/bls
+COPY core/cmd         ../core/cmd
+COPY core/collections ../core/collections
+COPY core/consensus   ../core/consensus
+COPY core/desohash    ../core/desohash
+COPY core/lib         ../core/lib
+COPY core/migrate     ../core/migrate
+COPY core/scripts     ../core/scripts
 
 RUN ../core/scripts/install-relic.sh
 

@@ -44,6 +44,10 @@ type GetGlobalParamsResponse struct {
 	// are included when generating a new Proof-of-Stake leader schedule.
 	LeaderScheduleMaxNumValidators uint64 `safeForLogging:"true"`
 
+	// ValidatorSetMaxNumValidators is the maximum number of validators that
+	// are included when generating a new Proof-of-Stake validator set.
+	ValidatorSetMaxNumValidators uint64 `safeForLogging:"true"`
+
 	// EpochDurationNumBlocks is the number of blocks included in one epoch.
 	EpochDurationNumBlocks uint64 `safeForLogging:"true"`
 
@@ -78,6 +82,7 @@ func (fes *APIServer) GetGlobalParams(ww http.ResponseWriter, req *http.Request)
 		StakeLockupEpochDuration:               globalParamsEntry.StakeLockupEpochDuration,
 		ValidatorJailEpochDuration:             globalParamsEntry.ValidatorJailEpochDuration,
 		LeaderScheduleMaxNumValidators:         globalParamsEntry.LeaderScheduleMaxNumValidators,
+		ValidatorSetMaxNumValidators:           globalParamsEntry.ValidatorSetMaxNumValidators,
 		EpochDurationNumBlocks:                 globalParamsEntry.EpochDurationNumBlocks,
 		JailInactiveValidatorGracePeriodEpochs: globalParamsEntry.JailInactiveValidatorGracePeriodEpochs,
 	}
@@ -120,6 +125,10 @@ type UpdateGlobalParamsRequest struct {
 	// LeaderScheduleMaxNumValidators is the maximum number of validators that
 	// are included when generating a new Proof-of-Stake leader schedule.
 	LeaderScheduleMaxNumValidators uint64 `safeForLogging:"true"`
+
+	// ValidatorSetMaxNumValidators is the maximum number of validators that
+	// are included when generating a new Proof-of-Stake validator set.
+	ValidatorSetMaxNumValidators uint64 `safeForLogging:"true"`
 
 	// EpochDurationNumBlocks is the number of blocks included in one epoch.
 	EpochDurationNumBlocks uint64 `safeForLogging:"true"`
@@ -235,6 +244,11 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 	if requestData.LeaderScheduleMaxNumValidators > 0 &&
 		requestData.LeaderScheduleMaxNumValidators != globalParamsEntry.LeaderScheduleMaxNumValidators {
 		extraData[lib.LeaderScheduleMaxNumValidatorsKey] = lib.UintToBuf(requestData.LeaderScheduleMaxNumValidators)
+	}
+
+	if requestData.ValidatorSetMaxNumValidators > 0 &&
+		requestData.ValidatorSetMaxNumValidators != globalParamsEntry.ValidatorSetMaxNumValidators {
+		extraData[lib.ValidatorSetMaxNumValidatorsKey] = lib.UintToBuf(requestData.ValidatorSetMaxNumValidators)
 	}
 
 	if requestData.EpochDurationNumBlocks > 0 &&

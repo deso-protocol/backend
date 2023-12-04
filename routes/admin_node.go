@@ -109,13 +109,13 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 	{
 		desoNodeStatus.LatestHeaderHeight = desoHeaderTip.Height
 		desoNodeStatus.LatestHeaderHash = hex.EncodeToString(desoHeaderTip.Hash[:])
-		desoNodeStatus.LatestHeaderTstampSecs = uint32(desoHeaderTip.Header.TstampSecs)
+		desoNodeStatus.LatestHeaderTstampSecs = uint32(desoHeaderTip.Header.GetTstampSecs())
 	}
 	// Main block chain fields
 	{
 		desoNodeStatus.LatestBlockHeight = desoBlockTip.Height
 		desoNodeStatus.LatestBlockHash = hex.EncodeToString(desoBlockTip.Hash[:])
-		desoNodeStatus.LatestBlockTstampSecs = uint32(desoBlockTip.Header.TstampSecs)
+		desoNodeStatus.LatestBlockTstampSecs = uint32(desoBlockTip.Header.GetTstampSecs())
 	}
 	if fes.TXIndex != nil {
 		// TxIndex status
