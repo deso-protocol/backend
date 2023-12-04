@@ -446,7 +446,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	// Create new "block" for mempool txns, give it a block age of 1 greater than the current tip
 
 	// First get all MempoolTxns from mempool.
-	mempoolTxnsOrderedByTime, _, err := fes.backendServer.GetMempool().GetTransactionsOrderedByTimeAdded()
+	mempoolTxnsOrderedByTime := fes.backendServer.GetMempool().GetOrderedTransactions()
 	// Extract MsgDesoTxn from each MempoolTxn
 	var txnsFromMempoolOrderedByTime []*lib.MsgDeSoTxn
 	for _, mempoolTxn := range mempoolTxnsOrderedByTime {

@@ -133,6 +133,7 @@ func _headerToResponse(header *lib.MsgDeSoHeader, hash string) *HeaderResponse {
 		PrevBlockHashHex:         header.PrevBlockHash.String(),
 		TransactionMerkleRootHex: header.TransactionMerkleRoot.String(),
 		TstampSecs:               header.GetTstampSecs(),
+		TstampNanoSecs:           header.TstampNanoSecs,
 		Height:                   header.Height,
 		Nonce:                    header.Nonce,
 		ExtraNonce:               header.ExtraNonce,
@@ -968,11 +969,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	// IsMempool means we should just return all of the transactions that are currently in the mempool.
 	if transactionInfoRequest.IsMempool {
 		// Get all the txns from the mempool.
-		poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
-		if err != nil {
-			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error getting txns from mempool: %v", err))
-			return
-		}
+		poolTxns := fes.mempool.GetOrderedTransactions()
 
 		res := &APITransactionInfoResponse{}
 		res.Transactions = []*TransactionResponse{}
@@ -1039,7 +1036,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 
 		if txn == nil {
 			// Try to look the transaction up in the mempool before giving up.
-			txnInPool := fes.mempool.GetTransaction(txID)
+			txnInPool := fes.mempool.GetMempoolTx(txID)
 			if txnInPool == nil {
 				APIAddError(ww, fmt.Sprintf("APITransactionInfo: Could not find transaction with TransactionIDBase58Check = %s",
 					transactionInfoRequest.TransactionIDBase58Check))
@@ -1154,11 +1151,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	if transactionInfoRequest.LastPublicKeyTransactionIndex <= 0 {
 
 		// Start with the mempool
-		poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
-		if err != nil {
-			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error getting txns from mempool: %v", err))
-			return
-		}
+		poolTxns := fes.mempool.GetOrderedTransactions()
 
 		// Go from most recent to least recent
 		// TODO: Support pagination for mempool transactions
@@ -1270,6 +1263,9 @@ type HeaderResponse struct {
 	// The unix timestamp (in seconds) specifying when this block was
 	// mined.
 	TstampSecs uint64
+	// The unix timestamp (in nanoseconds) specifying when this block was
+	// mined.
+	TstampNanoSecs uint64
 	// The height of the block this header corresponds to.
 	Height uint64
 
