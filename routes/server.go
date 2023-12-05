@@ -321,7 +321,7 @@ const (
 // frontend cares about, from posts to profiles to purchasing DeSo with Bitcoin.
 type APIServer struct {
 	backendServer *lib.Server
-	mempool       *lib.DeSoMempool
+	mempool       lib.Mempool
 	blockchain    *lib.Blockchain
 	blockProducer *lib.DeSoBlockProducer
 	Params        *lib.DeSoParams
@@ -475,7 +475,7 @@ type LastTradePriceHistoryItem struct {
 // NewAPIServer ...
 func NewAPIServer(
 	_backendServer *lib.Server,
-	_mempool *lib.DeSoMempool,
+	_mempool lib.Mempool,
 	_blockchain *lib.Blockchain,
 	_blockProducer *lib.DeSoBlockProducer,
 	txIndex *lib.TXIndex,

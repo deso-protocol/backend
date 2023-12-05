@@ -7,9 +7,7 @@ import (
 	"github.com/deso-protocol/backend/config"
 	coreCmd "github.com/deso-protocol/core/cmd"
 	"github.com/deso-protocol/core/lib"
-	"github.com/google/uuid"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -54,7 +52,7 @@ func CleanUpBadger(db *badger.DB) {
 }
 
 func GetTestBadgerDb(t *testing.T) (_db *badger.DB, _dir string) {
-	dir, err := ioutil.TempDir("", "badgerdb-"+uuid.New().String())
+	dir, err := os.MkdirTemp("", "badgerdb")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -135,9 +133,9 @@ func newTestAPIServer(t *testing.T, globalStateRemoteNode string, txindex bool) 
 	privateApiServer.initState()
 
 	miner := node.Server.GetMiner()
-	_, err = miner.MineAndProcessSingleBlock(0, node.Server.GetMempool())
+	_, err = miner.MineAndProcessSingleBlock(0, node.Server.GetMempool().(*lib.DeSoMempool))
 	require.NoError(err)
-	_, err = miner.MineAndProcessSingleBlock(0, node.Server.GetMempool())
+	_, err = miner.MineAndProcessSingleBlock(0, node.Server.GetMempool().(*lib.DeSoMempool))
 	require.NoError(err)
 
 	t.Cleanup(func() {
@@ -664,7 +662,7 @@ func TestAPI(t *testing.T) {
 	txn1 := &lib.MsgDeSoTxn{}
 	txn1Bytes, _ := hex.DecodeString(txn1Hex)
 	_ = txn1.FromBytes(txn1Bytes)
-	_, err := apiServer.mempool.ProcessTransaction(
+	_, err := apiServer.mempool.(*lib.DeSoMempool).ProcessTransaction(
 		txn1, false /*allowOrphan*/, true /*rateLimit*/, 0, /*peerID*/
 		true /*verifySignatures*/)
 	require.NoError(err)
@@ -779,7 +777,7 @@ func TestAPI(t *testing.T) {
 	txn2 := &lib.MsgDeSoTxn{}
 	txn2Bytes, _ := hex.DecodeString(txn2Hex)
 	_ = txn2.FromBytes(txn2Bytes)
-	apiServer.mempool.ProcessTransaction(
+	apiServer.mempool.(*lib.DeSoMempool).ProcessTransaction(
 		txn2, false /*allowOrphan*/, true /*rateLimit*/, 0, /*peerID*/
 		true /*verifySignatures*/)
 	{
@@ -961,7 +959,7 @@ func TestAPI(t *testing.T) {
 	}
 
 	// Mine a block and check the balances.
-	block3, err := miner.MineAndProcessSingleBlock(0 /*threadIndex*/, apiServer.mempool)
+	block3, err := miner.MineAndProcessSingleBlock(0 /*threadIndex*/, apiServer.mempool.(*lib.DeSoMempool))
 	require.NoError(err)
 	balSum := int64(0)
 	{

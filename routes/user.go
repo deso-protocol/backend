@@ -2535,10 +2535,7 @@ func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest,
 		//
 		// TODO(performance): This could get slow if the mempool gets big. Fix is to organize everything
 		// in the mempool by public key and only look up transactions that are relevant to this public key.
-		poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
-		if err != nil {
-			return nil, errors.Errorf("APITransactionInfo: Error getting txns from mempool: %v", err)
-		}
+		poolTxns := fes.mempool.GetOrderedTransactions()
 
 		mempoolTxnMetadata := []*TransactionMetadataResponse{}
 		for _, poolTx := range poolTxns {
