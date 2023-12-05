@@ -18,7 +18,7 @@ func TestGlobalStateServicePutGetDeleteWithDB(t *testing.T) {
 	_, _ = assert, require
 
 	apiServer, _, _ := newTestAPIServer(
-		t, "" /*globalStateRemoteNode*/)
+		t, "" /*globalStateRemoteNode*/, false)
 
 	// Getting when no value is present should return nil without an
 	// error.
@@ -62,7 +62,7 @@ func TestGlobalStateServicePutGetDeleteWithRemoteNode(t *testing.T) {
 	_, _ = assert, require
 
 	apiServer, _, _ := newTestAPIServer(
-		t, "" /*globalStateRemoteNode*/)
+		t, "" /*globalStateRemoteNode*/, false)
 
 	// Getting when no value is present should return nil without an
 	// error.
@@ -189,7 +189,7 @@ func TestGlobalStateServiceURLCreation(t *testing.T) {
 	_, _ = assert, require
 
 	apiServer, _, _ := newTestAPIServer(
-		t, "https://deso.com:17001" /*globalStateRemoteNode*/)
+		t, "https://deso.com:17001" /*globalStateRemoteNode*/, false)
 
 	{
 		url, _, err := apiServer.GlobalState.CreateGetRequest([]byte("woo"))

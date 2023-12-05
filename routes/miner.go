@@ -187,7 +187,7 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 	// TODO: Signature checking slows things down because it acquires the ChainLock.
 	// The optimal solution is to check signatures in a way that doesn't acquire the
 	// ChainLock, which is what Bitcoin Core does.
-	isMainChain, isOrphan, err := fes.blockchain.ProcessBlock(
+	isMainChain, isOrphan, _, err := fes.blockchain.ProcessBlock(
 		blockFound, true /*verifySignatures*/)
 	glog.V(1).Infof("Called ProcessBlock: isMainChain=(%v), isOrphan=(%v), err=(%v)",
 		isMainChain, isOrphan, err)
