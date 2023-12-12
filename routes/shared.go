@@ -397,7 +397,8 @@ func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, 
 		if utxoView.GlobalParamsEntry != nil && utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB > 0 {
 			minFee = utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB
 		}
-		_, _, _, _, err = fes.blockchain.AddInputsAndChangeToTransaction(txn, minFee, fes.mempool)
+		_, _, _, _, err = fes.blockchain.AddInputsAndChangeToTransaction(txn, minFee, fes.mempool,
+			fes.backendServer.GetFeeEstimator())
 		if err != nil {
 			return nil, fmt.Errorf("SendSeedDeSo: Error adding inputs for seed DeSo: %v", err)
 		}

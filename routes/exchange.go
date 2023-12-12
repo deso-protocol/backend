@@ -766,7 +766,7 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 		txnn, totalInputt, spendAmountt, feeNanoss, err = fes.blockchain.CreateMaxSpend(
 			senderPublicKeyBytes, recipientPub.SerializeCompressed(),
 			uint64(minFeeRateNanosPerKB),
-			fes.backendServer.GetMempool(), additionalOutputs)
+			fes.backendServer.GetMempool(), additionalOutputs, fes.backendServer.GetFeeEstimator())
 		if err != nil {
 			APIAddError(ww, fmt.Sprintf("APITransferDeSo: Error processing MAX transaction: %v", err))
 			return
@@ -1423,7 +1423,7 @@ func (fes *APIServer) _augmentAndProcessTransactionWithSubsidyWithKey(
 	// return an error.
 	totalInput, spendAmount, changeAmount, fees, err :=
 		fes.blockchain.AddInputsAndChangeToTransactionWithSubsidy(txn, minFeeRateNanosPerKB,
-			inputSubsidy, fes.mempool, 0)
+			inputSubsidy, fes.mempool, 0, fes.backendServer.GetFeeEstimator())
 	if err != nil {
 		return 0, 0, 0, 0, fmt.Errorf("_augmentAndProcessTransactionWithKey: Problem adding inputs and "+
 			"change to transaction %v: %v", txn, err)
