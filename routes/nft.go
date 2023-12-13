@@ -262,7 +262,8 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		additionalDESORoyaltiesPubKeyMap,
 		additionalCoinRoyaltiesPubKeyMap,
 		extraData,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs,
+		fes.backendServer.GetFeeEstimator())
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Problem creating transaction: %v", err))
 		return
@@ -411,7 +412,8 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 		uint64(requestData.MinBidAmountNanos),
 		requestData.IsBuyNow,
 		requestData.BuyNowPriceNanos,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs,
+		fes.backendServer.GetFeeEstimator())
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateNFT: Problem creating transaction: %v", err))
 		return
@@ -568,7 +570,8 @@ func (fes *APIServer) CreateNFTBid(ww http.ResponseWriter, req *http.Request) {
 		nftPostHash,
 		uint64(requestData.SerialNumber),
 		uint64(requestData.BidAmountNanos),
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs,
+		fes.backendServer.GetFeeEstimator())
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFTBid: Problem creating transaction: %v", err))
 		return
@@ -731,7 +734,8 @@ func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
 		bidderPKID.PKID,
 		uint64(requestData.BidAmountNanos),
 		encryptedUnlockableTextBytes,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs,
+		fes.backendServer.GetFeeEstimator())
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTBid: Problem creating transaction: %v", err))
 		return
@@ -1649,7 +1653,8 @@ func (fes *APIServer) TransferNFT(ww http.ResponseWriter, req *http.Request) {
 		nftPostHash,
 		uint64(requestData.SerialNumber),
 		[]byte(requestData.EncryptedUnlockableText),
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs,
+		fes.backendServer.GetFeeEstimator())
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Problem creating transaction: %v", err))
 		return
@@ -1789,7 +1794,8 @@ func (fes *APIServer) AcceptNFTTransfer(ww http.ResponseWriter, req *http.Reques
 		updaterPublicKeyBytes,
 		nftPostHash,
 		uint64(requestData.SerialNumber),
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs,
+		fes.backendServer.GetFeeEstimator())
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: Problem creating transaction: %v", err))
 		return
@@ -1928,7 +1934,8 @@ func (fes *APIServer) BurnNFT(ww http.ResponseWriter, req *http.Request) {
 		updaterPublicKeyBytes,
 		nftPostHash,
 		uint64(requestData.SerialNumber),
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs,
+		fes.backendServer.GetFeeEstimator())
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Problem creating transaction: %v", err))
 		return
