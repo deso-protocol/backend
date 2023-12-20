@@ -774,7 +774,7 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 	if transferDeSoRequest.AmountNanos < 0 {
 		// Create a MAX transaction
 		txnn, totalInputt, spendAmountt, feeNanoss, err = fes.blockchain.CreateMaxSpend(
-			senderPublicKeyBytes, recipientPub.SerializeCompressed(),
+			senderPublicKeyBytes, recipientPub.SerializeCompressed(), nil,
 			uint64(minFeeRateNanosPerKB),
 			fes.backendServer.GetMempool(), additionalOutputs)
 		if err != nil {
