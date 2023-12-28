@@ -341,6 +341,8 @@ type GetAllCountryLevelSignUpBonusResponse struct {
 }
 
 func (fes *APIServer) AdminGetAllCountryLevelSignUpBonuses(ww http.ResponseWriter, req *http.Request) {
+	fes.allCountryLevelSignUpBonusesLock.RLock()
+	defer fes.allCountryLevelSignUpBonusesLock.RUnlock()
 	res := GetAllCountryLevelSignUpBonusResponse{
 		SignUpBonusMetadata:        fes.AllCountryLevelSignUpBonuses,
 		DefaultSignUpBonusMetadata: fes.GetDefaultJumioCountrySignUpBonus(),
@@ -373,6 +375,8 @@ func (fes *APIServer) SetAllCountrySignUpBonusMetadata() {
 // SetSingleCountrySignUpBonus sets the sign up bonus configuration for a given country in the cached map.
 func (fes *APIServer) SetSingleCountrySignUpBonus(countryDetails countries.Alpha3CountryCodeDetails,
 	signUpBonus CountryLevelSignUpBonus) {
+	fes.allCountryLevelSignUpBonusesLock.Lock()
+	defer fes.allCountryLevelSignUpBonusesLock.Unlock()
 	fes.AllCountryLevelSignUpBonuses[countryDetails.Name] = CountrySignUpBonusResponse{
 		CountryLevelSignUpBonus: signUpBonus,
 		CountryCodeDetails:      countryDetails,
@@ -385,6 +389,8 @@ func (fes *APIServer) GetSingleCountrySignUpBonus(countryCode string) CountryLev
 	countryCodeDetails := countries.Alpha3CountryCodes[strings.ToUpper(countryCode)]
 	// If we can't find the signup bonus from the map, return the default. Else, return the sign up bonus we found in
 	// the map.
+	fes.allCountryLevelSignUpBonusesLock.RLock()
+	defer fes.allCountryLevelSignUpBonusesLock.RUnlock()
 	if countrySignUpBonusResponse, exists := fes.AllCountryLevelSignUpBonuses[countryCodeDetails.Name]; !exists {
 		return fes.GetDefaultJumioCountrySignUpBonus()
 	} else {
