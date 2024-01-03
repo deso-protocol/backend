@@ -451,7 +451,8 @@ type APIServer struct {
 	CountKeysWithDESO uint64
 
 	// map of country name to sign up bonus data
-	AllCountryLevelSignUpBonuses map[string]CountrySignUpBonusResponse
+	allCountryLevelSignUpBonusesLock sync.RWMutex
+	AllCountryLevelSignUpBonuses     map[string]CountrySignUpBonusResponse
 
 	// Frequently accessed data from global state
 	USDCentsToDESOReserveExchangeRate uint64
