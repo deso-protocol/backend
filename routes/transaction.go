@@ -993,10 +993,11 @@ func (fes *APIServer) ExceedsDeSoBalance(nanosPurchased uint64, seed string) (bo
 
 // SendDeSoRequest ...
 type SendDeSoRequest struct {
-	SenderPublicKeyBase58Check   string `safeForLogging:"true"`
-	RecipientPublicKeyOrUsername string `safeForLogging:"true"`
-	AmountNanos                  int64  `safeForLogging:"true"`
-	MinFeeRateNanosPerKB         uint64 `safeForLogging:"true"`
+	SenderPublicKeyBase58Check   string            `safeForLogging:"true"`
+	RecipientPublicKeyOrUsername string            `safeForLogging:"true"`
+	AmountNanos                  int64             `safeForLogging:"true"`
+	MinFeeRateNanosPerKB         uint64            `safeForLogging:"true"`
+	ExtraData                    map[string]string `safeForLogging:"true"`
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
@@ -1074,6 +1075,12 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem encoding ExtraData: %v", err))
+		return
+	}
+
 	// If the AmountNanos is less than zero then we have a special case where we create
 	// a transaction with the maximum spend.
 	var txnn *lib.MsgDeSoTxn
@@ -1084,7 +1091,7 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 	if requestData.AmountNanos < 0 {
 		// Create a MAX transaction
 		txnn, totalInputt, spendAmountt, feeNanoss, err = fes.blockchain.CreateMaxSpend(
-			senderPkBytes, recipientPkBytes, requestData.MinFeeRateNanosPerKB,
+			senderPkBytes, recipientPkBytes, extraData, requestData.MinFeeRateNanosPerKB,
 			fes.backendServer.GetMempool(), additionalOutputs)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error processing MAX transaction: %v", err))
@@ -1113,6 +1120,10 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 			TxnMeta:   &lib.BasicTransferMetadata{},
 			// We wait to compute the signature until we've added all the
 			// inputs and change.
+		}
+
+		if len(extraData) > 0 {
+			txnn.ExtraData = extraData
 		}
 
 		// Add inputs to the transaction and do signing, validation, and broadcast
@@ -2116,6 +2127,8 @@ type SendDiamondsRequest struct {
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
+	ExtraData map[string]string `safeForLogging:"true"`
+
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
 
@@ -2191,6 +2204,12 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem encoding extra data: %v", err))
+		return
+	}
+
 	// Try and create the transfer with diamonds for the user.
 	// We give diamonds in DESO if we're past the corresponding block height.
 	blockHeight := fes.blockchain.BlockTip().Height + 1
@@ -2210,6 +2229,7 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 			senderPublicKeyBytes,
 			diamondPostHash,
 			requestData.DiamondLevel,
+			extraData,
 			// Standard transaction fields
 			requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 		if err != nil {
