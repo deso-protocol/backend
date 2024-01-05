@@ -13,14 +13,15 @@ import (
 )
 
 type RegisterAsValidatorRequest struct {
-	TransactorPublicKeyBase58Check string            `safeForLogging:"true"`
-	Domains                        []string          `safeForLogging:"true"`
-	DisableDelegatedStake          bool              `safeForLogging:"true"`
-	VotingPublicKey                string            `safeForLogging:"true"`
-	VotingAuthorization            string            `safeForLogging:"true"`
-	ExtraData                      map[string]string `safeForLogging:"true"`
-	MinFeeRateNanosPerKB           uint64            `safeForLogging:"true"`
-	TransactionFees                []TransactionFee  `safeForLogging:"true"`
+	TransactorPublicKeyBase58Check      string            `safeForLogging:"true"`
+	Domains                             []string          `safeForLogging:"true"`
+	DisableDelegatedStake               bool              `safeForLogging:"true"`
+	DelegatedStakeCommissionBasisPoints uint64            `safeForLogging:"true"`
+	VotingPublicKey                     string            `safeForLogging:"true"`
+	VotingAuthorization                 string            `safeForLogging:"true"`
+	ExtraData                           map[string]string `safeForLogging:"true"`
+	MinFeeRateNanosPerKB                uint64            `safeForLogging:"true"`
+	TransactionFees                     []TransactionFee  `safeForLogging:"true"`
 }
 
 type UnregisterAsValidatorRequest struct {
@@ -41,16 +42,17 @@ type ValidatorTxnResponse struct {
 }
 
 type ValidatorResponse struct {
-	ValidatorPublicKeyBase58Check string
-	Domains                       []string
-	DisableDelegatedStake         bool
-	VotingPublicKey               string
-	VotingAuthorization           string
-	TotalStakeAmountNanos         *uint256.Int
-	Status                        string
-	LastActiveAtEpochNumber       uint64
-	JailedAtEpochNumber           uint64
-	ExtraData                     map[string]string
+	ValidatorPublicKeyBase58Check       string
+	Domains                             []string
+	DisableDelegatedStake               bool
+	DelegatedStakeCommissionBasisPoints uint64
+	VotingPublicKey                     string
+	VotingAuthorization                 string
+	TotalStakeAmountNanos               *uint256.Int
+	Status                              string
+	LastActiveAtEpochNumber             uint64
+	JailedAtEpochNumber                 uint64
+	ExtraData                           map[string]string
 }
 
 func (fes *APIServer) RegisterAsValidator(ww http.ResponseWriter, req *http.Request) {
@@ -116,10 +118,11 @@ func (fes *APIServer) RegisterAsValidator(ww http.ResponseWriter, req *http.Requ
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateRegisterAsValidatorTxn(
 		transactorPublicKeyBytes,
 		&lib.RegisterAsValidatorMetadata{
-			Domains:               domains,
-			DisableDelegatedStake: requestData.DisableDelegatedStake,
-			VotingPublicKey:       votingPublicKey,
-			VotingAuthorization:   votingAuthorization,
+			Domains:                             domains,
+			DisableDelegatedStake:               requestData.DisableDelegatedStake,
+			DelegatedStakeCommissionBasisPoints: requestData.DelegatedStakeCommissionBasisPoints,
+			VotingPublicKey:                     votingPublicKey,
+			VotingAuthorization:                 votingAuthorization,
 		},
 		extraData,
 		requestData.MinFeeRateNanosPerKB,
@@ -289,15 +292,16 @@ func _convertValidatorEntryToResponse(
 
 	// Convert ValidatorEntry to ValidatorResponse.
 	return &ValidatorResponse{
-		ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
-		Domains:                       domains,
-		DisableDelegatedStake:         validatorEntry.DisableDelegatedStake,
-		VotingPublicKey:               validatorEntry.VotingPublicKey.ToString(),
-		VotingAuthorization:           validatorEntry.VotingAuthorization.ToString(),
-		TotalStakeAmountNanos:         validatorEntry.TotalStakeAmountNanos.Clone(),
-		Status:                        validatorEntry.Status().ToString(),
-		LastActiveAtEpochNumber:       validatorEntry.LastActiveAtEpochNumber,
-		JailedAtEpochNumber:           validatorEntry.JailedAtEpochNumber,
-		ExtraData:                     DecodeExtraDataMap(params, utxoView, validatorEntry.ExtraData),
+		ValidatorPublicKeyBase58Check:       validatorPublicKeyBase58Check,
+		Domains:                             domains,
+		DisableDelegatedStake:               validatorEntry.DisableDelegatedStake,
+		DelegatedStakeCommissionBasisPoints: validatorEntry.DelegatedStakeCommissionBasisPoints,
+		VotingPublicKey:                     validatorEntry.VotingPublicKey.ToString(),
+		VotingAuthorization:                 validatorEntry.VotingAuthorization.ToString(),
+		TotalStakeAmountNanos:               validatorEntry.TotalStakeAmountNanos.Clone(),
+		Status:                              validatorEntry.Status().ToString(),
+		LastActiveAtEpochNumber:             validatorEntry.LastActiveAtEpochNumber,
+		JailedAtEpochNumber:                 validatorEntry.JailedAtEpochNumber,
+		ExtraData:                           DecodeExtraDataMap(params, utxoView, validatorEntry.ExtraData),
 	}
 }
