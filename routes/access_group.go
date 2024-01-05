@@ -117,8 +117,7 @@ func (fes *APIServer) accessGroupHandler(
 		accessGroupOwnerPkBytes, accessGroupPkBytes,
 		accessGroupKeyNameBytes, accessGroupOperationType,
 		extraData,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs,
-		fes.backendServer.GetFeeEstimator())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		return fmt.Errorf("problem creating transaction: %v", err)
 	}
@@ -398,8 +397,7 @@ func (fes *APIServer) accessGroupMemberHandler(
 		accessGroupOwnerPkBytes, accessGroupKeyNameBytes,
 		accessGroupMembers, accessGroupMemberOperationType,
 		extraData,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs,
-		fes.backendServer.GetFeeEstimator())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		return fmt.Errorf("problem creating transaction: %v", err)
 	}

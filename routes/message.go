@@ -714,8 +714,7 @@ func (fes *APIServer) SendMessageStateless(ww http.ResponseWriter, req *http.Req
 		senderMessagingPublicKey, senderMessagingGroupKeyNameBytes,
 		recipientMessagingPublicKey, recipientMessagingGroupKeyNameBytes,
 		tstamp, extraData,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs,
-		fes.backendServer.GetFeeEstimator())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SendMessageStateless: Problem creating transaction: %v", err))
 		return
@@ -974,8 +973,7 @@ func (fes *APIServer) RegisterMessagingGroupKey(ww http.ResponseWriter, req *htt
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateMessagingKeyTxn(
 		ownerPkBytes, messagingPkBytes, messagingKeyNameBytes, messagingKeySignature,
 		[]*lib.MessagingGroupMember{}, extraData,
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs,
-		fes.backendServer.GetFeeEstimator())
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("RegisterMessagingGroupKey: Problem creating transaction: %v", err))
 		return
