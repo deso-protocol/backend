@@ -316,6 +316,11 @@ const (
 
 	// validators.go
 	RoutePathValidators = "/api/v0/validators"
+
+	// stake.go
+	RoutePathStake       = "/api/v0/stake"
+	RoutePathUnstake     = "/api/v0/unstake"
+	RoutePathUnlockStake = "/api/v0/unlock-stake"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -1302,6 +1307,27 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathValidators + "/{publicKeyBase58Check:t?BC[1-9A-HJ-NP-Za-km-z]{51,53}}",
 			fes.GetValidatorByPublicKeyBase58Check,
+			PublicAccess,
+		},
+		{
+			"CreateStakeTxn",
+			[]string{"POST", "OPTIONS"},
+			RoutePathStake,
+			fes.CreateStakeTxn,
+			PublicAccess,
+		},
+		{
+			"CreateUnstakeTxn",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUnstake,
+			fes.CreateUnstakeTxn,
+			PublicAccess,
+		},
+		{
+			"CreateUnlockStakeTxn",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUnlockStake,
+			fes.CreateUnlockStakeTxn,
 			PublicAccess,
 		},
 		// Jumio Routes

@@ -1,0 +1,9 @@
+START	TestAPIAccessGroups	Memory Usage	3.151079136	Total Alloc	3.160492704
+CLEANUP_START	TestAPIAccessGroups	Memory Usage	2.577539392	Total Alloc	10.180988784
+CLEANUP_END	TestAPIAccessGroups	Memory Usage	2.58840312	Total Alloc	10.191852512
+START	TestAssociations	Memory Usage	2.595798192	Total Alloc	10.199247584
+CLEANUP_START	TestAssociations	Memory Usage	1.783771624	Total Alloc	17.939350384
+CLEANUP_END	TestAssociations	Memory Usage	1.798488776	Total Alloc	17.954067536
+START	TestFreezingPost	Memory Usage	5.398103376	Total Alloc	152.50445016
+CLEANUP_START	TestFreezingPost	Memory Usage	2.742883704	Total Alloc	170.541425016
+CLEANUP_END	TestFreezingPost	Memory Usage	2.782635984	Total Alloc	170.581177296
