@@ -36,11 +36,12 @@ rm /tmp/main.*.log
   --block-producer-seed='essence camp ghost remove document vault ladder swim pupil index apart ring' \
   --starter-deso-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
   --data-dir=/tmp/n0_test_00000 \
-  --access-control-allow-origins=http://localhost:4200,http://localhost:80,http://localhost:18002,http://localhost:4201,http://localhost:18001 \
+  --access-control-allow-origins=http://localhost:4200,http://localhost:80,http://localhost:18002,http://localhost:4201,http://localhost:18001,http://localhost:3000,localhost:3000 \
   --secure-header-allow-hosts=localhost:4200 \
   --secure-header-development=true \
   --block-cypher-api-key=092dae962ea44b02809a4c74408b42a1 \
   --min-satoshis-for-profile=0 \
   --expose-global-state=true \
   --show-processing-spinners=true \
+  --comp-profile-creation=true \
   --metamask-airdrop-deso-nanos-amount=1000 )

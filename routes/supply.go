@@ -44,6 +44,11 @@ func (fes *APIServer) StartSupplyMonitoring() {
 }
 
 func (fes *APIServer) UpdateSupplyStats() {
+	// Prevent access to the DB while it's reset. This only happens when we're syncing a snapshot.
+	if fes.backendServer.GetBlockchain().ChainState() == lib.SyncStateSyncingSnapshot {
+		fes.backendServer.DbMutex.Lock()
+		defer fes.backendServer.DbMutex.Unlock()
+	}
 	totalSupply := uint64(0)
 	totalKeysWithDESO := uint64(0)
 	// Get all the balances from the DB

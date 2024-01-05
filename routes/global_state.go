@@ -240,8 +240,11 @@ var (
 	// <prefix, username> -> <IsBlacklisted>
 	_GlobalStatePrefixUsernameToBlacklistState = []byte{47}
 
-	// NEXT_TAG: 48
+	// The prefix for modifying the starter nanos reward for solving a captcha on signup.
+	// <prefix> -> <uint64>
+	_GlobalStatePrefixToCaptchaReward = []byte{48}
 
+	// NEXT_TAG: 49
 )
 
 type HotFeedApprovedPostOp struct {
@@ -389,6 +392,12 @@ type UserMetadata struct {
 	UnreadNotifications uint64
 	// The most recently scanned notification transaction index in the database. Stored in order to prevent unnecessary re-scanning.
 	LatestUnreadNotificationIndex int64
+
+	// The last block height that the user has submitted hcaptcha verification for.
+	LastHcaptchaBlockHeight uint32
+	// HcaptchaShouldCompProfileCreation = True if we should comp the create profile fee because the user went through the
+	// Captcha flow.
+	HcaptchaShouldCompProfileCreation bool
 }
 
 type TutorialStatus string
@@ -670,6 +679,12 @@ func GlobalStateKeyForBlacklistedProfile(profilePubKey []byte) []byte {
 func GlobalStateKeyForBlacklistedProfileByUsername(username string) []byte {
 	key := append([]byte{}, _GlobalStatePrefixUsernameToBlacklistState...)
 	key = append(key, []byte(strings.ToLower(username))...)
+	return key
+}
+
+// Key for accessing the captcha reward amount.
+func GlobalStateKeyForCaptchaRewardAmountNanos() []byte {
+	key := append([]byte{}, _GlobalStatePrefixToCaptchaReward...)
 	return key
 }
 

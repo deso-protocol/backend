@@ -25,7 +25,7 @@ import (
 )
 
 type GetTxnRequest struct {
-	// TxnHash to fetch.
+	// TxnHashHex to fetch.
 	TxnHashHex string `safeForLogging:"true"`
 }
 
@@ -459,14 +459,16 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	}
 	// Additional fee is set to the create profile fee when we are creating a profile
 	additionalFees := utxoView.GlobalParamsEntry.CreateProfileFeeNanos
-
+	if additionalFees == 0 {
+		return 0, nil, nil
+	}
 	existingMetamaskAirdropMetadata, err := fes.GetMetamaskAirdropMetadata(profilePublicKey)
 	if err != nil {
 		return 0, nil, fmt.Errorf("Error geting metamask airdrop metadata from global state: %v", err)
 	}
 	// Only comp create profile fee if frontend server has both twilio and starter deso seed configured and the user
 	// has verified their profile.
-	if !fes.Config.CompProfileCreation || fes.Config.StarterDESOSeed == "" || fes.Twilio == nil || (userMetadata.PhoneNumber == "" && !userMetadata.JumioVerified && existingMetamaskAirdropMetadata == nil) {
+	if !fes.Config.CompProfileCreation || fes.Config.StarterDESOSeed == "" || (fes.Config.HCaptchaSecret == "" && fes.Twilio == nil) || (userMetadata.PhoneNumber == "" && !userMetadata.JumioVerified && existingMetamaskAirdropMetadata == nil && userMetadata.LastHcaptchaBlockHeight == 0) {
 		return additionalFees, nil, nil
 	}
 	var currentBalanceNanos uint64
@@ -507,9 +509,14 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 			return additionalFees, nil, nil
 		}
 		updateMetamaskAirdropMetadata = true
-	} else {
+	} else if userMetadata.JumioVerified {
 		// User has been Jumio verified but should comp profile creation is false, just return
 		if !userMetadata.JumioShouldCompProfileCreation {
+			return additionalFees, nil, nil
+		}
+	} else if userMetadata.LastHcaptchaBlockHeight != 0 {
+		// User has been captcha verified but should comp profile creation is false, just return
+		if !userMetadata.HcaptchaShouldCompProfileCreation {
 			return additionalFees, nil, nil
 		}
 	}
@@ -530,6 +537,10 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	// We comp the create profile fee minus the minimum starter deso amount divided by 2.
 	// This discourages botting while covering users who verify a phone number.
 	compAmount := createProfileFeeNanos - (minStarterDESONanos / 2)
+	if (minStarterDESONanos / 2) > createProfileFeeNanos {
+		compAmount = createProfileFeeNanos
+	}
+
 	// If the user won't have enough deso to cover the fee, this is an error.
 	if currentBalanceNanos+compAmount < createProfileFeeNanos {
 		return 0, nil, fmt.Errorf("Creating a profile requires DeSo.  Please purchase some to create a profile.")
@@ -546,6 +557,11 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 		}
 		if err = fes.putPhoneNumberMetadataInGlobalState(newPhoneNumberMetadata, userMetadata.PhoneNumber); err != nil {
 			return 0, nil, fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for phone number metadata: %v", err)
+		}
+	} else if userMetadata.LastHcaptchaBlockHeight != 0 {
+		userMetadata.HcaptchaShouldCompProfileCreation = false
+		if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+			return 0, nil, fmt.Errorf("UpdateProfile: Error setting ShouldComp to false for jumio user metadata: %v", err)
 		}
 	} else {
 		// Set JumioShouldCompProfileCreation to false so we don't continue to comp profile creation.
@@ -978,10 +994,11 @@ func (fes *APIServer) ExceedsDeSoBalance(nanosPurchased uint64, seed string) (bo
 
 // SendDeSoRequest ...
 type SendDeSoRequest struct {
-	SenderPublicKeyBase58Check   string `safeForLogging:"true"`
-	RecipientPublicKeyOrUsername string `safeForLogging:"true"`
-	AmountNanos                  int64  `safeForLogging:"true"`
-	MinFeeRateNanosPerKB         uint64 `safeForLogging:"true"`
+	SenderPublicKeyBase58Check   string            `safeForLogging:"true"`
+	RecipientPublicKeyOrUsername string            `safeForLogging:"true"`
+	AmountNanos                  int64             `safeForLogging:"true"`
+	MinFeeRateNanosPerKB         uint64            `safeForLogging:"true"`
+	ExtraData                    map[string]string `safeForLogging:"true"`
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
@@ -1059,6 +1076,12 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Problem encoding ExtraData: %v", err))
+		return
+	}
+
 	// If the AmountNanos is less than zero then we have a special case where we create
 	// a transaction with the maximum spend.
 	var txnn *lib.MsgDeSoTxn
@@ -1069,8 +1092,8 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 	if requestData.AmountNanos < 0 {
 		// Create a MAX transaction
 		txnn, totalInputt, spendAmountt, feeNanoss, err = fes.blockchain.CreateMaxSpend(
-			senderPkBytes, recipientPkBytes, requestData.MinFeeRateNanosPerKB,
-			fes.backendServer.GetMempool(), additionalOutputs, fes.backendServer.GetFeeEstimator())
+			senderPkBytes, recipientPkBytes, extraData, requestData.MinFeeRateNanosPerKB,
+			fes.backendServer.GetMempool(), additionalOutputs)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error processing MAX transaction: %v", err))
 			return
@@ -1098,6 +1121,10 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 			TxnMeta:   &lib.BasicTransferMetadata{},
 			// We wait to compute the signature until we've added all the
 			// inputs and change.
+		}
+
+		if len(extraData) > 0 {
+			txnn.ExtraData = extraData
 		}
 
 		// Add inputs to the transaction and do signing, validation, and broadcast
@@ -2107,6 +2134,8 @@ type SendDiamondsRequest struct {
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
+	ExtraData map[string]string `safeForLogging:"true"`
+
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
 
@@ -2182,6 +2211,12 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SendDiamonds: Problem encoding extra data: %v", err))
+		return
+	}
+
 	// Try and create the transfer with diamonds for the user.
 	// We give diamonds in DESO if we're past the corresponding block height.
 	blockHeight := fes.blockchain.BlockTip().Height + 1
@@ -2201,6 +2236,7 @@ func (fes *APIServer) SendDiamonds(ww http.ResponseWriter, req *http.Request) {
 			senderPublicKeyBytes,
 			diamondPostHash,
 			requestData.DiamondLevel,
+			extraData,
 			// Standard transaction fields
 			requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs,
 			fes.backendServer.GetFeeEstimator())

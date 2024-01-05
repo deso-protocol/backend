@@ -141,8 +141,9 @@ func (fes *APIServer) canUserCreateProfile(userMetadata *UserMetadata, utxoView 
 		return false, err
 	}
 	// User can create a profile if they have a phone number or if they have enough DeSo to cover the create profile fee.
+	// User can also create a profile if they've successfully filled out a captcha.
 	// The PhoneNumber is only set if the user has passed phone number verification.
-	if userMetadata.PhoneNumber != "" || totalBalanceNanos >= utxoView.GlobalParamsEntry.CreateProfileFeeNanos {
+	if userMetadata.PhoneNumber != "" || totalBalanceNanos >= utxoView.GlobalParamsEntry.CreateProfileFeeNanos || userMetadata.LastHcaptchaBlockHeight > 0 {
 		return true, nil
 	}
 
@@ -249,6 +250,213 @@ func (fes *APIServer) validatePhoneNumberNotAlreadyInUse(phoneNumber string, use
 	}
 
 	return nil
+}
+
+type SubmitCaptchaVerificationRequest struct {
+	Token                string
+	JWT                  string
+	PublicKeyBase58Check string
+}
+
+type SubmitCaptchaVerificationResponse struct {
+	Success    bool
+	TxnHashHex string
+}
+
+func (fes *APIServer) HandleCaptchaVerificationRequest(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := SubmitCaptchaVerificationRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("HandleCaptchaVerificationRequest: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Validate their permissions
+	isValid, err := fes.ValidateJWT(requestData.PublicKeyBase58Check, requestData.JWT)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("HandleCaptchaVerificationRequest: Error validating JWT: %v", err))
+	}
+	if !isValid {
+		_AddBadRequestError(ww, fmt.Sprintf("HandleCaptchaVerificationRequest: Invalid token: %v", err))
+		return
+	}
+
+	txnHashHex, err := fes.verifyHCaptchaTokenAndSendStarterDESO(requestData.Token, requestData.PublicKeyBase58Check)
+
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("HandleCaptchaVerificationRequest: Error verifying captcha: %v", err))
+		return
+	}
+
+	res := SubmitCaptchaVerificationResponse{
+		Success:    true,
+		TxnHashHex: txnHashHex,
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("HandleCaptchaVerificationRequest: Problem encoding response: %v", err))
+		return
+	}
+}
+
+type AdminUpdateCaptchaRewardRequest struct {
+	// Amount of nanos to reward for a successful captcha.
+	RewardNanos uint64
+}
+
+type AdminUpdateCaptchaRewardResponse struct {
+	// Amount of nanos to reward for a successful captcha.
+	RewardNanos uint64
+}
+
+// HandleAdminUpdateCaptchaRewardRequest allows an admin to update the captcha reward amount.
+func (fes *APIServer) AdminSetCaptchaRewardNanos(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminUpdateCaptchaRewardRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("HandleAdminUpdateCaptchaRewardRequest: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Ensure that the reward amount is not greater than the starter deso amount flag.
+	if requestData.RewardNanos > fes.Config.StarterDESONanos {
+		_AddBadRequestError(ww, fmt.Sprintf("HandleAdminUpdateCaptchaRewardRequest: Reward amount %v exceeds starter deso amount %v", requestData.RewardNanos, fes.Config.StarterDESONanos))
+		return
+	}
+
+	if err := fes.putCaptchaRewardNanosInGlobalState(requestData.RewardNanos); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("HandleAdminUpdateCaptchaRewardRequest: Error putting captcha reward in global state: %v", err))
+		return
+	}
+
+	res := AdminUpdateCaptchaRewardResponse{
+		RewardNanos: requestData.RewardNanos,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("HandleAdminUpdateCaptchaRewardRequest: Problem encoding response: %v", err))
+		return
+	}
+}
+
+// getCaptchaRewardNanosFromGlobalState returns the amount of nanos to reward for a successful captcha from global state.
+func (fes *APIServer) getCaptchaRewardNanosFromGlobalState() (uint64, error) {
+	dbKey := GlobalStateKeyForCaptchaRewardAmountNanos()
+
+	rewardNanosBytes, err := fes.GlobalState.Get(dbKey)
+	if err != nil {
+		return 0, fmt.Errorf(
+			"getCaptchaRewardNanosFromGlobalState: Problem with Get: %v", err)
+	}
+
+	rewardNanos, err := lib.ReadUvarint(bytes.NewReader(rewardNanosBytes))
+
+	return rewardNanos, nil
+}
+
+// putCaptchaRewardNanosInGlobalState puts the amount of nanos to reward for a successful captcha in global state.
+func (fes *APIServer) putCaptchaRewardNanosInGlobalState(rewardNanos uint64) error {
+	dbKey := GlobalStateKeyForCaptchaRewardAmountNanos()
+
+	rewardNanosBytes := lib.UintToBuf(rewardNanos)
+
+	if err := fes.GlobalState.Put(dbKey, rewardNanosBytes); err != nil {
+		return fmt.Errorf(
+			"putCaptchaRewardNanosInGlobalState: Problem with Put: %v", err)
+	}
+
+	return nil
+}
+
+// verifyHCaptchaTokenAndSendStarterDESO verifies the captcha token and sends the starter DESO to the user.
+func (fes *APIServer) verifyHCaptchaTokenAndSendStarterDESO(token string, publicKeyBase58Check string) (txnHashHex string, err error) {
+	if fes.Config.StarterDESOSeed == "" {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Starter DESO seed not set")
+	}
+
+	// Retrieve the amount of nanos to reward for a successful captcha.
+	amountToSendNanos, err := fes.getCaptchaRewardNanosFromGlobalState()
+	if err != nil {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Problem with getCaptchaRewardNanosFromGlobalState: %v", err)
+	}
+
+	// Decode the public key.
+	publicKeyBytes, _, err := lib.Base58CheckDecode(publicKeyBase58Check)
+	if err != nil {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Problem decoding public key: %v", err)
+	}
+
+	// Ensure the user has not already received the starter DESO for submitting a successful captcha.
+	userMetadata, err := fes.getUserMetadataFromGlobalState(publicKeyBase58Check)
+	if err != nil {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Problem with getUserMetadataFromGlobalState: %v", err)
+	}
+
+	if userMetadata.LastHcaptchaBlockHeight != 0 {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: LastHcaptchaBlockHeight is already set")
+	}
+
+	// Verify the token with hCaptcha.
+	verificationSuccess, err := fes.verifyHCaptchaToken(token)
+
+	if err != nil {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Error verifying captcha: %v", err)
+	}
+
+	if !verificationSuccess {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Captcha verification failed")
+	}
+
+	// Update the user's metadata to indicate that they have received the starter DESO.
+	lastBlockheight := fes.blockchain.BlockTip().Height
+	userMetadata.LastHcaptchaBlockHeight = lastBlockheight
+	userMetadata.HcaptchaShouldCompProfileCreation = true
+
+	if err = fes.putUserMetadataInGlobalState(userMetadata); err != nil {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Problem with putUserMetadataInGlobalState: %v", err)
+	}
+
+	// Send the starter DESO to the user.
+	var txnHash *lib.BlockHash
+	txnHash, err = fes.SendSeedDeSo(publicKeyBytes, amountToSendNanos, false)
+	if err != nil {
+		return "", fmt.Errorf("HandleCaptchaVerificationRequest: Error sending seed DeSo: %v", err)
+	}
+
+	// Log the transaction to datadog.
+	if fes.backendServer.GetStatsdClient() != nil {
+		fes.backendServer.GetStatsdClient().Incr("SEND_STARTER_DESO_CAPTCHA", nil, 1)
+	}
+
+	return txnHash.String(), nil
+}
+
+type VerificationResponse struct {
+	Success    bool     `json:"success"`
+	ErrorCodes []string `json:"error-codes"`
+}
+
+const VERIFY_URL = "https://hcaptcha.com/siteverify"
+
+// verifyHCaptchaToken verifies the captcha token via the hCaptcha API.
+func (fes *APIServer) verifyHCaptchaToken(token string) (bool, error) {
+	// Construct and send the request to hcaptcha.
+	data := url.Values{}
+	data.Set("secret", fes.Config.HCaptchaSecret)
+	data.Set("response", token)
+
+	resp, err := http.PostForm(VERIFY_URL, data)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	// Parse the response and return the result.
+	var verificationResponse VerificationResponse
+	err = json.NewDecoder(resp.Body).Decode(&verificationResponse)
+	if err != nil {
+		return false, err
+	}
+
+	return verificationResponse.Success, nil
 }
 
 type SubmitPhoneNumberVerificationCodeRequest struct {

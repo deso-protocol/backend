@@ -31,6 +31,8 @@ var (
 	IsBlacklisted = []byte{1}
 )
 
+const NodeVersion = "3.4.5"
+
 const (
 	// RoutePathAPIBase ...
 	RoutePathAPIBase = "/api/v1"
@@ -46,6 +48,8 @@ const (
 	RoutePathAPINodeInfo = "/api/v1/node-info"
 	// RoutePathAPIBlock ...
 	RoutePathAPIBlock = "/api/v1/block"
+	// RoutePathAPINodeVersion ...
+	RoutePathAPINodeVersion = "/api/v1/node-version"
 )
 
 // APIRoutes returns the routes for the public-facing API.
@@ -98,6 +102,13 @@ func (fes *APIServer) APIRoutes() []Route {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAPIBlock,
 			fes.APIBlock,
+			PublicAccess,
+		},
+		{
+			"APINodeVersion",
+			[]string{"GET"},
+			RoutePathAPINodeVersion,
+			fes.APINodeVersion,
 			PublicAccess,
 		},
 	}
@@ -764,7 +775,7 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 	if transferDeSoRequest.AmountNanos < 0 {
 		// Create a MAX transaction
 		txnn, totalInputt, spendAmountt, feeNanoss, err = fes.blockchain.CreateMaxSpend(
-			senderPublicKeyBytes, recipientPub.SerializeCompressed(),
+			senderPublicKeyBytes, recipientPub.SerializeCompressed(), nil,
 			uint64(minFeeRateNanosPerKB),
 			fes.backendServer.GetMempool(), additionalOutputs, fes.backendServer.GetFeeEstimator())
 		if err != nil {
@@ -1169,7 +1180,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			}
 
 			// Skip irrelevant transactions
-			if !isRelevantTxn {
+			if !isRelevantTxn && txnMeta.TransactorPublicKeyBase58Check != transactionInfoRequest.PublicKeyBase58Check {
 				continue
 			}
 
@@ -1364,6 +1375,21 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem encoding response "+
+			"as JSON: %v", err))
+		return
+	}
+}
+
+type APINodeVersionResponse struct {
+	Version string
+}
+
+// APINodeVersion returns the version of the node.
+func (fes *APIServer) APINodeVersion(ww http.ResponseWriter, rr *http.Request) {
+	if err := json.NewEncoder(ww).Encode(&APINodeVersionResponse{
+		Version: NodeVersion,
+	}); err != nil {
+		APIAddError(ww, fmt.Sprintf("APINodeVersion: Problem encoding response "+
 			"as JSON: %v", err))
 		return
 	}
