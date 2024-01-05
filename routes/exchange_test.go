@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	chainlib "github.com/btcsuite/btcd/blockchain"
 	"github.com/deso-protocol/backend/config"
 	coreCmd "github.com/deso-protocol/core/cmd"
 	"github.com/deso-protocol/core/lib"
@@ -13,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/dgraph-io/badger/v3"
 
@@ -98,7 +100,7 @@ func NewLowDifficultyBlockchainWithParams(t *testing.T, params *lib.DeSoParams) 
 			Version:               0,
 			PrevBlockHash:         lib.MustDecodeHexBlockHash("0000000000000000000000000000000000000000000000000000000000000000"),
 			TransactionMerkleRoot: lib.MustDecodeHexBlockHash("097158f0d27e6d10565c4dc696c784652c3380e0ff8382d3599a4d18b782e965"),
-			TstampSecs:            uint64(1560735050),
+			TstampNanoSecs:        uint64(1560735050),
 			Height:                uint64(0),
 			Nonce:                 uint64(0),
 			// No ExtraNonce is set in the genesis block
@@ -172,7 +174,7 @@ func NewTestMiner(t *testing.T, chain *lib.Blockchain, params *lib.DeSoParams, i
 	return mempool, newMiner
 }
 
-func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *APIServer, *lib.DeSoMiner) {
+func newTestAPIServer(t *testing.T, globalStateRemoteNode string, txindex bool) (*APIServer, *APIServer, *lib.DeSoMiner) {
 	assert := assert.New(t)
 	require := require.New(t)
 	_, _ = assert, require
