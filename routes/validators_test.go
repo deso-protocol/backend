@@ -99,7 +99,7 @@ func TestValidatorRegistration(t *testing.T) {
 		require.Equal(t, validatorResponse.VotingAuthorization, votingAuthorization.ToString())
 		require.Equal(t, validatorResponse.TotalStakeAmountNanos.Uint64(), uint64(0))
 		require.Equal(t, validatorResponse.Status, "Active")
-		require.Equal(t, validatorResponse.LastActiveAtEpochNumber, uint64(0))
+		require.Equal(t, validatorResponse.LastActiveAtEpochNumber, uint64(1))
 		require.Equal(t, validatorResponse.JailedAtEpochNumber, uint64(0))
 		require.NotNil(t, validatorResponse.ExtraData)
 		require.Equal(t, validatorResponse.ExtraData["Foo"], "Bar")
