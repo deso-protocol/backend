@@ -377,7 +377,7 @@ func (fes *APIServer) sendMessageHandler(
 		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes),
 		*lib.NewPublicKey(recipientAccessGroupPkbytes), hexDecodedEncryptedMessageBytes, tstamp,
 		newMessageType, newMessageOperationType, extraData, requestData.MinFeeRateNanosPerKB,
-		fes.backendServer.GetMempool(), additionalOutputs, fes.backendServer.GetFeeEstimator())
+		fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		return errors.Wrapf(err, "Problem creating transaction: ")
 	}

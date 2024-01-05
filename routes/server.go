@@ -2490,7 +2490,7 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 				return nil, errors.Wrapf(err, "Problem parsing derived public key bytes")
 			}
 			// Validate the derived public key.
-			utxoView, err := fes.mempool.GetAugmentedUniversalView()
+			utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 			if err != nil {
 				return nil, errors.Wrapf(err, "Problem getting utxoView")
 			}

@@ -252,7 +252,6 @@ func (fes *APIServer) CreateUserAssociation(ww http.ResponseWriter, req *http.Re
 		requestData.MinFeeRateNanosPerKB,
 		fes.backendServer.GetMempool(),
 		additionalOutputs,
-		fes.backendServer.GetFeeEstimator(),
 	)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("CreateUserAssociation: problem creating txn: %v", err))
@@ -338,7 +337,6 @@ func (fes *APIServer) DeleteUserAssociation(ww http.ResponseWriter, req *http.Re
 		requestData.MinFeeRateNanosPerKB,
 		fes.backendServer.GetMempool(),
 		additionalOutputs,
-		fes.backendServer.GetFeeEstimator(),
 	)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("DeleteUserAssociation: problem creating txn: %v", err))
@@ -806,7 +804,6 @@ func (fes *APIServer) CreatePostAssociation(ww http.ResponseWriter, req *http.Re
 		requestData.MinFeeRateNanosPerKB,
 		fes.backendServer.GetMempool(),
 		additionalOutputs,
-		fes.backendServer.GetFeeEstimator(),
 	)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("CreatePostAssociation: problem creating txn: %v", err))
@@ -892,7 +889,6 @@ func (fes *APIServer) DeletePostAssociation(ww http.ResponseWriter, req *http.Re
 		requestData.MinFeeRateNanosPerKB,
 		fes.backendServer.GetMempool(),
 		additionalOutputs,
-		fes.backendServer.GetFeeEstimator(),
 	)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("DeletePostAssociation: problem creating txn: %v", err))

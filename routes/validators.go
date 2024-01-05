@@ -125,7 +125,6 @@ func (fes *APIServer) RegisterAsValidator(ww http.ResponseWriter, req *http.Requ
 		requestData.MinFeeRateNanosPerKB,
 		fes.backendServer.GetMempool(),
 		additionalOutputs,
-		fes.backendServer.GetFeeEstimator(),
 	)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("RegisterAsValidator: problem creating txn: %v", err))
@@ -200,7 +199,6 @@ func (fes *APIServer) UnregisterAsValidator(ww http.ResponseWriter, req *http.Re
 		requestData.MinFeeRateNanosPerKB,
 		fes.backendServer.GetMempool(),
 		additionalOutputs,
-		fes.backendServer.GetFeeEstimator(),
 	)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("UnregisterAsValidator: problem creating txn: %v", err))
