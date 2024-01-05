@@ -2,3 +2,4 @@ local_scripts/*
 backend
 
 .idea
+mem.log
