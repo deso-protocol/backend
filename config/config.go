@@ -94,6 +94,9 @@ type Config struct {
 	MetamaskAirdropEthMinimum *uint256.Int
 	// Amount of DESO in nanos metamask users receive as an airdrop
 	MetamaskAirdropDESONanosAmount uint64
+
+	// Secret used to validate hCaptcha tokens.
+	HCaptchaSecret string
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -193,6 +196,9 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 
 	// Node source ID
 	config.NodeSource = viper.GetUint64("node-source")
+
+	// hCaptcha secret
+	config.HCaptchaSecret = viper.GetString("hcaptcha-secret")
 
 	// Public keys that need their balances monitored. Map of Label to Public key
 	labelsToPublicKeys := viper.GetString("public-key-balances-to-monitor")

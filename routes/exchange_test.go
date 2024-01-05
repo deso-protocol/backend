@@ -73,7 +73,106 @@ func GetTestBadgerDb(t *testing.T) (_db *badger.DB, _dir string) {
 	return db, dir
 }
 
-func newTestAPIServer(t *testing.T, globalStateRemoteNode string, txindex bool) (*APIServer, *APIServer, *lib.DeSoMiner) {
+func NewLowDifficultyBlockchain(t *testing.T) (*lib.Blockchain, *lib.DeSoParams, *badger.DB, string) {
+
+	// Set the number of txns per view regeneration to one while creating the txns
+	lib.ReadOnlyUtxoViewRegenerationIntervalTxns = 1
+
+	return NewLowDifficultyBlockchainWithParams(t, &lib.DeSoTestnetParams)
+}
+
+func NewLowDifficultyBlockchainWithParams(t *testing.T, params *lib.DeSoParams) (
+	*lib.Blockchain, *lib.DeSoParams, *badger.DB, string) {
+
+	// Set the number of txns per view regeneration to one while creating the txns
+	lib.ReadOnlyUtxoViewRegenerationIntervalTxns = 1
+
+	db, dir := GetTestBadgerDb(t)
+	timesource := chainlib.NewMedianTime()
+
+	// Set some special parameters for testing. If the blocks above are changed
+	// these values should be updated to reflect the latest testnet values.
+	paramsCopy := *params
+	paramsCopy.GenesisBlock = &lib.MsgDeSoBlock{
+		Header: &lib.MsgDeSoHeader{
+			Version:               0,
+			PrevBlockHash:         lib.MustDecodeHexBlockHash("0000000000000000000000000000000000000000000000000000000000000000"),
+			TransactionMerkleRoot: lib.MustDecodeHexBlockHash("097158f0d27e6d10565c4dc696c784652c3380e0ff8382d3599a4d18b782e965"),
+			TstampSecs:            uint64(1560735050),
+			Height:                uint64(0),
+			Nonce:                 uint64(0),
+			// No ExtraNonce is set in the genesis block
+		},
+		Txns: []*lib.MsgDeSoTxn{
+			{
+				TxInputs:  []*lib.DeSoInput{},
+				TxOutputs: []*lib.DeSoOutput{},
+				TxnMeta: &lib.BlockRewardMetadataa{
+					ExtraData: []byte("They came here, to the new world. World 2.0, version 1776."),
+				},
+				// A signature is not required for BLOCK_REWARD transactions since they
+				// don't spend anything.
+			},
+		},
+	}
+	paramsCopy.MinDifficultyTargetHex = "999999948931e5874cf66a74c0fda790dd8c7458243d400324511a4c71f54faa"
+	paramsCopy.MinChainWorkHex = "0000000000000000000000000000000000000000000000000000000000000000"
+	paramsCopy.MiningIterationsPerCycle = 500
+	// Set maturity to 2 blocks so we can test spending on short chains. The
+	// tests rely on the maturity equaling exactly two blocks (i.e. being
+	// two times the time between blocks).
+	paramsCopy.TimeBetweenBlocks = 2 * time.Second
+	paramsCopy.BlockRewardMaturity = time.Second * 4
+	paramsCopy.TimeBetweenDifficultyRetargets = 100 * time.Second
+	paramsCopy.MaxDifficultyRetargetFactor = 2
+	paramsCopy.SeedBalances = []*lib.DeSoOutput{
+		{
+			PublicKey:   lib.MustBase58CheckDecode(moneyPkString),
+			AmountNanos: uint64(2000000 * lib.NanosPerUnit),
+		},
+	}
+
+	// Temporarily modify the seed balances to make a specific public
+	// key have some DeSo
+	chain, err := lib.NewBlockchain([]string{blockSignerPk}, 0, 0,
+		&paramsCopy, timesource, db, nil, nil, nil, false)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return chain, &paramsCopy, db, dir
+}
+
+func NewTestMiner(t *testing.T, chain *lib.Blockchain, params *lib.DeSoParams, isSender bool) (*lib.DeSoMempool, *lib.DeSoMiner) {
+	assert := assert.New(t)
+	require := require.New(t)
+	_ = assert
+	_ = require
+
+	mempool := lib.NewDeSoMempool(
+		chain, 0, /* rateLimitFeeRateNanosPerKB */
+		0 /* minFeeRateNanosPerKB */, "", true,
+		"" /*dataDir*/, "", true)
+	minerPubKeys := []string{}
+	if isSender {
+		minerPubKeys = append(minerPubKeys, senderPkString)
+	} else {
+		minerPubKeys = append(minerPubKeys, recipientPkString)
+	}
+
+	blockProducer, err := lib.NewDeSoBlockProducer(
+		0, 1,
+		blockSignerSeed,
+		mempool, chain,
+		params, nil)
+	require.NoError(err)
+
+	newMiner, err := lib.NewDeSoMiner(minerPubKeys, 1 /*numThreads*/, blockProducer, params)
+	require.NoError(err)
+	return mempool, newMiner
+}
+
+func newTestAPIServer(t *testing.T, globalStateRemoteNode string) (*APIServer, *APIServer, *lib.DeSoMiner) {
 	assert := assert.New(t)
 	require := require.New(t)
 	_, _ = assert, require

@@ -155,10 +155,12 @@ const (
 	RoutePathSubmitPhoneNumberVerificationCode = "/api/v0/submit-phone-number-verification-code"
 	RoutePathResendVerifyEmail                 = "/api/v0/resend-verify-email"
 	RoutePathVerifyEmail                       = "/api/v0/verify-email"
+	RoutePathVerifyCaptcha                     = "/api/v0/verify-captcha"
 	RoutePathJumioBegin                        = "/api/v0/jumio-begin"
 	RoutePathJumioCallback                     = "/api/v0/jumio-callback"
 	RoutePathJumioFlowFinished                 = "/api/v0/jumio-flow-finished"
 	RoutePathGetJumioStatusForPublicKey        = "/api/v0/get-jumio-status-for-public-key"
+	RoutePathAdminSetCaptchaRewardNanos        = "/api/v0/admin/set-captcha-reward-nanos"
 
 	// tutorial.go
 	RoutePathGetTutorialCreators  = "/api/v0/get-tutorial-creators"
@@ -452,7 +454,8 @@ type APIServer struct {
 	CountKeysWithDESO uint64
 
 	// map of country name to sign up bonus data
-	AllCountryLevelSignUpBonuses map[string]CountrySignUpBonusResponse
+	allCountryLevelSignUpBonusesLock sync.RWMutex
+	AllCountryLevelSignUpBonuses     map[string]CountrySignUpBonusResponse
 
 	// Frequently accessed data from global state
 	USDCentsToDESOReserveExchangeRate uint64
@@ -1113,6 +1116,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"VerifyCaptcha",
+			[]string{"POST", "OPTIONS"},
+			RoutePathVerifyCaptcha,
+			fes.HandleCaptchaVerificationRequest,
+			PublicAccess,
+		},
+		{
 			"GetUserDerivedKeys",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetUserDerivedKeys,
@@ -1751,6 +1761,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminResetPhoneNumber,
 			fes.AdminResetPhoneNumber,
+			SuperAdminAccess,
+		},
+		{
+			"SetCaptchaRewardNanos",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminSetCaptchaRewardNanos,
+			fes.AdminSetCaptchaRewardNanos,
 			SuperAdminAccess,
 		},
 		// End all /admin routes
@@ -2607,11 +2624,20 @@ func (fes *APIServer) StartSeedBalancesMonitoring() {
 					return
 				}
 				tags := []string{}
-				fes.logBalanceForSeed(fes.Config.StarterDESOSeed, "STARTER_DESO", tags)
-				fes.logBalanceForSeed(fes.Config.BuyDESOSeed, "BUY_DESO", tags)
-				for label, publicKey := range fes.Config.PublicKeyBalancesToMonitor {
-					fes.logBalanceForPublicKey(publicKey, label, tags)
-				}
+				// Use an inner function to unlock the mutex with a defer statement.
+				func() {
+					// If we're syncing a snapshot, we need to lock the DB in case the DB is restarted. This happens
+					// at the end of the snapshot sync.
+					if fes.backendServer.GetBlockchain().ChainState() == lib.SyncStateSyncingSnapshot {
+						fes.backendServer.DbMutex.Lock()
+						defer fes.backendServer.DbMutex.Unlock()
+					}
+					fes.logBalanceForSeed(fes.Config.StarterDESOSeed, "STARTER_DESO", tags)
+					fes.logBalanceForSeed(fes.Config.BuyDESOSeed, "BUY_DESO", tags)
+					for label, publicKey := range fes.Config.PublicKeyBalancesToMonitor {
+						fes.logBalanceForPublicKey(publicKey, label, tags)
+					}
+				}()
 			case <-fes.quit:
 				break out
 			}
@@ -2691,6 +2717,12 @@ func (fes *APIServer) StartGlobalStateMonitoring() {
 func (fes *APIServer) SetGlobalStateCache() {
 	if fes.backendServer == nil {
 		return
+	}
+	// If we're syncing a snapshot, we need to lock the DB in case the DB is restarted. This happens at
+	// the end of the snapshot sync.
+	if fes.backendServer.GetBlockchain().ChainState() == lib.SyncStateSyncingSnapshot {
+		fes.backendServer.DbMutex.Lock()
+		defer fes.backendServer.DbMutex.Unlock()
 	}
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
