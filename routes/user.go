@@ -641,10 +641,11 @@ type CoinEntryResponse struct {
 }
 
 type DAOCoinEntryResponse struct {
-	NumberOfHolders           uint64
-	CoinsInCirculationNanos   uint256.Int
-	MintingDisabled           bool
-	TransferRestrictionStatus TransferRestrictionStatusString
+	NumberOfHolders                 uint64
+	CoinsInCirculationNanos         uint256.Int
+	MintingDisabled                 bool
+	TransferRestrictionStatus       TransferRestrictionStatusString
+	LockupTransferRestrictionStatus TransferRestrictionStatusString
 }
 
 // GetProfiles ...
@@ -1060,6 +1061,8 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 			MintingDisabled:         profileEntry.DAOCoinEntry.MintingDisabled,
 			TransferRestrictionStatus: getTransferRestrictionStatusStringFromTransferRestrictionStatus(
 				profileEntry.DAOCoinEntry.TransferRestrictionStatus),
+			LockupTransferRestrictionStatus: getTransferRestrictionStatusStringFromTransferRestrictionStatus(
+				profileEntry.DAOCoinEntry.LockupTransferRestrictionStatus),
 		},
 		CoinPriceDeSoNanos:             coinPriceDeSoNanos,
 		CoinPriceBitCloutNanos:         coinPriceDeSoNanos,
