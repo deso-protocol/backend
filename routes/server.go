@@ -321,6 +321,7 @@ const (
 	RoutePathStake       = "/api/v0/stake"
 	RoutePathUnstake     = "/api/v0/unstake"
 	RoutePathUnlockStake = "/api/v0/unlock-stake"
+	RoutePathLockedStake = "/api/v0/locked-stake"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -1328,6 +1329,29 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathUnlockStake,
 			fes.CreateUnlockStakeTxn,
+			PublicAccess,
+		},
+		{
+			"GetStakeForValidatorAndStaker",
+			[]string{"GET"},
+			RoutePathStake + "/" + makePublicKeyParamRegex(validatorPublicKeyBase58CheckKey) + "/" +
+				makePublicKeyParamRegex(stakerPublicKeyBase58CheckKey),
+			fes.GetStakeForValidatorAndStaker,
+			PublicAccess,
+		},
+		{
+			"GetStakesForValidator",
+			[]string{"GET"},
+			RoutePathStake + "/validator/" + makePublicKeyParamRegex(validatorPublicKeyBase58CheckKey),
+			fes.GetStakesForValidator,
+			PublicAccess,
+		},
+		{
+			"GetLockedStakeForValidatorAndStaker",
+			[]string{"GET"},
+			RoutePathLockedStake + "/" + makePublicKeyParamRegex(validatorPublicKeyBase58CheckKey) + "/" +
+				makePublicKeyParamRegex(stakerPublicKeyBase58CheckKey),
+			fes.GetLockedStakesForValidatorAndStaker,
 			PublicAccess,
 		},
 		// Jumio Routes
@@ -2841,4 +2865,10 @@ func (fes *APIServer) makePKIDMapJSONEncodable(restrictedKeysMap map[lib.PKID][]
 		outputMap[lib.PkToString(k.ToBytes(), fes.Params)] = v
 	}
 	return outputMap
+}
+
+const publicKeyParamRegex = "t?BC[1-9A-HJ-NP-Za-km-z]{51,53}"
+
+func makePublicKeyParamRegex(paramName string) string {
+	return fmt.Sprintf("{%s:%s}", paramName, publicKeyParamRegex)
 }
