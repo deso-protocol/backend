@@ -5,17 +5,47 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core/lib"
+	"github.com/gorilla/mux"
 	"github.com/holiman/uint256"
 	"io"
+	"math"
 	"net/http"
+	"strconv"
 )
 
 type StakeRewardMethod string
 
 const (
-	PayToBalance StakeRewardMethod = "PAY_TO_BALANCE"
-	Restake      StakeRewardMethod = "RESTAKE"
+	PayToBalance             StakeRewardMethod = "PAY_TO_BALANCE"
+	Restake                  StakeRewardMethod = "RESTAKE"
+	UnknownStakeRewardMethod StakeRewardMethod = "UNKNOWN_STAKE_REWARD_METHOD"
 )
+
+func (stakeRewardMethod StakeRewardMethod) String() string {
+	return string(stakeRewardMethod)
+}
+
+func (stakeRewardMethod StakeRewardMethod) ToStakeRewardMethod() lib.StakingRewardMethod {
+	switch stakeRewardMethod {
+	case PayToBalance:
+		return lib.StakingRewardMethodPayToBalance
+	case Restake:
+		return lib.StakingRewardMethodRestake
+	default:
+		return lib.StakingRewardMethodUnknown
+	}
+}
+
+func FromLibStakeRewardMethod(stakeRewardMethod lib.StakingRewardMethod) StakeRewardMethod {
+	switch stakeRewardMethod {
+	case lib.StakingRewardMethodPayToBalance:
+		return PayToBalance
+	case lib.StakingRewardMethodRestake:
+		return Restake
+	default:
+		return UnknownStakeRewardMethod
+	}
+}
 
 type StakeRequest struct {
 	TransactorPublicKeyBase58Check string            `safeForLogging:"true"`
@@ -59,7 +89,7 @@ type StakeTxnResponse struct {
 type StakeEntryResponse struct {
 	StakerPublicKeyBase58Check    string
 	ValidatorPublicKeyBase58Check string
-	RewardMethod                  StakeRewardMethod
+	RewardMethod                  string
 	StakeAmountNanos              *uint256.Int
 	ExtraData                     map[string]string
 }
@@ -72,6 +102,16 @@ type LockedStakeEntryResponse struct {
 	ExtraData                     map[string]string
 }
 
+// Constants for query params
+const (
+	validatorPublicKeyBase58CheckKey = "validatorPublicKeyBase58Check"
+	stakerPublicKeyBase58CheckKey    = "stakerPublicKeyBase58Check"
+	lockedAtEpochNumberKey           = "lockedAtEpochNumber"
+	startEpochNumberKey              = "startEpochNumber"
+	endEpochNumberKey                = "endEpochNumber"
+)
+
+// Stake constructs a transaction that stakes a given amount of DeSo.
 func (fes *APIServer) CreateStakeTxn(ww http.ResponseWriter, req *http.Request) {
 	// Decode request body.
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
@@ -106,15 +146,8 @@ func (fes *APIServer) CreateStakeTxn(ww http.ResponseWriter, req *http.Request) 
 	}
 
 	// Convert reward method string to enum.
-	var rewardMethod lib.StakingRewardMethod
-	switch requestData.RewardMethod {
-	case PayToBalance:
-		rewardMethod = lib.StakingRewardMethodPayToBalance
-		break
-	case Restake:
-		rewardMethod = lib.StakingRewardMethodRestake
-		break
-	default:
+	rewardMethod := requestData.RewardMethod.ToStakeRewardMethod()
+	if rewardMethod == lib.StakingRewardMethodUnknown {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateStakeTxn: Invalid RewardMethod %s", requestData.RewardMethod))
 		return
 	}
@@ -200,6 +233,7 @@ func (fes *APIServer) CreateStakeTxn(ww http.ResponseWriter, req *http.Request) 
 	}
 }
 
+// Unstake constructs a transaction that unstakes a staked entry.
 func (fes *APIServer) CreateUnstakeTxn(ww http.ResponseWriter, req *http.Request) {
 	// Decode request body.
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
@@ -311,6 +345,7 @@ func (fes *APIServer) CreateUnstakeTxn(ww http.ResponseWriter, req *http.Request
 	}
 }
 
+// UnlockStake constructs a transaction that unlocks a locked stake entry.
 func (fes *APIServer) CreateUnlockStakeTxn(ww http.ResponseWriter, req *http.Request) {
 	// Decode request body.
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
@@ -405,13 +440,257 @@ func (fes *APIServer) CreateUnlockStakeTxn(ww http.ResponseWriter, req *http.Req
 	}
 }
 
-// TODO: Implement the following GET endpoints:
-// 1. GET stake entry given validator pub key & staker pub key
-// 2. GET all stake entries given validator pub key
-// 3. GET all stake entries given staker pub key
-// 4. GET locked stake entry given validator pub key & staker pub key & locked at epoch number
-// 5. GET all locked stake entries given validator pub key & staker pub key & optionally start and end epochs
+// _stakeEntryToResponse converts the core lib.StakeEntry to a StakeEntryResponse
+func _stakeEntryToResponse(
+	stakeEntry *lib.StakeEntry, params *lib.DeSoParams, utxoView *lib.UtxoView) *StakeEntryResponse {
+	stakerPublicKey := utxoView.GetPublicKeyForPKID(stakeEntry.StakerPKID)
+	validatorPublicKey := utxoView.GetPublicKeyForPKID(stakeEntry.ValidatorPKID)
+	return &StakeEntryResponse{
+		StakerPublicKeyBase58Check:    lib.Base58CheckEncode(stakerPublicKey, false, params),
+		ValidatorPublicKeyBase58Check: lib.Base58CheckEncode(validatorPublicKey, false, params),
+		RewardMethod:                  FromLibStakeRewardMethod(stakeEntry.RewardMethod).String(),
+		StakeAmountNanos:              stakeEntry.StakeAmountNanos,
+		ExtraData:                     DecodeExtraDataMap(params, utxoView, stakeEntry.ExtraData),
+	}
+}
 
-// Other functions to implement.
-// 1. _convertStakeEntryToResponse() helper function to convert a StakeEntry to a StakeEntryResponse.
-// 2. _convertLockedStakeEntryToResponse() helper function to convert a LockedStakeEntry to a LockedStakeEntryResponse.
+// GetStakeForValidatorAndStaker returns the stake entry for a given validator and staker
+func (fes *APIServer) GetStakeForValidatorAndStaker(ww http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	validatorPublicKeyBase58Check, validatorExists := vars[validatorPublicKeyBase58CheckKey]
+	if !validatorExists {
+		_AddBadRequestError(ww, fmt.Sprint("GetStakeForValidatorAndStaker: validatorPublicKeyBase58Check is required"))
+		return
+	}
+	stakerPublicKeyBase58Check, stakerExists := vars[stakerPublicKeyBase58CheckKey]
+	if !stakerExists {
+		_AddBadRequestError(ww, fmt.Sprint("GetStakeForValidatorAndStaker: stakerPublicKeyBase58Check is required"))
+		return
+	}
+
+	// Create UTXO View
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetStakeForValidatorAndStaker: Problem fetching utxoView: %v", err))
+		return
+	}
+
+	// Convert validator public key to bytes
+	validatorPKID, err := fes.getPKIDFromPublicKeyBase58Check(utxoView, validatorPublicKeyBase58Check)
+	if err != nil || validatorPKID == nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetStakeForValidatorAndStaker: Problem decoding validator public key: %v", err))
+		return
+	}
+
+	// Convert staker public key to bytes
+	stakerPKID, err := fes.getPKIDFromPublicKeyBase58Check(utxoView, stakerPublicKeyBase58Check)
+	if err != nil || stakerPKID == nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetStakeForValidatorAndStaker: Problem decoding staker public key: %v", err))
+		return
+	}
+
+	// Get the stake entry
+	stakeEntry, err := utxoView.GetStakeEntry(validatorPKID, stakerPKID)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetStakeForValidatorAndStaker: Problem fetching stake entry: %v", err))
+		return
+	}
+	if stakeEntry == nil {
+		_AddNotFoundError(ww, fmt.Sprint("GetStakeForValidatorAndStaker: No stake entry found"))
+		return
+	}
+
+	if err = json.NewEncoder(ww).Encode(_stakeEntryToResponse(stakeEntry, fes.Params, utxoView)); err != nil {
+		_AddInternalServerError(ww, "GetStakeForValidatorAndStaker: Problem encoding response as JSON")
+		return
+	}
+}
+
+// GetStakesForValidator returns all stake entries for a given validator
+func (fes *APIServer) GetStakesForValidator(ww http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	validatorPublicKeyBase58Check, validatorExists := vars[validatorPublicKeyBase58CheckKey]
+	if !validatorExists {
+		_AddBadRequestError(ww, fmt.Sprint("GetStakesForValidator: validatorPublicKeyBase58Check is required"))
+		return
+	}
+
+	// Create UTXO View
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetStakesForValidator: Problem fetching utxoView: %v", err))
+		return
+	}
+
+	// Convert validator public key to bytes
+	validatorPKID, err := fes.getPKIDFromPublicKeyBase58Check(utxoView, validatorPublicKeyBase58Check)
+	if err != nil || validatorPKID == nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetStakesForValidator: Problem decoding validator public key: %v", err))
+		return
+	}
+
+	// Get the stake entries
+	stakeEntries, err := utxoView.GetStakeEntriesForValidatorPKID(validatorPKID)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetStakesForValidator: Problem fetching stake entries: %v", err))
+		return
+	}
+
+	// Convert to stake entry responses
+	var stakeEntryResponses []*StakeEntryResponse
+	for _, stakeEntry := range stakeEntries {
+		stakeEntryResponses = append(stakeEntryResponses, _stakeEntryToResponse(stakeEntry, fes.Params, utxoView))
+	}
+
+	// Encode response.
+	if err = json.NewEncoder(ww).Encode(stakeEntryResponses); err != nil {
+		_AddInternalServerError(ww, "GetStakesForValidator: Problem encoding response as JSON")
+		return
+	}
+}
+
+// GetLockedStakesForValidatorAndStaker returns all locked stake entries for a given validator and staker
+// If lockedAtEpochNumber is specified, only the locked stake entry that was locked at that epoch number is returned
+// If startEpochNumber and endEpochNumber are specified, all locked stake entries that were locked between those.
+// If none are provided, all locked stake entries are returned.
+func (fes *APIServer) GetLockedStakesForValidatorAndStaker(ww http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	validatorPublicKeyBase58Check, validatorExists := vars[validatorPublicKeyBase58CheckKey]
+	if !validatorExists {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetLockedStakesForValidatorAndStaker: validatorPublicKeyBase58Check is required"))
+		return
+	}
+	stakerPublicKeyBase58Check, stakerExists := vars[stakerPublicKeyBase58CheckKey]
+	if !stakerExists {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetLockedStakesForValidatorAndStaker: stakerPublicKeyBase58Check is required"))
+		return
+	}
+
+	// Create UTXO View
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf(
+			"GetLockedStakesForValidatorAndStaker: Problem fetching utxoView: %v", err))
+		return
+	}
+
+	// Convert validator public key to bytes
+	validatorPKID, err := fes.getPKIDFromPublicKeyBase58Check(utxoView, validatorPublicKeyBase58Check)
+	if err != nil || validatorPKID == nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetLockedStakesForValidatorAndStaker: Problem decoding validator public key: %v", err))
+		return
+	}
+
+	// Convert staker public key to bytes
+	stakerPKID, err := fes.getPKIDFromPublicKeyBase58Check(utxoView, stakerPublicKeyBase58Check)
+	if err != nil || stakerPKID == nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetLockedStakesForValidatorAndStaker: Problem decoding staker public key: %v", err))
+		return
+	}
+
+	queryParamBytes, err := json.Marshal(req.URL.Query())
+
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetLockedStakesForValidatorAndStaker: Problem parsing query params: %v", err))
+		return
+	}
+
+	queryParams := make(map[string][]string)
+
+	if err = json.Unmarshal(queryParamBytes, &queryParams); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetLockedStakesForValidatorAndStaker: Problem parsing query params: %v", err))
+		return
+	}
+
+	var lockedStakeEntries []*lib.LockedStakeEntry
+	// First check for lockedAtEpochNumber
+	if len(queryParams[lockedAtEpochNumberKey]) != 0 {
+		lockedAtEpochNumber, err := strconv.ParseUint(queryParams[lockedAtEpochNumberKey][0], 10, 64)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"GetLockedStakesForValidatorAndStaker: Problem parsing lockedAtEpochNumber: %v", err))
+			return
+		}
+		lockedStakeEntry, err := utxoView.GetLockedStakeEntry(validatorPKID, stakerPKID, lockedAtEpochNumber)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"GetLockedStakesForValidatorAndStaker: Problem fetching locked stake entry: %v", err))
+			return
+		}
+		if lockedStakeEntry == nil {
+			_AddNotFoundError(ww, fmt.Sprint("GetLockedStakesForValidatorAndStaker: No locked stake entry found"))
+			return
+		}
+		lockedStakeEntries = append(lockedStakeEntries, lockedStakeEntry)
+	} else {
+		startEpochNumber := uint64(0)
+		endEpochNumber := uint64(math.MaxUint64)
+		if len(queryParams[startEpochNumberKey]) != 0 {
+			startEpochNumber, err = strconv.ParseUint(queryParams[startEpochNumberKey][0], 10, 64)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf(
+					"GetLockedStakesForValidatorAndStaker: Problem parsing startEpochNumber: %v", err))
+				return
+			}
+		}
+		if len(queryParams[endEpochNumberKey]) != 0 {
+			endEpochNumber, err = strconv.ParseUint(queryParams[endEpochNumberKey][0], 10, 64)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf(
+					"GetLockedStakesForValidatorAndStaker: Problem parsing endEpochNumber: %v", err))
+				return
+			}
+		}
+		if startEpochNumber > endEpochNumber {
+			_AddBadRequestError(ww, fmt.Sprint(
+				"GetLockedStakesForValidatorAndStaker: startEpochNumber cannot be greater than endEpochNumber"))
+			return
+		}
+		lockedStakeEntries, err = utxoView.GetLockedStakeEntriesInRange(
+			validatorPKID, stakerPKID, startEpochNumber, endEpochNumber)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"GetLockedStakesForValidatorAndStaker: Problem fetching locked stake entries: %v", err))
+			return
+		}
+		if len(lockedStakeEntries) == 0 {
+			_AddNotFoundError(ww, fmt.Sprint("GetLockedStakesForValidatorAndStaker: No locked stake entries found"))
+			return
+		}
+	}
+
+	// Convert locked stake entries to responses
+	var lockedStakeEntryResponses []*LockedStakeEntryResponse
+	for _, lockedStakeEntry := range lockedStakeEntries {
+		lockedStakeEntryResponses = append(lockedStakeEntryResponses, _lockedStakeEntryToResponse(
+			lockedStakeEntry, fes.Params, utxoView))
+	}
+
+	// Encode response.
+	if err = json.NewEncoder(ww).Encode(lockedStakeEntryResponses); err != nil {
+		_AddInternalServerError(ww, "GetLockedStakesForValidatorAndStaker: Problem encoding response as JSON")
+		return
+	}
+}
+
+// _lockedStakeEntryToResponse converts the core lib.LockedStakeEntry to a LockedStakeEntryResponse
+func _lockedStakeEntryToResponse(
+	lockedStakeEntry *lib.LockedStakeEntry, params *lib.DeSoParams, utxoView *lib.UtxoView) *LockedStakeEntryResponse {
+	stakerPublicKey := utxoView.GetPublicKeyForPKID(lockedStakeEntry.StakerPKID)
+	validatorPublicKey := utxoView.GetPublicKeyForPKID(lockedStakeEntry.ValidatorPKID)
+	return &LockedStakeEntryResponse{
+		StakerPublicKeyBase58Check:    lib.Base58CheckEncode(stakerPublicKey, false, params),
+		ValidatorPublicKeyBase58Check: lib.Base58CheckEncode(validatorPublicKey, false, params),
+		LockedAmountNanos:             lockedStakeEntry.LockedAmountNanos,
+		LockedAtEpochNumber:           lockedStakeEntry.LockedAtEpochNumber,
+		ExtraData:                     DecodeExtraDataMap(params, utxoView, lockedStakeEntry.ExtraData),
+	}
+}
