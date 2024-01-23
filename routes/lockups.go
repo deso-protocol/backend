@@ -10,6 +10,7 @@ import (
 	"github.com/holiman/uint256"
 	"io"
 	"net/http"
+	"time"
 )
 
 type LockedBalanceEntryResponse struct {
@@ -157,8 +158,30 @@ func (fes *APIServer) CoinLockup(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	// TODO: What other validations are required?
+	// Sanity check that the lockup appears to occur in the future.
+	currentTimestampNanoSecs := time.Now().UnixNano()
+	if requestData.UnlockTimestampNanoSecs < currentTimestampNanoSecs {
+		_AddBadRequestError(ww, fmt.Sprintf("CoinLockup: The unlock timestamp cannot be in the past "+
+			"(unlock timestamp: %d, current timestamp: %d)\n",
+			requestData.UnlockTimestampNanoSecs, currentTimestampNanoSecs))
+		return
+	}
 
+	// Sanity check that the vested lockup does not go into the past.
+	if requestData.UnlockTimestampNanoSecs > requestData.VestingEndTimestampNanoSecs {
+		_AddBadRequestError(ww, fmt.Sprintf("CoinLockup: Vested lockups cannot vest into the past "+
+			"(unlock timestamp: %d, vesting end timestamp: %d\n",
+			requestData.UnlockTimestampNanoSecs, requestData.VestingEndTimestampNanoSecs))
+		return
+	}
+
+	// Sanity check that the lockup request amount is non-zero.
+	if requestData.LockupAmountBaseUnits.IsZero() {
+		_AddBadRequestError(ww, fmt.Sprintf("CoinLockup: Cannot lockup an amount of zero\n"))
+		return
+	}
+
+	// Encode the extra data.
 	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CoinLockup: Problem encoding ExtraData: %v", err))
