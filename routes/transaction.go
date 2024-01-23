@@ -3234,6 +3234,21 @@ type AccessGroupMemberLimitMapItem struct {
 	OpCount                              uint64
 }
 
+type StakeLimitMapItem struct {
+	ValidatorPublicKeyBase58Check string
+	StakeLimit                    *uint256.Int
+}
+
+type UnstakeLimitMapItem struct {
+	ValidatorPublicKeyBase58Check string
+	UnstakeLimit                  *uint256.Int
+}
+
+type UnlockStakeLimitMapItem struct {
+	ValidatorPublicKeyBase58Check string
+	OpCount                       uint64
+}
+
 // TransactionSpendingLimitResponse is a backend struct used to describe the TransactionSpendingLimit for a Derived key
 // in a way that can be JSON encoded/decoded.
 type TransactionSpendingLimitResponse struct {
@@ -3265,6 +3280,12 @@ type TransactionSpendingLimitResponse struct {
 	AccessGroupLimitMap []AccessGroupLimitMapItem
 	// AccessGroupMemberLimitMap is a slice of AccessGroupMemberLimitMapItems.
 	AccessGroupMemberLimitMap []AccessGroupMemberLimitMapItem
+	// StakeLimitMap is a slice of StakeLimitMapItems
+	StakeLimitMap []StakeLimitMapItem
+	// UnstakeLimitMap is a slice of UnstakeLimitMapItems
+	UnstakeLimitMap []UnstakeLimitMapItem
+	// UnlockStakeLimitMap is a slice of UnlockStakeLimitMapItems
+	UnlockStakeLimitMap []UnlockStakeLimitMapItem
 
 	// ===== ENCODER MIGRATION lib.UnlimitedDerivedKeysMigration =====
 	// IsUnlimited determines whether this derived key is unlimited. An unlimited derived key can perform all transactions
@@ -3614,6 +3635,54 @@ func TransactionSpendingLimitToResponse(
 		}
 	}
 
+	if len(transactionSpendingLimit.StakeLimitMap) > 0 {
+		for stakeLimitKey, stakeLimit := range transactionSpendingLimit.StakeLimitMap {
+			validatorPublicKey := utxoView.GetPublicKeyForPKID(&stakeLimitKey.ValidatorPKID)
+			validatorPublicKeyBase58Check := lib.Base58CheckEncode(
+				validatorPublicKey, false, params,
+			)
+			transactionSpendingLimitResponse.StakeLimitMap = append(
+				transactionSpendingLimitResponse.StakeLimitMap,
+				StakeLimitMapItem{
+					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
+					StakeLimit:                    stakeLimit.Clone(),
+				},
+			)
+		}
+	}
+
+	if len(transactionSpendingLimit.UnstakeLimitMap) > 0 {
+		for unstakeLimitKey, unstakeLimit := range transactionSpendingLimit.UnstakeLimitMap {
+			validatorPublicKey := utxoView.GetPublicKeyForPKID(&unstakeLimitKey.ValidatorPKID)
+			validatorPublicKeyBase58Check := lib.Base58CheckEncode(
+				validatorPublicKey, false, params,
+			)
+			transactionSpendingLimitResponse.UnstakeLimitMap = append(
+				transactionSpendingLimitResponse.UnstakeLimitMap,
+				UnstakeLimitMapItem{
+					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
+					UnstakeLimit:                  unstakeLimit.Clone(),
+				},
+			)
+		}
+	}
+
+	if len(transactionSpendingLimit.UnlockStakeLimitMap) > 0 {
+		for unlockStakeLimitKey, opCount := range transactionSpendingLimit.UnlockStakeLimitMap {
+			validatorPublicKey := utxoView.GetPublicKeyForPKID(&unlockStakeLimitKey.ValidatorPKID)
+			validatorPublicKeyBase58Check := lib.Base58CheckEncode(
+				validatorPublicKey, false, params,
+			)
+			transactionSpendingLimitResponse.UnlockStakeLimitMap = append(
+				transactionSpendingLimitResponse.UnlockStakeLimitMap,
+				UnlockStakeLimitMapItem{
+					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
+					OpCount:                       opCount,
+				},
+			)
+		}
+	}
+
 	return transactionSpendingLimitResponse
 }
 
@@ -3774,6 +3843,51 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 				accessGroupMemberLimitMapItem.OperationType.ToAccessGroupMemberOperation(),
 			)
 			transactionSpendingLimit.AccessGroupMemberMap[accessGroupMemberLimitKey] = accessGroupMemberLimitMapItem.OpCount
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.StakeLimitMap) > 0 {
+		transactionSpendingLimit.StakeLimitMap = make(map[lib.StakeLimitKey]*uint256.Int)
+		for _, stakeLimitMapItem := range transactionSpendingLimitResponse.StakeLimitMap {
+			validatorPublicKey, _, err := lib.Base58CheckDecode(stakeLimitMapItem.ValidatorPublicKeyBase58Check)
+			if err != nil {
+				return nil, err
+			}
+			validatorPKID := utxoView.GetPKIDForPublicKey(validatorPublicKey)
+			stakeLimitKey := lib.MakeStakeLimitKey(
+				validatorPKID.PKID,
+			)
+			transactionSpendingLimit.StakeLimitMap[stakeLimitKey] = stakeLimitMapItem.StakeLimit.Clone()
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.UnstakeLimitMap) > 0 {
+		transactionSpendingLimit.UnstakeLimitMap = make(map[lib.StakeLimitKey]*uint256.Int)
+		for _, unstakeLimitMapItem := range transactionSpendingLimitResponse.UnstakeLimitMap {
+			validatorPublicKey, _, err := lib.Base58CheckDecode(unstakeLimitMapItem.ValidatorPublicKeyBase58Check)
+			if err != nil {
+				return nil, err
+			}
+			validatorPKID := utxoView.GetPKIDForPublicKey(validatorPublicKey)
+			unstakeLimitKey := lib.MakeStakeLimitKey(
+				validatorPKID.PKID,
+			)
+			transactionSpendingLimit.UnstakeLimitMap[unstakeLimitKey] = unstakeLimitMapItem.UnstakeLimit.Clone()
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.UnlockStakeLimitMap) > 0 {
+		transactionSpendingLimit.UnlockStakeLimitMap = make(map[lib.StakeLimitKey]uint64)
+		for _, unlockStakeLimitMapItem := range transactionSpendingLimitResponse.UnlockStakeLimitMap {
+			validatorPublicKey, _, err := lib.Base58CheckDecode(unlockStakeLimitMapItem.ValidatorPublicKeyBase58Check)
+			if err != nil {
+				return nil, err
+			}
+			validatorPKID := utxoView.GetPKIDForPublicKey(validatorPublicKey)
+			unlockStakeLimitKey := lib.MakeStakeLimitKey(
+				validatorPKID.PKID,
+			)
+			transactionSpendingLimit.UnlockStakeLimitMap[unlockStakeLimitKey] = unlockStakeLimitMapItem.OpCount
 		}
 	}
 
