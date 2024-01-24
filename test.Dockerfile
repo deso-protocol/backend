@@ -10,6 +10,9 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 # Declare an ARG for the branch name with a default value of "main"
 ARG BRANCH_NAME=main
 
+# Declare an ARG for the branch name with a default value of "main"
+ARG BRANCH_NAME=main
+
 WORKDIR /deso/src
 
 RUN git clone https://github.com/deso-protocol/core.git
@@ -21,6 +24,9 @@ RUN git pull && \
 
 RUN go mod download
 RUN ./scripts/install-relic.sh
+
+# Try to checkout to the specified branch. If it fails, checkout main.
+RUN git checkout ${BRANCH_NAME} || (echo "Branch ${BRANCH_NAME} not found. Falling back to main." && git checkout main)
 
 # Try to checkout to the specified branch. If it fails, checkout main.
 RUN git checkout ${BRANCH_NAME} || (echo "Branch ${BRANCH_NAME} not found. Falling back to main." && git checkout main)
