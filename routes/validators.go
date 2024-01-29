@@ -31,6 +31,13 @@ type UnregisterAsValidatorRequest struct {
 	TransactionFees                []TransactionFee  `safeForLogging:"true"`
 }
 
+type UnjailValidatorRequest struct {
+	TransactorPublicKeyBase58Check string            `safeForLogging:"true"`
+	ExtraData                      map[string]string `safeForLogging:"true"`
+	MinFeeRateNanosPerKB           uint64            `safeForLogging:"true"`
+	TransactionFees                []TransactionFee  `safeForLogging:"true"`
+}
+
 type ValidatorTxnResponse struct {
 	SpendAmountNanos  uint64
 	TotalInputNanos   uint64
@@ -225,6 +232,80 @@ func (fes *APIServer) UnregisterAsValidator(ww http.ResponseWriter, req *http.Re
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddInternalServerError(ww, "UnregisterAsValidator: problem encoding response as JSON")
+		return
+	}
+}
+
+func (fes *APIServer) UnjailValidator(ww http.ResponseWriter, req *http.Request) {
+	// Decode request body.
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := UnjailValidatorRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, "UnjailValidator: problem parsing request body")
+		return
+	}
+
+	// Convert TransactorPublicKeyBase58Check to TransactorPublicKeyBytes.
+	if requestData.TransactorPublicKeyBase58Check == "" {
+		_AddBadRequestError(ww, "UnjailValidator: must provide a TransactorPublicKeyBase58Check")
+		return
+	}
+	transactorPublicKeyBytes, err := GetPubKeyBytesFromBase58Check(requestData.TransactorPublicKeyBase58Check)
+	if err != nil {
+		_AddInternalServerError(ww, "UnjailValidator: problem getting public key for the transactor")
+		return
+	}
+
+	// Parse ExtraData.
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, "UnjailValidator: invalid ExtraData provided")
+		return
+	}
+
+	// Compute the additional transaction fees as specified
+	// by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(
+		lib.TxnTypeUnjailValidator,
+		transactorPublicKeyBytes,
+		requestData.TransactionFees,
+	)
+	if err != nil {
+		_AddBadRequestError(ww, "UnjailValidator: specified TransactionFees are invalid")
+		return
+	}
+
+	// Create transaction.
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateUnjailValidatorTxn(
+		transactorPublicKeyBytes,
+		&lib.UnjailValidatorMetadata{},
+		extraData,
+		requestData.MinFeeRateNanosPerKB,
+		fes.backendServer.GetMempool(),
+		additionalOutputs,
+	)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("UnjailValidator: problem creating txn: %v", err))
+		return
+	}
+
+	// Construct response.
+	txnBytes, err := txn.ToBytes(true)
+	if err != nil {
+		_AddInternalServerError(ww, "UnjailValidator: problem encoding txn to bytes")
+		return
+	}
+	res := ValidatorTxnResponse{
+		SpendAmountNanos:  totalInput - changeAmount - fees,
+		TotalInputNanos:   totalInput,
+		ChangeAmountNanos: changeAmount,
+		FeeNanos:          fees,
+		Transaction:       txn,
+		TransactionHex:    hex.EncodeToString(txnBytes),
+		TxnHashHex:        txn.Hash().String(),
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, "UnjailValidator: problem encoding response as JSON")
 		return
 	}
 }
