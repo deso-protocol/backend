@@ -678,7 +678,7 @@ func APITransactionToResponse(
 	if block != nil && block.Header != nil {
 		ret.BlockInfo = &TransactionBlockInfo{
 			Height:        block.Header.Height,
-			TimestampSecs: block.Header.GetTstampSecs(),
+			TimestampSecs: uint64(block.Header.GetTstampSecs()),
 		}
 	}
 
@@ -1272,10 +1272,10 @@ type HeaderResponse struct {
 	TransactionMerkleRootHex string
 	// The unix timestamp (in seconds) specifying when this block was
 	// mined.
-	TstampSecs uint64
+	TstampSecs int64
 	// The unix timestamp (in nanoseconds) specifying when this block was
 	// mined.
-	TstampNanoSecs uint64
+	TstampNanoSecs int64
 	// The height of the block this header corresponds to.
 	Height uint64
 
