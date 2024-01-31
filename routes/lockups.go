@@ -10,8 +10,19 @@ import (
 	"github.com/holiman/uint256"
 	"io"
 	"net/http"
+	"reflect"
 	"time"
 )
+
+type CumulativeLockedBalanceEntryResponse struct {
+	HODLerPublicKeyBase58Check   string
+	ProfilePublicKeyBase58Check  string
+	TotalLockedBaseUnits         uint256.Int
+	UnlockableBaseUnits          uint256.Int
+	UnvestedLockedBalanceEntries []*LockedBalanceEntryResponse
+	VestedLockedBalanceEntries   []*LockedBalanceEntryResponse
+	ProfileEntryResponse         *ProfileEntryResponse
+}
 
 type LockedBalanceEntryResponse struct {
 	HODLerPublicKeyBase58Check  string
@@ -19,7 +30,6 @@ type LockedBalanceEntryResponse struct {
 	UnlockTimestampNanoSecs     int64
 	VestingEndTimestampNanoSecs int64
 	BalanceBaseUnits            uint256.Int
-	ProfileEntryResponse        *ProfileEntryResponse
 }
 
 func (fes *APIServer) _lockedBalanceEntryToResponse(
@@ -27,15 +37,12 @@ func (fes *APIServer) _lockedBalanceEntryToResponse(
 ) *LockedBalanceEntryResponse {
 	hodlerPublicKey := utxoView.GetPublicKeyForPKID(lockedBalanceEntry.HODLerPKID)
 	profilePublicKey := utxoView.GetPublicKeyForPKID(lockedBalanceEntry.ProfilePKID)
-	profileEntry := utxoView.GetProfileEntryForPKID(lockedBalanceEntry.ProfilePKID)
-	profileEntryResponse := fes._profileEntryToResponse(profileEntry, utxoView)
 	return &LockedBalanceEntryResponse{
 		HODLerPublicKeyBase58Check:  lib.PkToString(hodlerPublicKey, params),
 		ProfilePublicKeyBase58Check: lib.PkToString(profilePublicKey, params),
 		UnlockTimestampNanoSecs:     lockedBalanceEntry.UnlockTimestampNanoSecs,
 		VestingEndTimestampNanoSecs: lockedBalanceEntry.VestingEndTimestampNanoSecs,
 		BalanceBaseUnits:            lockedBalanceEntry.BalanceBaseUnits,
-		ProfileEntryResponse:        profileEntryResponse,
 	}
 }
 
@@ -281,8 +288,6 @@ func (fes *APIServer) UpdateCoinLockupParams(ww http.ResponseWriter, req *http.R
 		}
 	}
 
-	// TODO: validate LockupYieldDurationNanoSecs and LockupYieldAPYBasisPoints and anything else.
-
 	// Parse extra data.
 	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
 	if err != nil {
@@ -389,7 +394,11 @@ func (fes *APIServer) CoinLockupTransfer(ww http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	// TODO: validate UnlockTimestampNanoSecs, LockedCoinsToTransferBaseUnits
+	// Check to ensure the recipient is different than the sender.
+	if reflect.DeepEqual(recipientPublicKeyBytes, transactorPublicKeyBytes) {
+		_AddBadRequestError(ww, fmt.Sprintf("CoinLockupTransfer: Sender cannot be receiver of a transfer"))
+		return
+	}
 
 	// Parse extra data.
 	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
@@ -413,8 +422,8 @@ func (fes *APIServer) CoinLockupTransfer(ww http.ResponseWriter, req *http.Reque
 	// Create transaction
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateCoinLockupTransferTxn(
 		transactorPublicKeyBytes,
-		profilePublicKeyBytes,
 		recipientPublicKeyBytes,
+		profilePublicKeyBytes,
 		requestData.UnlockTimestampNanoSecs,
 		requestData.LockedCoinsToTransferBaseUnits,
 		extraData,
@@ -483,8 +492,6 @@ func (fes *APIServer) CoinUnlock(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// TODO: any additional validations
-
 	// Parse extra data.
 	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
 	if err != nil {
@@ -541,7 +548,6 @@ func (fes *APIServer) CoinUnlock(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
-// TODO: GET endpoints
 // GET lockup yield curve points for a profile by public key
 func (fes *APIServer) LockedYieldCurvePoints(ww http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
@@ -592,8 +598,6 @@ func (fes *APIServer) LockedYieldCurvePoints(ww http.ResponseWriter, req *http.R
 	}
 }
 
-// GET all locked balances of a profile - NOTE: this is not supported by the current core indexes.
-
 // GET all locked balance entries held by a HODLer public key
 func (fes *APIServer) LockedBalanceEntries(ww http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
@@ -604,6 +608,7 @@ func (fes *APIServer) LockedBalanceEntries(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
+	// Create an augmented UTXO view to include uncomitted transactions.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("LockedBalanceEntriesHeldByPublicKey: Problem getting utxoView: %v", err))
@@ -617,5 +622,112 @@ func (fes *APIServer) LockedBalanceEntries(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
-	// TODO: Get all locked balance entries. NOTE: this is not yet implemented.
+	// Get all locked balance entries for a user.
+	lockedBalanceEntries, err := utxoView.GetAllLockedBalanceEntriesForHodlerPKID(pkid)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("LockedBalanceEntries: Problem getting locked balance entries: %v", err))
+		return
+	}
+
+	// Split the locked balance entries based on the creator.
+	creatorPKIDToCumulativeLockedBalanceEntryResponse := make(map[lib.PKID]*CumulativeLockedBalanceEntryResponse)
+	currentTimestampNanoSecs := time.Now().UnixNano()
+	for _, lockedBalanceEntry := range lockedBalanceEntries {
+		// Check if we need to initialize the cumulative response.
+		if _, exists := creatorPKIDToCumulativeLockedBalanceEntryResponse[*lockedBalanceEntry.ProfilePKID]; !exists {
+			hodlerPublicKey := utxoView.GetPublicKeyForPKID(lockedBalanceEntry.HODLerPKID)
+			profilePublicKey := utxoView.GetPublicKeyForPKID(lockedBalanceEntry.ProfilePKID)
+			profileEntry := utxoView.GetProfileEntryForPKID(lockedBalanceEntry.ProfilePKID)
+			profileEntryResponse := fes._profileEntryToResponse(profileEntry, utxoView)
+
+			creatorPKIDToCumulativeLockedBalanceEntryResponse[*lockedBalanceEntry.ProfilePKID] =
+				&CumulativeLockedBalanceEntryResponse{
+					HODLerPublicKeyBase58Check:   lib.PkToString(hodlerPublicKey, fes.Params),
+					ProfilePublicKeyBase58Check:  lib.PkToString(profilePublicKey, fes.Params),
+					TotalLockedBaseUnits:         uint256.Int{},
+					UnlockableBaseUnits:          uint256.Int{},
+					UnvestedLockedBalanceEntries: []*LockedBalanceEntryResponse{},
+					VestedLockedBalanceEntries:   []*LockedBalanceEntryResponse{},
+					ProfileEntryResponse:         profileEntryResponse,
+				}
+		}
+
+		// Get the existing cumulative response.
+		cumulativeResponse := creatorPKIDToCumulativeLockedBalanceEntryResponse[*lockedBalanceEntry.ProfilePKID]
+
+		// Update the total locked base units.
+		// NOTE: It's possible to create multiple locked balance entries that are impossible to unlock due to overflow.
+		// As such, if the addition triggers an overflow we will just ignore adding more and use the max Uint256.
+		var newTotalLockedBaseUnits *uint256.Int
+		if uint256.NewInt().Sub(
+			lib.MaxUint256,
+			&cumulativeResponse.TotalLockedBaseUnits).Lt(&lockedBalanceEntry.BalanceBaseUnits) {
+			newTotalLockedBaseUnits = lib.MaxUint256
+		} else {
+			newTotalLockedBaseUnits = uint256.NewInt().Add(
+				&cumulativeResponse.TotalLockedBaseUnits,
+				&lockedBalanceEntry.BalanceBaseUnits)
+		}
+
+		// Compute how much (if any) is unlockable in the give entry.
+		unlockableBaseUnitsFromEntry := uint256.NewInt()
+		newTotalUnlockableBaseUnits := uint256.NewInt()
+		if lockedBalanceEntry.UnlockTimestampNanoSecs < currentTimestampNanoSecs {
+			// Check if the locked balance entry is unvested or vested.
+			if lockedBalanceEntry.UnlockTimestampNanoSecs == lockedBalanceEntry.VestingEndTimestampNanoSecs {
+				unlockableBaseUnitsFromEntry = &lockedBalanceEntry.BalanceBaseUnits
+			} else {
+				unlockableBaseUnitsFromEntry, err =
+					lib.CalculateVestedEarnings(lockedBalanceEntry, currentTimestampNanoSecs)
+				if err != nil {
+					_AddBadRequestError(ww,
+						fmt.Sprintf("LockedBalanceEntries: Problem computing vested earnings: %v", err))
+					return
+				}
+			}
+		}
+		if uint256.NewInt().Sub(
+			lib.MaxUint256,
+			&cumulativeResponse.UnlockableBaseUnits).Lt(unlockableBaseUnitsFromEntry) {
+			newTotalUnlockableBaseUnits = lib.MaxUint256
+		} else {
+			newTotalUnlockableBaseUnits = uint256.NewInt().Add(
+				&cumulativeResponse.UnlockableBaseUnits,
+				unlockableBaseUnitsFromEntry)
+		}
+
+		// Update the cumulative response.
+		cumulativeResponse.TotalLockedBaseUnits = *newTotalLockedBaseUnits
+		cumulativeResponse.UnlockableBaseUnits = *newTotalUnlockableBaseUnits
+		if lockedBalanceEntry.UnlockTimestampNanoSecs == lockedBalanceEntry.VestingEndTimestampNanoSecs {
+			cumulativeResponse.UnvestedLockedBalanceEntries = append(
+				cumulativeResponse.UnvestedLockedBalanceEntries,
+				fes._lockedBalanceEntryToResponse(lockedBalanceEntry, utxoView, fes.Params))
+		} else {
+			cumulativeResponse.VestedLockedBalanceEntries = append(
+				cumulativeResponse.VestedLockedBalanceEntries,
+				fes._lockedBalanceEntryToResponse(lockedBalanceEntry, utxoView, fes.Params))
+		}
+	}
+
+	// Create a list of the cumulative locked balance entries and sort based on amount locked.
+	var cumulativeLockedBalanceEntryResponses []*CumulativeLockedBalanceEntryResponse
+	for _, cumulativeResponse := range creatorPKIDToCumulativeLockedBalanceEntryResponse {
+		cumulativeLockedBalanceEntryResponses = append(
+			cumulativeLockedBalanceEntryResponses, cumulativeResponse)
+	}
+
+	// Sort the response based on the amount locked.
+	sortedCumulativeResponses := collections.SortStable(cumulativeLockedBalanceEntryResponses,
+		func(ii *CumulativeLockedBalanceEntryResponse, jj *CumulativeLockedBalanceEntryResponse) bool {
+			return ii.TotalLockedBaseUnits.Lt(&jj.TotalLockedBaseUnits)
+		})
+
+	// Encode and return the responses.
+	if err = json.NewEncoder(ww).Encode(sortedCumulativeResponses); err != nil {
+		_AddInternalServerError(ww,
+			fmt.Sprintf("LockedBalanceEntries: Problem encoding response as JSON: %v", err))
+		return
+	}
 }
