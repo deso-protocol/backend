@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
+	"image"
 	"io"
 	"net/http"
 	"strconv"
@@ -84,10 +85,31 @@ func resizeAndConvertToWebp(encodedImageString string, maxDim uint) (_image []by
 
 }
 
+// Prevent pixel flood attack. This function checks the image size before processing it.
+// Reference: https://github.com/h2non/bimg/issues/394#issuecomment-1015932411
+func validateImageSize(encodedImageContentBytes []byte) error {
+	byteReader := bytes.NewReader(encodedImageContentBytes)
+	imageConfig, _, err := image.DecodeConfig(byteReader)
+	if err != nil {
+		return err
+	}
+	if imageConfig.Width > bimg.MaxSize || imageConfig.Height > bimg.MaxSize {
+		return fmt.Errorf("image too large. Max dimensions are %v x %v. ImageConfig dimensions are %v x %v",
+			bimg.MaxSize, bimg.MaxSize, imageConfig.Width, imageConfig.Height)
+	}
+	return nil
+}
+
 func resizeAndConvertFromEncodedImageContent(encodedImageContent string, maxDim uint) (_image []byte, _err error) {
 	// always strip metadata
 	processOptions := bimg.Options{StripMetadata: true}
 	decodedBytes, err := base64.StdEncoding.DecodeString(encodedImageContent)
+	if err != nil {
+		return nil, err
+	}
+	if err = validateImageSize(decodedBytes); err != nil {
+		return nil, err
+	}
 	imgBytes, err := bimg.NewImage(decodedBytes).Process(processOptions)
 	if err != nil {
 		return nil, err
