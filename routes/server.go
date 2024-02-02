@@ -1312,6 +1312,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"UnjailValidator",
+			[]string{"POST", "OPTIONS"},
+			RoutePathValidators + "/unjail",
+			fes.UnjailValidator,
+			PublicAccess,
+		},
+		{
 			"GetValidatorByPublicKeyBase58Check",
 			[]string{"GET"},
 			RoutePathValidators + "/{publicKeyBase58Check:t?BC[1-9A-HJ-NP-Za-km-z]{51,53}}",
