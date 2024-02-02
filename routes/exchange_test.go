@@ -4,10 +4,6 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	chainlib "github.com/btcsuite/btcd/blockchain"
-	"github.com/deso-protocol/backend/config"
-	coreCmd "github.com/deso-protocol/core/cmd"
-	"github.com/deso-protocol/core/lib"
 	"io"
 	"log"
 	"net/http"
@@ -15,6 +11,11 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	chainlib "github.com/btcsuite/btcd/blockchain"
+	"github.com/deso-protocol/backend/config"
+	coreCmd "github.com/deso-protocol/core/cmd"
+	"github.com/deso-protocol/core/lib"
 
 	"github.com/dgraph-io/badger/v3"
 
@@ -100,7 +101,7 @@ func NewLowDifficultyBlockchainWithParams(t *testing.T, params *lib.DeSoParams) 
 			Version:               0,
 			PrevBlockHash:         lib.MustDecodeHexBlockHash("0000000000000000000000000000000000000000000000000000000000000000"),
 			TransactionMerkleRoot: lib.MustDecodeHexBlockHash("097158f0d27e6d10565c4dc696c784652c3380e0ff8382d3599a4d18b782e965"),
-			TstampNanoSecs:        uint64(1560735050),
+			TstampNanoSecs:        1560735050,
 			Height:                uint64(0),
 			Nonce:                 uint64(0),
 			// No ExtraNonce is set in the genesis block
