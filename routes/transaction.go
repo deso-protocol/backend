@@ -4101,7 +4101,6 @@ func (fes *APIServer) simulateSubmitTransaction(utxoView *lib.UtxoView, txn *lib
 	return utxoView.ConnectTransaction(
 		txn,
 		txn.Hash(),
-		0,
 		bestHeight,
 		0,
 		false,
