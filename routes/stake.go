@@ -109,6 +109,7 @@ const (
 	lockedAtEpochNumberKey           = "lockedAtEpochNumber"
 	startEpochNumberKey              = "startEpochNumber"
 	endEpochNumberKey                = "endEpochNumber"
+	publicKeyBase58CheckKey          = "publicKeyBase58Check"
 )
 
 // Stake constructs a transaction that stakes a given amount of DeSo.

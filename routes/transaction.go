@@ -3249,6 +3249,13 @@ type UnlockStakeLimitMapItem struct {
 	OpCount                       uint64
 }
 
+type LockupLimitMapItem struct {
+	ProfilePublicKeyBase58Check string
+	ScopeType                   lib.LockupLimitScopeTypeString
+	Operation                   lib.LockupLimitOperationString
+	OpCount                     uint64
+}
+
 // TransactionSpendingLimitResponse is a backend struct used to describe the TransactionSpendingLimit for a Derived key
 // in a way that can be JSON encoded/decoded.
 type TransactionSpendingLimitResponse struct {
@@ -3286,6 +3293,8 @@ type TransactionSpendingLimitResponse struct {
 	UnstakeLimitMap []UnstakeLimitMapItem
 	// UnlockStakeLimitMap is a slice of UnlockStakeLimitMapItems
 	UnlockStakeLimitMap []UnlockStakeLimitMapItem
+	// LockupLimitMap is a slice of LockupLimitMapItems
+	LockupLimitMap []LockupLimitMapItem
 
 	// ===== ENCODER MIGRATION lib.UnlimitedDerivedKeysMigration =====
 	// IsUnlimited determines whether this derived key is unlimited. An unlimited derived key can perform all transactions
@@ -3683,6 +3692,21 @@ func TransactionSpendingLimitToResponse(
 		}
 	}
 
+	if len(transactionSpendingLimit.LockupLimitMap) > 0 {
+		for lockupLimitKey, opCount := range transactionSpendingLimit.LockupLimitMap {
+			publicKeyBytes := utxoView.GetPublicKeyForPKID(&lockupLimitKey.ProfilePKID)
+			publicKeyBase58Check := lib.Base58CheckEncode(publicKeyBytes, false, params)
+			transactionSpendingLimitResponse.LockupLimitMap = append(
+				transactionSpendingLimitResponse.LockupLimitMap,
+				LockupLimitMapItem{
+					ProfilePublicKeyBase58Check: publicKeyBase58Check,
+					ScopeType:                   lockupLimitKey.ScopeType.ToScopeString(),
+					Operation:                   lockupLimitKey.Operation.ToOperationString(),
+					OpCount:                     opCount,
+				})
+		}
+	}
+
 	return transactionSpendingLimitResponse
 }
 
@@ -3888,6 +3912,21 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 				validatorPKID.PKID,
 			)
 			transactionSpendingLimit.UnlockStakeLimitMap[unlockStakeLimitKey] = unlockStakeLimitMapItem.OpCount
+		}
+	}
+	if len(transactionSpendingLimitResponse.LockupLimitMap) > 0 {
+		transactionSpendingLimit.LockupLimitMap = make(map[lib.LockupLimitKey]uint64)
+		for _, lockupLimitMapItem := range transactionSpendingLimitResponse.LockupLimitMap {
+			profilePublicKey, _, err := lib.Base58CheckDecode(lockupLimitMapItem.ProfilePublicKeyBase58Check)
+			if err != nil {
+				return nil, err
+			}
+			pkidEntry := utxoView.GetPKIDForPublicKey(profilePublicKey)
+			transactionSpendingLimit.LockupLimitMap[lib.MakeLockupLimitKey(
+				*pkidEntry.PKID,
+				lockupLimitMapItem.ScopeType.ToScopeType(),
+				lockupLimitMapItem.Operation.ToOperationType(),
+			)] = lockupLimitMapItem.OpCount
 		}
 	}
 
@@ -4098,11 +4137,12 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 
 func (fes *APIServer) simulateSubmitTransaction(utxoView *lib.UtxoView, txn *lib.MsgDeSoTxn) (_utxoOperations []*lib.UtxoOperation, _totalInput uint64, _totalOutput uint64, _fees uint64, _err error) {
 	bestHeight := fes.blockchain.BlockTip().Height + 1
+	bytes, _ := txn.ToBytes(false)
 	return utxoView.ConnectTransaction(
 		txn,
 		txn.Hash(),
 		bestHeight,
-		0,
+		time.Now().UnixNano(),
 		false,
 		false,
 	)
