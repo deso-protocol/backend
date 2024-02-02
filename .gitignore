@@ -1,6 +1,11 @@
 local_scripts/*
+
+mempool/*
+routes/mempool/*
+
 backend
 
 .idea
 .vscode
+
 mem.log
