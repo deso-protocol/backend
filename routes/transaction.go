@@ -4137,11 +4137,13 @@ func (fes *APIServer) GetTransactionSpending(ww http.ResponseWriter, req *http.R
 
 func (fes *APIServer) simulateSubmitTransaction(utxoView *lib.UtxoView, txn *lib.MsgDeSoTxn) (_utxoOperations []*lib.UtxoOperation, _totalInput uint64, _totalOutput uint64, _fees uint64, _err error) {
 	bestHeight := fes.blockchain.BlockTip().Height + 1
+	bytes, _ := txn.ToBytes(false)
 	return utxoView.ConnectTransaction(
 		txn,
 		txn.Hash(),
+		int64(len(bytes)),
 		bestHeight,
-		0,
+		time.Now().UnixNano(),
 		false,
 		false,
 	)
