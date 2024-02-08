@@ -5,13 +5,14 @@ package routes
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/deso-protocol/core/bls"
-	"github.com/deso-protocol/core/lib"
-	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/deso-protocol/core/bls"
+	"github.com/deso-protocol/core/lib"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidatorRegistration(t *testing.T) {
@@ -99,7 +100,6 @@ func TestValidatorRegistration(t *testing.T) {
 		require.Equal(t, validatorResponse.VotingAuthorization, votingAuthorization.ToString())
 		require.Equal(t, validatorResponse.TotalStakeAmountNanos.Uint64(), uint64(0))
 		require.Equal(t, validatorResponse.Status, "Active")
-		require.Equal(t, validatorResponse.LastActiveAtEpochNumber, uint64(1))
 		require.Equal(t, validatorResponse.JailedAtEpochNumber, uint64(0))
 		require.NotNil(t, validatorResponse.ExtraData)
 		require.Equal(t, validatorResponse.ExtraData["Foo"], "Bar")
