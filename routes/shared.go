@@ -259,18 +259,8 @@ func (fes *APIServer) GetVerifiedUsernameToPKIDMapFromGlobalState() (_verificati
 			return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMapFromGlobalState: Cannot Decode Verification Map: %v", err)
 		}
 	} else {
-		// Create the inital map structure
+		// Return an empty map structure
 		verifiedMapStruct.VerifiedUsernameToPKID = make(map[string]*lib.PKID)
-
-		// Encode the map and stick it in the database.
-		metadataDataBuf := bytes.NewBuffer([]byte{})
-		if err = gob.NewEncoder(metadataDataBuf).Encode(verifiedMapStruct); err != nil {
-			return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMapFromGlobalState: cannot encode verifiedMap struct: %v", err)
-		}
-		err = fes.GlobalState.Put(_GlobalStatePrefixForVerifiedMap, metadataDataBuf.Bytes())
-		if err != nil {
-			return nil, fmt.Errorf("GetVerifiedUsernameToPKIDMapFromGlobalState: Cannot Decode Verification Map: %v", err)
-		}
 	}
 	// Return the verificationMap
 	return verifiedMapStruct.VerifiedUsernameToPKID, nil
