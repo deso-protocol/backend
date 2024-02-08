@@ -3,12 +3,13 @@ package routes
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/deso-protocol/core/lib"
-	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/deso-protocol/core/lib"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUpdateGlobalParams(t *testing.T) {
@@ -89,7 +90,7 @@ func TestUpdateGlobalParams(t *testing.T) {
 		require.Equal(t, globalParams.StakeLockupEpochDuration, uint64(3))
 		require.Equal(t, globalParams.ValidatorJailEpochDuration, uint64(3))
 		require.Equal(t, globalParams.LeaderScheduleMaxNumValidators, uint64(100))
-		require.Equal(t, globalParams.EpochDurationNumBlocks, uint64(3600))
+		require.Equal(t, globalParams.EpochDurationNumBlocks, uint64(10))
 		require.Equal(t, globalParams.JailInactiveValidatorGracePeriodEpochs, uint64(48))
 	}
 	{
