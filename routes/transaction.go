@@ -3646,10 +3646,13 @@ func TransactionSpendingLimitToResponse(
 
 	if len(transactionSpendingLimit.StakeLimitMap) > 0 {
 		for stakeLimitKey, stakeLimit := range transactionSpendingLimit.StakeLimitMap {
-			validatorPublicKey := utxoView.GetPublicKeyForPKID(&stakeLimitKey.ValidatorPKID)
-			validatorPublicKeyBase58Check := lib.Base58CheckEncode(
-				validatorPublicKey, false, params,
-			)
+			var validatorPublicKeyBase58Check string
+			if !stakeLimitKey.ValidatorPKID.IsZeroPKID() {
+				validatorPublicKey := utxoView.GetPublicKeyForPKID(&stakeLimitKey.ValidatorPKID)
+				validatorPublicKeyBase58Check = lib.Base58CheckEncode(
+					validatorPublicKey, false, params,
+				)
+			}
 			transactionSpendingLimitResponse.StakeLimitMap = append(
 				transactionSpendingLimitResponse.StakeLimitMap,
 				StakeLimitMapItem{
@@ -3662,10 +3665,13 @@ func TransactionSpendingLimitToResponse(
 
 	if len(transactionSpendingLimit.UnstakeLimitMap) > 0 {
 		for unstakeLimitKey, unstakeLimit := range transactionSpendingLimit.UnstakeLimitMap {
-			validatorPublicKey := utxoView.GetPublicKeyForPKID(&unstakeLimitKey.ValidatorPKID)
-			validatorPublicKeyBase58Check := lib.Base58CheckEncode(
-				validatorPublicKey, false, params,
-			)
+			var validatorPublicKeyBase58Check string
+			if !unstakeLimitKey.ValidatorPKID.IsZeroPKID() {
+				validatorPublicKey := utxoView.GetPublicKeyForPKID(&unstakeLimitKey.ValidatorPKID)
+				validatorPublicKeyBase58Check = lib.Base58CheckEncode(
+					validatorPublicKey, false, params,
+				)
+			}
 			transactionSpendingLimitResponse.UnstakeLimitMap = append(
 				transactionSpendingLimitResponse.UnstakeLimitMap,
 				UnstakeLimitMapItem{
@@ -3678,10 +3684,13 @@ func TransactionSpendingLimitToResponse(
 
 	if len(transactionSpendingLimit.UnlockStakeLimitMap) > 0 {
 		for unlockStakeLimitKey, opCount := range transactionSpendingLimit.UnlockStakeLimitMap {
-			validatorPublicKey := utxoView.GetPublicKeyForPKID(&unlockStakeLimitKey.ValidatorPKID)
-			validatorPublicKeyBase58Check := lib.Base58CheckEncode(
-				validatorPublicKey, false, params,
-			)
+			var validatorPublicKeyBase58Check string
+			if !unlockStakeLimitKey.ValidatorPKID.IsZeroPKID() {
+				validatorPublicKey := utxoView.GetPublicKeyForPKID(&unlockStakeLimitKey.ValidatorPKID)
+				validatorPublicKeyBase58Check = lib.Base58CheckEncode(
+					validatorPublicKey, false, params,
+				)
+			}
 			transactionSpendingLimitResponse.UnlockStakeLimitMap = append(
 				transactionSpendingLimitResponse.UnlockStakeLimitMap,
 				UnlockStakeLimitMapItem{
@@ -3694,8 +3703,11 @@ func TransactionSpendingLimitToResponse(
 
 	if len(transactionSpendingLimit.LockupLimitMap) > 0 {
 		for lockupLimitKey, opCount := range transactionSpendingLimit.LockupLimitMap {
-			publicKeyBytes := utxoView.GetPublicKeyForPKID(&lockupLimitKey.ProfilePKID)
-			publicKeyBase58Check := lib.Base58CheckEncode(publicKeyBytes, false, params)
+			var publicKeyBase58Check string
+			if !lockupLimitKey.ProfilePKID.IsZeroPKID() {
+				publicKeyBytes := utxoView.GetPublicKeyForPKID(&lockupLimitKey.ProfilePKID)
+				publicKeyBase58Check = lib.Base58CheckEncode(publicKeyBytes, false, params)
+			}
 			transactionSpendingLimitResponse.LockupLimitMap = append(
 				transactionSpendingLimitResponse.LockupLimitMap,
 				LockupLimitMapItem{
@@ -3873,14 +3885,14 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 	if len(transactionSpendingLimitResponse.StakeLimitMap) > 0 {
 		transactionSpendingLimit.StakeLimitMap = make(map[lib.StakeLimitKey]*uint256.Int)
 		for _, stakeLimitMapItem := range transactionSpendingLimitResponse.StakeLimitMap {
-			validatorPublicKey, _, err := lib.Base58CheckDecode(stakeLimitMapItem.ValidatorPublicKeyBase58Check)
-			if err != nil {
-				return nil, err
+			validatorPKID := &lib.ZeroPKID
+			if stakeLimitMapItem.ValidatorPublicKeyBase58Check != "" {
+				validatorPKID, err = getCreatorPKIDForBase58Check(stakeLimitMapItem.ValidatorPublicKeyBase58Check)
+				if err != nil {
+					return nil, err
+				}
 			}
-			validatorPKID := utxoView.GetPKIDForPublicKey(validatorPublicKey)
-			stakeLimitKey := lib.MakeStakeLimitKey(
-				validatorPKID.PKID,
-			)
+			stakeLimitKey := lib.MakeStakeLimitKey(validatorPKID)
 			transactionSpendingLimit.StakeLimitMap[stakeLimitKey] = stakeLimitMapItem.StakeLimit.Clone()
 		}
 	}
@@ -3888,14 +3900,14 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 	if len(transactionSpendingLimitResponse.UnstakeLimitMap) > 0 {
 		transactionSpendingLimit.UnstakeLimitMap = make(map[lib.StakeLimitKey]*uint256.Int)
 		for _, unstakeLimitMapItem := range transactionSpendingLimitResponse.UnstakeLimitMap {
-			validatorPublicKey, _, err := lib.Base58CheckDecode(unstakeLimitMapItem.ValidatorPublicKeyBase58Check)
-			if err != nil {
-				return nil, err
+			validatorPKID := &lib.ZeroPKID
+			if unstakeLimitMapItem.ValidatorPublicKeyBase58Check != "" {
+				validatorPKID, err = getCreatorPKIDForBase58Check(unstakeLimitMapItem.ValidatorPublicKeyBase58Check)
+				if err != nil {
+					return nil, err
+				}
 			}
-			validatorPKID := utxoView.GetPKIDForPublicKey(validatorPublicKey)
-			unstakeLimitKey := lib.MakeStakeLimitKey(
-				validatorPKID.PKID,
-			)
+			unstakeLimitKey := lib.MakeStakeLimitKey(validatorPKID)
 			transactionSpendingLimit.UnstakeLimitMap[unstakeLimitKey] = unstakeLimitMapItem.UnstakeLimit.Clone()
 		}
 	}
@@ -3903,27 +3915,29 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 	if len(transactionSpendingLimitResponse.UnlockStakeLimitMap) > 0 {
 		transactionSpendingLimit.UnlockStakeLimitMap = make(map[lib.StakeLimitKey]uint64)
 		for _, unlockStakeLimitMapItem := range transactionSpendingLimitResponse.UnlockStakeLimitMap {
-			validatorPublicKey, _, err := lib.Base58CheckDecode(unlockStakeLimitMapItem.ValidatorPublicKeyBase58Check)
-			if err != nil {
-				return nil, err
+			validatorPKID := &lib.ZeroPKID
+			if unlockStakeLimitMapItem.ValidatorPublicKeyBase58Check != "" {
+				validatorPKID, err = getCreatorPKIDForBase58Check(unlockStakeLimitMapItem.ValidatorPublicKeyBase58Check)
+				if err != nil {
+					return nil, err
+				}
 			}
-			validatorPKID := utxoView.GetPKIDForPublicKey(validatorPublicKey)
-			unlockStakeLimitKey := lib.MakeStakeLimitKey(
-				validatorPKID.PKID,
-			)
+			unlockStakeLimitKey := lib.MakeStakeLimitKey(validatorPKID)
 			transactionSpendingLimit.UnlockStakeLimitMap[unlockStakeLimitKey] = unlockStakeLimitMapItem.OpCount
 		}
 	}
 	if len(transactionSpendingLimitResponse.LockupLimitMap) > 0 {
 		transactionSpendingLimit.LockupLimitMap = make(map[lib.LockupLimitKey]uint64)
 		for _, lockupLimitMapItem := range transactionSpendingLimitResponse.LockupLimitMap {
-			profilePublicKey, _, err := lib.Base58CheckDecode(lockupLimitMapItem.ProfilePublicKeyBase58Check)
-			if err != nil {
-				return nil, err
+			profilePKID := &lib.ZeroPKID
+			if lockupLimitMapItem.ProfilePublicKeyBase58Check != "" {
+				profilePKID, err = getCreatorPKIDForBase58Check(lockupLimitMapItem.ProfilePublicKeyBase58Check)
+				if err != nil {
+					return nil, err
+				}
 			}
-			pkidEntry := utxoView.GetPKIDForPublicKey(profilePublicKey)
 			transactionSpendingLimit.LockupLimitMap[lib.MakeLockupLimitKey(
-				*pkidEntry.PKID,
+				*profilePKID,
 				lockupLimitMapItem.ScopeType.ToScopeType(),
 				lockupLimitMapItem.Operation.ToOperationType(),
 			)] = lockupLimitMapItem.OpCount
