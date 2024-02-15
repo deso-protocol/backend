@@ -162,7 +162,7 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 	blockFound.Txns[0].TxOutputs[0].PublicKey = pkBytes
 	blockFound.Txns[0].TxnMeta.(*lib.BlockRewardMetadataa).ExtraData = lib.UintToBuf(requestData.ExtraData)
 
-	blockFound, err = lib.RecomputeBlockRewardWithBlockRewardOutputPublicKey(blockFound, pkBytes)
+	blockFound, err = lib.RecomputeBlockRewardWithBlockRewardOutputPublicKey(blockFound, pkBytes, fes.Params)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitBlock: Problem recomputing block reward: %v", err))
 		return
