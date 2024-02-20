@@ -167,7 +167,7 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 		existingDeSoPeers[currentPeerRes.IP+fmt.Sprintf(":%d", currentPeerRes.ProtocolPort)] = true
 	}
 	// Return some deso addrs from the addr manager.
-	desoAddrs := fes.backendServer.GetConnectionManager().GetAddrManager().AddressCache()
+	desoAddrs := fes.backendServer.AddrMgr.AddressCache()
 	sort.Slice(desoAddrs, func(ii, jj int) bool {
 		// Use a hash to get a random but deterministic ordering.
 		hashI := string(lib.Sha256DoubleHash([]byte(desoAddrs[ii].IP.String() + fmt.Sprintf(":%d", desoAddrs[ii].Port)))[:])
@@ -239,12 +239,12 @@ func (fes *APIServer) _handleConnectDeSoNode(
 	// increasing retry delay, but we should still clean it up at some point.
 	connectPeerDone := make(chan bool)
 	go func() {
-		netAddr, err := fes.backendServer.GetConnectionManager().GetAddrManager().HostToNetAddress(ip, protocolPort, 0)
+		netAddr, err := fes.backendServer.AddrMgr.HostToNetAddress(ip, protocolPort, 0)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("_handleConnectDeSoNode: Cannot connect to node %s:%d: %v", ip, protocolPort, err))
 			return
 		}
-		fes.backendServer.GetConnectionManager().ConnectPeer(nil, netAddr)
+		fes.backendServer.GetNetworkManager().CreateNonValidatorOutboundConnection(ip)
 
 		// Spin until the peer shows up in the connection manager or until 100 iterations.
 		// Note the pause between each iteration.
@@ -274,7 +274,7 @@ func (fes *APIServer) _handleConnectDeSoNode(
 				// At this point the peer shoud be connected. Add their address to the addrmgr
 				// in case the user wants to connect again in the future. Set the source to be
 				// the address itself since we don't have anything else.
-				fes.backendServer.GetConnectionManager().GetAddrManager().AddAddress(netAddr, netAddr)
+				fes.backendServer.AddrMgr.AddAddress(netAddr, netAddr)
 
 				connectPeerDone <- true
 				return
@@ -320,13 +320,13 @@ func (fes *APIServer) _handleDisconnectDeSoNode(
 
 	// Manually remove the peer from the connection manager and mark it as such
 	// so that the connection manager won't reconnect to it or replace it.
-	fes.backendServer.GetConnectionManager().RemovePeer(peerFound)
-	peerFound.PeerManuallyRemovedFromConnectionManager = true
-
-	peerFound.Disconnect()
+	remoteNode := fes.backendServer.GetNetworkManager().GetRemoteNodeManager().GetRemoteNodeFromPeer(peerFound)
+	if remoteNode != nil {
+		fes.backendServer.GetNetworkManager().GetRemoteNodeManager().Disconnect(remoteNode)
+	}
 
 	res := NodeControlResponse{
-		// Return an empty response, which indicates we set the peer up to be connected.
+		// Return an empty response, which indicates we set the peer up to be disconnected.
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("NodeControl: Problem encoding response as JSON: %v", err))
