@@ -109,9 +109,9 @@ func (fes *APIServer) StartHotFeedRoutine() {
 
 // The business.
 func (fes *APIServer) UpdateHotFeed(resetCache bool) {
-	glog.Info("Refreshing hot feed...")
+	glog.V(2).Info("Refreshing hot feed...")
 	if resetCache {
-		glog.Info("Resetting hot feed cache.")
+		glog.V(2).Info("Resetting hot feed cache.")
 		fes.PostTagToPostHashesMap = make(map[string]map[lib.BlockHash]bool)
 		fes.PostHashToPostTagsMap = make(map[lib.BlockHash][]string)
 		fes.HotFeedBlockCache = make(map[lib.BlockHash]*lib.MsgDeSoBlock)
@@ -137,7 +137,7 @@ func (fes *APIServer) UpdateHotFeed(resetCache bool) {
 	// Replace the HotFeedApprovedPostsMap and HotFeedPKIDMultiplier map with the fresh ones.
 	fes.HotFeedApprovedPostsToMultipliers = hotFeedApprovedPosts
 	fes.HotFeedPKIDMultipliers = hotFeedPKIDMultipliers
-	glog.Infof("Updated hot feed maps")
+	glog.V(2).Infof("Updated hot feed maps")
 }
 
 func (fes *APIServer) UpdateHotFeedApprovedPostsMap(hotFeedApprovedPosts map[lib.BlockHash]float64) {
@@ -412,7 +412,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	}
 
 	// Log how long this routine takes, since it could be heavy.
-	glog.Info("UpdateHotFeedOrderedList: Starting new update cycle.")
+	glog.V(2).Info("UpdateHotFeedOrderedList: Starting new update cycle.")
 	start := time.Now()
 
 	// Get a utxoView for lookups.
