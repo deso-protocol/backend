@@ -265,6 +265,10 @@ func (fes *APIServer) FetchFromExternalGlobalState(routePath string) (_body []by
 	client := &http.Client{}
 	resp, err := client.Do(req)
 
+	if err != nil {
+		return nil, fmt.Errorf("FetchFromExternalGlobalState: error executing request for %v. Error: %v", routePath, err)
+	}
+
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
