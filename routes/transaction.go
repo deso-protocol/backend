@@ -4198,3 +4198,74 @@ func (fes *APIServer) GetSignatureIndex(ww http.ResponseWriter, req *http.Reques
 	}
 	return
 }
+
+type GetTxnConstructionParamsRequest struct {
+	MinFeeRateNanosPerKB                    uint64
+	MempoolCongestionFactorBasisPoints      uint64
+	MempoolPriorityPercentileBasisPoints    uint64
+	PastBlocksCongestionFactorBasisPoints   uint64
+	PastBlocksPriorityPercentileBasisPoints uint64
+	MaxBlockSize                            uint64
+}
+
+type GetTxnConstructionParamsResponse struct {
+	FeeRateNanosPerKB uint64
+	BlockHeight       uint64
+}
+
+func (fes *APIServer) GetTxnConstructionParams(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(req.Body)
+	requestData := GetTxnConstructionParamsRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, "GetTxnConstructionParams: Problem parsing request body: "+err.Error())
+		return
+	}
+
+	// TODO: replace lib.MaxBasisPoints w/ a param defined by a flag from core.
+	mempoolCongestionFactorBasisPoints := requestData.MempoolCongestionFactorBasisPoints
+	if requestData.MempoolCongestionFactorBasisPoints == 0 {
+		mempoolCongestionFactorBasisPoints = lib.MaxBasisPoints
+	}
+
+	mempoolPriorityPercentileBasisPoints := requestData.MempoolPriorityPercentileBasisPoints
+	if requestData.MempoolPriorityPercentileBasisPoints == 0 {
+		mempoolPriorityPercentileBasisPoints = lib.MaxBasisPoints
+	}
+
+	pastBlocksCongestionFactorBasisPoints := requestData.PastBlocksCongestionFactorBasisPoints
+	if requestData.PastBlocksCongestionFactorBasisPoints == 0 {
+		pastBlocksCongestionFactorBasisPoints = lib.MaxBasisPoints
+	}
+
+	pastBlocksPriorityPercentileBasisPoints := requestData.PastBlocksPriorityPercentileBasisPoints
+	if requestData.PastBlocksPriorityPercentileBasisPoints == 0 {
+		pastBlocksPriorityPercentileBasisPoints = lib.MaxBasisPoints
+	}
+
+	maxBlockSize := requestData.MaxBlockSize
+	if requestData.MaxBlockSize == 0 {
+		maxBlockSize = fes.Params.MaxBlockSizeBytes
+	}
+
+	// Get the fees from the mempool
+	feeRate, err := fes.backendServer.GetMempool().EstimateFeeRate(
+		requestData.MinFeeRateNanosPerKB,
+		mempoolCongestionFactorBasisPoints,
+		mempoolPriorityPercentileBasisPoints,
+		pastBlocksCongestionFactorBasisPoints,
+		pastBlocksPriorityPercentileBasisPoints,
+		maxBlockSize,
+	)
+	if err != nil {
+		_AddBadRequestError(ww, "GetTxnConstructionParams: Problem getting fees: "+err.Error())
+		return
+	}
+	// Return the fees
+	if err = json.NewEncoder(ww).Encode(GetTxnConstructionParamsResponse{
+		FeeRateNanosPerKB: feeRate,
+		BlockHeight:       uint64(fes.backendServer.GetBlockchain().BlockTip().Height),
+	}); err != nil {
+		_AddBadRequestError(ww, "GetTxnConstructionParams: Problem encoding response as JSON: "+err.Error())
+		return
+	}
+}
