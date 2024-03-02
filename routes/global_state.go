@@ -980,6 +980,8 @@ func (gs *GlobalState) Get(key []byte) (value []byte, _err error) {
 	err := gs.GlobalStateDB.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(key)
 		if err != nil {
+			// Todo: I think this error needs to be processed. It could be a key not found error, then nil should be returned.
+			//       If it's another error, it should be returned.
 			return nil
 		}
 		retValue, err = item.ValueCopy(nil)
