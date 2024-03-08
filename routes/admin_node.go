@@ -320,9 +320,9 @@ func (fes *APIServer) _handleDisconnectDeSoNode(
 
 	// Manually remove the peer from the connection manager and mark it as such
 	// so that the connection manager won't reconnect to it or replace it.
-	remoteNode := fes.backendServer.GetNetworkManager().GetRemoteNodeManager().GetRemoteNodeFromPeer(peerFound)
+	remoteNode := fes.backendServer.GetNetworkManager().GetRemoteNodeFromPeer(peerFound)
 	if remoteNode != nil {
-		fes.backendServer.GetNetworkManager().GetRemoteNodeManager().Disconnect(remoteNode)
+		fes.backendServer.GetNetworkManager().Disconnect(remoteNode)
 	}
 
 	res := NodeControlResponse{
