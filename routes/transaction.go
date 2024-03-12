@@ -337,8 +337,29 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 	// If an image is set on the request then resize it.
 	// Convert image to base64 by stripping the data: prefix.
 	if requestData.NewProfilePic != "" {
+		// split on base64 to get the extension
+		extensionSplit := strings.Split(requestData.NewProfilePic, ";base64")
+		if len(extensionSplit) != 2 {
+			_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem parsing profile pic extension: %v", err))
+			return
+		}
+		extension := extensionSplit[0]
+		switch {
+		case strings.Contains(extension, "image/png"):
+			extension = ".png"
+		case strings.Contains(extension, "image/jpeg"):
+			extension = ".jpeg"
+		case strings.Contains(extension, "image/webp"):
+			extension = ".webp"
+		case strings.Contains(extension, "image/gif"):
+			extension = ".gif"
+		default:
+			_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Unsupported image type: %v", extension))
+			return
+		}
 		var resizedImageBytes []byte
-		resizedImageBytes, err = resizeAndConvertToWebp(requestData.NewProfilePic, uint(fes.Params.MaxProfilePicDimensions))
+		resizedImageBytes, err = resizeAndConvertToWebp(
+			requestData.NewProfilePic, uint(fes.Params.MaxProfilePicDimensions), extension)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("Problem resizing profile picture: %v", err))
 			return
