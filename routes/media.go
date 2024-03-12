@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
+	"github.com/pkg/errors"
+	"golang.org/x/image/webp"
 	"image"
 	"io"
 	"net/http"
@@ -51,7 +53,7 @@ func (fes *APIServer) uploadSingleImage(image string, extension string) (_imageU
 
 	if extension != ".gif" {
 		var imageBytes []byte
-		imageBytes, err = resizeAndConvertFromEncodedImageContent(image, 1000)
+		imageBytes, err = resizeAndConvertFromEncodedImageContent(image, 1000, extension)
 		if err != nil {
 			return "", err
 		}
@@ -78,36 +80,46 @@ func getEncodedImageContent(encodedImageString string) string {
 	return encodedImageString[strings.Index(encodedImageString, ",")+1:]
 }
 
-func resizeAndConvertToWebp(encodedImageString string, maxDim uint) (_image []byte, _err error) {
+func resizeAndConvertToWebp(encodedImageString string, maxDim uint, extension string) (_image []byte, _err error) {
 	// Extract the relevant portion of the base64 encoded string and process the image.
 	encodedImageContent := getEncodedImageContent(encodedImageString)
-	return resizeAndConvertFromEncodedImageContent(encodedImageContent, maxDim)
+	return resizeAndConvertFromEncodedImageContent(encodedImageContent, maxDim, extension)
 
 }
 
 // Prevent pixel flood attack. This function checks the image size before processing it.
 // Reference: https://github.com/h2non/bimg/issues/394#issuecomment-1015932411
-func validateImageSize(encodedImageContentBytes []byte) error {
+func validateImageSize(encodedImageContentBytes []byte, extension string) error {
 	byteReader := bytes.NewReader(encodedImageContentBytes)
-	imageConfig, _, err := image.DecodeConfig(byteReader)
+	var imageConfig image.Config
+	var err error
+	if extension == ".webp" {
+		imageConfig, err = webp.DecodeConfig(byteReader)
+	} else {
+		imageConfig, _, err = image.DecodeConfig(byteReader)
+	}
 	if err != nil {
-		return err
+		return errors.Wrap(err, "validateImageSize: Problem decoding image config")
 	}
 	if imageConfig.Width > bimg.MaxSize || imageConfig.Height > bimg.MaxSize {
-		return fmt.Errorf("image too large. Max dimensions are %v x %v. ImageConfig dimensions are %v x %v",
+		return fmt.Errorf("validateImageSize: image too large. Max dimensions are %v x %v. ImageConfig dimensions are %v x %v",
 			bimg.MaxSize, bimg.MaxSize, imageConfig.Width, imageConfig.Height)
 	}
 	return nil
 }
 
-func resizeAndConvertFromEncodedImageContent(encodedImageContent string, maxDim uint) (_image []byte, _err error) {
+func resizeAndConvertFromEncodedImageContent(
+	encodedImageContent string,
+	maxDim uint,
+	extension string,
+) (_image []byte, _err error) {
 	// always strip metadata
 	processOptions := bimg.Options{StripMetadata: true}
 	decodedBytes, err := base64.StdEncoding.DecodeString(encodedImageContent)
 	if err != nil {
 		return nil, err
 	}
-	if err = validateImageSize(decodedBytes); err != nil {
+	if err = validateImageSize(decodedBytes, extension); err != nil {
 		return nil, err
 	}
 	imgBytes, err := bimg.NewImage(decodedBytes).Process(processOptions)
