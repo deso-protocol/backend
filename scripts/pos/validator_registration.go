@@ -21,7 +21,7 @@ import (
 var desoSourceSeedPhrase = "<SEED PHRASE HERE>"
 var validatorSeedPhrase = "SEED PHRASE HERE"
 var nodeApiUrl = "http://localhost:18001"
-var validatorDomain string = "http://localhost:19000"
+var validatorDomain string = "localhost:19000"
 
 var params = &lib.DeSoTestnetParams
 
