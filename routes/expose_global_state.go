@@ -168,6 +168,9 @@ func (fes *APIServer) GetRestrictedPublicKeys(prefix []byte, utxoView *lib.UtxoV
 	if err != nil {
 		return nil, err
 	}
+	if len(publicKeys) != len(states) {
+		return nil, fmt.Errorf("GetRestrictedPublicKeys: Length of publicKeys and states do not match")
+	}
 	// Iterate over all restricted public keys from the local global state and merge into the map.
 	for ii, publicKeyWithPrefix := range publicKeys {
 		// Remove the prefix byte
