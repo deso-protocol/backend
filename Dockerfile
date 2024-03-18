@@ -37,10 +37,8 @@ COPY core/lib         ../core/lib
 COPY core/migrate     ../core/migrate
 COPY core/scripts     ../core/scripts
 
-RUN ../core/scripts/install-relic.sh
-
 # build backend
-RUN GOOS=linux go build -mod=mod -a -installsuffix cgo -o bin/backend -tags=relic main.go
+RUN GOOS=linux go build -mod=mod -a -installsuffix cgo -o bin/backend main.go
 
 # create tiny image
 FROM alpine:latest
