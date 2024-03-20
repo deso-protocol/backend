@@ -68,6 +68,7 @@ const (
 	RoutePathAppendExtraData          = "/api/v0/append-extra-data"
 	RoutePathGetTransactionSpending   = "/api/v0/get-transaction-spending"
 	RoutePathGetSignatureIndex        = "/api/v0/signature-index"
+	RoutePathGetTxnConstructionParams = "/api/v0/txn-construction-params"
 
 	RoutePathGetUsersStateless                          = "/api/v0/get-users-stateless"
 	RoutePathDeleteIdentities                           = "/api/v0/delete-identities"
@@ -1022,6 +1023,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetSignatureIndex,
 			fes.GetSignatureIndex,
+			PublicAccess,
+		},
+		{
+			"GetTxnConstructionParams",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetTxnConstructionParams,
+			fes.GetTxnConstructionParams,
 			PublicAccess,
 		},
 		{

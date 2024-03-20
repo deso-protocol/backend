@@ -23,7 +23,6 @@ RUN git pull && \
     git pull origin feature/proof-of-stake # TODO: Revert to `git pull` once core PR is merged.
 
 RUN go mod download
-RUN ./scripts/install-relic.sh
 
 # Try to checkout to the specified branch. If it fails, checkout main.
 RUN git checkout ${BRANCH_NAME} || (echo "Branch ${BRANCH_NAME} not found. Falling back to main." && git checkout main)
@@ -50,4 +49,4 @@ COPY main.go   .
 # build backend
 RUN GOOS=linux go build -mod=mod -a -installsuffix cgo -o bin/backend main.go
 
-ENTRYPOINT ["go", "test", "-tags", "relic", "-v", "github.com/deso-protocol/backend/routes"]
+ENTRYPOINT ["go", "test", "-v", "github.com/deso-protocol/backend/routes"]

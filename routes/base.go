@@ -150,14 +150,14 @@ func (fes *APIServer) GetBlockchainDotComExchangeRate() (_exchangeRate float64, 
 		url := "https://api.blockchain.com/v3/exchange/tickers/CLOUT-USD"
 		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
-			glog.Errorf("GetBlockchainDotComExchangeRate: Problem creating request: %v", err)
+			glog.V(2).Infof("GetBlockchainDotComExchangeRate: Problem creating request: %v", err)
 			continue
 		}
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			glog.Errorf("GetBlockchainDotComExchangeRate: Problem with HTTP request %s: %v", url, err)
+			glog.V(2).Infof("GetBlockchainDotComExchangeRate: Problem with HTTP request %s: %v", url, err)
 			continue
 		}
 		defer resp.Body.Close()
@@ -167,7 +167,7 @@ func (fes *APIServer) GetBlockchainDotComExchangeRate() (_exchangeRate float64, 
 		responseData := &BlockchainDeSoTickerResponse{}
 		decoder := json.NewDecoder(bytes.NewReader(body))
 		if err = decoder.Decode(responseData); err != nil {
-			glog.Errorf("GetBlockchainDotComExchangeRate: Problem decoding response JSON into "+
+			glog.V(2).Infof("GetBlockchainDotComExchangeRate: Problem decoding response JSON into "+
 				"interface %v, response: %v, error: %v", responseData, resp, err)
 			continue
 		}
@@ -179,13 +179,13 @@ func (fes *APIServer) GetBlockchainDotComExchangeRate() (_exchangeRate float64, 
 	}
 	blockchainDotComExchangeRate, err := stats.Max(exchangeRatesFetched)
 	if err != nil {
-		glog.Errorf("GetBlockchainDotComExchangeRate: Problem getting max from list of float64s: %v", err)
+		glog.V(2).Infof("GetBlockchainDotComExchangeRate: Problem getting max from list of float64s: %v", err)
 		return 0, err
 	}
 	glog.V(2).Infof("Blockchain exchange rate: %v %v", blockchainDotComExchangeRate, exchangeRatesFetched)
 	if fes.backendServer != nil && fes.backendServer.GetStatsdClient() != nil {
 		if err = fes.backendServer.GetStatsdClient().Gauge("BLOCKCHAIN_LAST_TRADE_PRICE", blockchainDotComExchangeRate, []string{}, 1); err != nil {
-			glog.Errorf("GetBlockchainDotComExchangeRate: Error logging Last Trade Price of %f to datadog: %v", blockchainDotComExchangeRate, err)
+			glog.V(2).Infof("GetBlockchainDotComExchangeRate: Error logging Last Trade Price of %f to datadog: %v", blockchainDotComExchangeRate, err)
 		}
 	}
 	return blockchainDotComExchangeRate, nil
