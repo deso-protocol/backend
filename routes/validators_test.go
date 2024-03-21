@@ -1,5 +1,3 @@
-//go:build relic
-
 package routes
 
 import (
