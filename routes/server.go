@@ -331,6 +331,9 @@ const (
 	RoutePathCoinUnlock             = "/api/v0/coin-unlock"
 	RoutePathLockupYieldCurvePoints = "/api/v0/lockup-yield-curve-points"
 	RoutePathLockedBalanceEntries   = "/api/v0/locked-balance-entries"
+
+	// atomic_txns.go
+	RoutePathCreateAtomicTxnsWrapper = "/api/v0/create-atomic-txns-wrapper"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -1417,6 +1420,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathLockedBalanceEntries + "/" + makePublicKeyParamRegex(publicKeyBase58CheckKey),
 			fes.LockedBalanceEntries,
+			PublicAccess,
+		},
+		{
+			"CreateAtomicTxnsWrapper",
+			[]string{"GET"},
+			RoutePathCreateAtomicTxnsWrapper,
+			fes.CreateAtomicTxnsWrapper,
 			PublicAccess,
 		},
 		// Jumio Routes
