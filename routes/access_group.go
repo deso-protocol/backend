@@ -758,6 +758,10 @@ func (fes *APIServer) getAccessGroupInfo(publicKeyBase58DecodedBytes []byte, acc
 		return nil, errors.Wrapf(err, "getAccessGroupInfo: Problem getting access group ids for member")
 	}
 
+	if accessGroupInfoCore == nil {
+		return nil, nil
+	}
+
 	accessGroupInfo := fes.AccessGroupEntryToResponse(accessGroupInfoCore, utxoView, nil)
 
 	return &accessGroupInfo, nil
@@ -810,6 +814,12 @@ func (fes *APIServer) GetAccessGroupInfo(ww http.ResponseWriter, req *http.Reque
 		_AddBadRequestError(ww, fmt.Sprintf("GetAccessGroupInfo: Problem getting access group of"+
 			"public key, access group key name %s: %s: %v",
 			requestData.AccessGroupOwnerPublicKeyBase58Check, requestData.AccessGroupKeyName, err))
+		return
+	}
+	if accessGroupInfo == nil {
+		_AddNotFoundError(ww, fmt.Sprintf("GetAccessGroupInfo: Access group not found for public key %s and access "+
+			"group key name %s",
+			requestData.AccessGroupOwnerPublicKeyBase58Check, requestData.AccessGroupKeyName))
 		return
 	}
 
