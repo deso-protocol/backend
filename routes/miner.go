@@ -4,10 +4,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/deso-protocol/core/lib"
-	"github.com/golang/glog"
 	"io"
 	"net/http"
+
+	"github.com/deso-protocol/core/lib"
+	"github.com/golang/glog"
 )
 
 type GetBlockTemplateRequest struct {
@@ -144,6 +145,10 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 
 	glog.Infof("Currently submitting block for block ID: %v", requestData.BlockID)
 
+	// Log all of the contents of the request
+	glog.Infof("SubmitBlock: PublicKeyBase58Check: %v, Header: %v, ExtraData: %v, BlockID: %v",
+		requestData.PublicKeyBase58Check, hex.EncodeToString(requestData.Header), requestData.ExtraData, requestData.BlockID)
+
 	// Decode the public key
 	pkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 	if err != nil {
@@ -189,13 +194,16 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 	// ChainLock, which is what Bitcoin Core does.
 	isMainChain, isOrphan, err := fes.blockchain.ProcessBlock(
 		blockFound, true /*verifySignatures*/)
-	glog.V(1).Infof("Called ProcessBlock: isMainChain=(%v), isOrphan=(%v), err=(%v)",
+	glog.V(1).Infof("Called ProcessBlock/ConnectBlock: isMainChain=(%v), isOrphan=(%v), err=(%v)",
 		isMainChain, isOrphan, err)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("ERROR calling ProcessBlock: isMainChain=(%v), isOrphan=(%v), err=(%v)",
-			isMainChain, isOrphan, err))
+		errorMsg := fmt.Sprintf("ERROR calling ProcessBlock/ConnectBlock: isMainChain=(%v), isOrphan=(%v), err=(%v)",
+			isMainChain, isOrphan, err)
+		glog.V(1).Infof(errorMsg)
+		_AddBadRequestError(ww, errorMsg)
 		return
 	}
+	glog.V(1).Infof("ConnectBlock SUCCESS")
 
 	// If we connected a block on the main chain, force an update in the BlockProducer
 	if isMainChain {
