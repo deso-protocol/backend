@@ -1424,7 +1424,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 		},
 		{
 			"CreateAtomicTxnsWrapper",
-			[]string{"GET"},
+			[]string{"POST", "OPTIONS"},
 			RoutePathCreateAtomicTxnsWrapper,
 			fes.CreateAtomicTxnsWrapper,
 			PublicAccess,
