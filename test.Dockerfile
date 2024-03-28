@@ -2,7 +2,13 @@ FROM alpine:latest AS backend
 
 RUN apk update
 RUN apk upgrade
-RUN apk add --update go gcc g++ vips-dev git
+RUN apk add --update bash cmake g++ gcc git make vips-dev
+
+COPY --from=golang:1.20-alpine /usr/local/go/ /usr/local/go/
+ENV PATH="/usr/local/go/bin:${PATH}"
+
+# Declare an ARG for the branch name with a default value of "main"
+ARG BRANCH_NAME=main
 
 # Declare an ARG for the branch name with a default value of "main"
 ARG BRANCH_NAME=main
@@ -12,7 +18,14 @@ WORKDIR /deso/src
 RUN git clone https://github.com/deso-protocol/core.git
 
 WORKDIR /deso/src/core
-RUN git pull
+RUN git pull && \
+    git checkout feature/proof-of-stake && \
+    git pull origin feature/proof-of-stake # TODO: Revert to `git pull` once core PR is merged.
+
+RUN go mod download
+
+# Try to checkout to the specified branch. If it fails, checkout main.
+RUN git checkout ${BRANCH_NAME} || (echo "Branch ${BRANCH_NAME} not found. Falling back to main." && git checkout main)
 
 # Try to checkout to the specified branch. If it fails, checkout main.
 RUN git checkout ${BRANCH_NAME} || (echo "Branch ${BRANCH_NAME} not found. Falling back to main." && git checkout main)

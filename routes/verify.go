@@ -1469,6 +1469,9 @@ func (fes *APIServer) SetJumioUSDCents() {
 		glog.Errorf("SetJumioUSDCents: Error getting Jumio USD Cents from global state: %v", err)
 		return
 	}
+	if len(val) == 0 {
+		return
+	}
 	jumioUSDCents, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {
 		glog.Errorf("SetJumioUSDCents: invalid bytes read: %v", bytesRead)
@@ -1485,6 +1488,9 @@ func (fes *APIServer) SetJumioKickbackUSDCents() {
 	val, err := fes.GlobalState.Get(GlobalStateKeyForJumioKickbackUSDCents())
 	if err != nil {
 		glog.Errorf("SetJumioKickbackUSDCents: Error getting Jumio Kickback USD Cents from global state: %v", err)
+		return
+	}
+	if len(val) == 0 {
 		return
 	}
 	jumioKickbackUSDCents, bytesRead := lib.Uvarint(val)

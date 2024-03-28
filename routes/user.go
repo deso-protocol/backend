@@ -641,10 +641,11 @@ type CoinEntryResponse struct {
 }
 
 type DAOCoinEntryResponse struct {
-	NumberOfHolders           uint64
-	CoinsInCirculationNanos   uint256.Int
-	MintingDisabled           bool
-	TransferRestrictionStatus TransferRestrictionStatusString
+	NumberOfHolders                 uint64
+	CoinsInCirculationNanos         uint256.Int
+	MintingDisabled                 bool
+	TransferRestrictionStatus       TransferRestrictionStatusString
+	LockupTransferRestrictionStatus TransferRestrictionStatusString
 }
 
 // GetProfiles ...
@@ -1060,6 +1061,8 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 			MintingDisabled:         profileEntry.DAOCoinEntry.MintingDisabled,
 			TransferRestrictionStatus: getTransferRestrictionStatusStringFromTransferRestrictionStatus(
 				profileEntry.DAOCoinEntry.TransferRestrictionStatus),
+			LockupTransferRestrictionStatus: getTransferRestrictionStatusStringFromTransferRestrictionStatus(
+				profileEntry.DAOCoinEntry.LockupTransferRestrictionStatus),
 		},
 		CoinPriceDeSoNanos:             coinPriceDeSoNanos,
 		CoinPriceBitCloutNanos:         coinPriceDeSoNanos,
@@ -2535,10 +2538,7 @@ func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest,
 		//
 		// TODO(performance): This could get slow if the mempool gets big. Fix is to organize everything
 		// in the mempool by public key and only look up transactions that are relevant to this public key.
-		poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
-		if err != nil {
-			return nil, errors.Errorf("APITransactionInfo: Error getting txns from mempool: %v", err)
-		}
+		poolTxns := fes.backendServer.GetMempool().GetOrderedTransactions()
 
 		mempoolTxnMetadata := []*TransactionMetadataResponse{}
 		for _, poolTx := range poolTxns {
@@ -2634,7 +2634,7 @@ func (fes *APIServer) _getNotificationsCount(request *GetNotificationsRequest) (
 
 	// A valid mempool object is used to compute the TransactionMetadata for the mempool
 	// and to allow for things like: filtering notifications for a hidden post.
-	utxoView, err := fes.mempool.GetAugmentedUniversalView()
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return 0, 0, errors.Errorf("GetNotifications: Problem getting view: %v", err)
 	}
@@ -2688,7 +2688,7 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 
 	// A valid mempool object is used to compute the TransactionMetadata for the mempool
 	// and to allow for things like: filtering notifications for a hidden post.
-	utxoView, err := fes.mempool.GetAugmentedUniversalView()
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return nil, nil, errors.Errorf("GetNotifications: Problem getting view: %v", err)
 	}

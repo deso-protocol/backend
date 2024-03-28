@@ -19,14 +19,14 @@ func OpenDataDir(dataDir string) (*badger.DB, error) {
 }
 
 // Returns the best chain associated with a badgerDB handle.
-func GetBestChainFromBadger(syncedDBHandle *badger.DB) ([]*lib.BlockNode, error) {
+func GetBestChainFromBadger(syncedDBHandle *badger.DB, params *lib.DeSoParams) ([]*lib.BlockNode, error) {
 	bestBlockHash := lib.DbGetBestHash(syncedDBHandle, nil, lib.ChainTypeDeSoBlock)
 	if bestBlockHash == nil {
 		return nil, errors.Errorf("GetBestChainFromBadger() could not find a blockchain in the provided db")
 	}
 
 	// Fetch the block index.
-	blockIndex, err := lib.GetBlockIndex(syncedDBHandle, false /*bitcoinNodes*/)
+	blockIndex, err := lib.GetBlockIndex(syncedDBHandle, false /*bitcoinNodes*/, params)
 	if err != nil {
 		return nil, errors.Errorf("GetBestChainFromBadger() could not get blockIndex")
 	}

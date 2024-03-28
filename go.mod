@@ -15,7 +15,6 @@ require (
 	github.com/fatih/structs v1.1.0
 	github.com/golang-jwt/jwt/v4 v4.1.0
 	github.com/golang/glog v1.0.0
-	github.com/google/uuid v1.2.0
 	github.com/gorilla/mux v1.8.0
 	github.com/h2non/bimg v1.1.5
 	github.com/holiman/uint256 v1.1.1
@@ -42,6 +41,7 @@ require (
 	cloud.google.com/go v0.81.0 // indirect
 	github.com/DataDog/datadog-go v4.5.0+incompatible // indirect
 	github.com/Microsoft/go-winio v0.4.16 // indirect
+	github.com/btcsuite/btcd/btcec/v2 v2.2.1 // indirect
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f // indirect
 	github.com/bwesterb/go-ristretto v1.2.0 // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
@@ -53,6 +53,7 @@ require (
 	github.com/deso-protocol/go-merkle-tree v1.0.0 // indirect
 	github.com/dgraph-io/ristretto v0.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
+	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/ethereum/go-ethereum v1.9.25 // indirect
 	github.com/fatih/color v1.13.0 // indirect
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
@@ -67,7 +68,9 @@ require (
 	github.com/golang/snappy v0.0.3 // indirect
 	github.com/google/flatbuffers v2.0.0+incompatible // indirect
 	github.com/google/pprof v0.0.0-20210226084205-cbba55b83ad5 // indirect
+	github.com/google/uuid v1.2.0 // indirect
 	github.com/googleapis/gax-go/v2 v2.0.5 // indirect
+	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/imdario/mergo v0.3.8 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
@@ -83,6 +86,7 @@ require (
 	github.com/mattn/goveralls v0.0.6 // indirect
 	github.com/mgutz/ansi v0.0.0-20170206155736-9520e82c474b // indirect
 	github.com/oleiade/lane v1.0.1 // indirect
+	github.com/onflow/crypto v0.25.0 // indirect
 	github.com/pelletier/go-toml v1.7.0 // indirect
 	github.com/petermattis/goid v0.0.0-20180202154549-b0b1615b78e5 // indirect
 	github.com/philhofer/fwd v1.1.1 // indirect
@@ -117,6 +121,7 @@ require (
 	golang.org/x/time v0.0.0-20201208040808-7e3f01d25324 // indirect
 	golang.org/x/tools v0.6.0 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
+	gonum.org/v1/gonum v0.6.1 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto v0.0.0-20210429181445-86c259c2b4ab // indirect
 	google.golang.org/grpc v1.37.0 // indirect

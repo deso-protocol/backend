@@ -57,7 +57,7 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 		copy(txnHash[:], txnHashBytes)
 	}
 
-	txnFound := fes.mempool.IsTransactionInPool(txnHash)
+	txnFound := fes.backendServer.GetMempool().IsTransactionInPool(txnHash)
 	if !txnFound {
 		txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
 	}
@@ -1151,7 +1151,7 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 		// depending on what the user requested.
 		totalInputt, spendAmountt, changeAmountt, feeNanoss, err =
 			fes.blockchain.AddInputsAndChangeToTransaction(
-				txnn, requestData.MinFeeRateNanosPerKB, fes.mempool)
+				txnn, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error processing transaction: %v", err))
 			return
@@ -1846,7 +1846,7 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 	// Add node source to txn metadata
 	fes.AddNodeSourceToTxnMetadata(txn)
 
-	utxoView, err := fes.mempool.GetAugmentedUtxoViewForPublicKey(updaterPublicKeyBytes, txn)
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUtxoViewForPublicKey(updaterPublicKeyBytes, txn)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem computing view for transaction: %v", err))
 		return
@@ -3255,6 +3255,28 @@ type AccessGroupMemberLimitMapItem struct {
 	OpCount                              uint64
 }
 
+type StakeLimitMapItem struct {
+	ValidatorPublicKeyBase58Check string
+	StakeLimit                    *uint256.Int
+}
+
+type UnstakeLimitMapItem struct {
+	ValidatorPublicKeyBase58Check string
+	UnstakeLimit                  *uint256.Int
+}
+
+type UnlockStakeLimitMapItem struct {
+	ValidatorPublicKeyBase58Check string
+	OpCount                       uint64
+}
+
+type LockupLimitMapItem struct {
+	ProfilePublicKeyBase58Check string
+	ScopeType                   lib.LockupLimitScopeTypeString
+	Operation                   lib.LockupLimitOperationString
+	OpCount                     uint64
+}
+
 // TransactionSpendingLimitResponse is a backend struct used to describe the TransactionSpendingLimit for a Derived key
 // in a way that can be JSON encoded/decoded.
 type TransactionSpendingLimitResponse struct {
@@ -3286,6 +3308,14 @@ type TransactionSpendingLimitResponse struct {
 	AccessGroupLimitMap []AccessGroupLimitMapItem
 	// AccessGroupMemberLimitMap is a slice of AccessGroupMemberLimitMapItems.
 	AccessGroupMemberLimitMap []AccessGroupMemberLimitMapItem
+	// StakeLimitMap is a slice of StakeLimitMapItems
+	StakeLimitMap []StakeLimitMapItem
+	// UnstakeLimitMap is a slice of UnstakeLimitMapItems
+	UnstakeLimitMap []UnstakeLimitMapItem
+	// UnlockStakeLimitMap is a slice of UnlockStakeLimitMapItems
+	UnlockStakeLimitMap []UnlockStakeLimitMapItem
+	// LockupLimitMap is a slice of LockupLimitMapItems
+	LockupLimitMap []LockupLimitMapItem
 
 	// ===== ENCODER MIGRATION lib.UnlimitedDerivedKeysMigration =====
 	// IsUnlimited determines whether this derived key is unlimited. An unlimited derived key can perform all transactions
@@ -3635,6 +3665,81 @@ func TransactionSpendingLimitToResponse(
 		}
 	}
 
+	if len(transactionSpendingLimit.StakeLimitMap) > 0 {
+		for stakeLimitKey, stakeLimit := range transactionSpendingLimit.StakeLimitMap {
+			var validatorPublicKeyBase58Check string
+			if !stakeLimitKey.ValidatorPKID.IsZeroPKID() {
+				validatorPublicKey := utxoView.GetPublicKeyForPKID(&stakeLimitKey.ValidatorPKID)
+				validatorPublicKeyBase58Check = lib.Base58CheckEncode(
+					validatorPublicKey, false, params,
+				)
+			}
+			transactionSpendingLimitResponse.StakeLimitMap = append(
+				transactionSpendingLimitResponse.StakeLimitMap,
+				StakeLimitMapItem{
+					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
+					StakeLimit:                    stakeLimit.Clone(),
+				},
+			)
+		}
+	}
+
+	if len(transactionSpendingLimit.UnstakeLimitMap) > 0 {
+		for unstakeLimitKey, unstakeLimit := range transactionSpendingLimit.UnstakeLimitMap {
+			var validatorPublicKeyBase58Check string
+			if !unstakeLimitKey.ValidatorPKID.IsZeroPKID() {
+				validatorPublicKey := utxoView.GetPublicKeyForPKID(&unstakeLimitKey.ValidatorPKID)
+				validatorPublicKeyBase58Check = lib.Base58CheckEncode(
+					validatorPublicKey, false, params,
+				)
+			}
+			transactionSpendingLimitResponse.UnstakeLimitMap = append(
+				transactionSpendingLimitResponse.UnstakeLimitMap,
+				UnstakeLimitMapItem{
+					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
+					UnstakeLimit:                  unstakeLimit.Clone(),
+				},
+			)
+		}
+	}
+
+	if len(transactionSpendingLimit.UnlockStakeLimitMap) > 0 {
+		for unlockStakeLimitKey, opCount := range transactionSpendingLimit.UnlockStakeLimitMap {
+			var validatorPublicKeyBase58Check string
+			if !unlockStakeLimitKey.ValidatorPKID.IsZeroPKID() {
+				validatorPublicKey := utxoView.GetPublicKeyForPKID(&unlockStakeLimitKey.ValidatorPKID)
+				validatorPublicKeyBase58Check = lib.Base58CheckEncode(
+					validatorPublicKey, false, params,
+				)
+			}
+			transactionSpendingLimitResponse.UnlockStakeLimitMap = append(
+				transactionSpendingLimitResponse.UnlockStakeLimitMap,
+				UnlockStakeLimitMapItem{
+					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
+					OpCount:                       opCount,
+				},
+			)
+		}
+	}
+
+	if len(transactionSpendingLimit.LockupLimitMap) > 0 {
+		for lockupLimitKey, opCount := range transactionSpendingLimit.LockupLimitMap {
+			var publicKeyBase58Check string
+			if !lockupLimitKey.ProfilePKID.IsZeroPKID() {
+				publicKeyBytes := utxoView.GetPublicKeyForPKID(&lockupLimitKey.ProfilePKID)
+				publicKeyBase58Check = lib.Base58CheckEncode(publicKeyBytes, false, params)
+			}
+			transactionSpendingLimitResponse.LockupLimitMap = append(
+				transactionSpendingLimitResponse.LockupLimitMap,
+				LockupLimitMapItem{
+					ProfilePublicKeyBase58Check: publicKeyBase58Check,
+					ScopeType:                   lockupLimitKey.ScopeType.ToScopeString(),
+					Operation:                   lockupLimitKey.Operation.ToOperationString(),
+					OpCount:                     opCount,
+				})
+		}
+	}
+
 	return transactionSpendingLimitResponse
 }
 
@@ -3795,6 +3900,68 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 				accessGroupMemberLimitMapItem.OperationType.ToAccessGroupMemberOperation(),
 			)
 			transactionSpendingLimit.AccessGroupMemberMap[accessGroupMemberLimitKey] = accessGroupMemberLimitMapItem.OpCount
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.StakeLimitMap) > 0 {
+		transactionSpendingLimit.StakeLimitMap = make(map[lib.StakeLimitKey]*uint256.Int)
+		for _, stakeLimitMapItem := range transactionSpendingLimitResponse.StakeLimitMap {
+			validatorPKID := &lib.ZeroPKID
+			if stakeLimitMapItem.ValidatorPublicKeyBase58Check != "" {
+				validatorPKID, err = getCreatorPKIDForBase58Check(stakeLimitMapItem.ValidatorPublicKeyBase58Check)
+				if err != nil {
+					return nil, err
+				}
+			}
+			stakeLimitKey := lib.MakeStakeLimitKey(validatorPKID)
+			transactionSpendingLimit.StakeLimitMap[stakeLimitKey] = stakeLimitMapItem.StakeLimit.Clone()
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.UnstakeLimitMap) > 0 {
+		transactionSpendingLimit.UnstakeLimitMap = make(map[lib.StakeLimitKey]*uint256.Int)
+		for _, unstakeLimitMapItem := range transactionSpendingLimitResponse.UnstakeLimitMap {
+			validatorPKID := &lib.ZeroPKID
+			if unstakeLimitMapItem.ValidatorPublicKeyBase58Check != "" {
+				validatorPKID, err = getCreatorPKIDForBase58Check(unstakeLimitMapItem.ValidatorPublicKeyBase58Check)
+				if err != nil {
+					return nil, err
+				}
+			}
+			unstakeLimitKey := lib.MakeStakeLimitKey(validatorPKID)
+			transactionSpendingLimit.UnstakeLimitMap[unstakeLimitKey] = unstakeLimitMapItem.UnstakeLimit.Clone()
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.UnlockStakeLimitMap) > 0 {
+		transactionSpendingLimit.UnlockStakeLimitMap = make(map[lib.StakeLimitKey]uint64)
+		for _, unlockStakeLimitMapItem := range transactionSpendingLimitResponse.UnlockStakeLimitMap {
+			validatorPKID := &lib.ZeroPKID
+			if unlockStakeLimitMapItem.ValidatorPublicKeyBase58Check != "" {
+				validatorPKID, err = getCreatorPKIDForBase58Check(unlockStakeLimitMapItem.ValidatorPublicKeyBase58Check)
+				if err != nil {
+					return nil, err
+				}
+			}
+			unlockStakeLimitKey := lib.MakeStakeLimitKey(validatorPKID)
+			transactionSpendingLimit.UnlockStakeLimitMap[unlockStakeLimitKey] = unlockStakeLimitMapItem.OpCount
+		}
+	}
+	if len(transactionSpendingLimitResponse.LockupLimitMap) > 0 {
+		transactionSpendingLimit.LockupLimitMap = make(map[lib.LockupLimitKey]uint64)
+		for _, lockupLimitMapItem := range transactionSpendingLimitResponse.LockupLimitMap {
+			profilePKID := &lib.ZeroPKID
+			if lockupLimitMapItem.ProfilePublicKeyBase58Check != "" {
+				profilePKID, err = getCreatorPKIDForBase58Check(lockupLimitMapItem.ProfilePublicKeyBase58Check)
+				if err != nil {
+					return nil, err
+				}
+			}
+			transactionSpendingLimit.LockupLimitMap[lib.MakeLockupLimitKey(
+				*profilePKID,
+				lockupLimitMapItem.ScopeType.ToScopeType(),
+				lockupLimitMapItem.Operation.ToOperationType(),
+			)] = lockupLimitMapItem.OpCount
 		}
 	}
 
@@ -4008,8 +4175,8 @@ func (fes *APIServer) simulateSubmitTransaction(utxoView *lib.UtxoView, txn *lib
 	return utxoView.ConnectTransaction(
 		txn,
 		txn.Hash(),
-		0,
 		bestHeight,
+		time.Now().UnixNano(),
 		false,
 		false,
 	)
@@ -4051,4 +4218,75 @@ func (fes *APIServer) GetSignatureIndex(ww http.ResponseWriter, req *http.Reques
 		_AddBadRequestError(ww, fmt.Sprintf("GetSignatureIndex: Problem encoding response as JSON: %v", err))
 	}
 	return
+}
+
+type GetTxnConstructionParamsRequest struct {
+	MinFeeRateNanosPerKB                    uint64
+	MempoolCongestionFactorBasisPoints      uint64
+	MempoolPriorityPercentileBasisPoints    uint64
+	PastBlocksCongestionFactorBasisPoints   uint64
+	PastBlocksPriorityPercentileBasisPoints uint64
+	MaxBlockSize                            uint64
+}
+
+type GetTxnConstructionParamsResponse struct {
+	FeeRateNanosPerKB uint64
+	BlockHeight       uint64
+}
+
+func (fes *APIServer) GetTxnConstructionParams(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(req.Body)
+	requestData := GetTxnConstructionParamsRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, "GetTxnConstructionParams: Problem parsing request body: "+err.Error())
+		return
+	}
+
+	// TODO: replace lib.MaxBasisPoints w/ a param defined by a flag from core.
+	mempoolCongestionFactorBasisPoints := requestData.MempoolCongestionFactorBasisPoints
+	if requestData.MempoolCongestionFactorBasisPoints == 0 {
+		mempoolCongestionFactorBasisPoints = lib.MaxBasisPoints
+	}
+
+	mempoolPriorityPercentileBasisPoints := requestData.MempoolPriorityPercentileBasisPoints
+	if requestData.MempoolPriorityPercentileBasisPoints == 0 {
+		mempoolPriorityPercentileBasisPoints = lib.MaxBasisPoints
+	}
+
+	pastBlocksCongestionFactorBasisPoints := requestData.PastBlocksCongestionFactorBasisPoints
+	if requestData.PastBlocksCongestionFactorBasisPoints == 0 {
+		pastBlocksCongestionFactorBasisPoints = lib.MaxBasisPoints
+	}
+
+	pastBlocksPriorityPercentileBasisPoints := requestData.PastBlocksPriorityPercentileBasisPoints
+	if requestData.PastBlocksPriorityPercentileBasisPoints == 0 {
+		pastBlocksPriorityPercentileBasisPoints = lib.MaxBasisPoints
+	}
+
+	maxBlockSize := requestData.MaxBlockSize
+	if requestData.MaxBlockSize == 0 {
+		maxBlockSize = fes.Params.MaxBlockSizeBytes
+	}
+
+	// Get the fees from the mempool
+	feeRate, err := fes.backendServer.GetMempool().EstimateFeeRate(
+		requestData.MinFeeRateNanosPerKB,
+		mempoolCongestionFactorBasisPoints,
+		mempoolPriorityPercentileBasisPoints,
+		pastBlocksCongestionFactorBasisPoints,
+		pastBlocksPriorityPercentileBasisPoints,
+		maxBlockSize,
+	)
+	if err != nil {
+		_AddBadRequestError(ww, "GetTxnConstructionParams: Problem getting fees: "+err.Error())
+		return
+	}
+	// Return the fees
+	if err = json.NewEncoder(ww).Encode(GetTxnConstructionParamsResponse{
+		FeeRateNanosPerKB: feeRate,
+		BlockHeight:       uint64(fes.backendServer.GetBlockchain().BlockTip().Height),
+	}); err != nil {
+		_AddBadRequestError(ww, "GetTxnConstructionParams: Problem encoding response as JSON: "+err.Error())
+		return
+	}
 }

@@ -68,6 +68,7 @@ const (
 	RoutePathAppendExtraData          = "/api/v0/append-extra-data"
 	RoutePathGetTransactionSpending   = "/api/v0/get-transaction-spending"
 	RoutePathGetSignatureIndex        = "/api/v0/signature-index"
+	RoutePathGetTxnConstructionParams = "/api/v0/txn-construction-params"
 
 	RoutePathGetUsersStateless                          = "/api/v0/get-users-stateless"
 	RoutePathDeleteIdentities                           = "/api/v0/delete-identities"
@@ -313,6 +314,23 @@ const (
 	// snapshot.go
 	RoutePathSnapshotEpochMetadata = "/api/v0/snapshot-epoch-metadata"
 	RoutePathStateChecksum         = "/api/v0/state-checksum"
+
+	// validators.go
+	RoutePathValidators = "/api/v0/validators"
+
+	// stake.go
+	RoutePathStake       = "/api/v0/stake"
+	RoutePathUnstake     = "/api/v0/unstake"
+	RoutePathUnlockStake = "/api/v0/unlock-stake"
+	RoutePathLockedStake = "/api/v0/locked-stake"
+
+	// lockups.go
+	RoutePathCoinLockup             = "/api/v0/coin-lockup"
+	RoutePathUpdateCoinLockupParams = "/api/v0/update-coin-lockup-params"
+	RoutePathCoinLockupTransfer     = "/api/v0/coin-lockup-transfer"
+	RoutePathCoinUnlock             = "/api/v0/coin-unlock"
+	RoutePathLockupYieldCurvePoints = "/api/v0/lockup-yield-curve-points"
+	RoutePathLockedBalanceEntries   = "/api/v0/locked-balance-entries"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -320,7 +338,7 @@ const (
 // frontend cares about, from posts to profiles to purchasing DeSo with Bitcoin.
 type APIServer struct {
 	backendServer *lib.Server
-	mempool       *lib.DeSoMempool
+	mempool       lib.Mempool
 	blockchain    *lib.Blockchain
 	blockProducer *lib.DeSoBlockProducer
 	Params        *lib.DeSoParams
@@ -475,7 +493,7 @@ type LastTradePriceHistoryItem struct {
 // NewAPIServer ...
 func NewAPIServer(
 	_backendServer *lib.Server,
-	_mempool *lib.DeSoMempool,
+	_mempool lib.Mempool,
 	_blockchain *lib.Blockchain,
 	_blockProducer *lib.DeSoBlockProducer,
 	txIndex *lib.TXIndex,
@@ -1008,6 +1026,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"GetTxnConstructionParams",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetTxnConstructionParams,
+			fes.GetTxnConstructionParams,
+			PublicAccess,
+		},
+		{
 			"GetNotifications",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetNotifications,
@@ -1278,6 +1303,120 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathPostAssociations + "/counts",
 			fes.CountPostAssociationsByValue,
+			PublicAccess,
+		},
+		{
+			"RegisterAsValidator",
+			[]string{"POST", "OPTIONS"},
+			RoutePathValidators + "/register",
+			fes.RegisterAsValidator,
+			PublicAccess,
+		},
+		{
+			"UnregisterAsValidator",
+			[]string{"POST", "OPTIONS"},
+			RoutePathValidators + "/unregister",
+			fes.UnregisterAsValidator,
+			PublicAccess,
+		},
+		{
+			"UnjailValidator",
+			[]string{"POST", "OPTIONS"},
+			RoutePathValidators + "/unjail",
+			fes.UnjailValidator,
+			PublicAccess,
+		},
+		{
+			"GetValidatorByPublicKeyBase58Check",
+			[]string{"GET"},
+			RoutePathValidators + "/{publicKeyBase58Check:t?BC[1-9A-HJ-NP-Za-km-z]{51,53}}",
+			fes.GetValidatorByPublicKeyBase58Check,
+			PublicAccess,
+		},
+		{
+			"CreateStakeTxn",
+			[]string{"POST", "OPTIONS"},
+			RoutePathStake,
+			fes.CreateStakeTxn,
+			PublicAccess,
+		},
+		{
+			"CreateUnstakeTxn",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUnstake,
+			fes.CreateUnstakeTxn,
+			PublicAccess,
+		},
+		{
+			"CreateUnlockStakeTxn",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUnlockStake,
+			fes.CreateUnlockStakeTxn,
+			PublicAccess,
+		},
+		{
+			"GetStakeForValidatorAndStaker",
+			[]string{"GET"},
+			RoutePathStake + "/" + makePublicKeyParamRegex(validatorPublicKeyBase58CheckKey) + "/" +
+				makePublicKeyParamRegex(stakerPublicKeyBase58CheckKey),
+			fes.GetStakeForValidatorAndStaker,
+			PublicAccess,
+		},
+		{
+			"GetStakesForValidator",
+			[]string{"GET"},
+			RoutePathStake + "/validator/" + makePublicKeyParamRegex(validatorPublicKeyBase58CheckKey),
+			fes.GetStakesForValidator,
+			PublicAccess,
+		},
+		{
+			"GetLockedStakeForValidatorAndStaker",
+			[]string{"GET"},
+			RoutePathLockedStake + "/" + makePublicKeyParamRegex(validatorPublicKeyBase58CheckKey) + "/" +
+				makePublicKeyParamRegex(stakerPublicKeyBase58CheckKey),
+			fes.GetLockedStakesForValidatorAndStaker,
+			PublicAccess,
+		},
+		{
+			"CoinLockup",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCoinLockup,
+			fes.CoinLockup,
+			PublicAccess,
+		},
+		{
+			"UpdateCoinLockupParams",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateCoinLockupParams,
+			fes.UpdateCoinLockupParams,
+			PublicAccess,
+		},
+		{
+			"CoinLockupTransfer",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCoinLockupTransfer,
+			fes.CoinLockupTransfer,
+			PublicAccess,
+		},
+		{
+			"CoinUnlock",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCoinUnlock,
+			fes.CoinUnlock,
+			PublicAccess,
+		},
+		{
+			"LockedYieldCurvePoints",
+			[]string{"GET"},
+			RoutePathLockupYieldCurvePoints + "/" + makePublicKeyParamRegex(publicKeyBase58CheckKey),
+			fes.LockedYieldCurvePoints,
+			PublicAccess,
+		},
+		{
+			"LockedBalanceEntries",
+			[]string{"GET"},
+			RoutePathLockedBalanceEntries + "/" + makePublicKeyParamRegex(publicKeyBase58CheckKey),
+			fes.LockedBalanceEntries,
 			PublicAccess,
 		},
 		// Jumio Routes
@@ -2466,7 +2605,7 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 				return nil, errors.Wrapf(err, "Problem parsing derived public key bytes")
 			}
 			// Validate the derived public key.
-			utxoView, err := fes.mempool.GetAugmentedUniversalView()
+			utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 			if err != nil {
 				return nil, errors.Wrapf(err, "Problem getting utxoView")
 			}
@@ -2791,4 +2930,10 @@ func (fes *APIServer) makePKIDMapJSONEncodable(restrictedKeysMap map[lib.PKID][]
 		outputMap[lib.PkToString(k.ToBytes(), fes.Params)] = v
 	}
 	return outputMap
+}
+
+const publicKeyParamRegex = "t?BC[1-9A-HJ-NP-Za-km-z]{51,53}"
+
+func makePublicKeyParamRegex(paramName string) string {
+	return fmt.Sprintf("{%s:%s}", paramName, publicKeyParamRegex)
 }

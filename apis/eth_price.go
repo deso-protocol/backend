@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/golang/glog"
-	"github.com/montanaflynn/stats"
 	"io/ioutil"
 	"net/http"
 	"strconv"
+
+	"github.com/golang/glog"
+	"github.com/montanaflynn/stats"
 )
 
 type CoinbaseResponse struct {
@@ -194,7 +195,7 @@ func GetUSDToETHPrice() (float64, error) {
 		amount, err := getCoinbasePrice()
 		if err != nil {
 			// The amount will be zero in this case, which is fine
-			glog.Errorf("Error fetching Coinbase price: %v", err)
+			glog.V(2).Infof("Error fetching Coinbase price: %v", err)
 		}
 
 		if amount != 0 {
@@ -205,7 +206,7 @@ func GetUSDToETHPrice() (float64, error) {
 		amount, err := getCoingeckoPrice()
 		if err != nil {
 			// The amount will be zero in this case, which is fine
-			glog.Errorf("Error fetching Coingecko price: %v", err)
+			glog.V(2).Infof("Error fetching Coingecko price: %v", err)
 		}
 
 		if amount != 0 {
@@ -216,7 +217,7 @@ func GetUSDToETHPrice() (float64, error) {
 		amount, err := getBlockchainDotcomPrice()
 		if err != nil {
 			// The amount will be zero in this case, which is fine
-			glog.Errorf("Error fetching blockchain.com price: %v", err)
+			glog.V(2).Infof("Error fetching blockchain.com price: %v", err)
 		}
 
 		if amount != 0 {
@@ -227,7 +228,7 @@ func GetUSDToETHPrice() (float64, error) {
 		amount, err := getGeminiPrice()
 		if err != nil {
 			// The amount will be zero in this case, which is fine
-			glog.Errorf("Error fetching Gemini price: %v", err)
+			glog.V(2).Infof("Error fetching Gemini price: %v", err)
 		}
 
 		if amount != 0 {
@@ -238,7 +239,7 @@ func GetUSDToETHPrice() (float64, error) {
 		amount, err := getKrakenPrice()
 		if err != nil {
 			// The amount will be zero in this case, which is fine
-			glog.Errorf("Error fetching Kraken price: %v", err)
+			glog.V(2).Infof("Error fetching Kraken price: %v", err)
 		}
 
 		if amount != 0 {

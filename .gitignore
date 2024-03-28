@@ -2,3 +2,5 @@ local_scripts/*
 backend
 
 .idea
+.vscode
+mem.log
