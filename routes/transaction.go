@@ -4265,7 +4265,15 @@ func (fes *APIServer) GetTxnConstructionParams(ww http.ResponseWriter, req *http
 
 	maxBlockSize := requestData.MaxBlockSize
 	if requestData.MaxBlockSize == 0 {
-		maxBlockSize = fes.Params.MaxBlockSizeBytes
+		maxBlockSize = fes.Params.MaxBlockSizeBytesPoW
+		if fes.Params.IsPoSBlockHeight(uint64(fes.blockchain.BlockTip().Height)) {
+			uncommittedTipView, err := fes.blockchain.GetUncommittedTipView()
+			if err != nil {
+				_AddBadRequestError(ww, "GetTxnConstructionParams: Problem getting uncommitted tip view: "+err.Error())
+				return
+			}
+			maxBlockSize = uncommittedTipView.GetSoftMaxBlockSizeBytesPoS()
+		}
 	}
 
 	// Get the fees from the mempool
