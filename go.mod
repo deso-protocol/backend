@@ -5,13 +5,13 @@ go 1.20
 replace github.com/deso-protocol/core => ../core/
 
 require (
-	cloud.google.com/go/storage v1.15.0
+	cloud.google.com/go/storage v1.27.0
 	github.com/btcsuite/btcd v0.21.0-beta
 	github.com/btcsuite/btcutil v1.0.2
 	github.com/davecgh/go-spew v1.1.1
 	github.com/deso-protocol/core v0.0.0-00010101000000-000000000000
 	github.com/deso-protocol/go-deadlock v1.0.0
-	github.com/dgraph-io/badger/v3 v3.2103.5
+	github.com/dgraph-io/badger/v4 v4.2.0
 	github.com/fatih/structs v1.1.0
 	github.com/golang-jwt/jwt/v4 v4.1.0
 	github.com/golang/glog v1.0.0
@@ -28,24 +28,26 @@ require (
 	github.com/spf13/cobra v1.1.3
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.7.1
-	github.com/stretchr/testify v1.8.0
+	github.com/stretchr/testify v1.8.1
 	github.com/tyler-smith/go-bip39 v1.1.0
 	golang.org/x/crypto v0.0.0-20220622213112-05595931fe9d
 	golang.org/x/image v0.15.0
 	golang.org/x/sync v0.1.0
-	google.golang.org/api v0.46.0
+	google.golang.org/api v0.103.0
 	gopkg.in/DataDog/dd-trace-go.v1 v1.29.0
 )
 
 require (
-	cloud.google.com/go v0.81.0 // indirect
+	cloud.google.com/go v0.107.0 // indirect
+	cloud.google.com/go/compute v1.15.1 // indirect
+	cloud.google.com/go/compute/metadata v0.2.3 // indirect
+	cloud.google.com/go/iam v0.8.0 // indirect
 	github.com/DataDog/datadog-go v4.5.0+incompatible // indirect
 	github.com/Microsoft/go-winio v0.4.16 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.2.1 // indirect
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f // indirect
 	github.com/bwesterb/go-ristretto v1.2.0 // indirect
-	github.com/cespare/xxhash v1.1.0 // indirect
-	github.com/cespare/xxhash/v2 v2.1.1 // indirect
+	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/cloudflare/circl v1.1.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
@@ -67,15 +69,15 @@ require (
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/golang/snappy v0.0.3 // indirect
 	github.com/google/flatbuffers v2.0.0+incompatible // indirect
+	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/google/pprof v0.0.0-20210226084205-cbba55b83ad5 // indirect
-	github.com/google/uuid v1.2.0 // indirect
-	github.com/googleapis/gax-go/v2 v2.0.5 // indirect
-	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
+	github.com/google/uuid v1.3.0 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.2.0 // indirect
+	github.com/googleapis/gax-go/v2 v2.7.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/imdario/mergo v0.3.8 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
-	github.com/jstemmer/go-junit-report v0.9.1 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/kevinburke/go-types v0.0.0-20210723172823-2deba1f80ba7 // indirect
 	github.com/kevinburke/rest v0.0.0-20210506044642-5611499aa33c // indirect
@@ -111,21 +113,19 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.3.1 // indirect
 	github.com/vmihailenco/tagparser v0.1.2 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
-	go.opencensus.io v0.23.0 // indirect
-	golang.org/x/lint v0.0.0-20201208152925-83fdc39ff7b5 // indirect
-	golang.org/x/mod v0.8.0 // indirect
-	golang.org/x/net v0.6.0 // indirect
-	golang.org/x/oauth2 v0.0.0-20210427180440-81ed05c6b58c // indirect
+	go.opencensus.io v0.24.0 // indirect
+	golang.org/x/net v0.7.0 // indirect
+	golang.org/x/oauth2 v0.4.0 // indirect
 	golang.org/x/sys v0.5.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.0.0-20201208040808-7e3f01d25324 // indirect
 	golang.org/x/tools v0.6.0 // indirect
-	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
+	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	gonum.org/v1/gonum v0.6.1 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
-	google.golang.org/genproto v0.0.0-20210429181445-86c259c2b4ab // indirect
-	google.golang.org/grpc v1.37.0 // indirect
-	google.golang.org/protobuf v1.26.0 // indirect
+	google.golang.org/genproto v0.0.0-20230110181048-76db0878b65f // indirect
+	google.golang.org/grpc v1.53.0 // indirect
+	google.golang.org/protobuf v1.28.1 // indirect
 	gopkg.in/AlecAivazis/survey.v1 v1.8.7 // indirect
 	gopkg.in/ini.v1 v1.51.0 // indirect
 	gopkg.in/kyokomi/emoji.v1 v1.5.1 // indirect
