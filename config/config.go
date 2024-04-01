@@ -46,6 +46,9 @@ type Config struct {
 	// Analytics
 	AmplitudeKey string
 
+	// Transactions
+	MaxOptionalPrecedingTransactions int
+
 	// Images
 	GCPCredentialsPath string
 	GCPBucketName      string
@@ -147,6 +150,9 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 
 	// Analytics
 	config.AmplitudeKey = viper.GetString("amplitude-key")
+
+	// Transactions
+	config.MaxOptionalPrecedingTransactions = viper.GetInt("max-optional-preceding-transactions")
 
 	// Images
 	config.GCPCredentialsPath = viper.GetString("gcp-credentials-path")

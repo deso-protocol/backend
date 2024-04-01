@@ -238,6 +238,8 @@ type UpdateProfileRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // UpdateProfileResponse ...
@@ -282,8 +284,12 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem with getUserMetadataFromGlobalState: %v", err))
 		return
 	}
-
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		fes.backendServer.GetBlockchain().BlockTip().Height+1,
+		time.Now().UnixNano(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Error fetching mempool view: %v", err))
 		return
