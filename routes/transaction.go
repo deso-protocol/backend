@@ -286,8 +286,6 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 	}
 	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
 		fes.backendServer.GetMempool(),
-		fes.backendServer.GetBlockchain().BlockTip().Height+1,
-		time.Now().UnixNano(),
 		requestData.OptionalPrecedingTransactions,
 	)
 	if err != nil {
