@@ -2377,6 +2377,12 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 // is used in constructing UtxoViews for atomic transaction workflows.
 func CheckPrecedingTransactions(inner http.Handler, precedingTransactionsLimit int) http.Handler {
 	return http.HandlerFunc(func(ww http.ResponseWriter, rr *http.Request) {
+		// If the request is NOT a POST request, skip this middleware as the request has no relevant payload.
+		if rr.Method != "POST" {
+			inner.ServeHTTP(ww, rr)
+			return
+		}
+
 		// Read and replace the request body.
 		data, err := io.ReadAll(rr.Body)
 		if err != nil {
