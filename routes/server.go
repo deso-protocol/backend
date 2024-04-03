@@ -2392,28 +2392,22 @@ func CheckPrecedingTransactions(inner http.Handler, precedingTransactionsLimit i
 		rr.Body.Close()
 		rr.Body = io.NopCloser(bytes.NewReader(data))
 
-		// Unmarshal the request into a map.
-		var body map[string]interface{}
-		if err := json.Unmarshal(data, &body); err != nil {
+		// Unmarshal the request such that we snag the OptionalPrecedingTransactions field from relevant endpoints.
+		var optionalPrecedingTransactionsStruct struct {
+			OptionalPrecedingTransactions []*lib.MsgDeSoTxn
+		}
+		if err := json.Unmarshal(data, &optionalPrecedingTransactionsStruct); err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("CheckPrecedingTransactions failed to unmarshal json: %v", err))
 			return
 		}
 
-		// Check and validate OptionalPrecedingTransactions, if present.
-		if optionalPrecedingTxnsData, exists := body["OptionalPrecedingTransactions"]; exists {
-			// Validate that optionalPrecedingTxns is of the correct type and length.
-			optionalPrecedingTxns, validType := optionalPrecedingTxnsData.([]*lib.MsgDeSoTxn)
-			if !validType {
-				_AddBadRequestError(ww,
-					fmt.Sprintf("CheckPrecedingTransactions: invalid OptionalPrecedingTransactions type"))
-				return
-			}
-			if optionalPrecedingTxns != nil && len(optionalPrecedingTxns) > precedingTransactionsLimit {
-				_AddBadRequestError(ww,
-					fmt.Sprintf("CheckPrecedingTransactions: too many optional preceding transactions: %d > %d",
-						len(optionalPrecedingTxns), precedingTransactionsLimit))
-				return
-			}
+		// Validate the number of transactions being sent to the endpoint.
+		if optionalPrecedingTransactionsStruct.OptionalPrecedingTransactions != nil &&
+			len(optionalPrecedingTransactionsStruct.OptionalPrecedingTransactions) > precedingTransactionsLimit {
+			_AddBadRequestError(ww,
+				fmt.Sprintf("CheckPrecedingTransactions: too many optional preceding transactions: %d > %d",
+					len(optionalPrecedingTransactionsStruct.OptionalPrecedingTransactions), precedingTransactionsLimit))
+			return
 		}
 
 		// Pass the request down to the next handler.
