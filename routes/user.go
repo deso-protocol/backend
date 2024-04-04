@@ -18,7 +18,7 @@ import (
 	"github.com/holiman/uint256"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/dgraph-io/badger/v3"
+	"github.com/dgraph-io/badger/v4"
 	"github.com/gorilla/mux"
 
 	"github.com/deso-protocol/core/lib"
