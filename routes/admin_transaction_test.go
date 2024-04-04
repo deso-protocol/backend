@@ -97,20 +97,20 @@ func TestUpdateGlobalParams(t *testing.T) {
 		// Update all GlobalParam fields.
 		updateGlobalParams(&UpdateGlobalParamsRequest{
 			UpdaterPublicKeyBase58Check:            senderPkString,
-			MinimumNetworkFeeNanosPerKB:            99,
+			MinimumNetworkFeeNanosPerKB:            1000,
 			StakeLockupEpochDuration:               4,
 			ValidatorJailEpochDuration:             4,
 			LeaderScheduleMaxNumValidators:         101,
 			ValidatorSetMaxNumValidators:           102,
 			EpochDurationNumBlocks:                 3601,
 			JailInactiveValidatorGracePeriodEpochs: 49,
-			MinFeeRateNanosPerKB:                   99,
+			MinFeeRateNanosPerKB:                   1000,
 		})
 	}
 	{
 		// Verify all updated GlobalParam fields.
 		globalParams := getGlobalParams()
-		require.Equal(t, globalParams.MinimumNetworkFeeNanosPerKB, uint64(99))
+		require.Equal(t, globalParams.MinimumNetworkFeeNanosPerKB, uint64(1000))
 		require.Equal(t, globalParams.StakeLockupEpochDuration, uint64(4))
 		require.Equal(t, globalParams.ValidatorJailEpochDuration, uint64(4))
 		require.Equal(t, globalParams.LeaderScheduleMaxNumValidators, uint64(101))
@@ -122,15 +122,15 @@ func TestUpdateGlobalParams(t *testing.T) {
 		// Update only one GlobalParam field.
 		updateGlobalParams(&UpdateGlobalParamsRequest{
 			UpdaterPublicKeyBase58Check:            senderPkString,
-			MinimumNetworkFeeNanosPerKB:            99,
+			MinimumNetworkFeeNanosPerKB:            1000,
 			JailInactiveValidatorGracePeriodEpochs: 50,
-			MinFeeRateNanosPerKB:                   99,
+			MinFeeRateNanosPerKB:                   1000,
 		})
 	}
 	{
 		// Verify updated GlobalParam field. And other fields retain old values.
 		globalParams := getGlobalParams()
-		require.Equal(t, globalParams.MinimumNetworkFeeNanosPerKB, uint64(99))
+		require.Equal(t, globalParams.MinimumNetworkFeeNanosPerKB, uint64(1000))
 		require.Equal(t, globalParams.StakeLockupEpochDuration, uint64(4))
 		require.Equal(t, globalParams.ValidatorJailEpochDuration, uint64(4))
 		require.Equal(t, globalParams.LeaderScheduleMaxNumValidators, uint64(101))
