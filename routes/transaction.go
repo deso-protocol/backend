@@ -620,6 +620,11 @@ func GetBalanceForPublicKeyUsingUtxoView(
 	return totalBalanceNanos, nil
 }
 
+// SubsidizedUpdateProfile
+func (fes *APIServer) SubsidizedUpdateProfile(ww http.ResponseWriter, req *http.Request) {
+	_AddBadRequestError(ww, "SubsidizedUpdateProfile: Not implemented")
+}
+
 // ExchangeBitcoinRequest ...
 type ExchangeBitcoinRequest struct {
 	// The public key of the user who we're creating the burn for.
