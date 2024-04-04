@@ -89,6 +89,8 @@ type CreateNFTRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 type CreateNFTResponse struct {
@@ -110,7 +112,10 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Grab a view (needed for getting global params, etc).
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Error getting utxoView: %v", err))
 		return
@@ -306,6 +311,8 @@ type UpdateNFTRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 type UpdateNFTResponse struct {
@@ -327,7 +334,10 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateNFT: Error getting utxoView: %v", err))
 		return
@@ -454,6 +464,8 @@ type CreateNFTBidRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 type CreateNFTBidResponse struct {
@@ -477,7 +489,10 @@ func (fes *APIServer) CreateNFTBid(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFTBid: Error getting utxoView: %v", err))
 		return
@@ -615,6 +630,8 @@ type AcceptNFTBidRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 type AcceptNFTBidResponse struct {
@@ -638,7 +655,10 @@ func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTBid: Error getting utxoView: %v", err))
 		return
@@ -1531,6 +1551,8 @@ type TransferNFTRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 type TransferNFTResponse struct {
@@ -1554,7 +1576,10 @@ func (fes *APIServer) TransferNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Error getting utxoView: %v", err))
 		return
@@ -1693,6 +1718,8 @@ type AcceptNFTTransferRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 type AcceptNFTTransferResponse struct {
@@ -1715,7 +1742,10 @@ func (fes *APIServer) AcceptNFTTransfer(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: Error getting utxoView: %v", err))
 		return
@@ -1832,6 +1862,8 @@ type BurnNFTRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 type BurnNFTResponse struct {
@@ -1854,7 +1886,10 @@ func (fes *APIServer) BurnNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Error getting utxoView: %v", err))
 		return

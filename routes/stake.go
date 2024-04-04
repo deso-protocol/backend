@@ -55,6 +55,8 @@ type StakeRequest struct {
 	ExtraData                      map[string]string `safeForLogging:"true"`
 	MinFeeRateNanosPerKB           uint64            `safeForLogging:"true"`
 	TransactionFees                []TransactionFee  `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 type UnstakeRequest struct {
@@ -64,6 +66,8 @@ type UnstakeRequest struct {
 	ExtraData                      map[string]string `safeForLogging:"true"`
 	MinFeeRateNanosPerKB           uint64            `safeForLogging:"true"`
 	TransactionFees                []TransactionFee  `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 type UnlockStakeRequest struct {
@@ -159,7 +163,10 @@ func (fes *APIServer) CreateStakeTxn(ww http.ResponseWriter, req *http.Request) 
 		return
 	}
 	stakeAmountNanosUint64 := requestData.StakeAmountNanos.Uint64()
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateStakeTxn: Problem fetching utxoView: %v", err))
 		return
@@ -273,7 +280,10 @@ func (fes *APIServer) CreateUnstakeTxn(ww http.ResponseWriter, req *http.Request
 		_AddBadRequestError(ww, fmt.Sprint("CreateUnstakeTxn: UnstakeAmountNanos must be a uint64"))
 		return
 	}
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateUnstakeTxn: Problem fetching utxoView: %v", err))
 		return
