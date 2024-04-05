@@ -130,6 +130,14 @@ type UpdateGlobalParamsRequest struct {
 	// are included when generating a new Proof-of-Stake validator set.
 	ValidatorSetMaxNumValidators uint64 `safeForLogging:"true"`
 
+	// StakingRewardsMaxNumStakes is the maximum number of stakes that
+	// are eligible to receive rewards in the end of epoch hook.
+	StakingRewardsMaxNumStakes uint64 `safeForLogging:"true"`
+
+	// StakingRewardsAPYBasisPoints is the annual percentage yield that
+	// is used to compute end-of-epoch staking rewards.
+	StakingRewardsAPYBasisPoints uint64 `safeForLogging:"true"`
+
 	// EpochDurationNumBlocks is the number of blocks included in one epoch.
 	EpochDurationNumBlocks uint64 `safeForLogging:"true"`
 
@@ -137,6 +145,45 @@ type UpdateGlobalParamsRequest struct {
 	// allow a validator to be inactive for (neither voting nor proposing
 	// blocks) before they are jailed.
 	JailInactiveValidatorGracePeriodEpochs uint64 `safeForLogging:"true"`
+
+	// MaximumVestedIntersectionsPerLockupTransaction is the maximum number
+	// of intersections that can be vested per lockup transaction.
+	MaximumVestedIntersectionsPerLockupTransaction int `safeForLogging:"true"`
+
+	// FeeBucketGrowthRateBasisPoints is the growth rate in basis points of
+	// fee buckets for the mempool's transaction register.
+	FeeBucketGrowthRateBasisPoints uint64 `safeForLogging:"true"`
+
+	// BlockTimestampDriftNanoSecs is the maximum number of nanoseconds from the current timestamp that
+	// we will allow a PoS block to be submitted.
+	BlockTimestampDriftNanoSecs int64 `safeForLogging:"true"`
+
+	// MempoolMaxSizeBytes is the maximum size of the mempool in bytes.
+	MempoolMaxSizeBytes uint64 `safeForLogging:"true"`
+
+	// MempoolFeeEstimatorNumMempoolBlocks is the number of possible future blocks to a txn may be placed
+	// into when consider when estimating the fee for a new txn.
+	MempoolFeeEstimatorNumMempoolBlocks uint64
+
+	// MempoolFeeEstimatorNumPastBlocks is the number of past blocks to reference txn fees from when estimating
+	// the fee for a new txn.
+	MempoolFeeEstimatorNumPastBlocks uint64
+
+	// MaxBlockSizeBytesPoS is the maximum size of a block in bytes.
+	MaxBlockSizeBytesPoS uint64
+
+	// SoftMaxBlockSizeBytesPoS is the ideal steady state size of a block in bytes.
+	// This value will be used to control size of block production and congestion in fee estimation.
+	SoftMaxBlockSizeBytesPoS uint64
+
+	// MaxTxnSizeBytesPoS is the maximum size of a transaction in bytes allowed.
+	MaxTxnSizeBytesPoS uint64
+
+	// BlockProductionIntervalMillisecondsPoS is the time in milliseconds to produce blocks.
+	BlockProductionIntervalMillisecondsPoS uint64
+
+	// TimeoutIntervalMillisecondsPoS is the time in milliseconds to wait before timing out a view.
+	TimeoutIntervalMillisecondsPoS uint64
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
@@ -256,6 +303,16 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 		extraData[lib.ValidatorSetMaxNumValidatorsKey] = lib.UintToBuf(requestData.ValidatorSetMaxNumValidators)
 	}
 
+	if requestData.StakingRewardsMaxNumStakes > 0 &&
+		requestData.StakingRewardsMaxNumStakes != globalParamsEntry.StakingRewardsMaxNumStakes {
+		extraData[lib.StakingRewardsMaxNumStakesKey] = lib.UintToBuf(requestData.StakingRewardsMaxNumStakes)
+	}
+
+	if requestData.StakingRewardsAPYBasisPoints > 0 &&
+		requestData.StakingRewardsAPYBasisPoints != globalParamsEntry.StakingRewardsAPYBasisPoints {
+		extraData[lib.StakingRewardsAPYBasisPointsKey] = lib.UintToBuf(requestData.StakingRewardsAPYBasisPoints)
+	}
+
 	if requestData.EpochDurationNumBlocks > 0 &&
 		requestData.EpochDurationNumBlocks != globalParamsEntry.EpochDurationNumBlocks {
 		extraData[lib.EpochDurationNumBlocksKey] = lib.UintToBuf(requestData.EpochDurationNumBlocks)
@@ -264,6 +321,61 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 	if requestData.JailInactiveValidatorGracePeriodEpochs > 0 &&
 		requestData.JailInactiveValidatorGracePeriodEpochs != globalParamsEntry.JailInactiveValidatorGracePeriodEpochs {
 		extraData[lib.JailInactiveValidatorGracePeriodEpochsKey] = lib.UintToBuf(requestData.JailInactiveValidatorGracePeriodEpochs)
+	}
+
+	if requestData.MaximumVestedIntersectionsPerLockupTransaction > 0 &&
+		requestData.MaximumVestedIntersectionsPerLockupTransaction != globalParamsEntry.MaximumVestedIntersectionsPerLockupTransaction {
+		extraData[lib.MaximumVestedIntersectionsPerLockupTransactionKey] = lib.IntToBuf(int64(requestData.MaximumVestedIntersectionsPerLockupTransaction))
+	}
+
+	if requestData.FeeBucketGrowthRateBasisPoints > 0 &&
+		requestData.FeeBucketGrowthRateBasisPoints != globalParamsEntry.FeeBucketGrowthRateBasisPoints {
+		extraData[lib.FeeBucketGrowthRateBasisPointsKey] = lib.UintToBuf(requestData.FeeBucketGrowthRateBasisPoints)
+	}
+
+	if requestData.BlockTimestampDriftNanoSecs > 0 &&
+		requestData.BlockTimestampDriftNanoSecs != globalParamsEntry.BlockTimestampDriftNanoSecs {
+		extraData[lib.BlockTimestampDriftNanoSecsKey] = lib.IntToBuf(requestData.BlockTimestampDriftNanoSecs)
+	}
+
+	if requestData.MempoolMaxSizeBytes > 0 &&
+		requestData.MempoolMaxSizeBytes != globalParamsEntry.MempoolMaxSizeBytes {
+		extraData[lib.MempoolMaxSizeBytesKey] = lib.UintToBuf(requestData.MempoolMaxSizeBytes)
+	}
+
+	if requestData.MempoolFeeEstimatorNumMempoolBlocks > 0 &&
+		requestData.MempoolFeeEstimatorNumMempoolBlocks != globalParamsEntry.MempoolFeeEstimatorNumMempoolBlocks {
+		extraData[lib.MempoolFeeEstimatorNumMempoolBlocksKey] = lib.UintToBuf(requestData.MempoolFeeEstimatorNumMempoolBlocks)
+	}
+
+	if requestData.MempoolFeeEstimatorNumPastBlocks > 0 &&
+		requestData.MempoolFeeEstimatorNumPastBlocks != globalParamsEntry.MempoolFeeEstimatorNumPastBlocks {
+		extraData[lib.MempoolFeeEstimatorNumPastBlocksKey] = lib.UintToBuf(requestData.MempoolFeeEstimatorNumPastBlocks)
+	}
+
+	if requestData.MaxBlockSizeBytesPoS > 0 &&
+		requestData.MaxBlockSizeBytesPoS != globalParamsEntry.MaxBlockSizeBytesPoS {
+		extraData[lib.MaxBlockSizeBytesPoSKey] = lib.UintToBuf(requestData.MaxBlockSizeBytesPoS)
+	}
+
+	if requestData.SoftMaxBlockSizeBytesPoS > 0 &&
+		requestData.SoftMaxBlockSizeBytesPoS != globalParamsEntry.SoftMaxBlockSizeBytesPoS {
+		extraData[lib.SoftMaxBlockSizeBytesPoSKey] = lib.UintToBuf(requestData.SoftMaxBlockSizeBytesPoS)
+	}
+
+	if requestData.MaxTxnSizeBytesPoS > 0 &&
+		requestData.MaxTxnSizeBytesPoS != globalParamsEntry.MaxTxnSizeBytesPoS {
+		extraData[lib.MaxTxnSizeBytesPoSKey] = lib.UintToBuf(requestData.MaxTxnSizeBytesPoS)
+	}
+
+	if requestData.BlockProductionIntervalMillisecondsPoS > 0 &&
+		requestData.BlockProductionIntervalMillisecondsPoS != globalParamsEntry.BlockProductionIntervalMillisecondsPoS {
+		extraData[lib.BlockProductionIntervalPoSKey] = lib.UintToBuf(requestData.BlockProductionIntervalMillisecondsPoS)
+	}
+
+	if requestData.TimeoutIntervalMillisecondsPoS > 0 &&
+		requestData.TimeoutIntervalMillisecondsPoS != globalParamsEntry.TimeoutIntervalMillisecondsPoS {
+		extraData[lib.TimeoutIntervalPoSKey] = lib.UintToBuf(requestData.TimeoutIntervalMillisecondsPoS)
 	}
 
 	// Try and create the update txn for the user.
