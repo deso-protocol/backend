@@ -4346,3 +4346,23 @@ func (fes *APIServer) GetTxnConstructionParams(ww http.ResponseWriter, req *http
 		return
 	}
 }
+
+func (fes *APIServer) GetCommittedTipBlockInfo(ww http.ResponseWriter, req *http.Request) {
+	// Get the block tip from the blockchain.
+	fes.backendServer.GetBlockchain().ChainLock.RLock()
+	blockTip, idx := fes.backendServer.GetBlockchain().GetCommittedTip()
+	fes.backendServer.GetBlockchain().ChainLock.RUnlock()
+	if idx == -1 {
+		_AddBadRequestError(ww, "GetCommittedTipBlockInfo: Problem getting block tip")
+		return
+	}
+	// Return the block tip.
+	if err := json.NewEncoder(ww).Encode(&lib.CheckpointBlockInfo{
+		Height:  blockTip.Header.Height,
+		Hash:    blockTip.Hash,
+		HashHex: blockTip.Hash.String(),
+	}); err != nil {
+		_AddBadRequestError(ww, "GetCommittedTipBlockInfo: Problem encoding response as JSON: "+err.Error())
+		return
+	}
+}

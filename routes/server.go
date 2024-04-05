@@ -1036,6 +1036,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"GetCommittedTipBlockInfo",
+			[]string{"GET"},
+			lib.RoutePathGetCommittedTipBlockInfo,
+			fes.GetCommittedTipBlockInfo,
+			PublicAccess,
+		},
+		{
 			"GetNotifications",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetNotifications,
