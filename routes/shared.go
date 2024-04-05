@@ -394,8 +394,9 @@ func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, 
 		}
 
 		minFee := fes.MinFeeRateNanosPerKB
-		if utxoView.GlobalParamsEntry != nil && utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB > 0 {
-			minFee = utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB
+		if utxoView.GetCurrentGlobalParamsEntry() != nil &&
+			utxoView.GetCurrentGlobalParamsEntry().MinimumNetworkFeeNanosPerKB > 0 {
+			minFee = utxoView.GetCurrentGlobalParamsEntry().MinimumNetworkFeeNanosPerKB
 		}
 		_, _, _, _, err = fes.blockchain.AddInputsAndChangeToTransaction(txn, minFee, fes.backendServer.GetMempool())
 		if err != nil {
