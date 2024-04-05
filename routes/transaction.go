@@ -478,7 +478,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 		return 0, nil, nil
 	}
 	// Additional fee is set to the create profile fee when we are creating a profile
-	additionalFees := utxoView.GlobalParamsEntry.CreateProfileFeeNanos
+	additionalFees := utxoView.GetCurrentGlobalParamsEntry().CreateProfileFeeNanos
 	if additionalFees == 0 {
 		return 0, nil, nil
 	}
@@ -496,7 +496,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	if err != nil {
 		return 0, nil, errors.Wrap(fmt.Errorf("UpdateProfile: error getting current balance: %v", err), "")
 	}
-	createProfileFeeNanos := utxoView.GlobalParamsEntry.CreateProfileFeeNanos
+	createProfileFeeNanos := utxoView.GetCurrentGlobalParamsEntry().CreateProfileFeeNanos
 
 	// If a user is jumio verified, we just comp the profile even if their balance is greater than the create profile fee.
 	// If a user has a phone number verified but is not jumio verified, we need to check that they haven't spent all their
