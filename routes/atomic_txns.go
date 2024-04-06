@@ -76,7 +76,7 @@ func (fes *APIServer) CreateAtomicTxnsWrapper(ww http.ResponseWriter, req *http.
 	// Validate that:
 	// 	(1) The resulting transaction is not over the size limit of an atomic transaction.
 	// 	(2) The resulting wrapper transactions have sufficient fees to cover the wrapper.
-	if txnSizeBytes > utxoView.GlobalParamsEntry.MaxTxnSizeBytesPoS {
+	if txnSizeBytes > utxoView.GetCurrentGlobalParamsEntry().MaxTxnSizeBytesPoS {
 		_AddBadRequestError(ww, fmt.Sprint("CreateAtomicTxnsWrapper: Resulting wrapper transaction too large"))
 		return
 	}

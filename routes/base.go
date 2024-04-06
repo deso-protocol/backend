@@ -391,7 +391,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Compute a default fee rate.
-	globalParams := utxoView.GlobalParamsEntry
+	globalParams := utxoView.GetCurrentGlobalParamsEntry()
 	defaultFeeRateNanosPerKB := fes.MinFeeRateNanosPerKB
 	if globalParams != nil && globalParams.MinimumNetworkFeeNanosPerKB > 0 {
 		defaultFeeRateNanosPerKB = globalParams.MinimumNetworkFeeNanosPerKB

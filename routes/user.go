@@ -99,7 +99,7 @@ func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard 
 	if err != nil {
 		return nil, fmt.Errorf("updateUserFields: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
 	}
-	globalParams := utxoView.GlobalParamsEntry
+	globalParams := utxoView.GetCurrentGlobalParamsEntry()
 	for _, user := range userList {
 		// If we get an error updating the user, log it but don't stop the show.
 		if err = fes.updateUserFieldsStateless(
