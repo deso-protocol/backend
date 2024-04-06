@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/tyler-smith/go-bip39"
 	"io"
 	"math/big"
 	"net/http"
@@ -318,87 +319,10 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		profilePublicKey = profilePublicKeyBytess
 	}
 
-	if len(requestData.NewUsername) > 0 && strings.Index(requestData.NewUsername, fes.PublicKeyBase58Prefix) == 0 {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"UpdateProfile: Username cannot start with %s", fes.PublicKeyBase58Prefix))
+	// Validate the request.
+	if err := fes.ValidateAndConvertUpdateProfileRequest(&requestData, profilePublicKey, utxoView); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem validating request: %v", err))
 		return
-	}
-
-	if uint64(len([]byte(requestData.NewUsername))) > utxoView.Params.MaxUsernameLengthBytes {
-		_AddBadRequestError(ww, lib.RuleErrorProfileUsernameTooLong.Error())
-		return
-	}
-
-	if uint64(len([]byte(requestData.NewDescription))) > utxoView.Params.MaxUserDescriptionLengthBytes {
-		_AddBadRequestError(ww, lib.RuleErrorProfileDescriptionTooLong.Error())
-		return
-	}
-
-	// If an image is set on the request then resize it.
-	// Convert image to base64 by stripping the data: prefix.
-	if requestData.NewProfilePic != "" {
-		// split on base64 to get the extension
-		extensionSplit := strings.Split(requestData.NewProfilePic, ";base64")
-		if len(extensionSplit) != 2 {
-			_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem parsing profile pic extension: %v", err))
-			return
-		}
-		extension := extensionSplit[0]
-		switch {
-		case strings.Contains(extension, "image/png"):
-			extension = ".png"
-		case strings.Contains(extension, "image/jpeg"):
-			extension = ".jpeg"
-		case strings.Contains(extension, "image/webp"):
-			extension = ".webp"
-		case strings.Contains(extension, "image/gif"):
-			extension = ".gif"
-		default:
-			_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Unsupported image type: %v", extension))
-			return
-		}
-		var resizedImageBytes []byte
-		resizedImageBytes, err = resizeAndConvertToWebp(
-			requestData.NewProfilePic, uint(fes.Params.MaxProfilePicDimensions), extension)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("Problem resizing profile picture: %v", err))
-			return
-		}
-		// Convert the image back into base64
-		webpBase64 := base64.StdEncoding.EncodeToString(resizedImageBytes)
-		requestData.NewProfilePic = "data:image/webp;base64," + webpBase64
-		if uint64(len([]byte(requestData.NewProfilePic))) > utxoView.Params.MaxProfilePicLengthBytes {
-			_AddBadRequestError(ww, lib.RuleErrorMaxProfilePicSize.Error())
-			return
-		}
-	}
-
-	// CreatorBasisPoints > 0 < max, uint64 can't be less than zero
-	if requestData.NewCreatorBasisPoints > fes.Params.MaxCreatorBasisPoints {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"UpdateProfile: Creator percentage must be less than %v percent",
-			fes.Params.MaxCreatorBasisPoints/100))
-		return
-	}
-
-	// Verify that this username doesn't exist in the mempool.
-	if len(requestData.NewUsername) > 0 {
-
-		utxoView.GetProfileEntryForUsername([]byte(requestData.NewUsername))
-		existingProfile, usernameExists := utxoView.ProfileUsernameToProfileEntry[lib.MakeUsernameMapKey([]byte(requestData.NewUsername))]
-		if usernameExists && existingProfile != nil && !existingProfile.IsDeleted() {
-			// Check that the existing profile does not belong to the profile public key
-			if utxoView.GetPKIDForPublicKey(profilePublicKey) != utxoView.GetPKIDForPublicKey(existingProfile.PublicKey) {
-				_AddBadRequestError(ww, fmt.Sprintf(
-					"UpdateProfile: Username %v already exists", string(existingProfile.Username)))
-				return
-			}
-
-		}
-		if !lib.UsernameRegex.Match([]byte(requestData.NewUsername)) {
-			_AddBadRequestError(ww, lib.RuleErrorInvalidUsername.Error())
-			return
-		}
 	}
 
 	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
@@ -468,6 +392,93 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("SendMessage: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+func (fes *APIServer) ValidateAndConvertUpdateProfileRequest(
+	requestData *UpdateProfileRequest,
+	profilePublicKey []byte,
+	utxoView *lib.UtxoView,
+) error {
+	if len(requestData.NewUsername) > 0 && strings.Index(requestData.NewUsername, fes.PublicKeyBase58Prefix) == 0 {
+		return fmt.Errorf(
+			"ValidateAndConvertUpdateProfileRequest: Username cannot start with %s", fes.PublicKeyBase58Prefix)
+	}
+
+	if uint64(len([]byte(requestData.NewUsername))) > utxoView.Params.MaxUsernameLengthBytes {
+		return errors.Wrap(lib.RuleErrorProfileUsernameTooLong, "ValidateAndConvertUpdateProfileRequest")
+	}
+
+	if uint64(len([]byte(requestData.NewDescription))) > utxoView.Params.MaxUserDescriptionLengthBytes {
+		return errors.Wrap(lib.RuleErrorProfileDescriptionTooLong, "ValidateAndConvertUpdateProfileRequest")
+	}
+
+	// If an image is set on the request then resize it.
+	// Convert image to base64 by stripping the data: prefix.
+	if requestData.NewProfilePic != "" {
+		// split on base64 to get the extension
+		extensionSplit := strings.Split(requestData.NewProfilePic, ";base64")
+		if len(extensionSplit) != 2 {
+			return fmt.Errorf("ValidateAndConvertUpdateProfileRequest: " +
+				"Problem parsing profile pic extension; invalid extension split")
+		}
+		extension := extensionSplit[0]
+		switch {
+		case strings.Contains(extension, "image/png"):
+			extension = ".png"
+		case strings.Contains(extension, "image/jpeg"):
+			extension = ".jpeg"
+		case strings.Contains(extension, "image/webp"):
+			extension = ".webp"
+		case strings.Contains(extension, "image/gif"):
+			extension = ".gif"
+		default:
+			return fmt.Errorf(
+				"ValidateAndConvertUpdateProfileRequest: Unsupported image type: %v", extension)
+		}
+		var resizedImageBytes []byte
+		resizedImageBytes, err := resizeAndConvertToWebp(
+			requestData.NewProfilePic, uint(fes.Params.MaxProfilePicDimensions), extension)
+		if err != nil {
+			return fmt.Errorf(
+				"ValidateAndConvertUpdateProfileRequest: Problem resizing profile picture: %v", err)
+		}
+		// Convert the image back into base64
+		webpBase64 := base64.StdEncoding.EncodeToString(resizedImageBytes)
+		requestData.NewProfilePic = "data:image/webp;base64," + webpBase64
+		if uint64(len([]byte(requestData.NewProfilePic))) > utxoView.Params.MaxProfilePicLengthBytes {
+			return errors.Wrap(lib.RuleErrorMaxProfilePicSize, "ValidateAndConvertUpdateProfileRequest")
+		}
+	}
+
+	// CreatorBasisPoints > 0 < max, uint64 can't be less than zero
+	if requestData.NewCreatorBasisPoints > fes.Params.MaxCreatorBasisPoints {
+		return fmt.Errorf(
+			"ValidateAndConvertUpdateProfileRequest: Creator percentage must be less than %v percent",
+			fes.Params.MaxCreatorBasisPoints/100)
+	}
+
+	// Verify that this username doesn't exist in the mempool.
+	if len(requestData.NewUsername) > 0 {
+
+		utxoView.GetProfileEntryForUsername([]byte(requestData.NewUsername))
+		existingProfile, usernameExists :=
+			utxoView.ProfileUsernameToProfileEntry[lib.MakeUsernameMapKey([]byte(requestData.NewUsername))]
+		if usernameExists && existingProfile != nil && !existingProfile.IsDeleted() {
+			// Check that the existing profile does not belong to the profile public key
+			if utxoView.GetPKIDForPublicKey(profilePublicKey) !=
+				utxoView.GetPKIDForPublicKey(existingProfile.PublicKey) {
+				return fmt.Errorf(
+					"ValidateAndConvertUpdateProfileRequest: Username %v already exists",
+					string(existingProfile.Username))
+			}
+
+		}
+		if !lib.UsernameRegex.Match([]byte(requestData.NewUsername)) {
+			return errors.Wrap(lib.RuleErrorInvalidUsername, "ValidateAndConvertUpdateProfileRequest")
+		}
+	}
+
+	return nil
 }
 
 func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata *UserMetadata, utxoView *lib.UtxoView) (_additionalFee uint64, _txnHash *lib.BlockHash, _err error) {
@@ -620,9 +631,219 @@ func GetBalanceForPublicKeyUsingUtxoView(
 	return totalBalanceNanos, nil
 }
 
+// SubsidizedUpdateProfileResponse ...
+type SubsidizedUpdateProfileResponse struct {
+	// IncompleteAtomicTransactions is a DeSo transaction of type lib.TxnTypeAtomicTxnsWrapper.
+	// It contains a metadata field that is a list of the following DeSo transactions
+	// that are to be executed atomically:
+	//
+	//	(1) A signed basic transfer to the user who submitted the subsidized update profile request.
+	//		The transferred amount is the exact amount required to pay for the update profile transaction.
+	//	(2) The unsigned requested update profile transaction.
+	//
+	// The caller on receipt of this response should sign the update profile
+	// transaction and then submit the atomic transaction.
+	IncompleteAtomicTransaction *lib.MsgDeSoTxn
+}
+
 // SubsidizedUpdateProfile
 func (fes *APIServer) SubsidizedUpdateProfile(ww http.ResponseWriter, req *http.Request) {
-	_AddBadRequestError(ww, "SubsidizedUpdateProfile: Not implemented")
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := UpdateProfileRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Grab a view (needed for getting global params, etc).
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateAtomicTxnsWrapper: Error getting utxoView: %v", err))
+		return
+	}
+
+	// Grab subsidization keys.
+	subsidizationSeedBytes, err := bip39.NewSeedWithErrorChecking(fes.Config.TransactionSubsidizationSeed, "")
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem generating subsidization seed: %v", err))
+		return
+	}
+	subsidizationPublicKey, subsidizationPrivateKey, _, err :=
+		lib.ComputeKeysFromSeed(subsidizationSeedBytes, 0, fes.Params)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem computing subsidization keys: %v", err))
+		return
+	}
+
+	// Convert the updater and profile public keys to bytes.
+	var profilePublicKeyBytes, updaterPublicKeyBytes []byte
+	if requestData.ProfilePublicKeyBase58Check != "" {
+		profilePublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ProfilePublicKeyBase58Check)
+		if err != nil || len(profilePublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubsidizedUpdateProfile: Problem decoding profile public key %s: %v",
+				requestData.ProfilePublicKeyBase58Check, err))
+			return
+		}
+	}
+	if requestData.UpdaterPublicKeyBase58Check != "" {
+		updaterPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.UpdaterPublicKeyBase58Check)
+		if err != nil || len(updaterPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubsidizedUpdateProfile: Problem decoding updater public key %s: %v",
+				requestData.UpdaterPublicKeyBase58Check, err))
+			return
+		}
+	}
+
+	// Grab the profile being updated public key.
+	profilePublicKey := updaterPublicKeyBytes
+	if requestData.ProfilePublicKeyBase58Check != "" {
+		profilePublicKey = profilePublicKeyBytes
+	}
+
+	// NOTE: We cannot simply copy and paste the existing logic from UpdateProfile
+	// as some of that logic is dependent on the user's balance being non-zero. Since
+	// we use this endpoint to subsidize the user's update profile, we instead speculatively
+	// construct the update profile transaction for the user.
+
+	// (1) Validate and construct the update profile transaction.
+	var updateProfileTxn *lib.MsgDeSoTxn
+
+	// (1a) Validate the request data.
+	if err := fes.ValidateAndConvertUpdateProfileRequest(&requestData, profilePublicKey, utxoView); err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem validating request data: %v", err))
+		return
+	}
+
+	// (1b) Compute the transaction fees for this update profile transaction and encode the associated extra data.
+	additionalOutputs, err :=
+		fes.getTransactionFee(lib.TxnTypeUpdateProfile, updaterPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: TransactionFees "+
+				"specified in Request body are invalid: %v", err))
+		return
+	}
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubsidizedUpdateProfile: Problem encoding ExtraData: %v", err))
+		return
+	}
+
+	// (1c) Determine if a profile creation fee must be paid.
+	additionalFees := uint64(0)
+	if existingProfileEntry := utxoView.GetProfileEntryForPublicKey(profilePublicKey); existingProfileEntry == nil {
+		additionalFees = utxoView.GetCurrentGlobalParamsEntry().CreateProfileFeeNanos
+	}
+
+	// (1c) Construct the update profile transaction.
+	updateProfileTxn, _, _, _, err = fes.blockchain.CreateUpdateProfileTxn(
+		updaterPublicKeyBytes,
+		profilePublicKeyBytes,
+		requestData.NewUsername,
+		requestData.NewDescription,
+		requestData.NewProfilePic,
+		requestData.NewCreatorBasisPoints,
+		requestData.NewStakeMultipleBasisPoints,
+		requestData.IsHidden,
+		additionalFees,
+		extraData,
+		requestData.MinFeeRateNanosPerKB,
+		fes.backendServer.GetMempool(),
+		additionalOutputs,
+	)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem creating update profile transaction: %v", err))
+		return
+	}
+
+	// (2) Construct the basic transfer transaction to subsidize the user.
+	basicTransferTxn := &lib.MsgDeSoTxn{
+		TxInputs: []*lib.DeSoInput{},
+		TxOutputs: []*lib.DeSoOutput{
+			{
+				AmountNanos: ComputeNecessarySubsidyForTransaction(updateProfileTxn),
+				PublicKey:   updaterPublicKeyBytes,
+			},
+		},
+		PublicKey: subsidizationPublicKey.SerializeCompressed(),
+		TxnMeta:   &lib.BasicTransferMetadata{},
+	}
+	_, _, _, _, err = fes.blockchain.AddInputsAndChangeToTransaction(
+		basicTransferTxn,
+		utxoView.GetCurrentGlobalParamsEntry().MinimumNetworkFeeNanosPerKB,
+		fes.backendServer.GetMempool(),
+	)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem creating basic transfer transaction: %v", err))
+		return
+	}
+
+	// (3) Wrap the two transactions in an atomic transaction wrapper.
+	atomicTxnWrapper, totalFees, err := fes.blockchain.CreateAtomicTxnsWrapper(
+		[]*lib.MsgDeSoTxn{basicTransferTxn, updateProfileTxn}, nil)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem constructing atomic transaction wrapper: %v", err))
+		return
+	}
+
+	// (3a) Validate the atomic transaction wrapper has sufficient fees paid.
+	txnBytes, err := atomicTxnWrapper.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem serializing transaction: %v", err))
+		return
+	}
+	txnSizeBytes := uint64(len(txnBytes))
+	if txnSizeBytes != 0 && utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB != 0 {
+		// Check for overflow or minimum network fee not met.
+		if totalFees != ((totalFees*1000)/1000) ||
+			(totalFees*1000)/uint64(txnSizeBytes) < utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB {
+			_AddBadRequestError(ww, fmt.Sprint("SubsidizedUpdateProfile: Transactions used to construct"+
+				" atomic transaction do not cumulatively pay sufficient network fees to cover wrapper"))
+			return
+		}
+	}
+
+	// (4) Sign the basic transfer transaction within the atomic transaction wrapper.
+	basicTransferSignature, err :=
+		atomicTxnWrapper.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns[0].Sign(subsidizationPrivateKey)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem signing basic transfer transaction: %v", err))
+		return
+	}
+	atomicTxnWrapper.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns[0].Signature.SetSignature(basicTransferSignature)
+
+	// (5) Return the atomic transaction wrapper to the user.
+	res := SubsidizedUpdateProfileResponse{
+		IncompleteAtomicTransaction: atomicTxnWrapper,
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+// ComputeNecessarySubsidyForTransaction is a helper function to find out how much
+// a user must be transferred in order to exactly execute a given transaction.
+//
+// In the balance model era, the total amount of DESO required to execute a transaction
+// is equivalent to the sum of the fees paid and the sum of the basic transfers (outputs).
+func ComputeNecessarySubsidyForTransaction(txn *lib.MsgDeSoTxn) uint64 {
+	necessarySubsidy := txn.TxnFeeNanos
+	for _, txOutput := range txn.TxOutputs {
+		necessarySubsidy += txOutput.AmountNanos
+	}
+	return necessarySubsidy
 }
 
 // ExchangeBitcoinRequest ...
