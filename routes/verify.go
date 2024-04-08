@@ -143,7 +143,9 @@ func (fes *APIServer) canUserCreateProfile(userMetadata *UserMetadata, utxoView 
 	// User can create a profile if they have a phone number or if they have enough DeSo to cover the create profile fee.
 	// User can also create a profile if they've successfully filled out a captcha.
 	// The PhoneNumber is only set if the user has passed phone number verification.
-	if userMetadata.PhoneNumber != "" || totalBalanceNanos >= utxoView.GlobalParamsEntry.CreateProfileFeeNanos || userMetadata.LastHcaptchaBlockHeight > 0 {
+	if userMetadata.PhoneNumber != "" ||
+		totalBalanceNanos >= utxoView.GetCurrentGlobalParamsEntry().CreateProfileFeeNanos ||
+		userMetadata.LastHcaptchaBlockHeight > 0 {
 		return true, nil
 	}
 

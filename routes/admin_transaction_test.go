@@ -90,7 +90,7 @@ func TestUpdateGlobalParams(t *testing.T) {
 		require.Equal(t, globalParams.StakeLockupEpochDuration, uint64(3))
 		require.Equal(t, globalParams.ValidatorJailEpochDuration, uint64(3))
 		require.Equal(t, globalParams.LeaderScheduleMaxNumValidators, uint64(100))
-		require.Equal(t, globalParams.EpochDurationNumBlocks, uint64(10))
+		require.Equal(t, globalParams.EpochDurationNumBlocks, uint64(144))
 		require.Equal(t, globalParams.JailInactiveValidatorGracePeriodEpochs, uint64(3))
 	}
 	{

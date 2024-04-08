@@ -129,15 +129,15 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 	} else if requestData.UpdaterPublicKeyBase58Check == "" {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Must include UpdaterPublicKeyBase58Check"))
 		return
-	} else if utxoView.GlobalParamsEntry.MaxCopiesPerNFT == 0 {
+	} else if utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT == 0 {
 		_AddBadRequestError(ww,
 			"NFT minting has not been enabled yet. Check back soon :)")
 		return
 
-	} else if requestData.NumCopies <= 0 || requestData.NumCopies > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
+	} else if requestData.NumCopies <= 0 || requestData.NumCopies > int(utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"CreateNFT: NumCopies must be between %d and %d, received: %d",
-			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.NumCopies))
+			1, utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT, requestData.NumCopies))
 		return
 
 	} else if requestData.NFTRoyaltyToCreatorBasisPoints < 0 || requestData.NFTRoyaltyToCreatorBasisPoints > int(fes.Params.MaxNFTRoyaltyBasisPoints) {
@@ -243,7 +243,7 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	nftFee := utxoView.GlobalParamsEntry.CreateNFTFeeNanos * uint64(requestData.NumCopies)
+	nftFee := utxoView.GetCurrentGlobalParamsEntry().CreateNFTFeeNanos * uint64(requestData.NumCopies)
 
 	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
 	if err != nil {
@@ -352,10 +352,10 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateNFT: Must include UpdaterPublicKeyBase58Check"))
 		return
 
-	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"UpdateNFT: SerialNumbers must be between %d and %d, received: %d",
-			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.SerialNumber))
+			1, utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT, requestData.SerialNumber))
 		return
 
 	} else if requestData.MinBidAmountNanos < 0 {
@@ -507,10 +507,10 @@ func (fes *APIServer) CreateNFTBid(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFTBid: Must include UpdaterPublicKeyBase58Check"))
 		return
 
-	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"CreateNFTBid: SerialNumbers must be between %d and %d, received: %d",
-			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.SerialNumber))
+			1, utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT, requestData.SerialNumber))
 		return
 
 	} else if requestData.BidAmountNanos < 0 {
@@ -674,10 +674,10 @@ func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
 			"AcceptNFTBid: Must include UpdaterPublicKeyBase58Check and BidderPublicKeyBase58Check"))
 		return
 
-	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"AcceptNFTBid: SerialNumbers must be between %d and %d, received: %d",
-			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.SerialNumber))
+			1, utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT, requestData.SerialNumber))
 		return
 
 	} else if requestData.BidAmountNanos < 0 {
@@ -1598,10 +1598,10 @@ func (fes *APIServer) TransferNFT(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Must include UpdaterPublicKeyBase58Check"))
 		return
 
-	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"TransferNFT: SerialNumbers must be between %d and %d, received: %d",
-			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.SerialNumber))
+			1, utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT, requestData.SerialNumber))
 		return
 
 	}
@@ -1760,10 +1760,10 @@ func (fes *APIServer) AcceptNFTTransfer(ww http.ResponseWriter, req *http.Reques
 		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: Must include UpdaterPublicKeyBase58Check"))
 		return
 
-	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"AcceptNFTTransfer: SerialNumbers must be between %d and %d, received: %d",
-			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.SerialNumber))
+			1, utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT, requestData.SerialNumber))
 		return
 
 	}
@@ -1904,10 +1904,10 @@ func (fes *APIServer) BurnNFT(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Must include UpdaterPublicKeyBase58Check"))
 		return
 
-	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"BurnNFT: SerialNumbers must be between %d and %d, received: %d",
-			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.SerialNumber))
+			1, utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT, requestData.SerialNumber))
 		return
 
 	}
