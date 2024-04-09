@@ -59,7 +59,8 @@ func (fes *APIServer) CreateAtomicTxnsWrapper(ww http.ResponseWriter, req *http.
 	}
 
 	// Construct the atomic transactions wrapper transaction type.
-	txn, totalFees, err := fes.blockchain.CreateAtomicTxnsWrapper(requestData.Transactions, extraData)
+	txn, totalFees, err := fes.blockchain.CreateAtomicTxnsWrapper(
+		requestData.Transactions, extraData, fes.backendServer.GetMempool())
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateAtomicTxnsWrapper: Problem constructing transaction: %v", err))
 		return
@@ -80,10 +81,11 @@ func (fes *APIServer) CreateAtomicTxnsWrapper(ww http.ResponseWriter, req *http.
 		_AddBadRequestError(ww, fmt.Sprint("CreateAtomicTxnsWrapper: Resulting wrapper transaction too large"))
 		return
 	}
-	if txnSizeBytes != 0 && utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB != 0 {
+
+	if txnSizeBytes != 0 && utxoView.GetCurrentGlobalParamsEntry().MinimumNetworkFeeNanosPerKB != 0 {
 		// Check for overflow or minimum network fee not met.
 		if totalFees != ((totalFees*1000)/1000) ||
-			(totalFees*1000)/uint64(txnSizeBytes) < utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB {
+			(totalFees*1000)/uint64(txnSizeBytes) < utxoView.GetCurrentGlobalParamsEntry().MinimumNetworkFeeNanosPerKB {
 			_AddBadRequestError(ww, fmt.Sprint("CreateAtomicTxnsWrapper: Transactions used to construct"+
 				" atomic transaction do not cumulatively pay sufficient network fees to cover wrapper"))
 			return
