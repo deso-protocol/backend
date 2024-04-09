@@ -157,6 +157,8 @@ type UpdateGlobalParamsRequest struct {
 	// Whether or not we should broadcast the transaction after constructing
 	// it. This will also validate the transaction if it's set.
 	Broadcast bool `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // UpdateGlobalParamsResponse ...
@@ -192,7 +194,10 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 	}
 
 	// Get a utxoView.
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateGlobalParams: Error constucting utxoView: %v", err))
 		return
@@ -316,6 +321,8 @@ type SwapIdentityRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // SwapIdentityResponse ...
@@ -327,7 +334,13 @@ type SwapIdentityResponse struct {
 	TransactionHex    string
 }
 
-func (fes *APIServer) getPublicKeyFromUsernameOrPublicKeyString(usernameOrPublicKey string) ([]byte, error) {
+func (fes *APIServer) getPublicKeyFromUsernameOrPublicKeyString(
+	usernameOrPublicKey string,
+	optionalPrecedingTransactions []*lib.MsgDeSoTxn,
+) (
+	[]byte,
+	error,
+) {
 	if (strings.HasPrefix(usernameOrPublicKey, fes.PublicKeyBase58Prefix)) &&
 		len(usernameOrPublicKey) >= btcec.PubKeyBytesLenCompressed {
 
@@ -341,7 +354,10 @@ func (fes *APIServer) getPublicKeyFromUsernameOrPublicKeyString(usernameOrPublic
 	}
 
 	// Otherwise, parse the string as a username
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		optionalPrecedingTransactions,
+	)
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf("getPublicKeyFromUsernameOrPublicKeyString: Error generating "+
 			"view to verify username: %v", err), "")
@@ -382,13 +398,13 @@ func (fes *APIServer) SwapIdentity(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	fromPublicKey, err := fes.getPublicKeyFromUsernameOrPublicKeyString(
-		requestData.FromUsernameOrPublicKeyBase58Check)
+		requestData.FromUsernameOrPublicKeyBase58Check, requestData.OptionalPrecedingTransactions)
 	if err != nil {
 		_AddBadRequestError(ww, err.Error())
 		return
 	}
 	toPublicKey, err := fes.getPublicKeyFromUsernameOrPublicKeyString(
-		requestData.ToUsernameOrPublicKeyBase58Check)
+		requestData.ToUsernameOrPublicKeyBase58Check, requestData.OptionalPrecedingTransactions)
 	if err != nil {
 		_AddBadRequestError(ww, err.Error())
 		return

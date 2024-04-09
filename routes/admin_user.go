@@ -675,7 +675,7 @@ func (fes *APIServer) AdminGrantVerificationBadge(ww http.ResponseWriter, req *h
 	}
 
 	// Verify the username has an underlying profile
-	pubKey, err := fes.getPublicKeyFromUsernameOrPublicKeyString(usernameToVerify)
+	pubKey, err := fes.getPublicKeyFromUsernameOrPublicKeyString(usernameToVerify, nil)
 	if err != nil {
 		_AddBadRequestError(ww,
 			fmt.Sprintf("AdminGrantVerificationBadge: Username %s has no associated underlying publickey.", usernameToVerify))
@@ -781,7 +781,7 @@ func (fes *APIServer) AdminRemoveVerificationBadge(ww http.ResponseWriter, req *
 	}
 
 	// Verify the username has an underlying profile
-	pubKey, err := fes.getPublicKeyFromUsernameOrPublicKeyString(usernameToRemove)
+	pubKey, err := fes.getPublicKeyFromUsernameOrPublicKeyString(usernameToRemove, nil)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AdminRemoveVerificationBadge: Username has no associated underlying publickey"))
 		return

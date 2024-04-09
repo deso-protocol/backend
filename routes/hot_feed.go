@@ -1325,7 +1325,7 @@ func (fes *APIServer) AdminUpdateHotFeedUserMultiplier(ww http.ResponseWriter, r
 	}
 
 	// Verify the username has an underlying profile.
-	pubKey, err := fes.getPublicKeyFromUsernameOrPublicKeyString(requestData.Username)
+	pubKey, err := fes.getPublicKeyFromUsernameOrPublicKeyString(requestData.Username, nil)
 	if err != nil {
 		_AddBadRequestError(ww,
 			fmt.Sprintf(
@@ -1394,7 +1394,7 @@ func (fes *APIServer) AdminGetHotFeedUserMultiplier(ww http.ResponseWriter, req 
 	}
 
 	// Verify the username has an underlying profile.
-	pubKey, err := fes.getPublicKeyFromUsernameOrPublicKeyString(requestData.Username)
+	pubKey, err := fes.getPublicKeyFromUsernameOrPublicKeyString(requestData.Username, nil)
 	if err != nil {
 		_AddBadRequestError(ww,
 			fmt.Sprintf(

@@ -27,6 +27,8 @@ type CreateAccessGroupRequest struct {
 	TransactionFees []TransactionFee `safeForLogging:"true"`
 	// ExtraData is an arbitrary key value map
 	ExtraData map[string]string
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // struct to construct the response to create an access group.
@@ -85,7 +87,10 @@ func (fes *APIServer) accessGroupHandler(
 			"public key %s: %v", accessGroupPkBytes, err)
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		return fmt.Errorf("error getting view: %v", err)
 	}
@@ -227,6 +232,8 @@ type AddAccessGroupMembersRequest struct {
 	TransactionFees []TransactionFee `safeForLogging:"true"`
 	// ExtraData is an arbitrary key value map
 	ExtraData map[string]string
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // struct to construct the response to create an access group.
@@ -274,7 +281,10 @@ func (fes *APIServer) accessGroupMemberHandler(
 			"public key and access group key name %s: %v", requestData.AccessGroupKeyName, err)
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		return fmt.Errorf("error getting utxo view: %v", err)
 	}
