@@ -72,6 +72,136 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// SubmitAtomicTransactionRequest is meant to aid in the submission of atomic transactions
+// with identity service signed transactions. Specifically, it takes an incomplete atomic transaction
+// and "completes" the transaction by adding in identity service signed transactions.
+type SubmitAtomicTransactionRequest struct {
+	// IncompleteAtomicTransaction is a transaction of type TxnTypeAtomicTxnsWrapper who
+	// is "incomplete" only by missing the signature fields of various inner transactions.
+	IncompleteAtomicTransaction *lib.MsgDeSoTxn `safeForLogging:"true"`
+
+	// SignedInnerTransactionsHex are the hex-encoded signed inner transactions that
+	// will be used to complete the atomic transaction.
+	SignedInnerTransactionsHex []string `safeForLogging:"true"`
+}
+
+type SubmitAtomicTransactionResponse struct {
+	Transaction              *lib.MsgDeSoTxn
+	TxnHashHex               string
+	TransactionIDBase58Check string
+}
+
+func (fes *APIServer) SubmitAtomicTransaction(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := SubmitAtomicTransactionRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitAtomicTransaction: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Fetch the incomplete atomic transaction.
+	atomicTxn := requestData.IncompleteAtomicTransaction
+	if atomicTxn == nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitAtomicTransaction: IncompleteAtomicTransaction must be set"))
+		return
+	}
+	if atomicTxn.TxnMeta.GetTxnType() != lib.TxnTypeAtomicTxnsWrapper {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitAtomicTransaction: "+
+			"IncompleteAtomicTransaction must be an atomic transaction"))
+		return
+	}
+
+	// Create a map from the pre-signature inner transaction hash to DeSo signature.
+	innerTxnPreSignatureHashToSignature := make(map[lib.BlockHash]lib.DeSoSignature)
+	for ii, signedInnerTxnHex := range requestData.SignedInnerTransactionsHex {
+		// Decode the signed inner transaction.
+		signedTxnBytes, err := hex.DecodeString(signedInnerTxnHex)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubmitAtomicTransaction: Problem decoding signed transaction hex: %v", err))
+			return
+		}
+
+		// Deserialize the signed transaction.
+		signedInnerTxn := &lib.MsgDeSoTxn{}
+		if err := signedInnerTxn.FromBytes(signedTxnBytes); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubmitAtomicTransaction: Problem deserializing signed transaction %d from bytes: %v",
+				ii, err))
+			return
+		}
+
+		// Verify the signature is present.
+		if signedInnerTxn.Signature.Sign == nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubmitAtomicTransaction: Signed transaction %d hex missing signature", ii))
+			return
+		}
+
+		// Find the pre-signature DeSo transaction hash.
+		// NOTE: We do not use the lib.MsgDeSoTxn.Hash() function here as
+		// the transactions included in the atomic transaction do not yet
+		// have their signature fields set.
+		preSignatureInnerTxnBytes, err := signedInnerTxn.ToBytes(true)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubmitAtomicTransaction: Problem serializing "+
+					"signed transaction %d without signature: %v", ii, err))
+			return
+		}
+		preSignatureInnerTxnHash := lib.Sha256DoubleHash(preSignatureInnerTxnBytes)
+		innerTxnPreSignatureHashToSignature[*preSignatureInnerTxnHash] = signedInnerTxn.Signature
+	}
+
+	// Based on the provided signatures, complete the atomic transaction.
+	for jj, innerTxn := range atomicTxn.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns {
+		// Skip signed inner transactions.
+		if innerTxn.Signature.Sign != nil {
+			continue
+		}
+
+		// Find the pre-signature DeSo transaction hash for this transaction.
+		preSignatureInnerTxnBytes, err := innerTxn.ToBytes(true)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubmitAtomicTransaction: Problem serializing "+
+					"transaction %d of atomic transaction wrapper without signature: %v", jj, err))
+			return
+		}
+		preSignatureInnerTxnHash := lib.Sha256DoubleHash(preSignatureInnerTxnBytes)
+
+		// Check that we have the signature.
+		if _, exists := innerTxnPreSignatureHashToSignature[*preSignatureInnerTxnHash]; !exists {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubmitAtomicTransaction: Transaction %d in atomic transaction still missing signature", jj))
+			return
+		}
+
+		// Set the signature in the atomic transaction.
+		atomicTxn.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns[jj].Signature =
+			innerTxnPreSignatureHashToSignature[*preSignatureInnerTxnHash]
+	}
+
+	// Verify and broadcast the completed atomic transaction.
+	if err := fes.backendServer.VerifyAndBroadcastTransaction(atomicTxn); err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubmitAtomicTransaction: Problem broadcasting transaction: %v", err))
+		return
+	}
+
+	res := &SubmitAtomicTransactionResponse{
+		Transaction:              atomicTxn,
+		TxnHashHex:               atomicTxn.Hash().String(),
+		TransactionIDBase58Check: lib.PkToString(atomicTxn.Hash()[:], fes.Params),
+	}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"SubmitAtomicTransaction: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
 type SubmitTransactionRequest struct {
 	TransactionHex string `safeForLogging:"true"`
 }
@@ -643,10 +773,14 @@ type SubsidizedUpdateProfileResponse struct {
 	//
 	// The caller on receipt of this response should sign the update profile
 	// transaction and then submit the atomic transaction.
+	//
+	// For convenience, the returned UpdateProfileTransactionHex field can be used in the frontend to sign
+	// the update profile transaction.
 	IncompleteAtomicTransaction *lib.MsgDeSoTxn
+	UpdateProfileTransactionHex string
 }
 
-// SubsidizedUpdateProfile
+// SubsidizedUpdateProfile ...
 func (fes *APIServer) SubsidizedUpdateProfile(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := UpdateProfileRequest{}
@@ -822,9 +956,19 @@ func (fes *APIServer) SubsidizedUpdateProfile(ww http.ResponseWriter, req *http.
 	}
 	atomicTxnWrapper.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns[0].Signature.SetSignature(basicTransferSignature)
 
-	// (5) Return the atomic transaction wrapper to the user.
+	// (5) Collect the update profile bytes so the frontend can easily sign it.
+	updateProfileTxnBytes, err :=
+		atomicTxnWrapper.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns[1].ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem serializing update profile transaction: %v", err))
+		return
+	}
+
+	// (6) Return the atomic transaction wrapper to the user.
 	res := SubsidizedUpdateProfileResponse{
 		IncompleteAtomicTransaction: atomicTxnWrapper,
+		UpdateProfileTransactionHex: hex.EncodeToString(updateProfileTxnBytes),
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww,
