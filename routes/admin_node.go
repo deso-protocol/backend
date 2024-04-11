@@ -63,6 +63,26 @@ type PeerResponse struct {
 	IsSyncPeer   bool
 }
 
+type RemoteNodeResponse struct {
+	// The latest block height the validator is at.
+	LatestBlockHeight uint64
+
+	// RemoteNodeStatus is the string representation of the RemoteNode's status.
+	RemoteNodeStatus string
+
+	// PeerResponse is the IP and port of the peer the validator is connected to.
+	PeerResponse *PeerResponse
+
+	// PeerConnected is a boolean indicating whether the peer is connected.
+	PeerConnected bool
+
+	// ValidatorResponse is the ValidatorEntry converted to a human-readable response.
+	ValidatorResponse *ValidatorResponse
+
+	// IsValidator is a boolean indicating whether the remote node is a validator.
+	IsValidator bool
+}
+
 // NodeControlResponse ...
 type NodeControlResponse struct {
 	// The current status the DeSo node is at in terms of syncing the DeSo
@@ -72,6 +92,8 @@ type NodeControlResponse struct {
 	DeSoOutboundPeers    []*PeerResponse
 	DeSoInboundPeers     []*PeerResponse
 	DeSoUnconnectedPeers []*PeerResponse
+
+	RemoteNodeConnections []*RemoteNodeResponse
 
 	MinerPublicKeys []string
 }
@@ -197,6 +219,23 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 			publicKey.SerializeCompressed(), fes.Params))
 	}
 
+	// Get the network manager connections
+	networkManagerConnections := fes.backendServer.GetNetworkManagerConnections()
+	uncommittedTipView, err := fes.backendServer.GetBlockchain().GetUncommittedTipView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("NodeControl: Problem getting uncommitted tip view: %v", err))
+		return
+	}
+	remoteNodeConnections := make([]*RemoteNodeResponse, 0)
+	for _, connection := range networkManagerConnections {
+		remoteNodeConnection, err := _remoteNodeToResponse(connection, uncommittedTipView, fes.Params)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("NodeControl: Problem getting remote node response: %v", err))
+			return
+		}
+		remoteNodeConnections = append(remoteNodeConnections, remoteNodeConnection)
+	}
+
 	res := NodeControlResponse{
 		DeSoStatus: desoNodeStatus,
 
@@ -205,11 +244,37 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 		DeSoUnconnectedPeers: desoUnconnectedPeers,
 
 		MinerPublicKeys: minerPublicKeyStrs,
+
+		RemoteNodeConnections: remoteNodeConnections,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("NodeControl: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+func _remoteNodeToResponse(remoteNode *lib.RemoteNode, utxoView *lib.UtxoView, params *lib.DeSoParams) (*RemoteNodeResponse, error) {
+	remoteNodeResponse := &RemoteNodeResponse{}
+	remoteNodeResponse.PeerResponse = &PeerResponse{
+		IP:           remoteNode.GetPeer().IP(),
+		ProtocolPort: remoteNode.GetPeer().Port(),
+	}
+	remoteNodeResponse.RemoteNodeStatus = remoteNode.GetStatus().String()
+	remoteNodeResponse.PeerConnected = remoteNode.GetPeer().Connected()
+	remoteNodeResponse.IsValidator = remoteNode.IsValidator()
+	remoteNodeResponse.LatestBlockHeight = remoteNode.GetLatestBlockHeight()
+	if remoteNodeResponse.IsValidator {
+		blsPublicKeyPKIDPairEntry, err := utxoView.GetBLSPublicKeyPKIDPairEntry(remoteNode.GetValidatorPublicKey())
+		if err != nil {
+			return nil, fmt.Errorf("_remoteNodeToResponse: Problem getting BLS public key PKID pair entry: %v", err)
+		}
+		validatorEntry, err := utxoView.GetValidatorByPKID(blsPublicKeyPKIDPairEntry.PKID)
+		if err != nil {
+			return nil, fmt.Errorf("_remoteNodeToResponse: Problem getting validator entry: %v", err)
+		}
+		remoteNodeResponse.ValidatorResponse = _convertValidatorEntryToResponse(utxoView, validatorEntry, params)
+	}
+	return nil, nil
 }
 
 func (fes *APIServer) _handleConnectDeSoNode(
