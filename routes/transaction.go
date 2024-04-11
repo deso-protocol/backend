@@ -76,9 +76,9 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 // with identity service signed transactions. Specifically, it takes an incomplete atomic transaction
 // and "completes" the transaction by adding in identity service signed transactions.
 type SubmitAtomicTransactionRequest struct {
-	// IncompleteAtomicTransaction is a transaction of type TxnTypeAtomicTxnsWrapper who
+	// IncompleteAtomicTransactionHex is a hex encoded transaction of type TxnTypeAtomicTxnsWrapper who
 	// is "incomplete" only by missing the signature fields of various inner transactions.
-	IncompleteAtomicTransaction *lib.MsgDeSoTxn `safeForLogging:"true"`
+	IncompleteAtomicTransactionHex string `safeForLogging:"true"`
 
 	// SignedInnerTransactionsHex are the hex-encoded signed inner transactions that
 	// will be used to complete the atomic transaction.
@@ -100,9 +100,19 @@ func (fes *APIServer) SubmitAtomicTransaction(ww http.ResponseWriter, req *http.
 	}
 
 	// Fetch the incomplete atomic transaction.
-	atomicTxn := requestData.IncompleteAtomicTransaction
-	if atomicTxn == nil {
-		_AddBadRequestError(ww, fmt.Sprintf("SubmitAtomicTransaction: IncompleteAtomicTransaction must be set"))
+	atomicTxnBytes, err := hex.DecodeString(requestData.IncompleteAtomicTransactionHex)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubmitAtomicTransaction: "+
+				"Problem deserializing atomic transaction hex: %v", err))
+		return
+	}
+	atomicTxn := &lib.MsgDeSoTxn{}
+	err = atomicTxn.FromBytes(atomicTxnBytes)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubmitAtomicTransaction: "+
+				"Problem deserializing atomic transaction from bytes: %v", err))
 		return
 	}
 	if atomicTxn.TxnMeta.GetTxnType() != lib.TxnTypeAtomicTxnsWrapper {
@@ -775,9 +785,11 @@ type SubsidizedUpdateProfileResponse struct {
 	// transaction and then submit the atomic transaction.
 	//
 	// For convenience, the returned UpdateProfileTransactionHex field can be used in the frontend to sign
-	// the update profile transaction.
-	IncompleteAtomicTransaction *lib.MsgDeSoTxn
-	UpdateProfileTransactionHex string
+	// the update profile transaction. The IncompleteAtomicTransactionHex field is used in the frontend
+	// to prevent any typescript precision errors due to the sensitive nature of atomic transactions.
+	IncompleteAtomicTransaction    *lib.MsgDeSoTxn
+	IncompleteAtomicTransactionHex string
+	UpdateProfileTransactionHex    string
 }
 
 // SubsidizedUpdateProfile ...
@@ -928,24 +940,6 @@ func (fes *APIServer) SubsidizedUpdateProfile(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	// (3a) Validate the atomic transaction wrapper has sufficient fees paid.
-	txnBytes, err := atomicTxnWrapper.ToBytes(true)
-	if err != nil {
-		_AddBadRequestError(ww,
-			fmt.Sprintf("SubsidizedUpdateProfile: Problem serializing transaction: %v", err))
-		return
-	}
-	txnSizeBytes := uint64(len(txnBytes))
-	if txnSizeBytes != 0 && utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB != 0 {
-		// Check for overflow or minimum network fee not met.
-		if totalFees != ((totalFees*1000)/1000) ||
-			(totalFees*1000)/uint64(txnSizeBytes) < utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB {
-			_AddBadRequestError(ww, fmt.Sprint("SubsidizedUpdateProfile: Transactions used to construct"+
-				" atomic transaction do not cumulatively pay sufficient network fees to cover wrapper"))
-			return
-		}
-	}
-
 	// (4) Sign the basic transfer transaction within the atomic transaction wrapper.
 	basicTransferSignature, err :=
 		atomicTxnWrapper.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns[0].Sign(subsidizationPrivateKey)
@@ -956,7 +950,25 @@ func (fes *APIServer) SubsidizedUpdateProfile(ww http.ResponseWriter, req *http.
 	}
 	atomicTxnWrapper.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns[0].Signature.SetSignature(basicTransferSignature)
 
-	// (5) Collect the update profile bytes so the frontend can easily sign it.
+	// (5) Validate the atomic transaction wrapper has sufficient fees paid.
+	atomicTxnBytes, err := atomicTxnWrapper.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem serializing transaction: %v", err))
+		return
+	}
+	txnSizeBytes := uint64(len(atomicTxnBytes))
+	if txnSizeBytes != 0 && utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB != 0 {
+		// Check for overflow or minimum network fee not met.
+		if totalFees != ((totalFees*1000)/1000) ||
+			(totalFees*1000)/uint64(txnSizeBytes) < utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB {
+			_AddBadRequestError(ww, fmt.Sprint("SubsidizedUpdateProfile: Transactions used to construct"+
+				" atomic transaction do not cumulatively pay sufficient network fees to cover wrapper"))
+			return
+		}
+	}
+
+	// (6) Collect the update profile bytes so the frontend can easily sign it.
 	updateProfileTxnBytes, err :=
 		atomicTxnWrapper.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns[1].ToBytes(true)
 	if err != nil {
@@ -965,10 +977,11 @@ func (fes *APIServer) SubsidizedUpdateProfile(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	// (6) Return the atomic transaction wrapper to the user.
+	// (7) Return the atomic transaction wrapper to the user.
 	res := SubsidizedUpdateProfileResponse{
-		IncompleteAtomicTransaction: atomicTxnWrapper,
-		UpdateProfileTransactionHex: hex.EncodeToString(updateProfileTxnBytes),
+		IncompleteAtomicTransaction:    atomicTxnWrapper,
+		IncompleteAtomicTransactionHex: hex.EncodeToString(atomicTxnBytes),
+		UpdateProfileTransactionHex:    hex.EncodeToString(updateProfileTxnBytes),
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww,
