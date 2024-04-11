@@ -274,7 +274,7 @@ func _remoteNodeToResponse(remoteNode *lib.RemoteNode, utxoView *lib.UtxoView, p
 		}
 		remoteNodeResponse.ValidatorResponse = _convertValidatorEntryToResponse(utxoView, validatorEntry, params)
 	}
-	return nil, nil
+	return remoteNodeResponse, nil
 }
 
 func (fes *APIServer) _handleConnectDeSoNode(
