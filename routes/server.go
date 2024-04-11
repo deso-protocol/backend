@@ -1054,6 +1054,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"GetCommittedTipBlockInfo",
+			[]string{"GET"},
+			lib.RoutePathGetCommittedTipBlockInfo,
+			fes.GetCommittedTipBlockInfo,
+			PublicAccess,
+		},
+		{
 			"GetNotifications",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetNotifications,
@@ -2362,6 +2369,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 
 		// If the route is not "PublicAccess" we wrap it in a function to check that the caller
 		// has the correct permissions before calling its handler.
+		handler = CheckPrecedingTransactions(handler, fes.Config.MaxOptionalPrecedingTransactions)
 		if route.AccessLevel != PublicAccess {
 			handler = fes.CheckAdminPublicKey(handler, route.AccessLevel)
 		}
@@ -2385,6 +2393,51 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 	}
 
 	return router
+}
+
+// CheckPrecedingTransactions is middleware that ensures any request body with the "OptionalPrecedingTransactions"
+// field set is limited in how many transactions are being sent to the server.
+//
+// By default, the maximum number that can be sent to the server is zero. The OptionalPrecedingTransactions field
+// is used in constructing UtxoViews for atomic transaction workflows.
+func CheckPrecedingTransactions(inner http.Handler, precedingTransactionsLimit int) http.Handler {
+	return http.HandlerFunc(func(ww http.ResponseWriter, rr *http.Request) {
+		// If the request is NOT a POST request, skip this middleware as the request has no relevant payload.
+		if rr.Method != "POST" {
+			inner.ServeHTTP(ww, rr)
+			return
+		}
+
+		// Read and replace the request body.
+		data, err := io.ReadAll(rr.Body)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("CheckPrecedingTransactions: %v", err))
+			return
+		}
+		rr.Body.Close()
+		rr.Body = io.NopCloser(bytes.NewReader(data))
+
+		// Unmarshal the request such that we snag the OptionalPrecedingTransactions field from relevant endpoints.
+		var optionalPrecedingTransactionsStruct struct {
+			OptionalPrecedingTransactions []*lib.MsgDeSoTxn
+		}
+		if err := json.Unmarshal(data, &optionalPrecedingTransactionsStruct); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("CheckPrecedingTransactions failed to unmarshal json: %v", err))
+			return
+		}
+
+		// Validate the number of transactions being sent to the endpoint.
+		if optionalPrecedingTransactionsStruct.OptionalPrecedingTransactions != nil &&
+			len(optionalPrecedingTransactionsStruct.OptionalPrecedingTransactions) > precedingTransactionsLimit {
+			_AddBadRequestError(ww,
+				fmt.Sprintf("CheckPrecedingTransactions: too many optional preceding transactions: %d > %d",
+					len(optionalPrecedingTransactionsStruct.OptionalPrecedingTransactions), precedingTransactionsLimit))
+			return
+		}
+
+		// Pass the request down to the next handler.
+		inner.ServeHTTP(ww, rr)
+	})
 }
 
 // Logger ...

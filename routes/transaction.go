@@ -379,6 +379,8 @@ type UpdateProfileRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // UpdateProfileResponse ...
@@ -423,8 +425,10 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem with getUserMetadataFromGlobalState: %v", err))
 		return
 	}
-
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Error fetching mempool view: %v", err))
 		return
@@ -1405,6 +1409,8 @@ type SendDeSoRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // SendDeSoResponse ...
@@ -1445,7 +1451,10 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 	} else {
 		// TODO(performance): This is inefficient because it loads all mempool
 		// transactions.
-		utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+		utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+			fes.backendServer.GetMempool(),
+			requestData.OptionalPrecedingTransactions,
+		)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error generating "+
 				"view to verify username: %v", err))
@@ -1704,6 +1713,8 @@ type SubmitPostRequest struct {
 
 	// If true, the post will be "frozen", i.e. no longer editable.
 	IsFrozen bool `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // SubmitPostResponse ...
@@ -1793,8 +1804,10 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		postHashToModify = postHashToModifyBytes
 	}
 
-	var utxoView *lib.UtxoView
-	utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Error getting utxoView"))
 		return
@@ -2115,6 +2128,8 @@ type BuyOrSellCreatorCoinRequest struct {
 	BitCloutToSellNanos      uint64 `safeForLogging:"true"` // Deprecated
 	BitCloutToAddNanos       uint64 `safeForLogging:"true"` // Deprecated
 	MinBitCloutExpectedNanos uint64 `safeForLogging:"true"` // Deprecated
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // BuyOrSellCreatorCoinResponse ...
@@ -2229,7 +2244,10 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 	// Add node source to txn metadata
 	fes.AddNodeSourceToTxnMetadata(txn)
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUtxoViewForPublicKey(updaterPublicKeyBytes, txn)
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem computing view for transaction: %v", err))
 		return
@@ -2385,6 +2403,8 @@ type TransferCreatorCoinRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // TransferCreatorCoinResponse ...
@@ -2441,7 +2461,10 @@ func (fes *APIServer) TransferCreatorCoin(ww http.ResponseWriter, req *http.Requ
 	var receiverPublicKeyBytes []byte
 	if uint64(len(requestData.ReceiverUsernameOrPublicKeyBase58Check)) <= fes.Params.MaxUsernameLengthBytes {
 		// The receiver string is too short to be a public key.  Lookup the username.
-		utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+		utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+			fes.backendServer.GetMempool(),
+			requestData.OptionalPrecedingTransactions,
+		)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("TransferCreatorCoin: Problem fetching utxoView: %v", err))
 			return
@@ -2745,6 +2768,8 @@ type DAOCoinRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // DAOCoinResponse ...
@@ -2783,7 +2808,10 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Problem computing view: %v", err))
 		return
@@ -2921,6 +2949,8 @@ type TransferDAOCoinRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // TransferDAOCoinResponse ...
@@ -2950,7 +2980,10 @@ func (fes *APIServer) TransferDAOCoin(ww http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem fetching utxoView: %v", err))
 		return
@@ -3090,6 +3123,8 @@ type DAOCoinLimitOrderCreationRequest struct {
 
 	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
 	TransactionFees      []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // CreateDAOCoinLimitOrder Constructs a transaction that creates a DAO coin limit order for the specified
@@ -3178,7 +3213,10 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: problem fetching utxoView: %v", err))
 		return
@@ -3280,6 +3318,8 @@ type DAOCoinMarketOrderCreationRequest struct {
 
 	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
 	TransactionFees      []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http.Request) {
@@ -3356,7 +3396,10 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: problem fetching utxoView: %v", err))
 		return
@@ -3456,6 +3499,8 @@ type DAOCoinLimitOrderWithCancelOrderIDRequest struct {
 
 	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
 	TransactionFees      []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // CancelDAOCoinLimitOrder Constructs a transaction that cancels an existing DAO coin limit order with the specified
@@ -3480,7 +3525,10 @@ func (fes *APIServer) CancelDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("CancelDAOCoinLimitOrder: problem fetching utxoView: %v", err))
 		return
@@ -4678,6 +4726,26 @@ func (fes *APIServer) GetTxnConstructionParams(ww http.ResponseWriter, req *http
 		BlockHeight:       uint64(fes.backendServer.GetBlockchain().BlockTip().Height),
 	}); err != nil {
 		_AddBadRequestError(ww, "GetTxnConstructionParams: Problem encoding response as JSON: "+err.Error())
+		return
+	}
+}
+
+func (fes *APIServer) GetCommittedTipBlockInfo(ww http.ResponseWriter, req *http.Request) {
+	// Get the block tip from the blockchain.
+	fes.backendServer.GetBlockchain().ChainLock.RLock()
+	blockTip, idx := fes.backendServer.GetBlockchain().GetCommittedTip()
+	fes.backendServer.GetBlockchain().ChainLock.RUnlock()
+	if idx == -1 {
+		_AddBadRequestError(ww, "GetCommittedTipBlockInfo: Problem getting block tip")
+		return
+	}
+	// Return the block tip.
+	if err := json.NewEncoder(ww).Encode(&lib.CheckpointBlockInfo{
+		Height:  blockTip.Header.Height,
+		Hash:    blockTip.Hash,
+		HashHex: blockTip.Hash.String(),
+	}); err != nil {
+		_AddBadRequestError(ww, "GetCommittedTipBlockInfo: Problem encoding response as JSON: "+err.Error())
 		return
 	}
 }
