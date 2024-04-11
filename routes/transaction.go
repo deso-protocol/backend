@@ -937,7 +937,7 @@ func (fes *APIServer) SubsidizedUpdateProfile(ww http.ResponseWriter, req *http.
 
 	// (3) Wrap the two transactions in an atomic transaction wrapper.
 	atomicTxnWrapper, totalFees, err := fes.blockchain.CreateAtomicTxnsWrapper(
-		[]*lib.MsgDeSoTxn{basicTransferTxn, updateProfileTxn}, nil)
+		[]*lib.MsgDeSoTxn{basicTransferTxn, updateProfileTxn}, nil, fes.backendServer.GetMempool())
 	if err != nil {
 		_AddBadRequestError(ww,
 			fmt.Sprintf("SubsidizedUpdateProfile: Problem constructing atomic transaction wrapper: %v", err))
