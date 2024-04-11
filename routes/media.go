@@ -101,9 +101,9 @@ func validateImageSize(encodedImageContentBytes []byte, extension string) error 
 	if err != nil {
 		return errors.Wrap(err, "validateImageSize: Problem decoding image config")
 	}
-	if imageConfig.Width > bimg.MaxSize || imageConfig.Height > bimg.MaxSize {
+	if imageConfig.Width > bimg.MaxSize() || imageConfig.Height > bimg.MaxSize() {
 		return fmt.Errorf("validateImageSize: image too large. Max dimensions are %v x %v. ImageConfig dimensions are %v x %v",
-			bimg.MaxSize, bimg.MaxSize, imageConfig.Width, imageConfig.Height)
+			bimg.MaxSize(), bimg.MaxSize(), imageConfig.Width, imageConfig.Height)
 	}
 	return nil
 }
