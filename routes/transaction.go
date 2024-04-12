@@ -134,6 +134,7 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 // 1. Attach the PostEntry to the response so the client can render it
 // 2. Attempt to auto-whitelist the post for the global feed
 func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgDeSoTxn, response *SubmitTransactionResponse) error {
+	fes.backendServer.GetMempool().BlockUntilReadOnlyViewRegenerated()
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return errors.Errorf("Problem with GetAugmentedUniversalView: %v", err)
