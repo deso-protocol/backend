@@ -4360,9 +4360,10 @@ func (fes *APIServer) GetCommittedTipBlockInfo(ww http.ResponseWriter, req *http
 	}
 	// Return the block tip.
 	if err := json.NewEncoder(ww).Encode(&lib.CheckpointBlockInfo{
-		Height:  blockTip.Header.Height,
-		Hash:    blockTip.Hash,
-		HashHex: blockTip.Hash.String(),
+		Height:     blockTip.Header.Height,
+		Hash:       blockTip.Hash,
+		HashHex:    blockTip.Hash.String(),
+		LatestView: fes.backendServer.GetLatestView(),
 	}); err != nil {
 		_AddBadRequestError(ww, "GetCommittedTipBlockInfo: Problem encoding response as JSON: "+err.Error())
 		return
