@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/core/lib"
 )
 
@@ -63,6 +63,26 @@ type PeerResponse struct {
 	IsSyncPeer   bool
 }
 
+type RemoteNodeResponse struct {
+	// The latest block height the validator is at.
+	LatestBlockHeight uint64
+
+	// RemoteNodeStatus is the string representation of the RemoteNode's status.
+	RemoteNodeStatus string
+
+	// PeerResponse is the IP and port of the peer the validator is connected to.
+	PeerResponse *PeerResponse
+
+	// PeerConnected is a boolean indicating whether the peer is connected.
+	PeerConnected bool
+
+	// ValidatorResponse is the ValidatorEntry converted to a human-readable response.
+	ValidatorResponse *ValidatorResponse
+
+	// IsValidator is a boolean indicating whether the remote node is a validator.
+	IsValidator bool
+}
+
 // NodeControlResponse ...
 type NodeControlResponse struct {
 	// The current status the DeSo node is at in terms of syncing the DeSo
@@ -72,6 +92,8 @@ type NodeControlResponse struct {
 	DeSoOutboundPeers    []*PeerResponse
 	DeSoInboundPeers     []*PeerResponse
 	DeSoUnconnectedPeers []*PeerResponse
+
+	RemoteNodeConnections []*RemoteNodeResponse
 
 	MinerPublicKeys []string
 }
@@ -170,8 +192,8 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 	desoAddrs := fes.backendServer.AddrMgr.AddressCache()
 	sort.Slice(desoAddrs, func(ii, jj int) bool {
 		// Use a hash to get a random but deterministic ordering.
-		hashI := string(lib.Sha256DoubleHash([]byte(desoAddrs[ii].IP.String() + fmt.Sprintf(":%d", desoAddrs[ii].Port)))[:])
-		hashJ := string(lib.Sha256DoubleHash([]byte(desoAddrs[jj].IP.String() + fmt.Sprintf(":%d", desoAddrs[jj].Port)))[:])
+		hashI := string(lib.Sha256DoubleHash([]byte(desoAddrs[ii].Addr.String() + fmt.Sprintf(":%d", desoAddrs[ii].Port)))[:])
+		hashJ := string(lib.Sha256DoubleHash([]byte(desoAddrs[jj].Addr.String() + fmt.Sprintf(":%d", desoAddrs[jj].Port)))[:])
 
 		return hashI < hashJ
 	})
@@ -179,12 +201,12 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 		if len(desoUnconnectedPeers) >= 250 {
 			break
 		}
-		addr := netAddr.IP.String() + fmt.Sprintf(":%d", netAddr.Port)
+		addr := netAddr.Addr.String() + fmt.Sprintf(":%d", netAddr.Port)
 		if _, exists := existingDeSoPeers[addr]; exists {
 			continue
 		}
 		desoUnconnectedPeers = append(desoUnconnectedPeers, &PeerResponse{
-			IP:           netAddr.IP.String(),
+			IP:           netAddr.Addr.String(),
 			ProtocolPort: netAddr.Port,
 			// Unconnected peers are not sync peers so leave it set to false.
 		})
@@ -197,6 +219,23 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 			publicKey.SerializeCompressed(), fes.Params))
 	}
 
+	// Get the network manager connections
+	networkManagerConnections := fes.backendServer.GetNetworkManagerConnections()
+	uncommittedTipView, err := fes.backendServer.GetBlockchain().GetUncommittedTipView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("NodeControl: Problem getting uncommitted tip view: %v", err))
+		return
+	}
+	remoteNodeConnections := make([]*RemoteNodeResponse, 0)
+	for _, connection := range networkManagerConnections {
+		remoteNodeConnection, err := _remoteNodeToResponse(connection, uncommittedTipView, fes.Params)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("NodeControl: Problem getting remote node response: %v", err))
+			return
+		}
+		remoteNodeConnections = append(remoteNodeConnections, remoteNodeConnection)
+	}
+
 	res := NodeControlResponse{
 		DeSoStatus: desoNodeStatus,
 
@@ -205,11 +244,37 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 		DeSoUnconnectedPeers: desoUnconnectedPeers,
 
 		MinerPublicKeys: minerPublicKeyStrs,
+
+		RemoteNodeConnections: remoteNodeConnections,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("NodeControl: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+func _remoteNodeToResponse(remoteNode *lib.RemoteNode, utxoView *lib.UtxoView, params *lib.DeSoParams) (*RemoteNodeResponse, error) {
+	remoteNodeResponse := &RemoteNodeResponse{}
+	remoteNodeResponse.PeerResponse = &PeerResponse{
+		IP:           remoteNode.GetPeer().IP(),
+		ProtocolPort: remoteNode.GetPeer().Port(),
+	}
+	remoteNodeResponse.RemoteNodeStatus = remoteNode.GetStatus().String()
+	remoteNodeResponse.PeerConnected = remoteNode.GetPeer().Connected()
+	remoteNodeResponse.IsValidator = remoteNode.IsValidator()
+	remoteNodeResponse.LatestBlockHeight = remoteNode.GetLatestBlockHeight()
+	if remoteNodeResponse.IsValidator {
+		blsPublicKeyPKIDPairEntry, err := utxoView.GetBLSPublicKeyPKIDPairEntry(remoteNode.GetValidatorPublicKey())
+		if err != nil {
+			return nil, fmt.Errorf("_remoteNodeToResponse: Problem getting BLS public key PKID pair entry: %v", err)
+		}
+		validatorEntry, err := utxoView.GetValidatorByPKID(blsPublicKeyPKIDPairEntry.PKID)
+		if err != nil {
+			return nil, fmt.Errorf("_remoteNodeToResponse: Problem getting validator entry: %v", err)
+		}
+		remoteNodeResponse.ValidatorResponse = _convertValidatorEntryToResponse(utxoView, validatorEntry, params)
+	}
+	return remoteNodeResponse, nil
 }
 
 func (fes *APIServer) _handleConnectDeSoNode(
@@ -385,7 +450,7 @@ func (fes *APIServer) NodeControl(ww http.ResponseWriter, req *http.Request) {
 					_AddBadRequestError(ww, fmt.Sprintf("NodeControlRequest: Problem decoding miner public key from base58 %s: %v", pkStr, err))
 					return
 				}
-				pk, err := btcec.ParsePubKey(publicKeyBytes, btcec.S256())
+				pk, err := btcec.ParsePubKey(publicKeyBytes)
 				if err != nil {
 					_AddBadRequestError(ww, fmt.Sprintf("NodeControlRequest: Problem parsing miner public key %s: %v", pkStr, err))
 					return

@@ -13,7 +13,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/backend/config"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/tyler-smith/go-bip39"
@@ -2663,7 +2663,7 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 		return false, errors.Wrapf(err, "Problem decoding public key")
 	}
 
-	pubKey, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+	pubKey, err := btcec.ParsePubKey(pubKeyBytes)
 	if err != nil {
 		return false, errors.Wrapf(err, "Problem parsing public key")
 	}
@@ -2681,7 +2681,7 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 			if err != nil {
 				return nil, errors.Wrapf(err, "Problem decoding derived public key")
 			}
-			derivedPublicKey, err := btcec.ParsePubKey(derivedPublicKeyBytes, btcec.S256())
+			derivedPublicKey, err := btcec.ParsePubKey(derivedPublicKeyBytes)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Problem parsing derived public key bytes")
 			}
