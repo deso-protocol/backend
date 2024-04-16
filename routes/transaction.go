@@ -4327,7 +4327,7 @@ func (fes *APIServer) GetTxnConstructionParams(ww http.ResponseWriter, req *http
 	}
 
 	// Get the fees from the mempool
-	feeRate, err := fes.backendServer.GetMempool().EstimateFeeRate(
+	feeRate := fes.backendServer.GetMempool().EstimateFeeRate(
 		requestData.MinFeeRateNanosPerKB,
 		mempoolCongestionFactorBasisPoints,
 		mempoolPriorityPercentileBasisPoints,
@@ -4335,12 +4335,8 @@ func (fes *APIServer) GetTxnConstructionParams(ww http.ResponseWriter, req *http
 		pastBlocksPriorityPercentileBasisPoints,
 		maxBlockSize,
 	)
-	if err != nil {
-		_AddBadRequestError(ww, "GetTxnConstructionParams: Problem getting fees: "+err.Error())
-		return
-	}
 	// Return the fees
-	if err = json.NewEncoder(ww).Encode(GetTxnConstructionParamsResponse{
+	if err := json.NewEncoder(ww).Encode(GetTxnConstructionParamsResponse{
 		FeeRateNanosPerKB: feeRate,
 		BlockHeight:       uint64(fes.backendServer.GetBlockchain().BlockTip().Height),
 	}); err != nil {
