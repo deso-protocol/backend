@@ -72,6 +72,146 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// SubmitAtomicTransactionRequest is meant to aid in the submission of atomic transactions
+// with identity service signed transactions. Specifically, it takes an incomplete atomic transaction
+// and "completes" the transaction by adding in identity service signed transactions.
+type SubmitAtomicTransactionRequest struct {
+	// IncompleteAtomicTransactionHex is a hex encoded transaction of type TxnTypeAtomicTxnsWrapper who
+	// is "incomplete" only by missing the signature fields of various inner transactions.
+	IncompleteAtomicTransactionHex string `safeForLogging:"true"`
+
+	// SignedInnerTransactionsHex are the hex-encoded signed inner transactions that
+	// will be used to complete the atomic transaction.
+	SignedInnerTransactionsHex []string `safeForLogging:"true"`
+}
+
+type SubmitAtomicTransactionResponse struct {
+	Transaction              *lib.MsgDeSoTxn
+	TxnHashHex               string
+	TransactionIDBase58Check string
+}
+
+func (fes *APIServer) SubmitAtomicTransaction(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := SubmitAtomicTransactionRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitAtomicTransaction: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Fetch the incomplete atomic transaction.
+	atomicTxnBytes, err := hex.DecodeString(requestData.IncompleteAtomicTransactionHex)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubmitAtomicTransaction: "+
+				"Problem deserializing atomic transaction hex: %v", err))
+		return
+	}
+	atomicTxn := &lib.MsgDeSoTxn{}
+	err = atomicTxn.FromBytes(atomicTxnBytes)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubmitAtomicTransaction: "+
+				"Problem deserializing atomic transaction from bytes: %v", err))
+		return
+	}
+	if atomicTxn.TxnMeta.GetTxnType() != lib.TxnTypeAtomicTxnsWrapper {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitAtomicTransaction: "+
+			"IncompleteAtomicTransaction must be an atomic transaction"))
+		return
+	}
+
+	// Create a map from the pre-signature inner transaction hash to DeSo signature.
+	innerTxnPreSignatureHashToSignature := make(map[lib.BlockHash]lib.DeSoSignature)
+	for ii, signedInnerTxnHex := range requestData.SignedInnerTransactionsHex {
+		// Decode the signed inner transaction.
+		signedTxnBytes, err := hex.DecodeString(signedInnerTxnHex)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubmitAtomicTransaction: Problem decoding signed transaction hex: %v", err))
+			return
+		}
+
+		// Deserialize the signed transaction.
+		signedInnerTxn := &lib.MsgDeSoTxn{}
+		if err := signedInnerTxn.FromBytes(signedTxnBytes); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubmitAtomicTransaction: Problem deserializing signed transaction %d from bytes: %v",
+				ii, err))
+			return
+		}
+
+		// Verify the signature is present.
+		if signedInnerTxn.Signature.Sign == nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubmitAtomicTransaction: Signed transaction %d hex missing signature", ii))
+			return
+		}
+
+		// Find the pre-signature DeSo transaction hash.
+		// NOTE: We do not use the lib.MsgDeSoTxn.Hash() function here as
+		// the transactions included in the atomic transaction do not yet
+		// have their signature fields set.
+		preSignatureInnerTxnBytes, err := signedInnerTxn.ToBytes(true)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubmitAtomicTransaction: Problem serializing "+
+					"signed transaction %d without signature: %v", ii, err))
+			return
+		}
+		preSignatureInnerTxnHash := lib.Sha256DoubleHash(preSignatureInnerTxnBytes)
+		innerTxnPreSignatureHashToSignature[*preSignatureInnerTxnHash] = signedInnerTxn.Signature
+	}
+
+	// Based on the provided signatures, complete the atomic transaction.
+	for jj, innerTxn := range atomicTxn.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns {
+		// Skip signed inner transactions.
+		if innerTxn.Signature.Sign != nil {
+			continue
+		}
+
+		// Find the pre-signature DeSo transaction hash for this transaction.
+		preSignatureInnerTxnBytes, err := innerTxn.ToBytes(true)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubmitAtomicTransaction: Problem serializing "+
+					"transaction %d of atomic transaction wrapper without signature: %v", jj, err))
+			return
+		}
+		preSignatureInnerTxnHash := lib.Sha256DoubleHash(preSignatureInnerTxnBytes)
+
+		// Check that we have the signature.
+		if _, exists := innerTxnPreSignatureHashToSignature[*preSignatureInnerTxnHash]; !exists {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubmitAtomicTransaction: Transaction %d in atomic transaction still missing signature", jj))
+			return
+		}
+
+		// Set the signature in the atomic transaction.
+		atomicTxn.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns[jj].Signature =
+			innerTxnPreSignatureHashToSignature[*preSignatureInnerTxnHash]
+	}
+
+	// Verify and broadcast the completed atomic transaction.
+	if err := fes.backendServer.VerifyAndBroadcastTransaction(atomicTxn); err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubmitAtomicTransaction: Problem broadcasting transaction: %v", err))
+		return
+	}
+
+	res := &SubmitAtomicTransactionResponse{
+		Transaction:              atomicTxn,
+		TxnHashHex:               atomicTxn.Hash().String(),
+		TransactionIDBase58Check: lib.PkToString(atomicTxn.Hash()[:], fes.Params),
+	}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"SubmitAtomicTransaction: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
 type SubmitTransactionRequest struct {
 	TransactionHex string `safeForLogging:"true"`
 }
@@ -324,87 +464,10 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		profilePublicKey = profilePublicKeyBytess
 	}
 
-	if len(requestData.NewUsername) > 0 && strings.Index(requestData.NewUsername, fes.PublicKeyBase58Prefix) == 0 {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"UpdateProfile: Username cannot start with %s", fes.PublicKeyBase58Prefix))
+	// Validate the request.
+	if err := fes.ValidateAndConvertUpdateProfileRequest(&requestData, profilePublicKey, utxoView); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem validating request: %v", err))
 		return
-	}
-
-	if uint64(len([]byte(requestData.NewUsername))) > utxoView.Params.MaxUsernameLengthBytes {
-		_AddBadRequestError(ww, lib.RuleErrorProfileUsernameTooLong.Error())
-		return
-	}
-
-	if uint64(len([]byte(requestData.NewDescription))) > utxoView.Params.MaxUserDescriptionLengthBytes {
-		_AddBadRequestError(ww, lib.RuleErrorProfileDescriptionTooLong.Error())
-		return
-	}
-
-	// If an image is set on the request then resize it.
-	// Convert image to base64 by stripping the data: prefix.
-	if requestData.NewProfilePic != "" {
-		// split on base64 to get the extension
-		extensionSplit := strings.Split(requestData.NewProfilePic, ";base64")
-		if len(extensionSplit) != 2 {
-			_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem parsing profile pic extension: %v", err))
-			return
-		}
-		extension := extensionSplit[0]
-		switch {
-		case strings.Contains(extension, "image/png"):
-			extension = ".png"
-		case strings.Contains(extension, "image/jpeg"):
-			extension = ".jpeg"
-		case strings.Contains(extension, "image/webp"):
-			extension = ".webp"
-		case strings.Contains(extension, "image/gif"):
-			extension = ".gif"
-		default:
-			_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Unsupported image type: %v", extension))
-			return
-		}
-		var resizedImageBytes []byte
-		resizedImageBytes, err = resizeAndConvertToWebp(
-			requestData.NewProfilePic, uint(fes.Params.MaxProfilePicDimensions), extension)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("Problem resizing profile picture: %v", err))
-			return
-		}
-		// Convert the image back into base64
-		webpBase64 := base64.StdEncoding.EncodeToString(resizedImageBytes)
-		requestData.NewProfilePic = "data:image/webp;base64," + webpBase64
-		if uint64(len([]byte(requestData.NewProfilePic))) > utxoView.Params.MaxProfilePicLengthBytes {
-			_AddBadRequestError(ww, lib.RuleErrorMaxProfilePicSize.Error())
-			return
-		}
-	}
-
-	// CreatorBasisPoints > 0 < max, uint64 can't be less than zero
-	if requestData.NewCreatorBasisPoints > fes.Params.MaxCreatorBasisPoints {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"UpdateProfile: Creator percentage must be less than %v percent",
-			fes.Params.MaxCreatorBasisPoints/100))
-		return
-	}
-
-	// Verify that this username doesn't exist in the mempool.
-	if len(requestData.NewUsername) > 0 {
-
-		utxoView.GetProfileEntryForUsername([]byte(requestData.NewUsername))
-		existingProfile, usernameExists := utxoView.ProfileUsernameToProfileEntry[lib.MakeUsernameMapKey([]byte(requestData.NewUsername))]
-		if usernameExists && existingProfile != nil && !existingProfile.IsDeleted() {
-			// Check that the existing profile does not belong to the profile public key
-			if utxoView.GetPKIDForPublicKey(profilePublicKey) != utxoView.GetPKIDForPublicKey(existingProfile.PublicKey) {
-				_AddBadRequestError(ww, fmt.Sprintf(
-					"UpdateProfile: Username %v already exists", string(existingProfile.Username)))
-				return
-			}
-
-		}
-		if !lib.UsernameRegex.Match([]byte(requestData.NewUsername)) {
-			_AddBadRequestError(ww, lib.RuleErrorInvalidUsername.Error())
-			return
-		}
 	}
 
 	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
@@ -474,6 +537,93 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("SendMessage: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+func (fes *APIServer) ValidateAndConvertUpdateProfileRequest(
+	requestData *UpdateProfileRequest,
+	profilePublicKey []byte,
+	utxoView *lib.UtxoView,
+) error {
+	if len(requestData.NewUsername) > 0 && strings.Index(requestData.NewUsername, fes.PublicKeyBase58Prefix) == 0 {
+		return fmt.Errorf(
+			"ValidateAndConvertUpdateProfileRequest: Username cannot start with %s", fes.PublicKeyBase58Prefix)
+	}
+
+	if uint64(len([]byte(requestData.NewUsername))) > utxoView.Params.MaxUsernameLengthBytes {
+		return errors.Wrap(lib.RuleErrorProfileUsernameTooLong, "ValidateAndConvertUpdateProfileRequest")
+	}
+
+	if uint64(len([]byte(requestData.NewDescription))) > utxoView.Params.MaxUserDescriptionLengthBytes {
+		return errors.Wrap(lib.RuleErrorProfileDescriptionTooLong, "ValidateAndConvertUpdateProfileRequest")
+	}
+
+	// If an image is set on the request then resize it.
+	// Convert image to base64 by stripping the data: prefix.
+	if requestData.NewProfilePic != "" {
+		// split on base64 to get the extension
+		extensionSplit := strings.Split(requestData.NewProfilePic, ";base64")
+		if len(extensionSplit) != 2 {
+			return fmt.Errorf("ValidateAndConvertUpdateProfileRequest: " +
+				"Problem parsing profile pic extension; invalid extension split")
+		}
+		extension := extensionSplit[0]
+		switch {
+		case strings.Contains(extension, "image/png"):
+			extension = ".png"
+		case strings.Contains(extension, "image/jpeg"):
+			extension = ".jpeg"
+		case strings.Contains(extension, "image/webp"):
+			extension = ".webp"
+		case strings.Contains(extension, "image/gif"):
+			extension = ".gif"
+		default:
+			return fmt.Errorf(
+				"ValidateAndConvertUpdateProfileRequest: Unsupported image type: %v", extension)
+		}
+		var resizedImageBytes []byte
+		resizedImageBytes, err := resizeAndConvertToWebp(
+			requestData.NewProfilePic, uint(fes.Params.MaxProfilePicDimensions), extension)
+		if err != nil {
+			return fmt.Errorf(
+				"ValidateAndConvertUpdateProfileRequest: Problem resizing profile picture: %v", err)
+		}
+		// Convert the image back into base64
+		webpBase64 := base64.StdEncoding.EncodeToString(resizedImageBytes)
+		requestData.NewProfilePic = "data:image/webp;base64," + webpBase64
+		if uint64(len([]byte(requestData.NewProfilePic))) > utxoView.Params.MaxProfilePicLengthBytes {
+			return errors.Wrap(lib.RuleErrorMaxProfilePicSize, "ValidateAndConvertUpdateProfileRequest")
+		}
+	}
+
+	// CreatorBasisPoints > 0 < max, uint64 can't be less than zero
+	if requestData.NewCreatorBasisPoints > fes.Params.MaxCreatorBasisPoints {
+		return fmt.Errorf(
+			"ValidateAndConvertUpdateProfileRequest: Creator percentage must be less than %v percent",
+			fes.Params.MaxCreatorBasisPoints/100)
+	}
+
+	// Verify that this username doesn't exist in the mempool.
+	if len(requestData.NewUsername) > 0 {
+
+		utxoView.GetProfileEntryForUsername([]byte(requestData.NewUsername))
+		existingProfile, usernameExists :=
+			utxoView.ProfileUsernameToProfileEntry[lib.MakeUsernameMapKey([]byte(requestData.NewUsername))]
+		if usernameExists && existingProfile != nil && !existingProfile.IsDeleted() {
+			// Check that the existing profile does not belong to the profile public key
+			if utxoView.GetPKIDForPublicKey(profilePublicKey) !=
+				utxoView.GetPKIDForPublicKey(existingProfile.PublicKey) {
+				return fmt.Errorf(
+					"ValidateAndConvertUpdateProfileRequest: Username %v already exists",
+					string(existingProfile.Username))
+			}
+
+		}
+		if !lib.UsernameRegex.Match([]byte(requestData.NewUsername)) {
+			return errors.Wrap(lib.RuleErrorInvalidUsername, "ValidateAndConvertUpdateProfileRequest")
+		}
+	}
+
+	return nil
 }
 
 func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata *UserMetadata, utxoView *lib.UtxoView) (_additionalFee uint64, _txnHash *lib.BlockHash, _err error) {

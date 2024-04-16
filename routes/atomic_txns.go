@@ -81,7 +81,6 @@ func (fes *APIServer) CreateAtomicTxnsWrapper(ww http.ResponseWriter, req *http.
 		_AddBadRequestError(ww, fmt.Sprint("CreateAtomicTxnsWrapper: Resulting wrapper transaction too large"))
 		return
 	}
-
 	if txnSizeBytes != 0 && utxoView.GetCurrentGlobalParamsEntry().MinimumNetworkFeeNanosPerKB != 0 {
 		// Check for overflow or minimum network fee not met.
 		if totalFees != ((totalFees*1000)/1000) ||

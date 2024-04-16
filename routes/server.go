@@ -50,6 +50,7 @@ const (
 	// transaction.go
 	RoutePathGetTxn                   = "/api/v0/get-txn"
 	RoutePathSubmitTransaction        = "/api/v0/submit-transaction"
+	RoutePathSubmitAtomicTransaction  = "/api/v0/submit-atomic-transaction"
 	RoutePathUpdateProfile            = "/api/v0/update-profile"
 	RoutePathExchangeBitcoin          = "/api/v0/exchange-bitcoin"
 	RoutePathSendDeSo                 = "/api/v0/send-deso"
@@ -676,6 +677,15 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathSubmitTransaction,
 			fes.SubmitTransaction,
+			PublicAccess,
+		},
+
+		// Route for submitting incomplete atomic transactions and their signatures for network broadcast
+		{
+			"SubmitAtomicTransaction",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSubmitAtomicTransaction,
+			fes.SubmitAtomicTransaction,
 			PublicAccess,
 		},
 
