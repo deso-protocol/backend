@@ -640,6 +640,11 @@ func APITransactionToResponse(
 		basicMetadata := *txnMeta.BasicTransferTxindexMetadata
 		basicMetadata.UtxoOps = nil
 		txnMetaResponse.BasicTransferTxindexMetadata = &basicMetadata
+		if txnMeta.AtomicTxnsWrapperTxindexMetadata != nil {
+			for _, innerMetadata := range txnMeta.AtomicTxnsWrapperTxindexMetadata.InnerTxnsTransactionMetadata {
+				innerMetadata.BasicTransferTxindexMetadata.UtxoOps = nil
+			}
+		}
 	}
 
 	txnBytes, _ := txnn.ToBytes(false /*preSignature*/)
