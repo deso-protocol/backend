@@ -15,7 +15,6 @@ import (
 	"github.com/tyler-smith/go-bip39"
 )
 
-var superAdminPublicKey = "<SUPER ADMIN PUBLIC KEY HERE>"
 var superAdminSeedPhrase = "<SUPER ADMIN SEED PHRASE HERE>"
 
 var nodeURL = "<NODE URL HERE>"
