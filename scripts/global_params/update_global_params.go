@@ -1,4 +1,4 @@
-package globalparams
+package main
 
 import (
 	"bytes"
