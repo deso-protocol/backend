@@ -4442,25 +4442,25 @@ func (fes *APIServer) GetTxnConstructionParams(ww http.ResponseWriter, req *http
 		return
 	}
 
-	// TODO: replace lib.MaxBasisPoints w/ a param defined by a flag from core.
+	// TODO: Make these flags or GlobalParams
 	mempoolCongestionFactorBasisPoints := requestData.MempoolCongestionFactorBasisPoints
 	if requestData.MempoolCongestionFactorBasisPoints == 0 {
-		mempoolCongestionFactorBasisPoints = lib.MaxBasisPoints
+		mempoolCongestionFactorBasisPoints = fes.Params.MempoolCongestionFactorBasisPoints
 	}
 
 	mempoolPriorityPercentileBasisPoints := requestData.MempoolPriorityPercentileBasisPoints
 	if requestData.MempoolPriorityPercentileBasisPoints == 0 {
-		mempoolPriorityPercentileBasisPoints = lib.MaxBasisPoints
+		mempoolPriorityPercentileBasisPoints = fes.Params.MempoolPriorityPercentileBasisPoints
 	}
 
 	pastBlocksCongestionFactorBasisPoints := requestData.PastBlocksCongestionFactorBasisPoints
 	if requestData.PastBlocksCongestionFactorBasisPoints == 0 {
-		pastBlocksCongestionFactorBasisPoints = lib.MaxBasisPoints
+		pastBlocksCongestionFactorBasisPoints = fes.Params.PastBlocksCongestionFactorBasisPoints
 	}
 
 	pastBlocksPriorityPercentileBasisPoints := requestData.PastBlocksPriorityPercentileBasisPoints
 	if requestData.PastBlocksPriorityPercentileBasisPoints == 0 {
-		pastBlocksPriorityPercentileBasisPoints = lib.MaxBasisPoints
+		pastBlocksPriorityPercentileBasisPoints = fes.Params.PastBlocksPriorityPercentileBasisPoints
 	}
 
 	maxBlockSize := requestData.MaxBlockSize
