@@ -10,8 +10,9 @@ import (
 )
 
 type CreateAtomicTxnsWrapperRequest struct {
-	Transactions []*lib.MsgDeSoTxn
-	ExtraData    map[string]string
+	Transactions         []*lib.MsgDeSoTxn
+	ExtraData            map[string]string
+	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 }
 
 type CreateAtomicTxnsWrapperResponse struct {
@@ -60,7 +61,7 @@ func (fes *APIServer) CreateAtomicTxnsWrapper(ww http.ResponseWriter, req *http.
 
 	// Construct the atomic transactions wrapper transaction type.
 	txn, totalFees, err := fes.blockchain.CreateAtomicTxnsWrapper(
-		requestData.Transactions, extraData, fes.backendServer.GetMempool())
+		requestData.Transactions, extraData, fes.backendServer.GetMempool(), requestData.MinFeeRateNanosPerKB)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateAtomicTxnsWrapper: Problem constructing transaction: %v", err))
 		return
