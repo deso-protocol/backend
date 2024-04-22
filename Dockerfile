@@ -57,4 +57,4 @@ EXPOSE 2345
 # NOTE: The ENTRYPOINT is overwritten when a node is deployed to Kubernetes so this
 # mainly serves as an example.
 #ENTRYPOINT ["/deso/bin/backend", "run"]
-ENTRYPOINT ["/bin/dlv", "--listen=:2345", "--headless=true", "--api-version=2", "--accept-multiclient", "exec", "/deso/bin/backend"]
+ENTRYPOINT ["/bin/dlv", "--listen=:2345", "--headless=true", "--api-version=2", "--accept-multiclient", "exec", "/deso/bin/backend", "--continue"]
