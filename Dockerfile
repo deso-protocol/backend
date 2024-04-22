@@ -37,13 +37,24 @@ COPY core/lib         ../core/lib
 COPY core/migrate     ../core/migrate
 
 # build backend
-RUN GOOS=linux go build -mod=mod -a -installsuffix cgo -o bin/backend main.go
+#RUN GOOS=linux go build -mod=mod -a -installsuffix cgo -o bin/backend main.go
+RUN GOOS=linux go build -mod=mod -gcflags="all=-N -l" -o bin/backend main.go
 
 # create tiny image
 FROM alpine:latest
 
 RUN apk add --update vips-dev
 
+# Install necessary dependencies, including Go, git, and build tools
+RUN apk add --no-cache go git gcc g++ 
+
+ENV GOPATH /go
+# Ensure both /usr/local/go/bin and $GOPATH/bin are in the PATH
+ENV PATH="/usr/local/go/bin:$GOPATH/bin:${PATH}"
+
+# Now that PATH is correctly set, install Delve
+RUN go install github.com/go-delve/delve/cmd/dlv@latest
+
 COPY --from=backend /deso/src/backend/bin/backend /deso/bin/backend
 
-ENTRYPOINT ["/deso/bin/backend"]
+ENTRYPOINT ["dlv", "--listen=:2345", "--headless=true", "--api-version=2", "--continue", "--accept-multiclient", "exec", "/deso/bin/backend"]
