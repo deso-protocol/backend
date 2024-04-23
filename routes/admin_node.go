@@ -268,6 +268,11 @@ func _remoteNodeToResponse(remoteNode *lib.RemoteNode, utxoView *lib.UtxoView, p
 		if err != nil {
 			return nil, fmt.Errorf("_remoteNodeToResponse: Problem getting BLS public key PKID pair entry: %v", err)
 		}
+		// If the node identified itself as a validator but it does not have a validator entry in the UtxoView,
+		// then it is not a registered validator. We should not return a ValidatorResponse in this case.
+		if blsPublicKeyPKIDPairEntry == nil {
+			return remoteNodeResponse, nil
+		}
 		validatorEntry, err := utxoView.GetValidatorByPKID(blsPublicKeyPKIDPairEntry.PKID)
 		if err != nil {
 			return nil, fmt.Errorf("_remoteNodeToResponse: Problem getting validator entry: %v", err)
