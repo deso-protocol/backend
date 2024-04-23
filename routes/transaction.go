@@ -4421,12 +4421,7 @@ func (fes *APIServer) GetSignatureIndex(ww http.ResponseWriter, req *http.Reques
 }
 
 type GetTxnConstructionParamsRequest struct {
-	MinFeeRateNanosPerKB                    uint64
-	MempoolCongestionFactorBasisPoints      uint64
-	MempoolPriorityPercentileBasisPoints    uint64
-	PastBlocksCongestionFactorBasisPoints   uint64
-	PastBlocksPriorityPercentileBasisPoints uint64
-	MaxBlockSize                            uint64
+	MinFeeRateNanosPerKB uint64
 }
 
 type GetTxnConstructionParamsResponse struct {
@@ -4442,49 +4437,8 @@ func (fes *APIServer) GetTxnConstructionParams(ww http.ResponseWriter, req *http
 		return
 	}
 
-	// TODO: replace lib.MaxBasisPoints w/ a param defined by a flag from core.
-	mempoolCongestionFactorBasisPoints := requestData.MempoolCongestionFactorBasisPoints
-	if requestData.MempoolCongestionFactorBasisPoints == 0 {
-		mempoolCongestionFactorBasisPoints = lib.MaxBasisPoints
-	}
-
-	mempoolPriorityPercentileBasisPoints := requestData.MempoolPriorityPercentileBasisPoints
-	if requestData.MempoolPriorityPercentileBasisPoints == 0 {
-		mempoolPriorityPercentileBasisPoints = lib.MaxBasisPoints
-	}
-
-	pastBlocksCongestionFactorBasisPoints := requestData.PastBlocksCongestionFactorBasisPoints
-	if requestData.PastBlocksCongestionFactorBasisPoints == 0 {
-		pastBlocksCongestionFactorBasisPoints = lib.MaxBasisPoints
-	}
-
-	pastBlocksPriorityPercentileBasisPoints := requestData.PastBlocksPriorityPercentileBasisPoints
-	if requestData.PastBlocksPriorityPercentileBasisPoints == 0 {
-		pastBlocksPriorityPercentileBasisPoints = lib.MaxBasisPoints
-	}
-
-	maxBlockSize := requestData.MaxBlockSize
-	if requestData.MaxBlockSize == 0 {
-		maxBlockSize = fes.Params.MaxBlockSizeBytesPoW
-		if fes.Params.IsPoSBlockHeight(uint64(fes.blockchain.BlockTip().Height)) {
-			uncommittedTipView, err := fes.blockchain.GetUncommittedTipView()
-			if err != nil {
-				_AddBadRequestError(ww, "GetTxnConstructionParams: Problem getting uncommitted tip view: "+err.Error())
-				return
-			}
-			maxBlockSize = uncommittedTipView.GetSoftMaxBlockSizeBytesPoS()
-		}
-	}
-
 	// Get the fees from the mempool
-	feeRate := fes.backendServer.GetMempool().EstimateFeeRate(
-		requestData.MinFeeRateNanosPerKB,
-		mempoolCongestionFactorBasisPoints,
-		mempoolPriorityPercentileBasisPoints,
-		pastBlocksCongestionFactorBasisPoints,
-		pastBlocksPriorityPercentileBasisPoints,
-		maxBlockSize,
-	)
+	feeRate := fes.backendServer.GetMempool().EstimateFeeRate(requestData.MinFeeRateNanosPerKB)
 	// Return the fees
 	if err := json.NewEncoder(ww).Encode(GetTxnConstructionParamsResponse{
 		FeeRateNanosPerKB: feeRate,
