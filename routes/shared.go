@@ -260,6 +260,7 @@ func (fes *APIServer) GetVerifiedUsernameToPKIDMapFromGlobalState() (_verificati
 		}
 	} else {
 		// Create the inital map structure
+		glog.Errorf("GetVerifiedUsernameToPKIDMapFromGlobalState: VerifiedMap is empty, creating a new one")
 		verifiedMapStruct.VerifiedUsernameToPKID = make(map[string]*lib.PKID)
 
 		// Encode the map and stick it in the database.
