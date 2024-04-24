@@ -255,12 +255,19 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 
 func _remoteNodeToResponse(remoteNode *lib.RemoteNode, utxoView *lib.UtxoView, params *lib.DeSoParams) (*RemoteNodeResponse, error) {
 	remoteNodeResponse := &RemoteNodeResponse{}
-	remoteNodeResponse.PeerResponse = &PeerResponse{
-		IP:           remoteNode.GetPeer().IP(),
-		ProtocolPort: remoteNode.GetPeer().Port(),
+
+	// If the remote node connection has been attempted but a peer hasn't been attached yet, there is no peer
+	// information to return.
+	peer := remoteNode.GetPeer()
+	if peer != nil {
+		remoteNodeResponse.PeerResponse = &PeerResponse{
+			IP:           remoteNode.GetPeer().IP(),
+			ProtocolPort: remoteNode.GetPeer().Port(),
+		}
 	}
+
 	remoteNodeResponse.RemoteNodeStatus = remoteNode.GetStatus().String()
-	remoteNodeResponse.PeerConnected = remoteNode.GetPeer().Connected()
+	remoteNodeResponse.PeerConnected = peer != nil && remoteNode.GetPeer().Connected()
 	remoteNodeResponse.IsValidator = remoteNode.IsValidator()
 	remoteNodeResponse.LatestBlockHeight = remoteNode.GetLatestBlockHeight()
 	if remoteNodeResponse.IsValidator {
