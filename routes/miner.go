@@ -96,15 +96,20 @@ func (fes *APIServer) GetBlockTemplate(ww http.ResponseWriter, req *http.Request
 		return
 	}
 
+	difficultyTargetHex := ""
+	if diffTarget != nil {
+		difficultyTargetHex = hex.EncodeToString(diffTarget[:])
+	}
+
 	res := &GetBlockTemplateResponse{
 		BlockID:                  blockID,
 		Headers:                  headers,
 		ExtraDatas:               extraDatas,
-		DifficultyTargetHex:      hex.EncodeToString(diffTarget[:]),
+		DifficultyTargetHex:      difficultyTargetHex,
 		LatestBlockTemplateStats: fes.blockProducer.GetLatestBlockTemplateStats(),
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetBlockTemplate: Problem encoding response as JSON: %v", err))
 		return
 	}
