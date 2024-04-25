@@ -29,7 +29,7 @@ func TestValidatorRegistration(t *testing.T) {
 		// Send POST request.
 		body := &RegisterAsValidatorRequest{
 			TransactorPublicKeyBase58Check: senderPkString,
-			Domains:                        []string{"https://sender-001.deso.com", "https://sender-002.deso.com"},
+			Domains:                        []string{"sender-001.deso.com:18000", "sender-002.deso.com:18000"},
 			DisableDelegatedStake:          false,
 			VotingPublicKey:                votingPublicKey.ToString(),
 			VotingAuthorization:            votingAuthorization.ToString(),
@@ -56,8 +56,8 @@ func TestValidatorRegistration(t *testing.T) {
 		require.Equal(t, txn.PublicKey, senderPkBytes)
 		txnMeta := txn.TxnMeta.(*lib.RegisterAsValidatorMetadata)
 		require.Len(t, txnMeta.Domains, 2)
-		require.Equal(t, txnMeta.Domains[0], []byte("https://sender-001.deso.com"))
-		require.Equal(t, txnMeta.Domains[1], []byte("https://sender-002.deso.com"))
+		require.Equal(t, txnMeta.Domains[0], []byte("sender-001.deso.com:18000"))
+		require.Equal(t, txnMeta.Domains[1], []byte("sender-002.deso.com:18000"))
 		require.False(t, txnMeta.DisableDelegatedStake)
 		require.True(t, txnMeta.VotingPublicKey.Eq(votingPublicKey))
 		require.True(t, txnMeta.VotingAuthorization.Eq(votingAuthorization))
@@ -91,8 +91,8 @@ func TestValidatorRegistration(t *testing.T) {
 		// Verify response fields.
 		require.Equal(t, validatorResponse.ValidatorPublicKeyBase58Check, senderPkString)
 		require.Len(t, validatorResponse.Domains, 2)
-		require.Equal(t, validatorResponse.Domains[0], "https://sender-001.deso.com")
-		require.Equal(t, validatorResponse.Domains[1], "https://sender-002.deso.com")
+		require.Equal(t, validatorResponse.Domains[0], "sender-001.deso.com:18000")
+		require.Equal(t, validatorResponse.Domains[1], "sender-002.deso.com:18000")
 		require.False(t, validatorResponse.DisableDelegatedStake)
 		require.Equal(t, validatorResponse.VotingPublicKey, votingPublicKey.ToString())
 		require.Equal(t, validatorResponse.VotingAuthorization, votingAuthorization.ToString())
