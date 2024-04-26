@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"time"
 )
 
 type RegisterAsValidatorRequest struct {
@@ -373,7 +374,7 @@ func (fes *APIServer) CheckNodeStatus(ww http.ResponseWriter, req *http.Request)
 	// We do an *extremely* simple check for now, which is that we just check to see if the node
 	// is reachable at all.
 	// TODO: We should beef this up to test an actual version handshake or something more robust.
-	conn, err := net.Dial("tcp", requestData.NodeHostPort)
+	conn, err := net.DialTimeout("tcp", requestData.NodeHostPort, 5*time.Second)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"Problem connecting to %v: %v", requestData.NodeHostPort, err))
