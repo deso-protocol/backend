@@ -317,7 +317,8 @@ const (
 	RoutePathStateChecksum         = "/api/v0/state-checksum"
 
 	// validators.go
-	RoutePathValidators = "/api/v0/validators"
+	RoutePathValidators      = "/api/v0/validators"
+	RoutePathCheckNodeStatus = "/api/v0/check-node-status"
 
 	// stake.go
 	RoutePathStake       = "/api/v0/stake"
@@ -1351,6 +1352,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"GET"},
 			RoutePathValidators + "/{publicKeyBase58Check:t?BC[1-9A-HJ-NP-Za-km-z]{51,53}}",
 			fes.GetValidatorByPublicKeyBase58Check,
+			PublicAccess,
+		},
+		{
+			"CheckNodeStatus",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCheckNodeStatus,
+			fes.CheckNodeStatus,
 			PublicAccess,
 		},
 		{

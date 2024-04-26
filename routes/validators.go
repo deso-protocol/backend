@@ -9,6 +9,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/holiman/uint256"
 	"io"
+	"net"
 	"net/http"
 )
 
@@ -348,6 +349,44 @@ func (fes *APIServer) GetValidatorByPublicKeyBase58Check(ww http.ResponseWriter,
 	validatorResponse := _convertValidatorEntryToResponse(utxoView, validatorEntry, fes.Params)
 	if err = json.NewEncoder(ww).Encode(validatorResponse); err != nil {
 		_AddInternalServerError(ww, "GetValidatorByPublicKeyBase58Check: problem encoding response as JSON")
+		return
+	}
+}
+
+type CheckNodeStatusRequest struct {
+	NodeHostPort string `safeForLogging:"true"`
+}
+
+type CheckNodeStatusResponse struct {
+	Success bool `safeForLogging:"true"`
+}
+
+func (fes *APIServer) CheckNodeStatus(ww http.ResponseWriter, req *http.Request) {
+	// Decode request body.
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := CheckNodeStatusRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, "UnjailValidator: problem parsing request body")
+		return
+	}
+
+	// We do an *extremely* simple check for now, which is that we just check to see if the node
+	// is reachable at all.
+	// TODO: We should beef this up to test an actual version handshake or something more robust.
+	conn, err := net.Dial("tcp", requestData.NodeHostPort)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"Problem connecting to %v: %v", requestData.NodeHostPort, err))
+		return
+	}
+	// If we get here it means we succeeded. Close the connection to clean up.
+	conn.Close()
+
+	res := CheckNodeStatusResponse{
+		Success: true,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddInternalServerError(ww, "UnjailValidator: problem encoding response as JSON")
 		return
 	}
 }
