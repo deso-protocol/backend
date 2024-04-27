@@ -25,9 +25,21 @@ import (
 	"github.com/pkg/errors"
 )
 
+type TxnStatus string
+
+const (
+	TxnStatusUnconfirmed TxnStatus = "unconfirmed"
+	TxnStatusConfirmed   TxnStatus = "confirmed"
+	// TODO: It would be useful to have one that is "InBlock" or something like that, which
+	// means we'll consider txns that are in unconfirmed blocks but will *not* consider txns
+	// that are in the mempool. It's a kindof middle-ground.
+)
+
 type GetTxnRequest struct {
 	// TxnHashHex to fetch.
 	TxnHashHex string `safeForLogging:"true"`
+	// If unset, defaults to TxnStatusUnconfirmed
+	TxnStatus TxnStatus `safeForLogging:"true"`
 }
 
 type GetTxnResponse struct {
@@ -58,10 +70,27 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 		copy(txnHash[:], txnHashBytes)
 	}
 
-	txnFound := fes.backendServer.GetMempool().IsTransactionInPool(txnHash)
-	if !txnFound {
-		txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
+	txnFound := false
+	txnStatus := requestData.TxnStatus
+	if txnStatus == "" {
+		txnStatus = TxnStatusUnconfirmed
 	}
+	switch txnStatus {
+	case TxnStatusUnconfirmed:
+		txnFound = fes.backendServer.GetMempool().IsTransactionInPool(txnHash)
+		if !txnFound {
+			txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
+		}
+	case TxnStatusConfirmed:
+		// In this case we will not consider a txn until it shows up in txindex, which means that
+		// it is confirmed.
+		txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
+	default:
+		_AddBadRequestError(ww, fmt.Sprintf("GetTxn: Invalid TxnStatus: %v. Options are "+
+			"{unconfirmed, confirmed}", txnStatus))
+		return
+	}
+
 	res := &GetTxnResponse{
 		TxnFound: txnFound,
 	}
@@ -3231,8 +3260,8 @@ func (fes *APIServer) getBuyingAndSellingDAOCoinPublicKeys(
 	buyingDAOCoinCreatorPublicKeyBase58Check string,
 	sellingDAOCoinCreatorPublicKeyBase58Check string,
 ) ([]byte, []byte, error) {
-	if sellingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString &&
-		buyingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+	if IsDesoPkid(sellingDAOCoinCreatorPublicKeyBase58Check) &&
+		IsDesoPkid(buyingDAOCoinCreatorPublicKeyBase58Check) {
 		return nil, nil, errors.Errorf("'DESO' specified for both the " +
 			"coin to buy and the coin to sell. At least one must specify a valid DAO public key whose coin " +
 			"will be bought or sold")
@@ -3243,14 +3272,14 @@ func (fes *APIServer) getBuyingAndSellingDAOCoinPublicKeys(
 
 	var err error
 
-	if buyingDAOCoinCreatorPublicKeyBase58Check != DESOCoinIdentifierString {
+	if !IsDesoPkid(buyingDAOCoinCreatorPublicKeyBase58Check) {
 		buyingCoinPublicKey, err = GetPubKeyBytesFromBase58Check(buyingDAOCoinCreatorPublicKeyBase58Check)
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 
-	if sellingDAOCoinCreatorPublicKeyBase58Check != DESOCoinIdentifierString {
+	if !IsDesoPkid(sellingDAOCoinCreatorPublicKeyBase58Check) {
 		sellingCoinPublicKey, err = GetPubKeyBytesFromBase58Check(sellingDAOCoinCreatorPublicKeyBase58Check)
 		if err != nil {
 			return nil, nil, err
