@@ -496,6 +496,14 @@ func buildDAOCoinLimitOrderResponse(
 		return nil, err
 	}
 
+	// We always want to return the identifier string for DESO coins in the API response
+	if IsDesoPkid(buyingCoinPublicKeyBase58Check) {
+		buyingCoinPublicKeyBase58Check = DESOCoinIdentifierString
+	}
+	if IsDesoPkid(sellingCoinPublicKeyBase58Check) {
+		sellingCoinPublicKeyBase58Check = DESOCoinIdentifierString
+	}
+
 	return &DAOCoinLimitOrderEntryResponse{
 		TransactorPublicKeyBase58Check: transactorPublicKeyBase58Check,
 
