@@ -194,10 +194,6 @@ type GetDAOCoinLimitOrdersByIdRequest struct {
 	TxnStatus TxnStatus `safeForLogging:"true"`
 }
 
-type GetDAOCoinLimitOrdersByIdResponse struct {
-	Orders []DAOCoinLimitOrderEntryResponse
-}
-
 func (fes *APIServer) GetDAOCoinLimitOrdersById(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetDAOCoinLimitOrdersByIdRequest{}
