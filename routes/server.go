@@ -100,6 +100,7 @@ const (
 
 	// dao_coin_exchange.go
 	RoutePathGetDaoCoinLimitOrders           = "/api/v0/get-dao-coin-limit-orders"
+	RoutePathGetDaoCoinLimitOrdersById       = "/api/v0/get-dao-coin-limit-orders-by-id"
 	RoutePathGetTransactorDaoCoinLimitOrders = "/api/v0/get-transactor-dao-coin-limit-orders"
 
 	// post.go
@@ -1233,6 +1234,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetDaoCoinLimitOrders,
 			fes.GetDAOCoinLimitOrders,
+			PublicAccess,
+		},
+		{
+			"GetDAOCoinLimitOrdersById",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetDaoCoinLimitOrdersById,
+			fes.GetDAOCoinLimitOrdersById,
 			PublicAccess,
 		},
 		{

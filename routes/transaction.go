@@ -28,9 +28,9 @@ import (
 type TxnStatus string
 
 const (
-	TxnStatusUnconfirmed TxnStatus = "unconfirmed"
-	TxnStatusConfirmed   TxnStatus = "confirmed"
-	// TODO: It would be useful to have one that is "InBlock" or something like that, which
+	TxnStatusInMempool TxnStatus = "InMempool"
+	TxnStatusCommitted TxnStatus = "Committed"
+	// TODO: It would be useful to have one that is "UnconfirmedBlocks" or something like that, which
 	// means we'll consider txns that are in unconfirmed blocks but will *not* consider txns
 	// that are in the mempool. It's a kindof middle-ground.
 )
@@ -38,7 +38,7 @@ const (
 type GetTxnRequest struct {
 	// TxnHashHex to fetch.
 	TxnHashHex string `safeForLogging:"true"`
-	// If unset, defaults to TxnStatusUnconfirmed
+	// If unset, defaults to TxnStatusInMempool
 	TxnStatus TxnStatus `safeForLogging:"true"`
 }
 
@@ -73,21 +73,21 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 	txnFound := false
 	txnStatus := requestData.TxnStatus
 	if txnStatus == "" {
-		txnStatus = TxnStatusUnconfirmed
+		txnStatus = TxnStatusInMempool
 	}
 	switch txnStatus {
-	case TxnStatusUnconfirmed:
+	case TxnStatusInMempool:
 		txnFound = fes.backendServer.GetMempool().IsTransactionInPool(txnHash)
 		if !txnFound {
 			txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
 		}
-	case TxnStatusConfirmed:
+	case TxnStatusCommitted:
 		// In this case we will not consider a txn until it shows up in txindex, which means that
-		// it is confirmed.
+		// it is committed.
 		txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
 	default:
 		_AddBadRequestError(ww, fmt.Sprintf("GetTxn: Invalid TxnStatus: %v. Options are "+
-			"{unconfirmed, confirmed}", txnStatus))
+			"{InMempool, Committed}", txnStatus))
 		return
 	}
 
