@@ -20,11 +20,9 @@ type GetDAOCoinLimitOrdersRequest struct {
 	DAOCoin1CreatorPublicKeyBase58Check string `safeForLogging:"true"`
 	DAOCoin2CreatorPublicKeyBase58Check string `safeForLogging:"true"`
 
-	// A list of hex OrderIds that we will fetch
-	OrderIds []string `safeForLogging:"true"`
-	// If unset, defaults to TxnStatusUnconfirmed. If set to "unconfirmed" we will
-	// consider all txns including those in the mempool. If set to "confirmed" then
-	// we will only consider txns that have been confirmed according to consensus.
+	// If unset, defaults to TxnStatusInMempool. If set to "InMempool" we will
+	// consider all txns including those in the mempool. If set to "Committed" then
+	// we will only consider txns that have been committed according to consensus.
 	TxnStatus TxnStatus `safeForLogging:"true"`
 }
 
@@ -60,6 +58,26 @@ type DAOCoinLimitOrderEntryResponse struct {
 
 const DESOCoinIdentifierString = "DESO"
 
+func (fes *APIServer) GetUtxoViewGivenTxnStatus(
+	txnStatus TxnStatus,
+) (
+	*lib.UtxoView,
+	error,
+) {
+	if txnStatus == TxnStatusInMempool {
+		return fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	}
+	if txnStatus == TxnStatusCommitted {
+		return lib.NewUtxoView(
+			fes.backendServer.GetBlockchain().DB(),
+			fes.Params,
+			nil,
+			fes.backendServer.GetBlockchain().Snapshot(),
+			nil), nil
+	}
+	return nil, errors.New("GetUtxoViewGivenTxnStatus: Invalid TxnStatus")
+}
+
 func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetDAOCoinLimitOrdersRequest{}
@@ -84,106 +102,22 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 
 	txnStatus := requestData.TxnStatus
 	if txnStatus == "" {
-		txnStatus = TxnStatusUnconfirmed
-	} else if txnStatus != TxnStatusUnconfirmed &&
-		txnStatus != TxnStatusConfirmed {
+		txnStatus = TxnStatusInMempool
+	}
+	if txnStatus != TxnStatusInMempool &&
+		txnStatus != TxnStatusCommitted {
 
 		_AddBadRequestError(
 			ww,
 			fmt.Sprintf("GetDAOCoinLimitOrders: Invalid TxnStatus: %v. Options "+
-				"are {unconfirmed, confirmed}.", txnStatus),
+				"are {InMempool, Committed}.", txnStatus),
 		)
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := fes.GetUtxoViewGivenTxnStatus(txnStatus)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetDAOCoinLimitOrders: Problem fetching utxoView: %v", err))
-		return
-	}
-	if txnStatus == TxnStatusConfirmed {
-		utxoView = lib.NewUtxoView(
-			fes.backendServer.GetBlockchain().DB(),
-			fes.Params,
-			nil,
-			fes.backendServer.GetBlockchain().Snapshot(),
-			nil)
-	}
-
-	// If they requested a specific set of OrderIds then fetch them directly
-	if len(requestData.OrderIds) > 0 {
-		// Don't allow fetching more than this many orders
-		maxOrdersToFetch := 10000
-		if len(requestData.OrderIds) > maxOrdersToFetch {
-			_AddBadRequestError(
-				ww,
-				fmt.Sprintf("GetDAOCoinLimitOrders: Cannot fetch more than %v orders at once", maxOrdersToFetch),
-			)
-			return
-		}
-		ordersToReturn := make([]DAOCoinLimitOrderEntryResponse, 0, len(requestData.OrderIds))
-		for _, orderIdHex := range requestData.OrderIds {
-			orderIdBytes, err := hex.DecodeString(orderIdHex)
-			if err != nil {
-				_AddBadRequestError(
-					ww,
-					fmt.Sprintf("GetDAOCoinLimitOrders: Invalid OrderId: %v", err),
-				)
-				return
-			}
-			if len(orderIdBytes) != 32 {
-				_AddBadRequestError(
-					ww,
-					fmt.Sprintf("GetDAOCoinLimitOrders: Block hash has length (%d) but should "+
-						"be (%d)", len(orderIdBytes), 32),
-				)
-				return
-			}
-			orderId := lib.BlockHash{}
-			copy(orderId[:], orderIdBytes)
-			orderEntry, err := utxoView.GetDAOCoinLimitOrderEntry(&orderId)
-			if err != nil {
-				_AddBadRequestError(
-					ww,
-					fmt.Sprintf("GetDAOCoinLimitOrders: Error fetching order: %v", err),
-				)
-				return
-			}
-			if orderEntry == nil {
-				continue
-			}
-			if orderEntry.IsDeleted() {
-				continue
-			}
-			orderRes, err := buildDAOCoinLimitOrderResponse(
-				lib.Base58CheckEncode(orderEntry.TransactorPKID[:], false, fes.Params),
-				lib.Base58CheckEncode(orderEntry.BuyingDAOCoinCreatorPKID[:], false, fes.Params),
-				lib.Base58CheckEncode(orderEntry.SellingDAOCoinCreatorPKID[:], false, fes.Params),
-				orderEntry,
-			)
-			if err != nil {
-				_AddBadRequestError(
-					ww,
-					fmt.Sprintf("GetDAOCoinLimitOrders: Error building order response: %v", err),
-				)
-				return
-			}
-			if orderRes == nil {
-				_AddInternalServerError(ww, "GetDAOCoinLimitOrders: Error building order "+
-					"response: nil order response")
-				return
-			}
-			ordersToReturn = append(ordersToReturn, *orderRes)
-		}
-		if err = json.NewEncoder(ww).Encode(GetDAOCoinLimitOrdersResponse{
-			Orders: ordersToReturn,
-		}); err != nil {
-			_AddBadRequestError(
-				ww,
-				fmt.Sprintf("GetDAOCoinLimitOrders: Problem encoding response as JSON: %v", err),
-			)
-			return
-		}
 		return
 	}
 
@@ -251,11 +185,129 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 	}
 }
 
+type GetDAOCoinLimitOrdersByIdRequest struct {
+	// A list of hex OrderIds that we will fetch
+	OrderIds []string `safeForLogging:"true"`
+	// If unset, defaults to TxnStatusInMempool. If set to "InMempool" we will
+	// consider all txns including those in the mempool. If set to "Committed" then
+	// we will only consider txns that have been committed according to consensus.
+	TxnStatus TxnStatus `safeForLogging:"true"`
+}
+
+func (fes *APIServer) GetDAOCoinLimitOrdersById(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetDAOCoinLimitOrdersByIdRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("GetDAOCoinLimitOrdersById: Problem parsing request body: %v", err),
+		)
+		return
+	}
+
+	txnStatus := requestData.TxnStatus
+	if txnStatus == "" {
+		txnStatus = TxnStatusInMempool
+	}
+	if txnStatus != TxnStatusInMempool &&
+		txnStatus != TxnStatusCommitted {
+
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("GetDAOCoinLimitOrdersById: Invalid TxnStatus: %v. Options "+
+				"are {InMempool, Committed}.", txnStatus),
+		)
+		return
+	}
+
+	utxoView, err := fes.GetUtxoViewGivenTxnStatus(txnStatus)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetDAOCoinLimitOrdersById: Problem fetching utxoView: %v", err))
+		return
+	}
+
+	// Don't allow fetching more than this many orders
+	maxOrdersToFetch := 10000
+	if len(requestData.OrderIds) > maxOrdersToFetch {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("GetDAOCoinLimitOrdersById: Cannot fetch more than %v orders at once", maxOrdersToFetch),
+		)
+		return
+	}
+	ordersToReturn := make([]DAOCoinLimitOrderEntryResponse, 0, len(requestData.OrderIds))
+	for _, orderIdHex := range requestData.OrderIds {
+		orderIdBytes, err := hex.DecodeString(orderIdHex)
+		if err != nil {
+			_AddBadRequestError(
+				ww,
+				fmt.Sprintf("GetDAOCoinLimitOrdersById: Invalid OrderId: %v", err),
+			)
+			return
+		}
+		if len(orderIdBytes) != 32 {
+			_AddBadRequestError(
+				ww,
+				fmt.Sprintf("GetDAOCoinLimitOrdersById: Block hash has length (%d) but should "+
+					"be (%d)", len(orderIdBytes), 32),
+			)
+			return
+		}
+		orderId := lib.BlockHash{}
+		copy(orderId[:], orderIdBytes)
+		orderEntry, err := utxoView.GetDAOCoinLimitOrderEntry(&orderId)
+		if err != nil {
+			_AddBadRequestError(
+				ww,
+				fmt.Sprintf("GetDAOCoinLimitOrdersById: Error fetching order: %v", err),
+			)
+			return
+		}
+		if orderEntry == nil {
+			continue
+		}
+		if orderEntry.IsDeleted() {
+			continue
+		}
+		transactorPublicKey := utxoView.GetPublicKeyForPKID(orderEntry.TransactorPKID)
+		buyingCoinPublicKey := utxoView.GetPublicKeyForPKID(orderEntry.BuyingDAOCoinCreatorPKID)
+		sellingCoinPublicKey := utxoView.GetPublicKeyForPKID(orderEntry.SellingDAOCoinCreatorPKID)
+		orderRes, err := buildDAOCoinLimitOrderResponse(
+			lib.Base58CheckEncode(transactorPublicKey, false, fes.Params),
+			lib.Base58CheckEncode(buyingCoinPublicKey, false, fes.Params),
+			lib.Base58CheckEncode(sellingCoinPublicKey, false, fes.Params),
+			orderEntry,
+		)
+		if err != nil {
+			_AddBadRequestError(
+				ww,
+				fmt.Sprintf("GetDAOCoinLimitOrdersById: Error building order response: %v", err),
+			)
+			return
+		}
+		if orderRes == nil {
+			_AddInternalServerError(ww, "GetDAOCoinLimitOrdersById: Error building order "+
+				"response: nil order response")
+			return
+		}
+		ordersToReturn = append(ordersToReturn, *orderRes)
+	}
+	if err = json.NewEncoder(ww).Encode(GetDAOCoinLimitOrdersResponse{
+		Orders: ordersToReturn,
+	}); err != nil {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("GetDAOCoinLimitOrders: Problem encoding response as JSON: %v", err),
+		)
+		return
+	}
+}
+
 type GetTransactorDAOCoinLimitOrdersRequest struct {
 	TransactorPublicKeyBase58Check  string `safeForLogging:"true"`
 	BuyingCoinPublicKeyBase58Check  string `safeForLogging:"true"`
 	SellingCoinPublicKeyBase58Check string `safeForLogging:"true"`
-	// Defaults to TxnStatusUnconfirmed. If set to "unconfirmed" we will consider all
+	// Defaults to TxnStatusInMempool. If set to "InMempool" we will consider all
 	// txns including those in the mempool.
 	TxnStatus TxnStatus `safeForLogging:"true"`
 }
@@ -273,31 +325,23 @@ func (fes *APIServer) GetTransactorDAOCoinLimitOrders(ww http.ResponseWriter, re
 
 	txnStatus := requestData.TxnStatus
 	if txnStatus == "" {
-		txnStatus = TxnStatusUnconfirmed
+		txnStatus = TxnStatusInMempool
 	}
-	if txnStatus != TxnStatusUnconfirmed &&
-		txnStatus != TxnStatusConfirmed {
+	if txnStatus != TxnStatusInMempool &&
+		txnStatus != TxnStatusCommitted {
 
 		_AddBadRequestError(
 			ww,
 			fmt.Sprintf("GetTransactorDAOCoinLimitOrders: Invalid TxnStatus: %v. Options "+
-				"are {unconfirmed, confirmed}.", txnStatus),
+				"are {InMempool, Committed}.", txnStatus),
 		)
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := fes.GetUtxoViewGivenTxnStatus(txnStatus)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetTransactorDAOCoinLimitOrders: Problem fetching utxoView: %v", err))
 		return
-	}
-	if txnStatus == TxnStatusConfirmed {
-		utxoView = lib.NewUtxoView(
-			fes.backendServer.GetBlockchain().DB(),
-			fes.Params,
-			nil,
-			fes.backendServer.GetBlockchain().Snapshot(),
-			nil)
 	}
 
 	transactorPKID, err := fes.getPKIDFromPublicKeyBase58Check(
@@ -313,38 +357,30 @@ func (fes *APIServer) GetTransactorDAOCoinLimitOrders(ww http.ResponseWriter, re
 	}
 	var buyingCoinPkid *lib.PKID
 	if requestData.BuyingCoinPublicKeyBase58Check != "" {
-		if IsDesoPkid(requestData.BuyingCoinPublicKeyBase58Check) {
-			buyingCoinPkid = &lib.ZeroPKID
-		} else {
-			buyingCoinPkid, err = fes.getPKIDFromPublicKeyBase58Check(
-				utxoView,
-				requestData.BuyingCoinPublicKeyBase58Check,
+		buyingCoinPkid, err = fes.getPKIDFromPublicKeyBase58CheckOrDESOString(
+			utxoView,
+			requestData.BuyingCoinPublicKeyBase58Check,
+		)
+		if err != nil {
+			_AddBadRequestError(
+				ww,
+				fmt.Sprintf("GetTransactorDAOCoinLimitOrders: Invalid BuyingCoinPublicKeyBase58Check: %v", err),
 			)
-			if err != nil {
-				_AddBadRequestError(
-					ww,
-					fmt.Sprintf("GetTransactorDAOCoinLimitOrders: Invalid BuyingCoinPublicKeyBase58Check: %v", err),
-				)
-				return
-			}
+			return
 		}
 	}
 	var sellingCoinPkid *lib.PKID
 	if requestData.SellingCoinPublicKeyBase58Check != "" {
-		if IsDesoPkid(requestData.SellingCoinPublicKeyBase58Check) {
-			sellingCoinPkid = &lib.ZeroPKID
-		} else {
-			sellingCoinPkid, err = fes.getPKIDFromPublicKeyBase58Check(
-				utxoView,
-				requestData.SellingCoinPublicKeyBase58Check,
+		sellingCoinPkid, err = fes.getPKIDFromPublicKeyBase58CheckOrDESOString(
+			utxoView,
+			requestData.SellingCoinPublicKeyBase58Check,
+		)
+		if err != nil {
+			_AddBadRequestError(
+				ww,
+				fmt.Sprintf("GetTransactorDAOCoinLimitOrders: Invalid SellingCoinPublicKeyBase58Check: %v", err),
 			)
-			if err != nil {
-				_AddBadRequestError(
-					ww,
-					fmt.Sprintf("GetTransactorDAOCoinLimitOrders: Invalid SellingCoinPublicKeyBase58Check: %v", err),
-				)
-				return
-			}
+			return
 		}
 	}
 
@@ -361,6 +397,16 @@ func (fes *APIServer) GetTransactorDAOCoinLimitOrders(ww http.ResponseWriter, re
 		_AddInternalServerError(ww, fmt.Sprintf("GetTransactorDAOCoinLimitOrders: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+func (fes *APIServer) getPKIDFromPublicKeyBase58CheckOrDESOString(
+	utxoView *lib.UtxoView,
+	publicKeyBase58Check string,
+) (*lib.PKID, error) {
+	if IsDesoPkid(publicKeyBase58Check) {
+		return &lib.ZeroPKID, nil
+	}
+	return fes.getPKIDFromPublicKeyBase58Check(utxoView, publicKeyBase58Check)
 }
 
 func (fes *APIServer) getPKIDFromPublicKeyBase58Check(
