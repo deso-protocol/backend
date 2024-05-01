@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/deso-protocol/core/bls"
 	"github.com/deso-protocol/core/lib"
@@ -151,6 +152,81 @@ func TestValidatorRegistration(t *testing.T) {
 		// errors: doesn't exist
 		require.Contains(t, responseBody, "error")
 		require.Contains(t, responseBody, "validator not found")
+	}
+}
+
+func TestEstimateNumTimeoutsSinceTip(t *testing.T) {
+	// tip time = 9:00:00
+	tipTime := time.Date(2021, 1, 1, 9, 0, 0, 0, time.UTC)
+
+	// Current time = 8:59:00, tip time = 09:00:00, timeout duration = 1 min => 0 timeouts
+	{
+		currentTimestamp := tipTime.Add(-time.Minute)
+
+		numTimeouts := estimateNumTimeoutsSinceTip(currentTimestamp, tipTime, time.Minute)
+		require.Equal(t, numTimeouts, uint64(0))
+	}
+
+	// Current time = 9:00:00, tip time = 09:00:00, timeout duration = 1 min => 0 timeouts
+	{
+		numTimeouts := estimateNumTimeoutsSinceTip(tipTime, tipTime, time.Minute)
+		require.Equal(t, numTimeouts, uint64(0))
+	}
+
+	// Current time = 9:01:00, tip time = 09:00:00, timeout duration = 1 min => 1 timeout
+	{
+		currentTimestamp := tipTime.Add(time.Minute)
+
+		numTimeouts := estimateNumTimeoutsSinceTip(currentTimestamp, tipTime, time.Minute)
+		require.Equal(t, numTimeouts, uint64(1))
+	}
+
+	// Current time = 9:02:00, tip time = 09:00:00, timeout duration = 1 min => 1 timeout
+	{
+		currentTimestamp := tipTime.Add(2 * time.Minute)
+
+		numTimeouts := estimateNumTimeoutsSinceTip(currentTimestamp, tipTime, time.Minute)
+		require.Equal(t, numTimeouts, uint64(1))
+	}
+
+	// Current time = 9:03:00, tip time = 09:00:00, timeout duration = 1 min + 2 mins => 2 timeout
+	{
+		currentTimestamp := tipTime.Add(3 * time.Minute)
+
+		numTimeouts := estimateNumTimeoutsSinceTip(currentTimestamp, tipTime, time.Minute)
+		require.Equal(t, numTimeouts, uint64(2))
+	}
+
+	// Current time = 9:05:00, tip time = 09:00:00, timeout duration = 1 min + 2 mins => 2 timeout
+	{
+		currentTimestamp := tipTime.Add(5 * time.Minute)
+
+		numTimeouts := estimateNumTimeoutsSinceTip(currentTimestamp, tipTime, time.Minute)
+		require.Equal(t, numTimeouts, uint64(2))
+	}
+
+	// Current time = 9:07:00, tip time = 09:00:00, timeout duration = 1 min + 2 mins + 4 mins => 3 timeout
+	{
+		currentTimestamp := tipTime.Add(7 * time.Minute)
+
+		numTimeouts := estimateNumTimeoutsSinceTip(currentTimestamp, tipTime, time.Minute)
+		require.Equal(t, numTimeouts, uint64(3))
+	}
+
+	// Current time = 9:14:59, tip time = 09:00:00, timeout duration = 1 min + 2 mins + 4 mins => 3 timeout
+	{
+		currentTimestamp := tipTime.Add(14 * time.Minute).Add(59 * time.Second)
+
+		numTimeouts := estimateNumTimeoutsSinceTip(currentTimestamp, tipTime, time.Minute)
+		require.Equal(t, numTimeouts, uint64(3))
+	}
+
+	// Current time = 9:15:00, tip time = 09:00:00, timeout duration = 1 min + 2 mins + 4 mins + 8 mins => 4 timeout
+	{
+		currentTimestamp := tipTime.Add(15 * time.Minute)
+
+		numTimeouts := estimateNumTimeoutsSinceTip(currentTimestamp, tipTime, time.Minute)
+		require.Equal(t, numTimeouts, uint64(4))
 	}
 }
 
