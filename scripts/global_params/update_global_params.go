@@ -5,8 +5,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/golang-jwt/jwt/v4"
 	"io/ioutil"
 	"net/http"
+	"reflect"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/backend/routes"
@@ -77,17 +79,72 @@ func signAndSubmitTxn(txn *lib.MsgDeSoTxn, privKey *btcec.PrivateKey, nodeURL st
 	)
 }
 
-func constructUpdateGlobalParams(adminPublicKey *lib.PublicKey) routes.UpdateGlobalParamsResponse {
+// Generate a JWT Token for the provided private key.
+// This can be added to the payload for requests that require JWT token authentication.
+func GenerateJWTToken(privKey *btcec.PrivateKey) (_JWT string, _err error) {
+	// Create the ecdsa keys
+	ecdsaPrivKey := privKey.ToECDSA()
+
+	// Create a new JWT Token
+	token := jwt.New(jwt.SigningMethodES256)
+
+	// Sign using the ECDSA private key
+	jwtToken, err := token.SignedString(ecdsaPrivKey)
+	if err != nil {
+		return "", errors.Wrap(err, "GenerateJWTToken() failed to sign token")
+	}
+	return jwtToken, nil
+}
+
+func constructGlobalParamsRequest(
+	privKey *btcec.PrivateKey,
+	adminPublicKey *lib.PublicKey,
+	globalParamsRequest routes.UpdateGlobalParamsRequest,
+) (
+	any,
+	error,
+) {
+	interfaceMap := make(map[string]interface{})
+	v := reflect.ValueOf(globalParamsRequest)
+	for ii := 0; ii < v.NumField(); ii++ {
+		if v.Field(ii).IsZero() {
+			continue
+		}
+		interfaceMap[v.Type().Field(ii).Name] = v.Field(ii).Interface()
+	}
+	var err error
+	interfaceMap["AdminPublicKey"] = lib.PkToString(adminPublicKey.ToBytes(), params)
+	interfaceMap["JWT"], err = GenerateJWTToken(privKey)
+	if err != nil {
+		return nil, errors.Wrap(err, "constructGlobalParamsRequest(): Failed to generate JWT token")
+	}
+	fmt.Println(interfaceMap)
+	return interfaceMap, nil
+}
+
+func constructUpdateGlobalParams(
+	adminPrivKey *btcec.PrivateKey,
+	adminPublicKey *lib.PublicKey,
+) (
+	*routes.UpdateGlobalParamsResponse,
+	error,
+) {
 	adminPublicKeyString := lib.PkToString(adminPublicKey.ToBytes(), params)
 
 	request := routes.UpdateGlobalParamsRequest{
 		UpdaterPublicKeyBase58Check: adminPublicKeyString,
 	}
 
-	res := makePostRequest[routes.UpdateGlobalParamsRequest, routes.UpdateGlobalParamsResponse](
-		nodeURL+routes.RoutePathUpdateGlobalParams, request,
+	requestWithJWT, err := constructGlobalParamsRequest(adminPrivKey, adminPublicKey, request)
+
+	if err != nil {
+		return nil, errors.Wrap(err, "constructUpdateGlobalParams(): Failed to construct request")
+	}
+
+	res := makePostRequest[any, routes.UpdateGlobalParamsResponse](
+		nodeURL+routes.RoutePathUpdateGlobalParams, requestWithJWT,
 	)
-	return res
+	return &res, nil
 }
 
 func generatePubAndPrivKeys(seedPhrase string) (*lib.PublicKey, *btcec.PrivateKey) {
@@ -108,6 +165,12 @@ func generatePubAndPrivKeys(seedPhrase string) (*lib.PublicKey, *btcec.PrivateKe
 
 func main() {
 	adminPublicKey, adminPrivKey := generatePubAndPrivKeys(superAdminSeedPhrase)
-	updateGlobalParamsTxn := constructUpdateGlobalParams(adminPublicKey)
+	updateGlobalParamsTxn, err := constructUpdateGlobalParams(adminPrivKey, adminPublicKey)
+	if err != nil {
+		panic(err)
+	}
+	if updateGlobalParamsTxn == nil {
+		panic(errors.New("main(): updateGlobalParamsTxn is nil"))
+	}
 	signAndSubmitTxn(updateGlobalParamsTxn.Transaction, adminPrivKey, nodeURL)
 }
