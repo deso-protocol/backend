@@ -108,9 +108,21 @@ func constructGlobalParamsRequest(
 	v := reflect.ValueOf(globalParamsRequest)
 	for ii := 0; ii < v.NumField(); ii++ {
 		if v.Field(ii).IsZero() {
-			continue
+			switch v.Type().Field(ii).Type.Kind() {
+			case reflect.String:
+				interfaceMap[v.Type().Field(ii).Name] = ""
+			case reflect.Bool:
+				interfaceMap[v.Type().Field(ii).Name] = false
+			case reflect.Uint64:
+				interfaceMap[v.Type().Field(ii).Name] = 0
+			case reflect.Struct, reflect.Slice:
+				interfaceMap[v.Type().Field(ii).Name] = nil
+			default:
+				interfaceMap[v.Type().Field(ii).Name] = -1
+			}
+		} else {
+			interfaceMap[v.Type().Field(ii).Name] = v.Field(ii).Interface()
 		}
-		interfaceMap[v.Type().Field(ii).Name] = v.Field(ii).Interface()
 	}
 	var err error
 	interfaceMap["AdminPublicKey"] = lib.PkToString(adminPublicKey.ToBytes(), params)
