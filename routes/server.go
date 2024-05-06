@@ -318,8 +318,9 @@ const (
 	RoutePathStateChecksum         = "/api/v0/state-checksum"
 
 	// validators.go
-	RoutePathValidators      = "/api/v0/validators"
-	RoutePathCheckNodeStatus = "/api/v0/check-node-status"
+	RoutePathValidators           = "/api/v0/validators"
+	RoutePathCheckNodeStatus      = "/api/v0/check-node-status"
+	RoutePathCurrentEpochProgress = "/api/v0/current-epoch-progress"
 
 	// stake.go
 	RoutePathStake       = "/api/v0/stake"
@@ -1367,6 +1368,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathCheckNodeStatus,
 			fes.CheckNodeStatus,
+			PublicAccess,
+		},
+		{
+			"GetCurrentEpochProgress",
+			[]string{"GET"},
+			RoutePathCurrentEpochProgress,
+			fes.GetCurrentEpochProgress,
 			PublicAccess,
 		},
 		{

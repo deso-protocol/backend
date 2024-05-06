@@ -4,14 +4,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/deso-protocol/core/bls"
-	"github.com/deso-protocol/core/lib"
-	"github.com/gorilla/mux"
-	"github.com/holiman/uint256"
 	"io"
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/deso-protocol/core/bls"
+	"github.com/deso-protocol/core/collections"
+	"github.com/deso-protocol/core/lib"
+	"github.com/gorilla/mux"
+	"github.com/holiman/uint256"
 )
 
 type RegisterAsValidatorRequest struct {
@@ -352,6 +354,138 @@ func (fes *APIServer) GetValidatorByPublicKeyBase58Check(ww http.ResponseWriter,
 		_AddInternalServerError(ww, "GetValidatorByPublicKeyBase58Check: problem encoding response as JSON")
 		return
 	}
+}
+
+// GetCurrentEpochProgressResponse encodes the current epoch entry, the leader schedule for it, and the
+// progress throughout the epoch. Based on the data returned, the client can determine the chain's
+// progress through the epoch, the current leader and all upcoming leaders.
+type GetEpochProgressResponse struct {
+	// The full epoch entry object
+	EpochEntry     lib.EpochEntry  `safeForLogging:"true"`
+	LeaderSchedule []UserInfoBasic `safeForLogging:"true"`
+
+	CurrentView      uint64 `safeForLogging:"true"`
+	CurrentTipHeight uint64 `safeForLogging:"true"`
+}
+
+type UserInfoBasic struct {
+	PublicKeyBase58Check string `safeForLogging:"true"`
+	Username             string `safeForLogging:"true"`
+}
+
+func (fes *APIServer) GetCurrentEpochProgress(ww http.ResponseWriter, req *http.Request) {
+	// Fetch the current snapshot from the blockchain. We use the latest uncommitted tip.
+	utxoView, err := fes.backendServer.GetBlockchain().GetUncommittedTipView()
+	if err != nil {
+		_AddInternalServerError(ww, "GetCurrentEpochProgress: problem fetching uncommitted tip")
+		return
+	}
+
+	// Get the current epoch number.
+	currentEpochEntry, err := utxoView.GetCurrentEpochEntry()
+	if err != nil {
+		_AddInternalServerError(ww, "GetCurrentEpochProgress: problem fetching current epoch number")
+		return
+	}
+
+	// Get the current uncommitted tip.
+	currentTip := fes.backendServer.GetBlockchain().BlockTip()
+
+	// Get the leader schedule for the current snapshot epoch.
+	leaderSchedulePKIDs, err := utxoView.GetCurrentSnapshotLeaderSchedule()
+	if err != nil {
+		_AddInternalServerError(ww, "GetCurrentEpochProgress: problem fetching current snapshot epoch number")
+		return
+	}
+
+	// Fetch the leader schedule for the current epoch. For each leader in the schedule, we fetch
+	// the public key and username associated with the leader's PKID.
+	leaderSchedule := collections.Transform(leaderSchedulePKIDs, func(pkid *lib.PKID) UserInfoBasic {
+		publicKey := utxoView.GetPublicKeyForPKID(pkid)
+		publicKeyBase58Check := lib.Base58CheckEncode(publicKey, false, fes.Params)
+
+		// Fetch the profile entry for the leader's PKID.
+		profileEntry := utxoView.GetProfileEntryForPKID(pkid)
+		if profileEntry == nil {
+			// If the user has no profile, then we return an empty username.
+			return UserInfoBasic{PublicKeyBase58Check: publicKeyBase58Check, Username: ""}
+		}
+
+		// Happy path: we have both a username and a public key for the leader.
+		return UserInfoBasic{PublicKeyBase58Check: publicKeyBase58Check, Username: string(profileEntry.Username)}
+	})
+
+	// By default, set the current View to the tip block's view. The GetView() function is safe to use
+	// whether we are on PoW or PoS.
+	currentView := currentTip.Header.GetView()
+
+	// Try to fetch the current Fast-HotStuff view. If the server is running the Fast-HotStuff consensus,
+	// then this will return a non-zero value. This value always overrides the tip block's current view.
+	fastHotStuffConsensusView := fes.backendServer.GetLatestView()
+	if fastHotStuffConsensusView != 0 {
+		currentView = fastHotStuffConsensusView
+	}
+
+	// If the current tip is at or past the final PoW block height, but we don't have a view returned by the
+	// Fast-HotStuff consensus, then we can estimate the current view based on the Fast-HotStuff rules. This
+	// is the best fallback value we can use once the chain has transitioned to PoS.
+	if currentView == 0 && currentTip.Header.Height >= fes.Params.GetFinalPoWBlockHeight() {
+		timeoutDuration := time.Duration(utxoView.GetCurrentGlobalParamsEntry().TimeoutIntervalMillisecondsPoS) * time.Millisecond
+		currentTipTimestamp := time.Unix(0, currentTip.Header.TstampNanoSecs)
+		currentView = currentTip.Header.GetView() + estimateNumTimeoutsSinceTip(time.Now(), currentTipTimestamp, timeoutDuration)
+	}
+
+	// Construct the response
+	response := GetEpochProgressResponse{
+		EpochEntry:       *currentEpochEntry,
+		LeaderSchedule:   leaderSchedule,
+		CurrentView:      currentView,
+		CurrentTipHeight: currentTip.Header.Height,
+	}
+
+	// Encode response.
+	if err = json.NewEncoder(ww).Encode(response); err != nil {
+		_AddInternalServerError(ww, "GetValidatorByPublicKeyBase58Check: problem encoding response as JSON")
+		return
+	}
+}
+
+// estimateNumTimeoutsSinceTip computes the number for PoS timeouts that have occurred since a tip block
+// with the provided timestamp. It simulates the same math as in consensus and works whether the current
+// node is running a PoS validator or not.
+//
+// Examples:
+// - Current time = 8:59:00, tip time = 09:00:00, timeout duration = 1 min => 0 timeouts
+// - Current time = 9:00:00, tip time = 09:00:00, timeout duration = 1 min => 0 timeouts
+// - Current time = 9:01:00, tip time = 09:00:00, timeout duration = 1 min => 1 timeout
+// - Current time = 9:02:00, tip time = 09:00:00, timeout duration = 1 min => 1 timeout
+// - Current time = 9:03:00, tip time = 09:00:00, timeout duration = 1 min + 2 mins => 2 timeout
+// - Current time = 9:05:00, tip time = 09:00:00, timeout duration = 1 min + 2 mins => 2 timeout
+// - Current time = 9:07:00, tip time = 09:00:00, timeout duration = 1 min + 2 mins + 4 mins => 3 timeout
+// - Current time = 9:14:59, tip time = 09:00:00, timeout duration = 1 min + 2 mins + 4 mins => 3 timeout
+// - Current time = 9:15:00, tip time = 09:00:00, timeout duration = 1 min + 2 mins + 4 mins + 8 mins => 4 timeout
+func estimateNumTimeoutsSinceTip(currentTimestamp time.Time, tipTimestamp time.Time, timeoutDuration time.Duration) uint64 {
+	// Count the number of timeouts.
+	numTimeouts := uint64(0)
+
+	// The first timeout occurs after the timeout duration elapses starting from the tip's
+	// timestamp. We use the updated timestamp as the starting time for the first timeout.
+	tipTimestampAndTimeouts := tipTimestamp.Add(timeoutDuration)
+
+	// Once the tip timestamp + cumulative timeout exceed the current time, then we have found
+	// the exact number of timeouts that have elapsed
+	for tipTimestampAndTimeouts.Compare(currentTimestamp) <= 0 {
+		// The timeout duration doubles on every timeout.
+		timeoutDuration *= 2
+
+		// The next timeout occurs after the timeout duration elapses after the previous timeout.
+		tipTimestampAndTimeouts = tipTimestampAndTimeouts.Add(timeoutDuration)
+
+		// Increment the number of timeouts.
+		numTimeouts++
+	}
+
+	return numTimeouts
 }
 
 type CheckNodeStatusRequest struct {
