@@ -415,10 +415,21 @@ func (fes *APIServer) GetCurrentEpochProgress(ww http.ResponseWriter, req *http.
 		return UserInfoBasic{PublicKeyBase58Check: publicKeyBase58Check, Username: string(profileEntry.Username)}
 	})
 
-	// Simulate the current view based on the current tip's view and the amount of time that has elapsed.
+	// By default, set the current View to the tip block's view. The GetView() function is safe to use
+	// whether we are on PoW or PoS.
 	currentView := currentTip.Header.GetView()
-	if currentTip.Header.Height > fes.Params.GetFinalPoWBlockHeight() {
-		// Fetch the current timeout duration for each PoS view.
+
+	// Try to fetch the current Fast-HotStuff view. If the server is running the Fast-HotStuff consensus,
+	// then this will return a non-zero value. This value always overrides the tip block's current view.
+	fastHotStuffConsensusView := fes.backendServer.GetLatestView()
+	if fastHotStuffConsensusView != 0 {
+		currentView = fastHotStuffConsensusView
+	}
+
+	// If the current tip is at or past the final PoW block height, but we don't have a view returned by the
+	// Fast-HotStuff consensus, then we can estimate the current view based on the Fast-HotStuff rules. This
+	// is the best fallback value we can use once the chain has transitioned to PoS.
+	if currentView == 0 && currentTip.Header.Height >= fes.Params.GetFinalPoWBlockHeight() {
 		timeoutDuration := time.Duration(utxoView.GetCurrentGlobalParamsEntry().TimeoutIntervalMillisecondsPoS) * time.Millisecond
 		currentTipTimestamp := time.Unix(0, currentTip.Header.TstampNanoSecs)
 		currentView = currentTip.Header.GetView() + estimateNumTimeoutsSinceTip(time.Now(), currentTipTimestamp, timeoutDuration)
