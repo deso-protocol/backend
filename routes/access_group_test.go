@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-
 	"github.com/btcsuite/btcd/btcec/v2"
 
 	"github.com/deso-protocol/core/lib"

@@ -10,10 +10,16 @@ type Uint256Hex struct {
 }
 
 func (u *Uint256Hex) MarshalJSON() ([]byte, error) {
+	if u.Int == nil {
+		return json.Marshal(uint256.NewInt(0).Hex())
+	}
 	return json.Marshal(u.Hex())
 }
 
 func (u *Uint256Hex) UnmarshalJSON(data []byte) error {
+	if u.Int == nil {
+		u.Int = new(uint256.Int)
+	}
 	return u.Int.UnmarshalJSON(data)
 }
 
