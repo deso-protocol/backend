@@ -2427,7 +2427,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 func CheckPrecedingTransactions(inner http.Handler, precedingTransactionsLimit int) http.Handler {
 	return http.HandlerFunc(func(ww http.ResponseWriter, rr *http.Request) {
 		// If the request is NOT a POST request, skip this middleware as the request has no relevant payload.
-		if rr.Method != "POST" {
+		if rr.Method != "POST" || rr.Header.Get("Content-Type") != "application/json" {
 			inner.ServeHTTP(ww, rr)
 			return
 		}
