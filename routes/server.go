@@ -77,7 +77,7 @@ const (
 	RoutePathGetSingleProfile                           = "/api/v0/get-single-profile"
 	RoutePathGetSingleProfilePicture                    = "/api/v0/get-single-profile-picture"
 	RoutePathGetHodlersForPublicKey                     = "/api/v0/get-hodlers-for-public-key"
-	RoutePathGetBalancesForPublicKey                    = "/api/v0/get-balances-for-public-key"
+	RoutePathGetTokenBalancesForPublicKey               = "/api/v0/get-token-balances-for-public-key"
 	RoutePathGetHodlersCountForPublicKeys               = "/api/v0/get-hodlers-count-for-public-keys"
 	RoutePathGetDiamondsForPublicKey                    = "/api/v0/get-diamonds-for-public-key"
 	RoutePathGetFollowsStateless                        = "/api/v0/get-follows-stateless"
@@ -931,10 +931,10 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
-			"GetBalancesForPublicKey",
+			"GetTokenBalancesForPublicKey",
 			[]string{"POST", "OPTIONS"},
-			RoutePathGetBalancesForPublicKey,
-			fes.GetBalancesForPublicKey,
+			RoutePathGetTokenBalancesForPublicKey,
+			fes.GetTokenBalancesForPublicKey,
 			PublicAccess,
 		},
 		{
