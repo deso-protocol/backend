@@ -1479,6 +1479,120 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 	}
 }
 
+type GetTokenBalancesForPublicKeyRequest struct {
+	// The public key we're fetching balances for
+	UserPublicKey string `safeForLogging:"true"`
+
+	// A list of public keys of the crators whose coins we want to fetch
+	// the balance of for the user. For DESO,
+	// can specify either "DESO" or the ZeroPkid via base58check encoding.
+	// Either will work.
+	CreatorPublicKeys []string
+
+	// If unset, defaults to TxnStatusInMempool
+	TxnStatus TxnStatus `safeForLogging:"true"`
+}
+
+type SimpleTokenBalanceResponse struct {
+	// The public key of the user whose balance we're fetching
+	UserPublicKeyBase58Check string
+	// The public key of the user whose coin we're fetching the balance of
+	CreatorPublicKeyBase58Check string
+
+	// A base-10 encoded string of the balance in base units, which is internally
+	// represented as a uint256
+	BalanceBaseUnits string
+}
+
+type GetTokenBalancesForPublicKeyResponse struct {
+	Balances map[string]*SimpleTokenBalanceResponse
+}
+
+func (fes *APIServer) GetTokenBalancesForPublicKey(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetTokenBalancesForPublicKeyRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetTokenBalancesForPublicKey: Problem parsing request body: %v", err))
+		return
+	}
+
+	txnStatus := requestData.TxnStatus
+	if txnStatus == "" {
+		txnStatus = TxnStatusInMempool
+	}
+	// Get a view based on the txnStatus
+	utxoView, err := fes.GetUtxoViewGivenTxnStatus(txnStatus)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTokenBalancesForPublicKey: Error getting utxoView: %v", err))
+		return
+	}
+
+	// Decode the public key for which we are fetching balances
+	if requestData.UserPublicKey == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTokenBalancesForPublicKey: Missing UserPublicKey"))
+		return
+	}
+	userPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.UserPublicKey)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTokenBalancesForPublicKey: Problem decoding user public key: %v", err))
+		return
+	}
+	if len(requestData.CreatorPublicKeys) == 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTokenBalancesForPublicKey: Missing CreatorPublicKeys"))
+		return
+	}
+
+	balancesMap := make(map[string]*SimpleTokenBalanceResponse)
+	for _, creatorPublicKeyStr := range requestData.CreatorPublicKeys {
+		// Deso is a special case
+		if IsDesoPkid(creatorPublicKeyStr) {
+			desoNanos, err := utxoView.GetDeSoBalanceNanosForPublicKey(userPublicKeyBytes)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("GetTokenBalancesForPublicKey: Problem getting DESO balance: %v", err))
+				return
+			}
+			// When we're dealing with DESO, we use whatever identifier they passed
+			// in as the key. This is the most convenient thing to do for the caller.
+			// If we instead always returned DESO as the key then they would have to
+			// accommodate that, which would be annoying.
+			balancesMap[creatorPublicKeyStr] = &SimpleTokenBalanceResponse{
+				UserPublicKeyBase58Check:    requestData.UserPublicKey,
+				CreatorPublicKeyBase58Check: creatorPublicKeyStr,
+				BalanceBaseUnits:            strconv.FormatUint(desoNanos, 10),
+			}
+			continue
+		}
+		creatorPkBytes, _, err := lib.Base58CheckDecode(creatorPublicKeyStr)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"GetTokenBalancesForPublicKey: Problem decoding creator public key: %v", err))
+			return
+		}
+
+		balanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(
+			userPublicKeyBytes, creatorPkBytes, true)
+		if balanceEntry == nil || balanceEntry.IsDeleted() {
+			balanceEntry = &lib.BalanceEntry{}
+		}
+		// Convert balanceEntry uint256 to string
+		balancesMap[creatorPublicKeyStr] = &SimpleTokenBalanceResponse{
+			UserPublicKeyBase58Check:    requestData.UserPublicKey,
+			CreatorPublicKeyBase58Check: creatorPublicKeyStr,
+			BalanceBaseUnits:            balanceEntry.BalanceNanos.String(),
+		}
+	}
+
+	res := &GetTokenBalancesForPublicKeyResponse{
+		Balances: balancesMap,
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetTokenBalancesForPublicKey: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
 type GetHolderCountForPublicKeysRequest struct {
 	PublicKeysBase58Check []string
 	IsDAOCoin             bool
