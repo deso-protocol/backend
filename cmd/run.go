@@ -79,6 +79,12 @@ func init() {
 		"be allowed to be used this many times to receive starter DESO. Set this to a higher value "+
 		"if you want users to be able to create multiple accounts more easily.")
 
+	// Transaction Subsidization
+	runCmd.PersistentFlags().String("transaction-subsidization-seed", "",
+		"If specified, a seed phrase from which user transactions may be subsidized"+
+			" via atomic transactions. For example, this seed is used in constructing small basic transfers"+
+			" that can cover the fees of an update profile for those users which do not yet have DESO.")
+
 	// Global State
 	runCmd.PersistentFlags().String("global-state-remote-node", "",
 		"The IP:PORT or DOMAIN:PORT corresponding to a node that can be used to "+

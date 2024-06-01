@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	ecdsa2 "github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
+	"github.com/tyler-smith/go-bip39"
 	"io"
 	"math/big"
 	"net/http"
@@ -803,6 +804,238 @@ func GetBalanceForPublicKeyUsingUtxoView(
 		totalBalanceNanos += utxoEntry.AmountNanos
 	}
 	return totalBalanceNanos, nil
+}
+
+// SubsidizedUpdateProfileResponse ...
+type SubsidizedUpdateProfileResponse struct {
+	// IncompleteAtomicTransactions is a DeSo transaction of type lib.TxnTypeAtomicTxnsWrapper.
+	// It contains a metadata field that is a list of the following DeSo transactions
+	// that are to be executed atomically:
+	//
+	//	(1) A signed basic transfer to the user who submitted the subsidized update profile request.
+	//		The transferred amount is the exact amount required to pay for the update profile transaction.
+	//	(2) The unsigned requested update profile transaction.
+	//
+	// The caller on receipt of this response should sign the update profile
+	// transaction and then submit the atomic transaction.
+	//
+	// For convenience, the returned UpdateProfileTransactionHex field can be used in the frontend to sign
+	// the update profile transaction. The IncompleteAtomicTransactionHex field is used in the frontend
+	// to prevent any typescript precision errors due to the sensitive nature of atomic transactions.
+	IncompleteAtomicTransaction    *lib.MsgDeSoTxn
+	IncompleteAtomicTransactionHex string
+	UpdateProfileTransactionHex    string
+}
+
+// SubsidizedUpdateProfile ...
+func (fes *APIServer) SubsidizedUpdateProfile(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := UpdateProfileRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Grab a view (needed for getting global params, etc).
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateAtomicTxnsWrapper: Error getting utxoView: %v", err))
+		return
+	}
+
+	// Grab subsidization keys.
+	subsidizationSeedBytes, err := bip39.NewSeedWithErrorChecking(fes.Config.TransactionSubsidizationSeed, "")
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem generating subsidization seed: %v", err))
+		return
+	}
+	subsidizationPublicKey, subsidizationPrivateKey, _, err :=
+		lib.ComputeKeysFromSeed(subsidizationSeedBytes, 0, fes.Params)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem computing subsidization keys: %v", err))
+		return
+	}
+
+	// Convert the updater and profile public keys to bytes.
+	var profilePublicKeyBytes, updaterPublicKeyBytes []byte
+	if requestData.ProfilePublicKeyBase58Check != "" {
+		profilePublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ProfilePublicKeyBase58Check)
+		if err != nil || len(profilePublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubsidizedUpdateProfile: Problem decoding profile public key %s: %v",
+				requestData.ProfilePublicKeyBase58Check, err))
+			return
+		}
+	}
+	if requestData.UpdaterPublicKeyBase58Check != "" {
+		updaterPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.UpdaterPublicKeyBase58Check)
+		if err != nil || len(updaterPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubsidizedUpdateProfile: Problem decoding updater public key %s: %v",
+				requestData.UpdaterPublicKeyBase58Check, err))
+			return
+		}
+	}
+
+	// Grab the profile being updated public key.
+	profilePublicKey := updaterPublicKeyBytes
+	if requestData.ProfilePublicKeyBase58Check != "" {
+		profilePublicKey = profilePublicKeyBytes
+	}
+
+	// NOTE: We cannot simply copy and paste the existing logic from UpdateProfile
+	// as some of that logic is dependent on the user's balance being non-zero. Since
+	// we use this endpoint to subsidize the user's update profile, we instead speculatively
+	// construct the update profile transaction for the user.
+
+	// (1) Validate and construct the update profile transaction.
+	var updateProfileTxn *lib.MsgDeSoTxn
+
+	// (1a) Validate the request data.
+	if err := fes.ValidateAndConvertUpdateProfileRequest(&requestData, profilePublicKey, utxoView); err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem validating request data: %v", err))
+		return
+	}
+
+	// (1b) Compute the transaction fees for this update profile transaction and encode the associated extra data.
+	additionalOutputs, err :=
+		fes.getTransactionFee(lib.TxnTypeUpdateProfile, updaterPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: TransactionFees "+
+				"specified in Request body are invalid: %v", err))
+		return
+	}
+	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubsidizedUpdateProfile: Problem encoding ExtraData: %v", err))
+		return
+	}
+
+	// (1c) Determine if a profile creation fee must be paid.
+	additionalFees := uint64(0)
+	if existingProfileEntry := utxoView.GetProfileEntryForPublicKey(profilePublicKey); existingProfileEntry == nil {
+		additionalFees = utxoView.GetCurrentGlobalParamsEntry().CreateProfileFeeNanos
+	}
+
+	// (1c) Construct the update profile transaction.
+	updateProfileTxn, _, _, _, err = fes.blockchain.CreateUpdateProfileTxn(
+		updaterPublicKeyBytes,
+		profilePublicKeyBytes,
+		requestData.NewUsername,
+		requestData.NewDescription,
+		requestData.NewProfilePic,
+		requestData.NewCreatorBasisPoints,
+		requestData.NewStakeMultipleBasisPoints,
+		requestData.IsHidden,
+		additionalFees,
+		extraData,
+		requestData.MinFeeRateNanosPerKB,
+		fes.backendServer.GetMempool(),
+		additionalOutputs,
+	)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem creating update profile transaction: %v", err))
+		return
+	}
+
+	// (2) Construct the basic transfer transaction to subsidize the user.
+	basicTransferTxn := &lib.MsgDeSoTxn{
+		TxInputs: []*lib.DeSoInput{},
+		TxOutputs: []*lib.DeSoOutput{
+			{
+				AmountNanos: ComputeNecessarySubsidyForTransaction(updateProfileTxn),
+				PublicKey:   updaterPublicKeyBytes,
+			},
+		},
+		PublicKey: subsidizationPublicKey.SerializeCompressed(),
+		TxnMeta:   &lib.BasicTransferMetadata{},
+	}
+	_, _, _, _, err = fes.blockchain.AddInputsAndChangeToTransaction(
+		basicTransferTxn,
+		utxoView.GetCurrentGlobalParamsEntry().MinimumNetworkFeeNanosPerKB,
+		fes.backendServer.GetMempool(),
+	)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem creating basic transfer transaction: %v", err))
+		return
+	}
+
+	// (3) Wrap the two transactions in an atomic transaction wrapper.
+	atomicTxnWrapper, totalFees, err := fes.blockchain.CreateAtomicTxnsWrapper(
+		[]*lib.MsgDeSoTxn{basicTransferTxn, updateProfileTxn}, nil, fes.backendServer.GetMempool())
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem constructing atomic transaction wrapper: %v", err))
+		return
+	}
+
+	// (4) Sign the basic transfer transaction within the atomic transaction wrapper.
+	basicTransferSignature, err :=
+		atomicTxnWrapper.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns[0].Sign(subsidizationPrivateKey)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem signing basic transfer transaction: %v", err))
+		return
+	}
+	atomicTxnWrapper.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns[0].Signature.SetSignature(basicTransferSignature)
+
+	// (5) Validate the atomic transaction wrapper has sufficient fees paid.
+	atomicTxnBytes, err := atomicTxnWrapper.ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem serializing transaction: %v", err))
+		return
+	}
+	txnSizeBytes := uint64(len(atomicTxnBytes))
+	if txnSizeBytes != 0 && utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB != 0 {
+		// Check for overflow or minimum network fee not met.
+		if totalFees != ((totalFees*1000)/1000) ||
+			(totalFees*1000)/uint64(txnSizeBytes) < utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB {
+			_AddBadRequestError(ww, fmt.Sprint("SubsidizedUpdateProfile: Transactions used to construct"+
+				" atomic transaction do not cumulatively pay sufficient network fees to cover wrapper"))
+			return
+		}
+	}
+
+	// (6) Collect the update profile bytes so the frontend can easily sign it.
+	updateProfileTxnBytes, err :=
+		atomicTxnWrapper.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns[1].ToBytes(true)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem serializing update profile transaction: %v", err))
+		return
+	}
+
+	// (7) Return the atomic transaction wrapper to the user.
+	res := SubsidizedUpdateProfileResponse{
+		IncompleteAtomicTransaction:    atomicTxnWrapper,
+		IncompleteAtomicTransactionHex: hex.EncodeToString(atomicTxnBytes),
+		UpdateProfileTransactionHex:    hex.EncodeToString(updateProfileTxnBytes),
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubsidizedUpdateProfile: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+// ComputeNecessarySubsidyForTransaction is a helper function to find out how much
+// a user must be transferred in order to exactly execute a given transaction.
+//
+// In the balance model era, the total amount of DESO required to execute a transaction
+// is equivalent to the sum of the fees paid and the sum of the basic transfers (outputs).
+func ComputeNecessarySubsidyForTransaction(txn *lib.MsgDeSoTxn) uint64 {
+	necessarySubsidy := txn.TxnFeeNanos
+	for _, txOutput := range txn.TxOutputs {
+		necessarySubsidy += txOutput.AmountNanos
+	}
+	return necessarySubsidy
 }
 
 // ExchangeBitcoinRequest ...

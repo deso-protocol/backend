@@ -28,6 +28,9 @@ type Config struct {
 	MinSatoshisForProfile   uint64
 	PhoneNumberUseThreshold uint64
 
+	// Transaction Subsidization
+	TransactionSubsidizationSeed string
+
 	// Global State
 	GlobalStateRemoteNode   string
 	GlobalStateRemoteSecret string
@@ -132,6 +135,9 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	config.CompProfileCreation = viper.GetBool("comp-profile-creation")
 	config.MinSatoshisForProfile = viper.GetUint64("min-satoshis-for-profile")
 	config.PhoneNumberUseThreshold = viper.GetUint64("phone-number-use-threshold")
+
+	// Transaction Subsidization
+	config.TransactionSubsidizationSeed = viper.GetString("transaction-subsidization-seed")
 
 	// Global State
 	config.GlobalStateRemoteNode = viper.GetString("global-state-remote-node")

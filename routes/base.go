@@ -350,6 +350,8 @@ type GetAppStateResponse struct {
 	HasJumioIntegration   bool
 	BuyWithETH            bool
 
+	HasTransactionSubsidizationSeed bool
+
 	USDCentsPerDeSoExchangeRate     uint64
 	USDCentsPerDeSoCoinbase         uint64
 	USDCentsPerDeSoBlockchainDotCom uint64
@@ -412,6 +414,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 		HasWyreIntegration:                  fes.IsConfiguredForWyre(),
 		HasJumioIntegration:                 fes.IsConfiguredForJumio(),
 		BuyWithETH:                          fes.IsConfiguredForETH(),
+		HasTransactionSubsidizationSeed:     fes.Config.TransactionSubsidizationSeed != "",
 		USDCentsPerDeSoExchangeRate:         fes.GetExchangeDeSoPrice(),
 		USDCentsPerDeSoCoinbase:             fes.MostRecentCoinbasePriceUSDCents,
 		USDCentsPerDeSoBlockchainDotCom:     fes.MostRecentBlockchainDotComPriceUSDCents,

@@ -52,6 +52,7 @@ const (
 	RoutePathSubmitTransaction        = "/api/v0/submit-transaction"
 	RoutePathSubmitAtomicTransaction  = "/api/v0/submit-atomic-transaction"
 	RoutePathUpdateProfile            = "/api/v0/update-profile"
+	RoutePathSubsidizedUpdateProfile  = "/api/v0/subsidized-update-profile"
 	RoutePathExchangeBitcoin          = "/api/v0/exchange-bitcoin"
 	RoutePathSendDeSo                 = "/api/v0/send-deso"
 	RoutePathSubmitPost               = "/api/v0/submit-post"
@@ -759,6 +760,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathUpdateProfile,
 			fes.UpdateProfile,
+			PublicAccess,
+		},
+		{
+			"SubsidizedUpdateProfile",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSubsidizedUpdateProfile,
+			fes.SubsidizedUpdateProfile,
 			PublicAccess,
 		},
 		{
@@ -2833,7 +2841,7 @@ func (fes *APIServer) StartExchangePriceMonitoring() {
 	}()
 }
 
-// Monitor balances for starter deso seed and buy deso seed
+// Monitor balances for starter deso seed, buy deso seed, and transaction subsidization seed
 func (fes *APIServer) StartSeedBalancesMonitoring() {
 	go func() {
 	out:
@@ -2854,6 +2862,8 @@ func (fes *APIServer) StartSeedBalancesMonitoring() {
 					}
 					fes.logBalanceForSeed(fes.Config.StarterDESOSeed, "STARTER_DESO", tags)
 					fes.logBalanceForSeed(fes.Config.BuyDESOSeed, "BUY_DESO", tags)
+					fes.logBalanceForSeed(fes.Config.TransactionSubsidizationSeed,
+						"TRANSACTION_SUBSIDIZATION_SEED", tags)
 					for label, publicKey := range fes.Config.PublicKeyBalancesToMonitor {
 						fes.logBalanceForPublicKey(publicKey, label, tags)
 					}
