@@ -2924,28 +2924,22 @@ type DAOCoinLimitOrderCreationRequest struct {
 	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
-// CreateDAOCoinLimitOrder Constructs a transaction that creates a DAO coin limit order for the specified
-// DAO coin pair, price, quantity, operation type, and fill type
-func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := DAOCoinLimitOrderCreationRequest{}
-
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: Problem parsing request body: %v", err))
-		return
-	}
-
+func (fes *APIServer) createDaoCoinLimitOrderHelper(
+	requestData *DAOCoinLimitOrderCreationRequest,
+	mempool lib.Mempool,
+) (
+	_res *DAOCoinLimitOrderResponse,
+	_err error,
+) {
 	// Basic validation that we have a transactor
 	if requestData.TransactorPublicKeyBase58Check == "" {
-		_AddBadRequestError(ww, "CreateDAOCoinLimitOrder: must provide a TransactorPublicKeyBase58Check")
-		return
+		return nil, errors.New("CreateDAOCoinLimitOrder: must provide a TransactorPublicKeyBase58Check")
 	}
 
 	// Validate operation type
 	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinLimitOrder: %v", err)
 	}
 
 	// Parse and validate fill type; for backwards compatibility, default the empty string to GoodTillCancelled
@@ -2953,8 +2947,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 	if requestData.FillType != "" {
 		fillType, err = orderFillTypeToUint64(requestData.FillType)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-			return
+			return nil, errors.Errorf("CreateDAOCoinLimitOrder: %v", err)
 		}
 	}
 
@@ -2980,8 +2973,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		)
 	}
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinLimitOrder: %v", err)
 	}
 
 	// Parse and validated quantity
@@ -3006,17 +2998,15 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		)
 	}
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinLimitOrder: %v", err)
 	}
 
 	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
-		fes.backendServer.GetMempool(),
+		mempool,
 		requestData.OptionalPrecedingTransactions,
 	)
 	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: problem fetching utxoView: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinLimitOrder: problem fetching utxoView: %v", err)
 	}
 
 	// Decode and validate the buying / selling coin public keys
@@ -3025,8 +3015,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
 	)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinLimitOrder: %v", err)
 	}
 
 	// Validate transactor has sufficient selling coins.
@@ -3039,8 +3028,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		quantityToFillInBaseUnits,
 	)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinLimitOrder: %v", err)
 	}
 
 	// Validate any transfer restrictions on buying the DAO coin.
@@ -3048,8 +3036,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		requestData.TransactorPublicKeyBase58Check,
 		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinLimitOrder: %v", err)
 	}
 
 	// Create order.
@@ -3067,8 +3054,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		requestData.TransactionFees,
 	)
 	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinLimitOrder: %v", err)
 	}
 
 	res.SimulatedExecutionResult, err = fes.getDAOCoinLimitOrderSimulatedExecutionResult(
@@ -3079,7 +3065,26 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		res.Transaction,
 	)
 	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return nil, errors.Errorf("CreateDAOCoinLimitOrder: %v", err)
+	}
+
+	return res, nil
+}
+
+// CreateDAOCoinLimitOrder Constructs a transaction that creates a DAO coin limit order for the specified
+// DAO coin pair, price, quantity, operation type, and fill type
+func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := DAOCoinLimitOrderCreationRequest{}
+
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: Problem parsing request body: %v", err))
+		return
+	}
+
+	res, err := fes.createDaoCoinLimitOrderHelper(&requestData, fes.backendServer.GetMempool())
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
 		return
 	}
 
