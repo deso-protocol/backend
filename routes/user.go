@@ -15,9 +15,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gorilla/mux"
+	"github.com/holiman/uint256"
 
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
@@ -362,7 +363,7 @@ func (fes *APIServer) _balanceEntryToResponse(
 		// CreatorCoins can't exceed uint64
 		BalanceNanos: balanceEntry.BalanceNanos.Uint64(),
 		// Use this value for DAO Coins balances
-		BalanceNanosUint256: NewUint256Hex(&balanceEntry.BalanceNanos),
+		BalanceNanosUint256: &balanceEntry.BalanceNanos,
 		NetBalanceInMempool: int64(balanceEntry.BalanceNanos.Uint64()) - int64(dbBalanceNanos),
 
 		// If the profile is nil, this will be nil
@@ -640,7 +641,7 @@ type CoinEntryResponse struct {
 
 type DAOCoinEntryResponse struct {
 	NumberOfHolders                 uint64
-	CoinsInCirculationNanos         Uint256Hex
+	CoinsInCirculationNanos         *uint256.Int
 	MintingDisabled                 bool
 	TransferRestrictionStatus       TransferRestrictionStatusString
 	LockupTransferRestrictionStatus TransferRestrictionStatusString
@@ -1055,7 +1056,7 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		},
 		DAOCoinEntry: &DAOCoinEntryResponse{
 			NumberOfHolders:         profileEntry.DAOCoinEntry.NumberOfHolders,
-			CoinsInCirculationNanos: NewUint256Hex(&profileEntry.DAOCoinEntry.CoinsInCirculationNanos),
+			CoinsInCirculationNanos: &profileEntry.DAOCoinEntry.CoinsInCirculationNanos,
 			MintingDisabled:         profileEntry.DAOCoinEntry.MintingDisabled,
 			TransferRestrictionStatus: getTransferRestrictionStatusStringFromTransferRestrictionStatus(
 				profileEntry.DAOCoinEntry.TransferRestrictionStatus),
@@ -1418,7 +1419,7 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 			requestData.SortType == TopHodlerSortTypeCoinBalance {
 
 			if requestData.IsDAOCoin {
-				return hodlList[ii].BalanceNanosUint256.Gt(hodlList[jj].BalanceNanosUint256.Int)
+				return hodlList[ii].BalanceNanosUint256.Gt(hodlList[jj].BalanceNanosUint256)
 			}
 			return hodlList[ii].BalanceNanos > hodlList[jj].BalanceNanos
 		} else if requestData.SortType == TopHodlerSortTypeWealth {

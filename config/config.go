@@ -234,7 +234,7 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 			panic(fmt.Sprintf("metamask-airdrop-eth-minimum value %v overflows uint256", metamaskAirdropMinStr))
 		}
 	} else {
-		config.MetamaskAirdropEthMinimum = uint256.NewInt(0)
+		config.MetamaskAirdropEthMinimum = uint256.NewInt()
 	}
 	config.MetamaskAirdropDESONanosAmount = viper.GetUint64("metamask-airdrop-deso-nanos-amount")
 
