@@ -5,8 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/btcsuite/btcd/btcec/v2"
-	ecdsa2 "github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"io"
@@ -1009,13 +1008,13 @@ func VerifyBytesSignature(signerPk, data, signatureBytes []byte) error {
 	bytes := lib.Sha256DoubleHash(data)
 
 	// Convert signatureBytes to *btcec.Signature.
-	sign, err := ecdsa2.ParseDERSignature(signatureBytes)
+	sign, err := btcec.ParseDERSignature(signatureBytes, btcec.S256())
 	if err != nil {
 		return errors.Wrapf(err, "VerifyBytesSignature: Problem parsing access signatureBytes: ")
 	}
 
 	// Parse signer public key
-	ownerPk, err := btcec.ParsePubKey(signerPk)
+	ownerPk, err := btcec.ParsePubKey(signerPk, btcec.S256())
 	if err != nil {
 		return errors.Wrapf(err, "VerifyBytesSignature: Problem parsing signer public key: ")
 	}

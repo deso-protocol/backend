@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	ecdsa2 "github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 	"io"
 	"math/big"
 	"net/http"
@@ -16,10 +15,10 @@ import (
 
 	"github.com/holiman/uint256"
 
-	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
@@ -987,7 +986,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Failed to decode hash: %v", err))
 			return
 		}
-		parsedSig, err := ecdsa2.ParseDERSignature(sig)
+		parsedSig, err := btcec.ParseDERSignature(sig, btcec.S256())
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Parsing "+
 				"signature failed: %v: %v", signedHash, err))
@@ -2652,7 +2651,7 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 			"DAOCoin: Must be profile owner in order to perform %v operation", requestData.OperationType))
 		return
 	}
-	zero := uint256.NewInt(0)
+	zero := uint256.NewInt()
 	if operationType == lib.DAOCoinOperationTypeMint && requestData.CoinsToMintNanos.Eq(zero) {
 		_AddBadRequestError(ww, fmt.Sprint("DAOCoin: Cannot mint 0 coins"))
 		return
@@ -2960,7 +2959,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 	}
 
 	// Validated and parse price to a scaled exchange rate
-	scaledExchangeRateCoinsToSellPerCoinToBuy := uint256.NewInt(0)
+	scaledExchangeRateCoinsToSellPerCoinToBuy := uint256.NewInt()
 	if requestData.Price == "" && requestData.ExchangeRateCoinsToSellPerCoinToBuy == 0 {
 		err = errors.Errorf("Price must be provided as a valid decimal string (ex: 1.23)")
 	} else if requestData.Price != "" {
@@ -2986,7 +2985,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 	}
 
 	// Parse and validated quantity
-	quantityToFillInBaseUnits := uint256.NewInt(0)
+	quantityToFillInBaseUnits := uint256.NewInt()
 	if requestData.Quantity == "" && requestData.QuantityToFill == 0 {
 		err = errors.Errorf("Quantity must be provided as a valid decimal string (ex: 1.23)")
 	} else if requestData.Quantity != "" {
@@ -3145,7 +3144,7 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 	// Validate and convert quantity to base units
 
 	// Parse and validated quantity
-	quantityToFillInBaseUnits := uint256.NewInt(0)
+	quantityToFillInBaseUnits := uint256.NewInt()
 	if requestData.Quantity == "" && requestData.QuantityToFill == 0 {
 		err = errors.Errorf("CreateDAOCoinMarketOrder: Quantity must be provided as a valid decimal string (ex: 1.23)")
 	} else if requestData.Quantity != "" {
@@ -3214,7 +3213,7 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 	}
 
 	// override the initial value and explicitly set to 0 for clarity
-	zeroUint256 := uint256.NewInt(0)
+	zeroUint256 := uint256.NewInt().SetUint64(0)
 
 	res, err := fes.createDAOCoinLimitOrderResponse(
 		utxoView,

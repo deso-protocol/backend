@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/btcsuite/btcd/btcec/v2"
+
+	"github.com/btcsuite/btcd/btcec"
 
 	"github.com/deso-protocol/core/lib"
 	"github.com/stretchr/testify/assert"
@@ -18,7 +19,7 @@ import (
 func signTransaction(t *testing.T, txn *lib.MsgDeSoTxn) {
 	privKeyBytes, _, err := lib.Base58CheckDecode(senderPrivString)
 	require.NoError(t, err)
-	privKey, _ := btcec.PrivKeyFromBytes(privKeyBytes)
+	privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), privKeyBytes)
 	txnSignature, err := txn.Sign(privKey)
 	require.NoError(t, err)
 	txn.Signature.SetSignature(txnSignature)
@@ -140,7 +141,7 @@ func TestAPIAccessGroupBaseGroupMembership(t *testing.T) {
 func generateRandomPublicKey(t *testing.T) (publicKeyBytes []byte) {
 	t.Helper()
 	require := require.New(t)
-	randomPrivateKey, err := btcec.NewPrivateKey()
+	randomPrivateKey, err := btcec.NewPrivateKey(btcec.S256())
 	require.NoError(err)
 	randomPublicKeyBytes := randomPrivateKey.PubKey().SerializeCompressed()
 	return randomPublicKeyBytes

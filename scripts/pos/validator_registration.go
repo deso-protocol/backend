@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/routes"
 	"github.com/deso-protocol/core/bls"
 	"github.com/deso-protocol/core/lib"
