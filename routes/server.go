@@ -105,8 +105,9 @@ const (
 	RoutePathGetTransactorDaoCoinLimitOrders = "/api/v0/get-transactor-dao-coin-limit-orders"
 
 	// dao_coin_exchange_with_fees.go
-	RoutePathUpdateDaoCoinMarketFees = "/api/v0/update-dao-coin-market-fees"
-	RoutePathGetDaoCoinMarketFees    = "/api/v0/get-dao-coin-market-fees"
+	RoutePathUpdateDaoCoinMarketFees        = "/api/v0/update-dao-coin-market-fees"
+	RoutePathGetDaoCoinMarketFees           = "/api/v0/get-dao-coin-market-fees"
+	RoutePathCreateDAOCoinLimitOrderWithFee = "/api/v0/create-dao-coin-limit-order-with-fee"
 
 	// post.go
 	RoutePathGetPostsHashHexList    = "/api/v0/get-posts-hashhexlist"
@@ -1275,6 +1276,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetDaoCoinMarketFees,
 			fes.GetDaoCoinMarketFees,
+			PublicAccess,
+		},
+		{
+			"CreateDAOCoinLimitOrderWithFee",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateDAOCoinLimitOrderWithFee,
+			fes.CreateDAOCoinLimitOrderWithFee,
 			PublicAccess,
 		},
 		{

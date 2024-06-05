@@ -3124,26 +3124,21 @@ type DAOCoinMarketOrderCreationRequest struct {
 	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
-func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := DAOCoinMarketOrderCreationRequest{}
-
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: Problem parsing request body: %v", err))
-		return
-	}
-
+func (fes *APIServer) createDaoCoinMarketOrderHelper(
+	requestData *DAOCoinMarketOrderCreationRequest,
+) (
+	_res *DAOCoinLimitOrderResponse,
+	_err error,
+) {
 	// Basic validation that we have a transactor
 	if requestData.TransactorPublicKeyBase58Check == "" {
-		_AddBadRequestError(ww, "CreateDAOCoinMarketOrder: must provide a TransactorPublicKeyBase58Check")
-		return
+		return nil, errors.New("CreateDAOCoinMarketOrder: must provide a TransactorPublicKeyBase58Check")
 	}
 
 	// Validate operation type
 	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinMarketOrder: %v", err)
 	}
 
 	// Validate and convert quantity to base units
@@ -3171,22 +3166,16 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 	}
 
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinMarketOrder: %v", err)
 	}
 
 	// Validate fill type
 	fillType, err := orderFillTypeToUint64(requestData.FillType)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinMarketOrder: %v", err)
 	}
 	if fillType == lib.DAOCoinLimitOrderFillTypeGoodTillCancelled {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprintf("CreateDAOCoinMarketOrder: %v fill type not supported for market orders", requestData.FillType),
-		)
-		return
+		return nil, errors.New("CreateDAOCoinMarketOrder: GoodTillCancelled fill type not supported for market orders")
 	}
 
 	// Validate any transfer restrictions on buying the DAO coin.
@@ -3194,8 +3183,7 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 		requestData.TransactorPublicKeyBase58Check,
 		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinMarketOrder: %v", err)
 	}
 
 	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
@@ -3203,8 +3191,7 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 		requestData.OptionalPrecedingTransactions,
 	)
 	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: problem fetching utxoView: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinMarketOrder: problem fetching utxoView: %v", err)
 	}
 
 	// Decode and validate the buying / selling coin public keys
@@ -3213,8 +3200,7 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
 	)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinMarketOrder: %v", err)
 	}
 
 	// override the initial value and explicitly set to 0 for clarity
@@ -3234,8 +3220,7 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 		requestData.TransactionFees,
 	)
 	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinMarketOrder: %v", err)
 	}
 
 	res.SimulatedExecutionResult, err = fes.getDAOCoinLimitOrderSimulatedExecutionResult(
@@ -3246,7 +3231,23 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 		res.Transaction,
 	)
 	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
+		return nil, errors.Errorf("CreateDAOCoinMarketOrder: %v", err)
+	}
+	return res, nil
+}
+
+func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := DAOCoinMarketOrderCreationRequest{}
+
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: Problem parsing request body: %v", err))
+		return
+	}
+
+	res, err := fes.createDaoCoinMarketOrderHelper(&requestData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
 		return
 	}
 

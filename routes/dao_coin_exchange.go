@@ -869,6 +869,42 @@ func CalculateFloatQuantityFromBaseUnits(
 	return calculateScaledUint256AsFloat(quantityToFillInBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
 }
 
+func CalculateBaseUnitsFromStringDecimalAmountSimple(
+	coinPkid string,
+	quantityToFill string,
+) (*uint256.Int, error) {
+	// If we don't return zero here, we error later because it thinks we overflowed
+	if quantityToFill == "0" || quantityToFill == "0.0" {
+		return uint256.NewInt(0), nil
+	}
+	if err := validateNonNegativeDecimalString(quantityToFill); err != nil {
+		return nil, err
+	}
+
+	if IsDesoPkid(coinPkid) {
+		return calculateQuantityToFillAsDESONanos(
+			quantityToFill,
+		)
+	}
+	return calculateQuantityToFillAsDAOCoinBaseUnits(
+		quantityToFill,
+	)
+}
+
+func CalculateStringDecimalAmountFromBaseUnitsSimple(
+	coinPkid string,
+	quantityToFillInBaseUnits *uint256.Int,
+) (string, error) {
+	// If we don't return zero here, we error later because it thinks we overflowed
+	if quantityToFillInBaseUnits.IsZero() {
+		return "0.0", nil
+	}
+	if IsDesoPkid(coinPkid) {
+		return lib.FormatScaledUint256AsDecimalString(quantityToFillInBaseUnits.ToBig(), big.NewInt(int64(lib.NanosPerUnit))), nil
+	}
+	return lib.FormatScaledUint256AsDecimalString(quantityToFillInBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig()), nil
+}
+
 // CalculateQuantityToFillAsBaseUnits given a buying coin, selling coin, operationType and a float coin quantity,
 // this calculates the quantity in base units for the side the operationType refers to
 func CalculateQuantityToFillAsBaseUnits(
