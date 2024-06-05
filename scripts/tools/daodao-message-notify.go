@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/routes"
 	"github.com/deso-protocol/backend/scripts/tools/toolslib"
 	"github.com/deso-protocol/core/lib"
@@ -303,7 +303,7 @@ func main() {
 				continue
 			}
 		}
-		toBTCECPubKey, err := btcec.ParsePubKey(toKeyBytes)
+		toBTCECPubKey, err := btcec.ParsePubKey(toKeyBytes, btcec.S256())
 		if err != nil {
 			if err != nil {
 				fmt.Printf("main(): Ran into an error when trying to btcec parse pk (%s): %s\n", toPubKey, err.Error())
