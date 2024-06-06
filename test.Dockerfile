@@ -4,7 +4,7 @@ RUN apk update
 RUN apk upgrade
 RUN apk add --update bash cmake g++ gcc git make vips-dev
 
-COPY --from=golang:1.22-alpine /usr/local/go/ /usr/local/go/
+COPY --from=golang:1.20-alpine /usr/local/go/ /usr/local/go/
 ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Declare an ARG for the branch name with a default value of "main"
