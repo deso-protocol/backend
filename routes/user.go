@@ -135,7 +135,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 
 	// We do not need a user's balance for the leaderboard
 	if !skipForLeaderboard || includeBalance {
-		if getUnminedBalance {
+		if getUnminedBalance && fes.blockchain.BlockTip().Height < utxoView.Params.ForkHeights.BalanceModelBlockHeight {
 			// Get the UtxoEntries from the augmented view
 			utxoEntries, err := fes.blockchain.GetSpendableUtxosForPublicKey(
 				publicKeyBytes, fes.backendServer.GetMempool(), utxoView)
