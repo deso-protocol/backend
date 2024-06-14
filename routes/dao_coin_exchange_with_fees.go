@@ -8,9 +8,11 @@ import (
 	"github.com/deso-protocol/core/lib"
 	"github.com/holiman/uint256"
 	"io"
+	"math"
 	"math/big"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 type UpdateDaoCoinMarketFeesRequest struct {
@@ -316,7 +318,7 @@ type DAOCoinLimitOrderWithFeeRequest struct {
 
 	// Quantity must always be specified either in usd, in quote currency, or in base
 	// currency. For bids, we expect usd or quote. For asks, we expect usd or base currency
-	// only. Only one of the following fields should be set.
+	// only.
 	Quantity             string       `safeForLogging:"true"`
 	QuantityCurrencyType CurrencyType `safeForLogging:"true"`
 
@@ -350,6 +352,7 @@ type DAOCoinLimitOrderWithFeeResponse struct {
 	LimitAmountInUsd               string       `safeForLogging:"true"`
 	LimitReceiveAmount             string       `safeForLogging:"true"`
 	LimitReceiveAmountCurrencyType CurrencyType `safeForLogging:"true"`
+	LimitReceiveAmountInUsd        string       `safeForLogging:"true"`
 	LimitPriceInQuoteCurrency      string       `safeForLogging:"true"`
 	LimitPriceInUsd                string       `safeForLogging:"true"`
 
@@ -427,15 +430,199 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 	quoteCurrencyPublicKey string) (string, error) {
 	if IsDesoPkid(quoteCurrencyPublicKey) {
 		desoUsdCents := fes.GetExchangeDeSoPrice()
-		return fmt.Sprintf("%f", float64(desoUsdCents)/100), nil
+		return fmt.Sprintf("%0.9f", float64(desoUsdCents)/100), nil
 	} else {
+		utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+			fes.backendServer.GetMempool(),
+			nil,
+		)
+		if err != nil {
+			return "", fmt.Errorf(
+				"GetQuoteCurrencyPriceInUsd: Error fetching mempool view: %v", err)
+		}
+
+		pkBytes, _, err := lib.Base58CheckDecode(quoteCurrencyPublicKey)
+		if err != nil || len(pkBytes) != btcec.PubKeyBytesLenCompressed {
+			return "", fmt.Errorf(
+				"GetQuoteCurrencyPriceInUsd: Problem decoding public key %s: %v",
+				quoteCurrencyPublicKey, err)
+		}
+
+		existingProfileEntry := utxoView.GetProfileEntryForPublicKey(pkBytes)
+		if existingProfileEntry == nil || existingProfileEntry.IsDeleted() {
+			return "", fmt.Errorf(
+				"GetQuoteCurrencyPriceInUsd: Profile for quote currency public "+
+					"key %v does not exist",
+				quoteCurrencyPublicKey)
+		}
+
+		// If the profile is the dusdc profile then just return 1.0
+		lowerUsername := strings.ToLower(string(existingProfileEntry.Username))
+		if strings.Contains(lowerUsername, "dusdc") {
+			return "1.0", nil
+		} else if strings.Contains(lowerUsername, "focus") ||
+			strings.Contains(lowerUsername, "openfund") {
+
+			desoUsdCents := fes.GetExchangeDeSoPrice()
+			pkid := utxoView.GetPKIDForPublicKey(pkBytes)
+			if pkid == nil {
+				return "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error getting pkid for public key %v",
+					quoteCurrencyPublicKey)
+			}
+			ordersBuyingCoin1, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
+				&lib.ZeroPKID, pkid.PKID)
+			if err != nil {
+				return "", fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
+			}
+			ordersBuyingCoin2, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
+				pkid.PKID, &lib.ZeroPKID)
+			if err != nil {
+				return "", fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
+			}
+			allOrders := append(ordersBuyingCoin1, ordersBuyingCoin2...)
+			// Find the highest bid price and the lowest ask price
+			highestBidPrice := float64(0.0)
+			lowestAskPrice := math.MaxFloat64
+			for _, order := range allOrders {
+				priceStr, err := CalculatePriceStringFromScaledExchangeRate(
+					lib.PkToStringMainnet(order.BuyingDAOCoinCreatorPKID[:]),
+					lib.PkToStringMainnet(order.SellingDAOCoinCreatorPKID[:]),
+					order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
+					DAOCoinLimitOrderOperationTypeString(order.OperationType.String()))
+				if err != nil {
+					return "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price: %v", err)
+				}
+				priceFloat, err := strconv.ParseFloat(priceStr, 64)
+				if err != nil {
+					return "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error parsing price: %v", err)
+				}
+				if order.OperationType == lib.DAOCoinLimitOrderOperationTypeBID &&
+					priceFloat > highestBidPrice {
+
+					highestBidPrice = priceFloat
+				}
+				if order.OperationType == lib.DAOCoinLimitOrderOperationTypeASK &&
+					priceFloat < lowestAskPrice {
+
+					lowestAskPrice = priceFloat
+				}
+			}
+			if highestBidPrice != 0.0 && lowestAskPrice != math.MaxFloat64 {
+				midPriceDeso := (highestBidPrice + lowestAskPrice) / 2.0
+				midPriceUsd := midPriceDeso * float64(desoUsdCents) / 100
+
+				return fmt.Sprintf("%0.9f", midPriceUsd), nil
+			}
+
+			return "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price")
+		}
+
 		return "", fmt.Errorf(
 			"GetQuoteCurrencyPriceInUsd: Quote currency %v not supported",
 			quoteCurrencyPublicKey)
 	}
 }
 
+func (fes *APIServer) CreateMarketOrLimitOrder(
+	isMarketOrder bool,
+	request *DAOCoinLimitOrderCreationRequest,
+) (
+	*DAOCoinLimitOrderResponse,
+	error,
+) {
+
+	if isMarketOrder {
+		// We need to translate the req into a DAOCoinMarketOrderCreationRequest
+		daoCoinMarketOrderRequest := &DAOCoinMarketOrderCreationRequest{
+			TransactorPublicKeyBase58Check:            request.TransactorPublicKeyBase58Check,
+			BuyingDAOCoinCreatorPublicKeyBase58Check:  request.BuyingDAOCoinCreatorPublicKeyBase58Check,
+			SellingDAOCoinCreatorPublicKeyBase58Check: request.SellingDAOCoinCreatorPublicKeyBase58Check,
+			Quantity:             request.Quantity,
+			OperationType:        request.OperationType,
+			FillType:             request.FillType,
+			MinFeeRateNanosPerKB: request.MinFeeRateNanosPerKB,
+			TransactionFees:      request.TransactionFees,
+		}
+
+		marketOrderRes, err := fes.createDaoCoinMarketOrderHelper(daoCoinMarketOrderRequest)
+		if err != nil {
+			return nil, fmt.Errorf("HandleMarketOrder: Problem creating market order: %v", err)
+		}
+
+		return marketOrderRes, nil
+	} else {
+		limitOrderRes, err := fes.createDaoCoinLimitOrderHelper(request)
+		if err != nil {
+			return nil, fmt.Errorf("HandleMarketOrder: Problem creating market order: %v", err)
+		}
+
+		return limitOrderRes, nil
+	}
+}
+
+// priceStr is a decimal string representing the price in quote currency.
+func InvertPriceStr(priceStr string) (string, error) {
+	// - 1.0 / price
+	// = [1e38 * 1e38 / (price * 1e38)] / 1e38
+	scaledPrice, err := lib.CalculateScaledExchangeRateFromString(priceStr)
+	if err != nil {
+		return "", fmt.Errorf("HandleMarketOrder: Problem calculating scaled price: %v", err)
+	}
+	if scaledPrice.IsZero() {
+		return "0", err
+	}
+	oneE38Squared := big.NewInt(0).Mul(lib.OneE38.ToBig(), lib.OneE38.ToBig())
+	invertedScaledPrice := big.NewInt(0).Div(oneE38Squared, scaledPrice.ToBig())
+	return lib.FormatScaledUint256AsDecimalString(invertedScaledPrice, lib.OneE38.ToBig()), nil
+}
+
+func (fes *APIServer) SendCoins(
+	coinPkid string,
+	transactorPubkeyBytes []byte,
+	receiverPkidBytes []byte,
+	amountBaseUnits *uint256.Int,
+	minFeeRateNanosPerKb uint64,
+) (
+	*lib.MsgDeSoTxn,
+	error,
+) {
+	coinPkidBytes, _, err := lib.Base58CheckDecode(coinPkid)
+	if err != nil || len(coinPkidBytes) != btcec.PubKeyBytesLenCompressed {
+		return nil, fmt.Errorf("HandleMarketOrder: Problem decoding coin pkid %s: %v", coinPkid, err)
+	}
+
+	var txn *lib.MsgDeSoTxn
+	if IsDesoPkid(coinPkid) {
+		txn, _, _, _, _, err = fes.CreateSendDesoTxn(
+			int64(amountBaseUnits.Uint64()),
+			transactorPubkeyBytes,
+			receiverPkidBytes,
+			nil,
+			minFeeRateNanosPerKb,
+			nil)
+		if err != nil {
+			return nil, fmt.Errorf("HandleMarketOrder: Problem creating transaction: %v", err)
+		}
+	} else {
+		txn, _, _, _, err = fes.blockchain.CreateDAOCoinTransferTxn(
+			transactorPubkeyBytes,
+			&lib.DAOCoinTransferMetadata{
+				ProfilePublicKey:       coinPkidBytes,
+				ReceiverPublicKey:      receiverPkidBytes,
+				DAOCoinToTransferNanos: *amountBaseUnits,
+			},
+			// Standard transaction fields
+			minFeeRateNanosPerKb, fes.backendServer.GetMempool(), nil)
+		if err != nil {
+			return nil, fmt.Errorf("HandleMarketOrder: Problem creating transaction: %v", err)
+		}
+	}
+
+	return txn, nil
+}
+
 func (fes *APIServer) HandleMarketOrder(
+	isMarketOrder bool,
 	req *DAOCoinLimitOrderWithFeeRequest,
 	isBuyOrder bool,
 	feeMap map[string]uint64,
@@ -454,9 +641,16 @@ func (fes *APIServer) HandleMarketOrder(
 	} else {
 		quoteCurrencyUsdValue, err = strconv.ParseFloat(quoteCurrencyUsdValueStr, 64)
 		if err != nil {
-			return nil, fmt.Errorf("HandleMarketOrder: Problem converting quote "+
-				"currency price to float %v", err)
+			// Again, get the usd value on a best-effort basis
+			quoteCurrencyUsdValue = 0.0
 		}
+	}
+	convertToUsd := func(quoteAmountStr string) string {
+		quoteAmount, err := strconv.ParseFloat(quoteAmountStr, 64)
+		if err != nil {
+			return ""
+		}
+		return fmt.Sprintf("%.9f", quoteAmount/quoteCurrencyUsdValue)
 	}
 
 	quantityStr := req.Quantity
@@ -479,7 +673,40 @@ func (fes *APIServer) HandleMarketOrder(
 			return nil, fmt.Errorf("HandleMarketOrder: Problem converting quantity "+
 				"to float %v", err)
 		}
-		quantityStr = fmt.Sprintf("%f", quantityUsd/quoteCurrencyUsdValue)
+		quantityStr = fmt.Sprintf("%0.9f", quantityUsd/quoteCurrencyUsdValue)
+	}
+
+	priceStrQuote := ""
+	if !isMarketOrder {
+		if req.PriceCurrencyType == CurrencyTypeUsd {
+			// In this case we want to convert the usd amount to an amount of quote
+			// currency in base units. To do this we need to get the price of the
+			// quote currency in usd and then convert the usd amount to quote currency
+			// amount.
+			if quoteCurrencyUsdValue == 0.0 {
+				return nil, fmt.Errorf("HandleMarketOrder: Quote currency price in " +
+					"usd not available. Please use quote or base currency for the amount.")
+			}
+			// For the rest it's just the following formula:
+			// = usd amount / quoteCurrencyUsdValue * base units
+
+			// In this case we parse the quantity as a simple float since its value
+			// should not be extreme
+			priceUsd, err := strconv.ParseFloat(req.Price, 64)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem converting price "+
+					"to float %v", err)
+			}
+			priceStrQuote = fmt.Sprintf("%0.9f", priceUsd/quoteCurrencyUsdValue)
+		} else if req.PriceCurrencyType == CurrencyTypeQuote {
+			// This is the easy case. If the price is in quote currency, then we
+			// can just use it directly.
+			priceStrQuote = req.Price
+		} else {
+			return nil, fmt.Errorf("HandleMarketOrder: Invalid price currency type %v."+
+				"Options are 'usd' or 'quote'",
+				req.PriceCurrencyType)
+		}
 	}
 
 	// Next we set the operation type, buying public key, and selling public key based on
@@ -489,6 +716,7 @@ func (fes *APIServer) HandleMarketOrder(
 	var operationType DAOCoinLimitOrderOperationTypeString
 	buyingPublicKey := ""
 	sellingPublicKey := ""
+	priceStrConsensus := priceStrQuote
 	if req.QuantityCurrencyType == CurrencyTypeBase {
 		if isBuyOrder {
 			// If you're buying base currency, then the buying coin is the
@@ -512,6 +740,13 @@ func (fes *APIServer) HandleMarketOrder(
 			operationType = DAOCoinLimitOrderOperationTypeStringASK
 			buyingPublicKey = req.BaseCurrencyPublicKeyBase58Check
 			sellingPublicKey = req.QuoteCurrencyPublicKeyBase58Check
+			// We also have to invert the price because consensus assumes the
+			// denominator is the selling coin for an ask, when it should be
+			// the base currency.
+			priceStrConsensus, err = InvertPriceStr(priceStrQuote)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem inverting price: %v", err)
+			}
 		} else {
 			// The last hard case. If you're selling the base and you want
 			// to use quote currency as the quantity, then you need to do a
@@ -519,6 +754,13 @@ func (fes *APIServer) HandleMarketOrder(
 			operationType = DAOCoinLimitOrderOperationTypeStringBID
 			buyingPublicKey = req.QuoteCurrencyPublicKeyBase58Check
 			sellingPublicKey = req.BaseCurrencyPublicKeyBase58Check
+			// We also have to invert the price because consensus assumes the
+			// denominator is the buying coin for a bid, when it should be
+			// the base currency.
+			priceStrConsensus, err = InvertPriceStr(priceStrQuote)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem inverting price: %v", err)
+			}
 		}
 	} else {
 		return nil, fmt.Errorf("HandleMarketOrder: Invalid quantity currency type %v",
@@ -526,30 +768,33 @@ func (fes *APIServer) HandleMarketOrder(
 	}
 
 	// We need to translate the req into a DAOCoinMarketOrderCreationRequest
-	daoCoinMarketOrderRequest := &DAOCoinMarketOrderCreationRequest{
+	daoCoinMarketOrderRequest := &DAOCoinLimitOrderCreationRequest{
 		TransactorPublicKeyBase58Check:            req.TransactorPublicKeyBase58Check,
 		BuyingDAOCoinCreatorPublicKeyBase58Check:  buyingPublicKey,
 		SellingDAOCoinCreatorPublicKeyBase58Check: sellingPublicKey,
 		Quantity:             quantityStr,
 		OperationType:        operationType,
+		Price:                priceStrConsensus,
 		FillType:             req.FillType,
 		MinFeeRateNanosPerKB: req.MinFeeRateNanosPerKB,
 		TransactionFees:      req.TransactionFees,
 	}
-	marketOrderRes, err := fes.createDaoCoinMarketOrderHelper(daoCoinMarketOrderRequest)
+	orderRes, err := fes.CreateMarketOrLimitOrder(
+		isMarketOrder,
+		daoCoinMarketOrderRequest)
 	if err != nil {
-		return nil, fmt.Errorf("HandleMarketOrder: Problem creating market order: %v", err)
+		return nil, fmt.Errorf("HandleMarketOrder: Problem creating order: %v", err)
 	}
 
-	quoteCurrencyTotalStr := marketOrderRes.SimulatedExecutionResult.BuyingCoinQuantityFilled
+	quoteCurrencyExecutedBeforeFeesStr := orderRes.SimulatedExecutionResult.BuyingCoinQuantityFilled
 	if daoCoinMarketOrderRequest.SellingDAOCoinCreatorPublicKeyBase58Check == req.QuoteCurrencyPublicKeyBase58Check {
-		quoteCurrencyTotalStr = marketOrderRes.SimulatedExecutionResult.SellingCoinQuantityFilled
+		quoteCurrencyExecutedBeforeFeesStr = orderRes.SimulatedExecutionResult.SellingCoinQuantityFilled
 	}
 
 	// Now we know how much of the buying and selling currency are going to be transacted. This
 	// allows us to compute a fee to charge the transactor.
-	quoteCurrencyTotalBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
-		req.QuoteCurrencyPublicKeyBase58Check, quoteCurrencyTotalStr)
+	quoteCurrencyExecutedBeforeFeesBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
+		req.QuoteCurrencyPublicKeyBase58Check, quoteCurrencyExecutedBeforeFeesStr)
 	if err != nil {
 		return nil, fmt.Errorf("HandleMarketOrder: Problem calculating quote currency total: %v", err)
 	}
@@ -558,7 +803,7 @@ func (fes *APIServer) HandleMarketOrder(
 	feeBaseUnitsByPkid := make(map[string]*uint256.Int)
 	totalFeeBaseUnits := uint256.NewInt(0)
 	for pkid, feeBasisPoints := range feeMap {
-		feeBaseUnits, err := lib.SafeUint256().Mul(quoteCurrencyTotalBaseUnits, uint256.NewInt(feeBasisPoints))
+		feeBaseUnits, err := lib.SafeUint256().Mul(quoteCurrencyExecutedBeforeFeesBaseUnits, uint256.NewInt(feeBasisPoints))
 		if err != nil {
 			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating fee: %v", err)
 		}
@@ -574,14 +819,8 @@ func (fes *APIServer) HandleMarketOrder(
 	}
 
 	// Validate that the totalFeeBaseUnits is less than or equal to the quote currency total
-	if totalFeeBaseUnits.Cmp(quoteCurrencyTotalBaseUnits) > 0 {
+	if totalFeeBaseUnits.Cmp(quoteCurrencyExecutedBeforeFeesBaseUnits) > 0 {
 		return nil, fmt.Errorf("HandleMarketOrder: Total fees exceed total quote currency")
-	}
-
-	// Compute the remaining amount we can spend in quote currency after paying fees
-	remainingQuoteCurrencyBaseUnits, err := lib.SafeUint256().Sub(quoteCurrencyTotalBaseUnits, totalFeeBaseUnits)
-	if err != nil {
-		return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency: %v", err)
 	}
 
 	// Precompute the total fee to return it later
@@ -632,18 +871,12 @@ func (fes *APIServer) HandleMarketOrder(
 			//
 			// TODO: Add ExtraData to the transaction to make it easier to report it as an
 			// earning to the user who's receiving the fee.
-			txn, _, _, _, err := fes.blockchain.CreateDAOCoinTransferTxn(
+			txn, err := fes.SendCoins(
+				req.QuoteCurrencyPublicKeyBase58Check,
 				transactorPubkeyBytes,
-				&lib.DAOCoinTransferMetadata{
-					ProfilePublicKey:       quoteCurrencyPkidBytes,
-					ReceiverPublicKey:      receiverPkidBytes,
-					DAOCoinToTransferNanos: *feeBaseUnits,
-				},
-				// Standard transaction fields
-				req.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), nil)
-			if err != nil {
-				return nil, fmt.Errorf("HandleMarketOrder: Problem creating transaction: %v", err)
-			}
+				receiverPkidBytes,
+				feeBaseUnits,
+				req.MinFeeRateNanosPerKB)
 			_, _, _, _, err = utxoView.ConnectTransaction(
 				txn, txn.Hash(), fes.blockchain.BlockTip().Height,
 				fes.blockchain.BlockTip().Header.TstampNanoSecs,
@@ -654,33 +887,127 @@ func (fes *APIServer) HandleMarketOrder(
 			transferTxns = append(transferTxns, txn)
 		}
 
-		remainingQuoteQuantityDecimal, err := CalculateStringDecimalAmountFromBaseUnitsSimple(
-			req.QuoteCurrencyPublicKeyBase58Check, remainingQuoteCurrencyBaseUnits)
-		if err != nil {
-			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency: %v", err)
+		// Specifying the quantity after deducting fees is a bit tricky. If the user specified the
+		// original quantity in quote currency, then we can subtract the fee and execute the order
+		// with what remains after the fee. However, if they specified the original quantity in base
+		// currency, then we want to convert to quote currency and subtract the fee if we can. However,
+		// we can only do this if the user specified a price. If they didn't specify a price, then we
+		// need to fall back on the simulated amount, which is OK since this is a market order anyway.
+		var remainingQuoteQuantityDecimal string
+		if req.QuantityCurrencyType == CurrencyTypeQuote || req.PriceCurrencyType == CurrencyTypeUsd {
+			// In this case, quantityStr is the amount that the order executed with
+			// originally. So we deduct the fees from that and run.
+			quoteCurrencyQuantityTotalBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
+				req.QuoteCurrencyPublicKeyBase58Check, quantityStr)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating quote currency total: %v", err)
+			}
+			quoteCurrencyQuantityMinusFeesBaseUnits, err := lib.SafeUint256().Sub(
+				quoteCurrencyQuantityTotalBaseUnits, totalFeeBaseUnits)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency: %v", err)
+			}
+			remainingQuoteQuantityDecimal, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
+				req.QuoteCurrencyPublicKeyBase58Check, quoteCurrencyQuantityMinusFeesBaseUnits)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency: %v", err)
+			}
+		} else if req.QuantityCurrencyType == CurrencyTypeBase {
+			// In this case the user specified base currency. If there's a price then try and estimate
+			// the quote amount. Otherwise, just use the simulated amount.
+			if priceStrQuote != "" {
+				// TODO: This is the same as the limit amount calculation below. We should refactor
+				// this to avoid duplication.
+				// TODO: This codepath results in the fee percentage being a little lower because we're not
+				// directly deducting the fees from the amount filled. This is OK for now, and it's
+				// tough to make it work otherwise. Instead of (feePercent * quantity) -> filledAmount,
+				// it ends up being:
+				// - (1+feePercent)(quantity) -> filledAmount, or
+				// - (quantity) -> filledAmount / (1 + feePercent)
+				// which is a lower actual fee. I think it's fine for now though. Fixing it would require
+				// doing two passes to compute the fee, which isn't worth it right now.
+				//
+				// In this case the quantityStr needs to be converted from base to quote currency:
+				// - scaledPrice := priceQuotePerBase * 1e38
+				// - quantityBaseUnits * scaledPrice / 1e38
+				//
+				// This multiplies the scaled price by 1e38 then we have to reverse it later
+				scaledPrice, err := lib.CalculateScaledExchangeRateFromString(priceStrQuote)
+				if err != nil {
+					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating scaled price: %v", err)
+				}
+				totalQuantityBaseCurrencyBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
+					req.BaseCurrencyPublicKeyBase58Check, quantityStr)
+				if err != nil {
+					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating base units: %v", err)
+				}
+				bigLimitAmount := big.NewInt(0).Mul(totalQuantityBaseCurrencyBaseUnits.ToBig(), scaledPrice.ToBig())
+				bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, lib.OneE38.ToBig())
+				uint256LimitAmount := uint256.NewInt(0)
+				uint256LimitAmount.SetFromBig(bigLimitAmount)
+				// Subtract the fees from the total quantity
+				totalQuantityQuoteCurrencyAfterFeesBaseUnits, err := lib.SafeUint256().Sub(
+					uint256LimitAmount, totalFeeBaseUnits)
+				if err != nil {
+					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency: %v", err)
+				}
+				remainingQuoteQuantityDecimal, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
+					req.QuoteCurrencyPublicKeyBase58Check, totalQuantityQuoteCurrencyAfterFeesBaseUnits)
+				if err != nil {
+					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency: %v", err)
+				}
+			} else {
+				// If there's no price quote then use the simulated amount, minus fees
+				quotCurrencyExecutedAfterFeesBaseUnits, err := lib.SafeUint256().Sub(
+					quoteCurrencyExecutedBeforeFeesBaseUnits, totalFeeBaseUnits)
+				if err != nil {
+					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency: %v", err)
+				}
+				remainingQuoteQuantityDecimal, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
+					req.QuoteCurrencyPublicKeyBase58Check, quotCurrencyExecutedAfterFeesBaseUnits)
+				if err != nil {
+					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency: %v", err)
+				}
+			}
+		} else {
+			// Just to be safe, catch an error here
+			return nil, fmt.Errorf("HandleMarketOrder: Invalid quantity currency type %v",
+				req.QuantityCurrencyType)
+		}
+		if remainingQuoteQuantityDecimal == "" {
+			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency")
 		}
 
 		// Now we need to execute the order with the remaining quote currency.
 		// To make this simple and exact, we can do this as an ask where we are
 		// selling the quote currency for base currency. This allows us to specify
-		// the amount of quote currency as the quantity (again consensus is confusing
-		// sorry about that).
-		newDaoCoinMarketOrderRequest := &DAOCoinMarketOrderCreationRequest{
+		// the amount of quote currency as the quantity. To make this work we must
+		// also set the price to the inverse of the quote price because ask orders
+		// specify their price in (buying coin per selling coin), which in this case
+		// is (base / quote), or the inversion of priceQuoteStr. Again consensus is
+		// confusing sorry about that...
+		priceStrQuoteInverted, err := InvertPriceStr(priceStrQuote)
+		if err != nil {
+			return nil, fmt.Errorf("HandleMarketOrder: Problem inverting price: %v", err)
+		}
+		newDaoCoinMarketOrderRequest := &DAOCoinLimitOrderCreationRequest{
 			TransactorPublicKeyBase58Check:            req.TransactorPublicKeyBase58Check,
 			BuyingDAOCoinCreatorPublicKeyBase58Check:  req.BaseCurrencyPublicKeyBase58Check,
 			SellingDAOCoinCreatorPublicKeyBase58Check: req.QuoteCurrencyPublicKeyBase58Check,
 			Quantity:             remainingQuoteQuantityDecimal,
 			OperationType:        DAOCoinLimitOrderOperationTypeStringASK,
+			Price:                priceStrQuoteInverted,
 			FillType:             req.FillType,
 			MinFeeRateNanosPerKB: req.MinFeeRateNanosPerKB,
 			TransactionFees:      req.TransactionFees,
 		}
-		newMarketOrderRes, err := fes.createDaoCoinMarketOrderHelper(newDaoCoinMarketOrderRequest)
+		newOrderRes, err := fes.CreateMarketOrLimitOrder(
+			isMarketOrder, newDaoCoinMarketOrderRequest)
 		if err != nil {
 			return nil, fmt.Errorf("HandleMarketOrder: Problem creating market order: %v", err)
 		}
 		// Parse the limit order txn from the response
-		bb, err := hex.DecodeString(newMarketOrderRes.TransactionHex)
+		bb, err := hex.DecodeString(newOrderRes.TransactionHex)
 		if err != nil {
 			return nil, fmt.Errorf("HandleMarketOrder: Problem decoding txn hex: %v", err)
 		}
@@ -696,7 +1023,7 @@ func (fes *APIServer) HandleMarketOrder(
 			return nil, fmt.Errorf("HandleMarketOrder: Problem connecting transaction: %v", err)
 		}
 
-		allTxns := append(transferTxns, newMarketOrderRes.Transaction)
+		allTxns := append(transferTxns, newOrderRes.Transaction)
 
 		// Wrap all of the resulting txns into an atomic
 		// TODO: We can embed helpful extradata in here that will allow us to index these txns
@@ -716,11 +1043,30 @@ func (fes *APIServer) HandleMarketOrder(
 		// Now that we've executed the order, we have everything we need to return to the UI
 		// so it can display the order to the user.
 
-		// The amount we're spending is the amount in quote currency, which is the
-		// amount we're selling in this case.
-		executionAmount := newMarketOrderRes.SimulatedExecutionResult.SellingCoinQuantityFilled
+		// This is tricky. The execution amount is the amount that was simulated from the order PLUS
+		// the amount we deducted in fees prior to executing the order.
+		//
+		// We know the quote currency executed amount is the selling coin quantity filled because it's
+		// how we set up the order request.
+		quoteCurrencyExecutedAfterFeesStr := newOrderRes.SimulatedExecutionResult.SellingCoinQuantityFilled
+		quoteCurrencyExecutedAfterFeesBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
+			req.QuoteCurrencyPublicKeyBase58Check, quoteCurrencyExecutedAfterFeesStr)
+		if err != nil {
+			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating quote currency total: %v", err)
+		}
+		quoteCurrencyExecutedPlusFeesBaseUnits, err := lib.SafeUint256().Add(
+			quoteCurrencyExecutedAfterFeesBaseUnits, totalFeeBaseUnits)
+		if err != nil {
+			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating quote currency total: %v", err)
+		}
+		executionAmount, err := CalculateStringDecimalAmountFromBaseUnitsSimple(
+			req.QuoteCurrencyPublicKeyBase58Check, quoteCurrencyExecutedPlusFeesBaseUnits)
+		if err != nil {
+			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating quote currency spent: %v", err)
+		}
 		executionAmountCurrencyType := CurrencyTypeQuote
-		executionReceiveAmount := marketOrderRes.SimulatedExecutionResult.BuyingCoinQuantityFilled
+		// The receive amount is the buying coin quantity filled because that's how we set up the order.
+		executionReceiveAmount := newOrderRes.SimulatedExecutionResult.BuyingCoinQuantityFilled
 		executionReceiveAmountCurrencyType := CurrencyTypeBase
 		executionReceiveAmountBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
 			req.BaseCurrencyPublicKeyBase58Check, executionReceiveAmount)
@@ -732,7 +1078,7 @@ func (fes *APIServer) HandleMarketOrder(
 		// - quoteAmountSpentTotal / baseAmountReceived
 		// - = (quoteAmountSpentTotal * BaseUnitsPerCoin / baseAmountReceived) / BaseUnitsPerCoin
 		priceQuotePerBase := big.NewInt(0).Mul(
-			quoteCurrencyTotalBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
+			quoteCurrencyExecutedPlusFeesBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
 		priceQuotePerBase = big.NewInt(0).Div(
 			priceQuotePerBase, executionReceiveAmountBaseUnits.ToBig())
 		executionPriceInQuoteCurrency := lib.FormatScaledUint256AsDecimalString(
@@ -744,7 +1090,7 @@ func (fes *APIServer) HandleMarketOrder(
 		percentageSpentOnFees := big.NewInt(0).Mul(
 			totalFeeBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
 		percentageSpentOnFees = big.NewInt(0).Div(
-			percentageSpentOnFees, quoteCurrencyTotalBaseUnits.ToBig())
+			percentageSpentOnFees, quoteCurrencyExecutedPlusFeesBaseUnits.ToBig())
 		executionFeePercentage := lib.FormatScaledUint256AsDecimalString(
 			percentageSpentOnFees, lib.BaseUnitsPerCoin.ToBig())
 
@@ -762,38 +1108,94 @@ func (fes *APIServer) HandleMarketOrder(
 			TransactionHex: atomicTxnHex,
 			TxnHashHex:     txn.Hash().String(),
 
-			//LimitAmount                    string       `safeForLogging:"true"`
-			//LimitAmountCurrencyType        CurrencyType `safeForLogging:"true"`
-			//LimitAmountInUsd               string       `safeForLogging:"true"`
-			//LimitReceiveAmount             string       `safeForLogging:"true"`
-			//LimitReceiveAmountCurrencyType CurrencyType `safeForLogging:"true"`
-			//LimitPriceInQuoteCurrency      string       `safeForLogging:"true"`
-			//LimitPriceInUsd                string       `safeForLogging:"true"`
-
 			// For a market order, the amount will generally match the amount requested. However, for
 			// a limit order, the amount may be less than the amount requested if the order was only
 			// partially filled.
 			ExecutionAmount:                    executionAmount,
 			ExecutionAmountCurrencyType:        executionAmountCurrencyType,
-			ExecutionAmountUsd:                 "",
+			ExecutionAmountUsd:                 convertToUsd(executionAmount),
 			ExecutionReceiveAmount:             executionReceiveAmount,
 			ExecutionReceiveAmountCurrencyType: executionReceiveAmountCurrencyType,
-			ExecutionReceiveAmountUsd:          "",
+			ExecutionReceiveAmountUsd:          "", // dont convert base currency to usd
 			ExecutionPriceInQuoteCurrency:      executionPriceInQuoteCurrency,
-			ExecutionPriceInUsd:                "",
+			ExecutionPriceInUsd:                convertToUsd(executionPriceInQuoteCurrency),
 			ExecutionFeePercentage:             executionFeePercentage,
 			ExecutionFeeAmountInQuoteCurrency:  executionFeeAmountInQuoteCurrency,
-			ExecutionFeeAmountInUsd:            "",
+			ExecutionFeeAmountInUsd:            convertToUsd(executionFeeAmountInQuoteCurrency),
 
 			MarketTotalTradingFeeBasisPoints:      marketTakerFeeBaseUnitsStr,
 			MarketTradingFeeBasisPointsByUserPkid: feeMap,
+		}
+
+		if !isMarketOrder {
+			// The quantityStr is in quote currency or base units. If it's in base units then
+			// we need to do a conversion into quote currency.
+			limitAmount := quantityStr
+			if req.QuantityCurrencyType == CurrencyTypeBase {
+				// In this case the quantityStr needs to be converted from base to quote currency:
+				// - scaledPrice := priceQuotePerBase * 1e38
+				// - quantityBaseUnits * scaledPrice / 1e38
+				//
+				// This multiplies the scaled price by 1e38 then we have to reverse it later
+				scaledPrice, err := lib.CalculateScaledExchangeRateFromString(priceStrQuote)
+				if err != nil {
+					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating scaled price: %v", err)
+				}
+				quantityBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
+					req.BaseCurrencyPublicKeyBase58Check, quantityStr)
+				if err != nil {
+					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating base units: %v", err)
+				}
+				bigLimitAmount := big.NewInt(0).Mul(quantityBaseUnits.ToBig(), scaledPrice.ToBig())
+				bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, lib.OneE38.ToBig())
+				uint256LimitAmount := uint256.NewInt(0)
+				uint256LimitAmount.SetFromBig(bigLimitAmount)
+				limitAmount, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
+					req.QuoteCurrencyPublicKeyBase58Check, uint256LimitAmount)
+				if err != nil {
+					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating limit amount: %v", err)
+				}
+			}
+
+			// The limit receive amount is computed as follows:
+			// - limitAmount / price
+			// - = limitAmount * 1e38 / (price * 1e38)
+			limitReceiveAmountBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
+				req.QuoteCurrencyPublicKeyBase58Check, limitAmount)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating limit receive amount: %v", err)
+			}
+			bigLimitReceiveAmount := big.NewInt(0).Mul(limitReceiveAmountBaseUnits.ToBig(), lib.OneE38.ToBig())
+			// This multiplies the scaled price by 1e38 then we have to reverse it later
+			scaledPrice, err := lib.CalculateScaledExchangeRateFromString(priceStrQuote)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating scaled price: %v", err)
+			}
+			bigLimitReceiveAmount = big.NewInt(0).Div(bigLimitReceiveAmount, scaledPrice.ToBig())
+			uint256LimitReceiveAmount := uint256.NewInt(0)
+			uint256LimitReceiveAmount.SetFromBig(bigLimitReceiveAmount)
+			limitReceiveAmount, err := CalculateStringDecimalAmountFromBaseUnitsSimple(
+				req.BaseCurrencyPublicKeyBase58Check, uint256LimitReceiveAmount)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating limit receive amount: %v", err)
+			}
+
+			// Set all the values we calculated
+			res.LimitAmount = limitAmount
+			res.LimitAmountCurrencyType = CurrencyTypeQuote
+			res.LimitAmountInUsd = convertToUsd(limitAmount)
+			res.LimitReceiveAmount = limitReceiveAmount
+			res.LimitReceiveAmountCurrencyType = CurrencyTypeBase
+			res.LimitReceiveAmountInUsd = "" // dont convert base currency to usd
+			res.LimitPriceInQuoteCurrency = priceStrQuote
+			res.LimitPriceInUsd = convertToUsd(priceStrQuote)
 		}
 
 		return res, nil
 	} else {
 		// We already have the txn that executes the order from previously
 		// Connect it to our UtxoView for validation
-		bb, err := hex.DecodeString(marketOrderRes.TransactionHex)
+		bb, err := hex.DecodeString(orderRes.TransactionHex)
 		if err != nil {
 			return nil, fmt.Errorf("HandleMarketOrder: Problem decoding txn hex: %v", err)
 		}
@@ -866,7 +1268,7 @@ func (fes *APIServer) HandleMarketOrder(
 			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating fee: %v", err)
 		}
 		quoteAmountReceivedBaseUnits, err := lib.SafeUint256().Sub(
-			quoteCurrencyTotalBaseUnits, totalFeeBaseUnits)
+			quoteCurrencyExecutedBeforeFeesBaseUnits, totalFeeBaseUnits)
 		if err != nil {
 			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating quote currency received: %v", err)
 		}
@@ -875,9 +1277,9 @@ func (fes *APIServer) HandleMarketOrder(
 		if err != nil {
 			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating quote currency received: %v", err)
 		}
-		baseAmountSpentStr := marketOrderRes.SimulatedExecutionResult.SellingCoinQuantityFilled
+		baseAmountSpentStr := orderRes.SimulatedExecutionResult.SellingCoinQuantityFilled
 		if daoCoinMarketOrderRequest.SellingDAOCoinCreatorPublicKeyBase58Check == req.QuoteCurrencyPublicKeyBase58Check {
-			baseAmountSpentStr = marketOrderRes.SimulatedExecutionResult.BuyingCoinQuantityFilled
+			baseAmountSpentStr = orderRes.SimulatedExecutionResult.BuyingCoinQuantityFilled
 		}
 		baseAmountSpentBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
 			req.BaseCurrencyPublicKeyBase58Check, baseAmountSpentStr)
@@ -900,11 +1302,11 @@ func (fes *APIServer) HandleMarketOrder(
 		// - totalFeeBaseUnits / quoteAmountTotalBaseUnits
 		// - = (totalFeeBaseUnits * BaseUnitsPerCoin / quoteAmountTotalBaseUnits) / BaseUnitsPerCoin
 		percentageSpentOnFeesStr := "0.0"
-		if !quoteCurrencyTotalBaseUnits.IsZero() {
+		if !quoteCurrencyExecutedBeforeFeesBaseUnits.IsZero() {
 			percentageSpentOnFees := big.NewInt(0).Mul(
 				totalFeeBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
 			percentageSpentOnFees = big.NewInt(0).Div(
-				percentageSpentOnFees, quoteCurrencyTotalBaseUnits.ToBig())
+				percentageSpentOnFees, quoteCurrencyExecutedBeforeFeesBaseUnits.ToBig())
 			percentageSpentOnFeesStr = lib.FormatScaledUint256AsDecimalString(
 				percentageSpentOnFees, lib.BaseUnitsPerCoin.ToBig())
 		}
@@ -925,31 +1327,88 @@ func (fes *APIServer) HandleMarketOrder(
 			TxnHashHex:     atomicTxn.Hash().String(),
 			Transaction:    atomicTxn,
 
-			//LimitAmount                    string       `safeForLogging:"true"`
-			//LimitAmountCurrencyType        CurrencyType `safeForLogging:"true"`
-			//LimitAmountInUsd               string       `safeForLogging:"true"`
-			//LimitReceiveAmount             string       `safeForLogging:"true"`
-			//LimitReceiveAmountCurrencyType CurrencyType `safeForLogging:"true"`
-			//LimitPriceInQuoteCurrency      string       `safeForLogging:"true"`
-			//LimitPriceInUsd                string       `safeForLogging:"true"`
-
 			ExecutionAmount:                    baseAmountSpentStr,
 			ExecutionAmountCurrencyType:        CurrencyTypeBase,
-			ExecutionAmountUsd:                 "",
+			ExecutionAmountUsd:                 "", // dont convert base currency to usd
 			ExecutionReceiveAmount:             quoteAmountReceivedStr,
 			ExecutionReceiveAmountCurrencyType: CurrencyTypeQuote,
-			ExecutionReceiveAmountUsd:          "",
+			ExecutionReceiveAmountUsd:          convertToUsd(quoteAmountReceivedStr),
 			ExecutionPriceInQuoteCurrency:      finalPriceStr,
-			ExecutionPriceInUsd:                "",
+			ExecutionPriceInUsd:                convertToUsd(finalPriceStr),
 			ExecutionFeePercentage:             percentageSpentOnFeesStr,
 			ExecutionFeeAmountInQuoteCurrency:  totalFeeStr,
-			ExecutionFeeAmountInUsd:            "",
+			ExecutionFeeAmountInUsd:            convertToUsd(totalFeeStr),
 
 			MarketTotalTradingFeeBasisPoints: marketTakerFeeBaseUnitsStr,
 			// Trading fees are paid to users based on metadata in the profile. This map states the trading
 			// fee split for each user who's been allocated trading fees in the profile.
 			MarketTradingFeeBasisPointsByUserPkid: feeMap,
 		}
+
+		if !isMarketOrder {
+			// The quantityStr is in quote currency or base units. If it's in quote currency
+			// then we need to do a conversion to base units.
+			limitAmount := quantityStr
+			if req.QuantityCurrencyType == CurrencyTypeQuote ||
+				req.QuantityCurrencyType == CurrencyTypeUsd {
+				// In this case we need to convert the quantity to base units:
+				// - quoteAmount / price
+				// - = quoteAmount * 1e38 / (price * 1e38)
+				quantityBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
+					req.QuoteCurrencyPublicKeyBase58Check, quantityStr)
+				if err != nil {
+					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating base units: %v", err)
+				}
+				// This multiplies the scaled price by 1e38 then we have to reverse it later
+				scaledPrice, err := lib.CalculateScaledExchangeRateFromString(priceStrQuote)
+				if err != nil {
+					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating scaled price: %v", err)
+				}
+				bigLimitAmount := big.NewInt(0).Mul(quantityBaseUnits.ToBig(), lib.OneE38.ToBig())
+				bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, scaledPrice.ToBig())
+				uint256LimitAmount := uint256.NewInt(0)
+				uint256LimitAmount.SetFromBig(bigLimitAmount)
+				limitAmount, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
+					req.BaseCurrencyPublicKeyBase58Check, uint256LimitAmount)
+				if err != nil {
+					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating limit amount: %v", err)
+				}
+			}
+
+			// The limit receive amount is computed as follows:
+			// - limitAmount * price
+			// - = limitAmount * (price * 1e38) / 1e38
+			limitReceiveAmountBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
+				req.BaseCurrencyPublicKeyBase58Check, limitAmount)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating limit receive amount: %v", err)
+			}
+			// This multiplies the scaled price by 1e38 then we have to reverse it later
+			scaledPrice, err := lib.CalculateScaledExchangeRateFromString(priceStrQuote)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating scaled price: %v", err)
+			}
+			bigLimitReceiveAmount := big.NewInt(0).Mul(limitReceiveAmountBaseUnits.ToBig(), scaledPrice.ToBig())
+			bigLimitReceiveAmount = big.NewInt(0).Div(bigLimitReceiveAmount, lib.OneE38.ToBig())
+			uint256LimitReceiveAmount := uint256.NewInt(0)
+			uint256LimitReceiveAmount.SetFromBig(bigLimitReceiveAmount)
+			limitReceiveAmount, err := CalculateStringDecimalAmountFromBaseUnitsSimple(
+				req.QuoteCurrencyPublicKeyBase58Check, uint256LimitReceiveAmount)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating limit receive amount: %v", err)
+			}
+
+			// Set all the values we calculated
+			res.LimitAmount = limitAmount
+			res.LimitAmountCurrencyType = CurrencyTypeBase
+			res.LimitAmountInUsd = "" // dont convert base to usd
+			res.LimitReceiveAmount = limitReceiveAmount
+			res.LimitReceiveAmountCurrencyType = CurrencyTypeQuote
+			res.LimitReceiveAmountInUsd = convertToUsd(res.LimitReceiveAmount)
+			res.LimitPriceInQuoteCurrency = priceStrQuote
+			res.LimitPriceInUsd = convertToUsd(priceStrQuote)
+		}
+
 		return res, nil
 	}
 }
@@ -973,6 +1432,14 @@ func (fes *APIServer) CreateDAOCoinLimitOrderWithFee(ww http.ResponseWriter, req
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrderWithFee: Problem parsing request body: %v", err))
 		return
+	}
+
+	// Swap the deso key for lib.ZeroPkid
+	if IsDesoPkid(requestData.BaseCurrencyPublicKeyBase58Check) {
+		requestData.BaseCurrencyPublicKeyBase58Check = lib.PkToString(lib.ZeroPKID[:], fes.Params)
+	}
+	if IsDesoPkid(requestData.QuoteCurrencyPublicKeyBase58Check) {
+		requestData.QuoteCurrencyPublicKeyBase58Check = lib.PkToString(lib.ZeroPKID[:], fes.Params)
 	}
 
 	// First determine if this is a limit or a market order
@@ -1046,18 +1513,10 @@ func (fes *APIServer) CreateDAOCoinLimitOrderWithFee(ww http.ResponseWriter, req
 	}
 
 	var res *DAOCoinLimitOrderWithFeeResponse
-	if isMarketOrder {
-		res, err = fes.HandleMarketOrder(&requestData, isBuyOrder, feeMap)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrderWithFee: %v", err))
-			return
-		}
-	} else {
-		res, err = fes.HandleLimitOrder(&requestData, isBuyOrder, feeMap)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrderWithFee: %v", err))
-			return
-		}
+	res, err = fes.HandleMarketOrder(isMarketOrder, &requestData, isBuyOrder, feeMap)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrderWithFee: %v", err))
+		return
 	}
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {

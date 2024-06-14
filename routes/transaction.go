@@ -1222,6 +1222,78 @@ type SendDeSoResponse struct {
 	TxnHashHex               string
 }
 
+func (fes *APIServer) CreateSendDesoTxn(
+	amountNanos int64,
+	senderPkBytes []byte,
+	recipientPkBytes []byte,
+	extraData map[string][]byte,
+	minFeeRateNanosPerKb uint64,
+	additionalOutputs []*lib.DeSoOutput,
+) (
+	_txn *lib.MsgDeSoTxn,
+	_totalInput uint64,
+	_spendAmount uint64,
+	_changeAmount uint64,
+	_feeNanos uint64,
+	_err error,
+) {
+	// If the AmountNanos is less than zero then we have a special case where we create
+	// a transaction with the maximum spend.
+	var txnn *lib.MsgDeSoTxn
+	var totalInputt uint64
+	var spendAmountt uint64
+	var changeAmountt uint64
+	var feeNanoss uint64
+	var err error
+	if amountNanos < 0 {
+		// Create a MAX transaction
+		txnn, totalInputt, spendAmountt, feeNanoss, err = fes.blockchain.CreateMaxSpend(
+			senderPkBytes, recipientPkBytes, extraData, minFeeRateNanosPerKb,
+			fes.backendServer.GetMempool(), additionalOutputs)
+		if err != nil {
+			return nil, 0, 0, 0, 0, fmt.Errorf("CreateSendDesoTxn: Error creating max spend: %v", err)
+		}
+
+	} else {
+		// In this case, we are spending what the user asked us to spend as opposed to
+		// spending the maximum amount possible.
+
+		// Create the transaction outputs and add the recipient's public key and the
+		// amount we want to pay them
+		txnOutputs := append(additionalOutputs, &lib.DeSoOutput{
+			PublicKey: recipientPkBytes,
+			// If we get here we know the amount is non-negative.
+			AmountNanos: uint64(amountNanos),
+		})
+
+		// Assemble the transaction so that inputs can be found and fees can
+		// be computed.
+		txnn = &lib.MsgDeSoTxn{
+			// The inputs will be set below.
+			TxInputs:  []*lib.DeSoInput{},
+			TxOutputs: txnOutputs,
+			PublicKey: senderPkBytes,
+			TxnMeta:   &lib.BasicTransferMetadata{},
+			// We wait to compute the signature until we've added all the
+			// inputs and change.
+		}
+
+		if len(extraData) > 0 {
+			txnn.ExtraData = extraData
+		}
+
+		// Add inputs to the transaction and do signing, validation, and broadcast
+		// depending on what the user requested.
+		totalInputt, spendAmountt, changeAmountt, feeNanoss, err =
+			fes.blockchain.AddInputsAndChangeToTransaction(
+				txnn, minFeeRateNanosPerKb, fes.backendServer.GetMempool())
+		if err != nil {
+			return nil, 0, 0, 0, 0, fmt.Errorf("CreateSendDesoTxn: Error adding inputs and change to transaction: %v", err)
+		}
+	}
+	return txnn, totalInputt, spendAmountt, changeAmountt, feeNanoss, nil
+}
+
 // SendDeSo ...
 func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
@@ -1291,61 +1363,13 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// If the AmountNanos is less than zero then we have a special case where we create
-	// a transaction with the maximum spend.
-	var txnn *lib.MsgDeSoTxn
-	var totalInputt uint64
-	var spendAmountt uint64
-	var changeAmountt uint64
-	var feeNanoss uint64
-	if requestData.AmountNanos < 0 {
-		// Create a MAX transaction
-		txnn, totalInputt, spendAmountt, feeNanoss, err = fes.blockchain.CreateMaxSpend(
-			senderPkBytes, recipientPkBytes, extraData, requestData.MinFeeRateNanosPerKB,
-			fes.backendServer.GetMempool(), additionalOutputs)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error processing MAX transaction: %v", err))
-			return
-		}
-
-	} else {
-		// In this case, we are spending what the user asked us to spend as opposed to
-		// spending the maximum amount possible.
-
-		// Create the transaction outputs and add the recipient's public key and the
-		// amount we want to pay them
-		txnOutputs := append(additionalOutputs, &lib.DeSoOutput{
-			PublicKey: recipientPkBytes,
-			// If we get here we know the amount is non-negative.
-			AmountNanos: uint64(requestData.AmountNanos),
-		})
-
-		// Assemble the transaction so that inputs can be found and fees can
-		// be computed.
-		txnn = &lib.MsgDeSoTxn{
-			// The inputs will be set below.
-			TxInputs:  []*lib.DeSoInput{},
-			TxOutputs: txnOutputs,
-			PublicKey: senderPkBytes,
-			TxnMeta:   &lib.BasicTransferMetadata{},
-			// We wait to compute the signature until we've added all the
-			// inputs and change.
-		}
-
-		if len(extraData) > 0 {
-			txnn.ExtraData = extraData
-		}
-
-		// Add inputs to the transaction and do signing, validation, and broadcast
-		// depending on what the user requested.
-		totalInputt, spendAmountt, changeAmountt, feeNanoss, err =
-			fes.blockchain.AddInputsAndChangeToTransaction(
-				txnn, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error processing transaction: %v", err))
-			return
-		}
-	}
+	txnn, totalInputt, spendAmountt, changeAmountt, feeNanoss, err := fes.CreateSendDesoTxn(
+		requestData.AmountNanos,
+		senderPkBytes,
+		recipientPkBytes,
+		extraData,
+		requestData.MinFeeRateNanosPerKB,
+		additionalOutputs)
 
 	// Sanity check that the input is equal to:
 	//   (spend amount + change amount + fees)
@@ -2926,7 +2950,6 @@ type DAOCoinLimitOrderCreationRequest struct {
 
 func (fes *APIServer) createDaoCoinLimitOrderHelper(
 	requestData *DAOCoinLimitOrderCreationRequest,
-	mempool lib.Mempool,
 ) (
 	_res *DAOCoinLimitOrderResponse,
 	_err error,
@@ -3002,11 +3025,11 @@ func (fes *APIServer) createDaoCoinLimitOrderHelper(
 	}
 
 	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
-		mempool,
+		fes.backendServer.GetMempool(),
 		requestData.OptionalPrecedingTransactions,
 	)
 	if err != nil {
-		return nil, errors.Errorf("CreateDAOCoinLimitOrder: problem fetching utxoView: %v", err)
+		return nil, errors.Errorf("CreateDAOCoinMarketOrder: problem fetching utxoView: %v", err)
 	}
 
 	// Decode and validate the buying / selling coin public keys
@@ -3082,7 +3105,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	res, err := fes.createDaoCoinLimitOrderHelper(&requestData, fes.backendServer.GetMempool())
+	res, err := fes.createDaoCoinLimitOrderHelper(&requestData)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
 		return
