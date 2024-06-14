@@ -801,13 +801,14 @@ func (fes *APIServer) HandleMarketOrder(
 
 	// Compute how much in quote currency we need to pay each constituent
 	feeBaseUnitsByPkid := make(map[string]*uint256.Int)
-	totalFeeBaseUnits := uint256.NewInt(0)
+	totalFeeBaseUnits := uint256.NewInt()
 	for pkid, feeBasisPoints := range feeMap {
-		feeBaseUnits, err := lib.SafeUint256().Mul(quoteCurrencyExecutedBeforeFeesBaseUnits, uint256.NewInt(feeBasisPoints))
+		feeBaseUnits, err := lib.SafeUint256().Mul(
+			quoteCurrencyExecutedBeforeFeesBaseUnits, uint256.NewInt().SetUint64(feeBasisPoints))
 		if err != nil {
 			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating fee: %v", err)
 		}
-		feeBaseUnits, err = lib.SafeUint256().Div(feeBaseUnits, uint256.NewInt(10000))
+		feeBaseUnits, err = lib.SafeUint256().Div(feeBaseUnits, uint256.NewInt().SetUint64(10000))
 		if err != nil {
 			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating fee: %v", err)
 		}
@@ -943,7 +944,7 @@ func (fes *APIServer) HandleMarketOrder(
 				}
 				bigLimitAmount := big.NewInt(0).Mul(totalQuantityBaseCurrencyBaseUnits.ToBig(), scaledPrice.ToBig())
 				bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, lib.OneE38.ToBig())
-				uint256LimitAmount := uint256.NewInt(0)
+				uint256LimitAmount := uint256.NewInt()
 				uint256LimitAmount.SetFromBig(bigLimitAmount)
 				// Subtract the fees from the total quantity
 				totalQuantityQuoteCurrencyAfterFeesBaseUnits, err := lib.SafeUint256().Sub(
@@ -1148,7 +1149,7 @@ func (fes *APIServer) HandleMarketOrder(
 				}
 				bigLimitAmount := big.NewInt(0).Mul(quantityBaseUnits.ToBig(), scaledPrice.ToBig())
 				bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, lib.OneE38.ToBig())
-				uint256LimitAmount := uint256.NewInt(0)
+				uint256LimitAmount := uint256.NewInt()
 				uint256LimitAmount.SetFromBig(bigLimitAmount)
 				limitAmount, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
 					req.QuoteCurrencyPublicKeyBase58Check, uint256LimitAmount)
@@ -1172,7 +1173,7 @@ func (fes *APIServer) HandleMarketOrder(
 				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating scaled price: %v", err)
 			}
 			bigLimitReceiveAmount = big.NewInt(0).Div(bigLimitReceiveAmount, scaledPrice.ToBig())
-			uint256LimitReceiveAmount := uint256.NewInt(0)
+			uint256LimitReceiveAmount := uint256.NewInt()
 			uint256LimitReceiveAmount.SetFromBig(bigLimitReceiveAmount)
 			limitReceiveAmount, err := CalculateStringDecimalAmountFromBaseUnitsSimple(
 				req.BaseCurrencyPublicKeyBase58Check, uint256LimitReceiveAmount)
@@ -1366,7 +1367,7 @@ func (fes *APIServer) HandleMarketOrder(
 				}
 				bigLimitAmount := big.NewInt(0).Mul(quantityBaseUnits.ToBig(), lib.OneE38.ToBig())
 				bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, scaledPrice.ToBig())
-				uint256LimitAmount := uint256.NewInt(0)
+				uint256LimitAmount := uint256.NewInt()
 				uint256LimitAmount.SetFromBig(bigLimitAmount)
 				limitAmount, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
 					req.BaseCurrencyPublicKeyBase58Check, uint256LimitAmount)
@@ -1390,7 +1391,7 @@ func (fes *APIServer) HandleMarketOrder(
 			}
 			bigLimitReceiveAmount := big.NewInt(0).Mul(limitReceiveAmountBaseUnits.ToBig(), scaledPrice.ToBig())
 			bigLimitReceiveAmount = big.NewInt(0).Div(bigLimitReceiveAmount, lib.OneE38.ToBig())
-			uint256LimitReceiveAmount := uint256.NewInt(0)
+			uint256LimitReceiveAmount := uint256.NewInt()
 			uint256LimitReceiveAmount.SetFromBig(bigLimitReceiveAmount)
 			limitReceiveAmount, err := CalculateStringDecimalAmountFromBaseUnitsSimple(
 				req.QuoteCurrencyPublicKeyBase58Check, uint256LimitReceiveAmount)

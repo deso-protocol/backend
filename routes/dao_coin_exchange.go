@@ -875,7 +875,7 @@ func CalculateBaseUnitsFromStringDecimalAmountSimple(
 ) (*uint256.Int, error) {
 	// If we don't return zero here, we error later because it thinks we overflowed
 	if quantityToFill == "0" || quantityToFill == "0.0" {
-		return uint256.NewInt(0), nil
+		return uint256.NewInt(), nil
 	}
 	if err := validateNonNegativeDecimalString(quantityToFill); err != nil {
 		return nil, err
