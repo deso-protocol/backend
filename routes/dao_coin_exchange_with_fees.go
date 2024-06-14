@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/core/lib"
 	"github.com/holiman/uint256"
 	"io"
@@ -52,7 +52,7 @@ func ValidateTradingFeeMap(feeMap map[string]uint64) error {
 		totalFeeBasisPoints.Add(totalFeeBasisPoints, big.NewInt(int64(feeBasisPoints)))
 	}
 	if totalFeeBasisPoints.Cmp(big.NewInt(100*100)) > 0 {
-		return fmt.Errorf("Trading fees must sum to less than 100%")
+		return fmt.Errorf("Trading fees must sum to less than 100 percent")
 	}
 	return nil
 }
