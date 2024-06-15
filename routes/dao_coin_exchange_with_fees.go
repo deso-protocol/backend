@@ -945,7 +945,9 @@ func (fes *APIServer) HandleMarketOrder(
 				bigLimitAmount := big.NewInt(0).Mul(totalQuantityBaseCurrencyBaseUnits.ToBig(), scaledPrice.ToBig())
 				bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, lib.OneE38.ToBig())
 				uint256LimitAmount := uint256.NewInt()
-				uint256LimitAmount.SetFromBig(bigLimitAmount)
+				if overflow := uint256LimitAmount.SetFromBig(bigLimitAmount); overflow {
+					return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit amount")
+				}
 				// Subtract the fees from the total quantity
 				totalQuantityQuoteCurrencyAfterFeesBaseUnits, err := lib.SafeUint256().Sub(
 					uint256LimitAmount, totalFeeBaseUnits)
@@ -1078,22 +1080,28 @@ func (fes *APIServer) HandleMarketOrder(
 		// The price per token the user is getting, expressed as a decimal float
 		// - quoteAmountSpentTotal / baseAmountReceived
 		// - = (quoteAmountSpentTotal * BaseUnitsPerCoin / baseAmountReceived) / BaseUnitsPerCoin
-		priceQuotePerBase := big.NewInt(0).Mul(
-			quoteCurrencyExecutedPlusFeesBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
-		priceQuotePerBase = big.NewInt(0).Div(
-			priceQuotePerBase, executionReceiveAmountBaseUnits.ToBig())
-		executionPriceInQuoteCurrency := lib.FormatScaledUint256AsDecimalString(
-			priceQuotePerBase, lib.BaseUnitsPerCoin.ToBig())
+		executionPriceInQuoteCurrency := ""
+		if !executionReceiveAmountBaseUnits.IsZero() {
+			priceQuotePerBase := big.NewInt(0).Mul(
+				quoteCurrencyExecutedPlusFeesBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
+			priceQuotePerBase = big.NewInt(0).Div(
+				priceQuotePerBase, executionReceiveAmountBaseUnits.ToBig())
+			executionPriceInQuoteCurrency = lib.FormatScaledUint256AsDecimalString(
+				priceQuotePerBase, lib.BaseUnitsPerCoin.ToBig())
+		}
 
 		// Compute the percentage of the amount spent that went to fees
 		// - totalFeeBaseUnits / quoteAmountSpentTotalBaseUnits
 		// - = (totalFeeBaseUnits * BaseUnitsPerCoin / quoteAmountSpentTotalBaseUnits) / BaseUnitsPerCoin
-		percentageSpentOnFees := big.NewInt(0).Mul(
-			totalFeeBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
-		percentageSpentOnFees = big.NewInt(0).Div(
-			percentageSpentOnFees, quoteCurrencyExecutedPlusFeesBaseUnits.ToBig())
-		executionFeePercentage := lib.FormatScaledUint256AsDecimalString(
-			percentageSpentOnFees, lib.BaseUnitsPerCoin.ToBig())
+		executionFeePercentage := ""
+		if !quoteCurrencyExecutedPlusFeesBaseUnits.IsZero() {
+			percentageSpentOnFees := big.NewInt(0).Mul(
+				totalFeeBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
+			percentageSpentOnFees = big.NewInt(0).Div(
+				percentageSpentOnFees, quoteCurrencyExecutedPlusFeesBaseUnits.ToBig())
+			executionFeePercentage = lib.FormatScaledUint256AsDecimalString(
+				percentageSpentOnFees, lib.BaseUnitsPerCoin.ToBig())
+		}
 
 		executionFeeAmountInQuoteCurrency, err := CalculateStringDecimalAmountFromBaseUnitsSimple(
 			req.QuoteCurrencyPublicKeyBase58Check, totalFeeBaseUnits)
@@ -1150,7 +1158,9 @@ func (fes *APIServer) HandleMarketOrder(
 				bigLimitAmount := big.NewInt(0).Mul(quantityBaseUnits.ToBig(), scaledPrice.ToBig())
 				bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, lib.OneE38.ToBig())
 				uint256LimitAmount := uint256.NewInt()
-				uint256LimitAmount.SetFromBig(bigLimitAmount)
+				if overflow := uint256LimitAmount.SetFromBig(bigLimitAmount); overflow {
+					return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit amount")
+				}
 				limitAmount, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
 					req.QuoteCurrencyPublicKeyBase58Check, uint256LimitAmount)
 				if err != nil {
@@ -1172,13 +1182,18 @@ func (fes *APIServer) HandleMarketOrder(
 			if err != nil {
 				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating scaled price: %v", err)
 			}
-			bigLimitReceiveAmount = big.NewInt(0).Div(bigLimitReceiveAmount, scaledPrice.ToBig())
-			uint256LimitReceiveAmount := uint256.NewInt()
-			uint256LimitReceiveAmount.SetFromBig(bigLimitReceiveAmount)
-			limitReceiveAmount, err := CalculateStringDecimalAmountFromBaseUnitsSimple(
-				req.BaseCurrencyPublicKeyBase58Check, uint256LimitReceiveAmount)
-			if err != nil {
-				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating limit receive amount: %v", err)
+			limitReceiveAmount := ""
+			if !scaledPrice.IsZero() {
+				bigLimitReceiveAmount = big.NewInt(0).Div(bigLimitReceiveAmount, scaledPrice.ToBig())
+				uint256LimitReceiveAmount := uint256.NewInt()
+				if overflow := uint256LimitReceiveAmount.SetFromBig(bigLimitReceiveAmount); overflow {
+					return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit receive amount")
+				}
+				limitReceiveAmount, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
+					req.BaseCurrencyPublicKeyBase58Check, uint256LimitReceiveAmount)
+				if err != nil {
+					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating limit receive amount: %v", err)
+				}
 			}
 
 			// Set all the values we calculated
@@ -1365,14 +1380,19 @@ func (fes *APIServer) HandleMarketOrder(
 				if err != nil {
 					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating scaled price: %v", err)
 				}
-				bigLimitAmount := big.NewInt(0).Mul(quantityBaseUnits.ToBig(), lib.OneE38.ToBig())
-				bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, scaledPrice.ToBig())
-				uint256LimitAmount := uint256.NewInt()
-				uint256LimitAmount.SetFromBig(bigLimitAmount)
-				limitAmount, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
-					req.BaseCurrencyPublicKeyBase58Check, uint256LimitAmount)
-				if err != nil {
-					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating limit amount: %v", err)
+				limitAmount = ""
+				if !scaledPrice.IsZero() {
+					bigLimitAmount := big.NewInt(0).Mul(quantityBaseUnits.ToBig(), lib.OneE38.ToBig())
+					bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, scaledPrice.ToBig())
+					uint256LimitAmount := uint256.NewInt()
+					if overflow := uint256LimitAmount.SetFromBig(bigLimitAmount); overflow {
+						return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit amount")
+					}
+					limitAmount, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
+						req.BaseCurrencyPublicKeyBase58Check, uint256LimitAmount)
+					if err != nil {
+						return nil, fmt.Errorf("HandleMarketOrder: Problem calculating limit amount: %v", err)
+					}
 				}
 			}
 
@@ -1392,7 +1412,9 @@ func (fes *APIServer) HandleMarketOrder(
 			bigLimitReceiveAmount := big.NewInt(0).Mul(limitReceiveAmountBaseUnits.ToBig(), scaledPrice.ToBig())
 			bigLimitReceiveAmount = big.NewInt(0).Div(bigLimitReceiveAmount, lib.OneE38.ToBig())
 			uint256LimitReceiveAmount := uint256.NewInt()
-			uint256LimitReceiveAmount.SetFromBig(bigLimitReceiveAmount)
+			if overflow := uint256LimitReceiveAmount.SetFromBig(bigLimitReceiveAmount); overflow {
+				return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit receive amount")
+			}
 			limitReceiveAmount, err := CalculateStringDecimalAmountFromBaseUnitsSimple(
 				req.QuoteCurrencyPublicKeyBase58Check, uint256LimitReceiveAmount)
 			if err != nil {

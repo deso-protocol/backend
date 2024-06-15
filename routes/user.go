@@ -1555,7 +1555,7 @@ func (fes *APIServer) GetTokenBalancesForPublicKey(ww http.ResponseWriter, req *
 		balancesMap[creatorPublicKeyStr] = &SimpleTokenBalanceResponse{
 			UserPublicKeyBase58Check:    requestData.UserPublicKey,
 			CreatorPublicKeyBase58Check: creatorPublicKeyStr,
-			BalanceBaseUnits:            balance.String(),
+			BalanceBaseUnits:            balance.ToBig().Text(10),
 		}
 	}
 
