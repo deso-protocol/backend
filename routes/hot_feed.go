@@ -463,9 +463,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		txnsFromMempoolOrderedByTime = append(txnsFromMempoolOrderedByTime, mempoolTxn.Tx)
 	}
 
-	if err != nil {
-		glog.Errorf("Error getting mempool transactions: %v", err)
-	} else if len(txnsFromMempoolOrderedByTime) > 0 {
+	if len(txnsFromMempoolOrderedByTime) > 0 {
 		hotnessInfoBlocks = append(hotnessInfoBlocks, &HotnessInfoBlock{
 			Block: &lib.MsgDeSoBlock{
 				Txns: txnsFromMempoolOrderedByTime,
