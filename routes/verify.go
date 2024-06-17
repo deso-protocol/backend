@@ -143,7 +143,9 @@ func (fes *APIServer) canUserCreateProfile(userMetadata *UserMetadata, utxoView 
 	// User can create a profile if they have a phone number or if they have enough DeSo to cover the create profile fee.
 	// User can also create a profile if they've successfully filled out a captcha.
 	// The PhoneNumber is only set if the user has passed phone number verification.
-	if userMetadata.PhoneNumber != "" || totalBalanceNanos >= utxoView.GlobalParamsEntry.CreateProfileFeeNanos || userMetadata.LastHcaptchaBlockHeight > 0 {
+	if userMetadata.PhoneNumber != "" ||
+		totalBalanceNanos >= utxoView.GetCurrentGlobalParamsEntry().CreateProfileFeeNanos ||
+		userMetadata.LastHcaptchaBlockHeight > 0 {
 		return true, nil
 	}
 
@@ -1469,6 +1471,9 @@ func (fes *APIServer) SetJumioUSDCents() {
 		glog.Errorf("SetJumioUSDCents: Error getting Jumio USD Cents from global state: %v", err)
 		return
 	}
+	if len(val) == 0 {
+		return
+	}
 	jumioUSDCents, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {
 		glog.Errorf("SetJumioUSDCents: invalid bytes read: %v", bytesRead)
@@ -1485,6 +1490,9 @@ func (fes *APIServer) SetJumioKickbackUSDCents() {
 	val, err := fes.GlobalState.Get(GlobalStateKeyForJumioKickbackUSDCents())
 	if err != nil {
 		glog.Errorf("SetJumioKickbackUSDCents: Error getting Jumio Kickback USD Cents from global state: %v", err)
+		return
+	}
+	if len(val) == 0 {
 		return
 	}
 	jumioKickbackUSDCents, bytesRead := lib.Uvarint(val)

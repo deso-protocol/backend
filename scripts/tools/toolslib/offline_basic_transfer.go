@@ -78,7 +78,7 @@ func _computeFee(txn *lib.MsgDeSoTxn, feeRateNanosPerKB uint64) (*lib.MsgDeSoTxn
 		if (uint64(txnWithSigLen)*feeRateNanosPerKB)%1000 != 0 {
 			feeAmountNanos++
 		}
-		txn.TxnFeeNanos = uint64(feeAmountNanos)
+		lib.UpdateTxnFee(txn, uint64(feeAmountNanos))
 	}
 	return txn, nil
 }

@@ -31,6 +31,30 @@ type GetGlobalParamsResponse struct {
 
 	// The maximum number of copies a single NFT can have.
 	MaxCopiesPerNFT uint64 `safeForLogging:"true"`
+
+	// StakeLockupEpochDuration is the number of epochs that a
+	// user must wait before unlocking their unstaked stake.
+	StakeLockupEpochDuration uint64 `safeForLogging:"true"`
+
+	// ValidatorJailEpochDuration is the number of epochs that a validator must
+	// wait after being jailed before submitting an UnjailValidator txn.
+	ValidatorJailEpochDuration uint64 `safeForLogging:"true"`
+
+	// LeaderScheduleMaxNumValidators is the maximum number of validators that
+	// are included when generating a new Proof-of-Stake leader schedule.
+	LeaderScheduleMaxNumValidators uint64 `safeForLogging:"true"`
+
+	// ValidatorSetMaxNumValidators is the maximum number of validators that
+	// are included when generating a new Proof-of-Stake validator set.
+	ValidatorSetMaxNumValidators uint64 `safeForLogging:"true"`
+
+	// EpochDurationNumBlocks is the number of blocks included in one epoch.
+	EpochDurationNumBlocks uint64 `safeForLogging:"true"`
+
+	// JailInactiveValidatorGracePeriodEpochs is the number of epochs we
+	// allow a validator to be inactive for (neither voting nor proposing
+	// blocks) before they are jailed.
+	JailInactiveValidatorGracePeriodEpochs uint64 `safeForLogging:"true"`
 }
 
 func (fes *APIServer) GetGlobalParams(ww http.ResponseWriter, req *http.Request) {
@@ -47,14 +71,20 @@ func (fes *APIServer) GetGlobalParams(ww http.ResponseWriter, req *http.Request)
 		_AddBadRequestError(ww, fmt.Sprintf("GetGlobalParams: Error getting utxoView: %v", err))
 		return
 	}
-	globalParamsEntry := utxoView.GlobalParamsEntry
+	globalParamsEntry := utxoView.GetCurrentGlobalParamsEntry()
 	// Return all the data associated with the transaction in the response
 	res := GetGlobalParamsResponse{
-		USDCentsPerBitcoin:          globalParamsEntry.USDCentsPerBitcoin,
-		CreateProfileFeeNanos:       globalParamsEntry.CreateProfileFeeNanos,
-		MinimumNetworkFeeNanosPerKB: globalParamsEntry.MinimumNetworkFeeNanosPerKB,
-		CreateNFTFeeNanos:           globalParamsEntry.CreateNFTFeeNanos,
-		MaxCopiesPerNFT:             globalParamsEntry.MaxCopiesPerNFT,
+		USDCentsPerBitcoin:                     globalParamsEntry.USDCentsPerBitcoin,
+		CreateProfileFeeNanos:                  globalParamsEntry.CreateProfileFeeNanos,
+		MinimumNetworkFeeNanosPerKB:            globalParamsEntry.MinimumNetworkFeeNanosPerKB,
+		CreateNFTFeeNanos:                      globalParamsEntry.CreateNFTFeeNanos,
+		MaxCopiesPerNFT:                        globalParamsEntry.MaxCopiesPerNFT,
+		StakeLockupEpochDuration:               globalParamsEntry.StakeLockupEpochDuration,
+		ValidatorJailEpochDuration:             globalParamsEntry.ValidatorJailEpochDuration,
+		LeaderScheduleMaxNumValidators:         globalParamsEntry.LeaderScheduleMaxNumValidators,
+		ValidatorSetMaxNumValidators:           globalParamsEntry.ValidatorSetMaxNumValidators,
+		EpochDurationNumBlocks:                 globalParamsEntry.EpochDurationNumBlocks,
+		JailInactiveValidatorGracePeriodEpochs: globalParamsEntry.JailInactiveValidatorGracePeriodEpochs,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetGlobalParams: Problem encoding response as JSON: %v", err))
@@ -84,6 +114,77 @@ type UpdateGlobalParamsRequest struct {
 	// heights on nonces.
 	MaxNonceExpirationBlockHeightOffset int64 `safeForLogging:"true"`
 
+	// StakeLockupEpochDuration is the number of epochs that a
+	// user must wait before unlocking their unstaked stake.
+	StakeLockupEpochDuration uint64 `safeForLogging:"true"`
+
+	// ValidatorJailEpochDuration is the number of epochs that a validator must
+	// wait after being jailed before submitting an UnjailValidator txn.
+	ValidatorJailEpochDuration uint64 `safeForLogging:"true"`
+
+	// LeaderScheduleMaxNumValidators is the maximum number of validators that
+	// are included when generating a new Proof-of-Stake leader schedule.
+	LeaderScheduleMaxNumValidators uint64 `safeForLogging:"true"`
+
+	// ValidatorSetMaxNumValidators is the maximum number of validators that
+	// are included when generating a new Proof-of-Stake validator set.
+	ValidatorSetMaxNumValidators uint64 `safeForLogging:"true"`
+
+	// StakingRewardsMaxNumStakes is the maximum number of stakes that
+	// are eligible to receive rewards in the end of epoch hook.
+	StakingRewardsMaxNumStakes uint64 `safeForLogging:"true"`
+
+	// StakingRewardsAPYBasisPoints is the annual percentage yield that
+	// is used to compute end-of-epoch staking rewards.
+	StakingRewardsAPYBasisPoints uint64 `safeForLogging:"true"`
+
+	// EpochDurationNumBlocks is the number of blocks included in one epoch.
+	EpochDurationNumBlocks uint64 `safeForLogging:"true"`
+
+	// JailInactiveValidatorGracePeriodEpochs is the number of epochs we
+	// allow a validator to be inactive for (neither voting nor proposing
+	// blocks) before they are jailed.
+	JailInactiveValidatorGracePeriodEpochs uint64 `safeForLogging:"true"`
+
+	// MaximumVestedIntersectionsPerLockupTransaction is the maximum number
+	// of intersections that can be vested per lockup transaction.
+	MaximumVestedIntersectionsPerLockupTransaction int `safeForLogging:"true"`
+
+	// FeeBucketGrowthRateBasisPoints is the growth rate in basis points of
+	// fee buckets for the mempool's transaction register.
+	FeeBucketGrowthRateBasisPoints uint64 `safeForLogging:"true"`
+
+	// BlockTimestampDriftNanoSecs is the maximum number of nanoseconds from the current timestamp that
+	// we will allow a PoS block to be submitted.
+	BlockTimestampDriftNanoSecs int64 `safeForLogging:"true"`
+
+	// MempoolMaxSizeBytes is the maximum size of the mempool in bytes.
+	MempoolMaxSizeBytes uint64 `safeForLogging:"true"`
+
+	// MempoolFeeEstimatorNumMempoolBlocks is the number of possible future blocks to a txn may be placed
+	// into when consider when estimating the fee for a new txn.
+	MempoolFeeEstimatorNumMempoolBlocks uint64
+
+	// MempoolFeeEstimatorNumPastBlocks is the number of past blocks to reference txn fees from when estimating
+	// the fee for a new txn.
+	MempoolFeeEstimatorNumPastBlocks uint64
+
+	// MaxBlockSizeBytesPoS is the maximum size of a block in bytes.
+	MaxBlockSizeBytesPoS uint64
+
+	// SoftMaxBlockSizeBytesPoS is the ideal steady state size of a block in bytes.
+	// This value will be used to control size of block production and congestion in fee estimation.
+	SoftMaxBlockSizeBytesPoS uint64
+
+	// MaxTxnSizeBytesPoS is the maximum size of a transaction in bytes allowed.
+	MaxTxnSizeBytesPoS uint64
+
+	// BlockProductionIntervalMillisecondsPoS is the time in milliseconds to produce blocks.
+	BlockProductionIntervalMillisecondsPoS uint64
+
+	// TimeoutIntervalMillisecondsPoS is the time in milliseconds to wait before timing out a view.
+	TimeoutIntervalMillisecondsPoS uint64
+
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
@@ -103,6 +204,8 @@ type UpdateGlobalParamsRequest struct {
 	// Whether or not we should broadcast the transaction after constructing
 	// it. This will also validate the transaction if it's set.
 	Broadcast bool `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // UpdateGlobalParamsResponse ...
@@ -138,38 +241,141 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 	}
 
 	// Get a utxoView.
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateGlobalParams: Error constucting utxoView: %v", err))
 		return
 	}
 
 	// Only update values if they have changed. Values less than 0 are excluded from the transaction
+	globalParamsEntry := utxoView.GetCurrentGlobalParamsEntry()
+
 	usdCentsPerBitcoin := int64(-1)
-	if requestData.USDCentsPerBitcoin >= 0 && uint64(requestData.USDCentsPerBitcoin) != utxoView.GlobalParamsEntry.USDCentsPerBitcoin {
+	if requestData.USDCentsPerBitcoin >= 0 && uint64(requestData.USDCentsPerBitcoin) != globalParamsEntry.USDCentsPerBitcoin {
 		usdCentsPerBitcoin = requestData.USDCentsPerBitcoin
 	}
 	createProfileFeeNanos := int64(-1)
-	if requestData.CreateProfileFeeNanos >= 0 && uint64(requestData.CreateProfileFeeNanos) != utxoView.GlobalParamsEntry.CreateProfileFeeNanos {
+	if requestData.CreateProfileFeeNanos >= 0 && uint64(requestData.CreateProfileFeeNanos) != globalParamsEntry.CreateProfileFeeNanos {
 		createProfileFeeNanos = requestData.CreateProfileFeeNanos
 	}
 	createNFTFeeNanos := int64(-1)
-	if requestData.CreateNFTFeeNanos >= 0 && uint64(requestData.CreateNFTFeeNanos) != utxoView.GlobalParamsEntry.CreateNFTFeeNanos {
+	if requestData.CreateNFTFeeNanos >= 0 && uint64(requestData.CreateNFTFeeNanos) != globalParamsEntry.CreateNFTFeeNanos {
 		createNFTFeeNanos = requestData.CreateNFTFeeNanos
 	}
 	minimumNetworkFeeNanosPerKb := int64(-1)
-	if requestData.MinimumNetworkFeeNanosPerKB >= 0 && uint64(requestData.MinimumNetworkFeeNanosPerKB) != utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB {
+	if requestData.MinimumNetworkFeeNanosPerKB >= 0 && uint64(requestData.MinimumNetworkFeeNanosPerKB) != globalParamsEntry.MinimumNetworkFeeNanosPerKB {
 		minimumNetworkFeeNanosPerKb = requestData.MinimumNetworkFeeNanosPerKB
 	}
 
 	maxCopiesPerNFT := int64(-1)
-	if requestData.MaxCopiesPerNFT >= 0 && uint64(requestData.MaxCopiesPerNFT) != utxoView.GlobalParamsEntry.MaxCopiesPerNFT {
+	if requestData.MaxCopiesPerNFT >= 0 && uint64(requestData.MaxCopiesPerNFT) != globalParamsEntry.MaxCopiesPerNFT {
 		maxCopiesPerNFT = requestData.MaxCopiesPerNFT
 	}
 
 	maxNonceExpirationBlockHeightOffset := int64(-1)
-	if requestData.MaxNonceExpirationBlockHeightOffset >= 0 && uint64(requestData.MaxNonceExpirationBlockHeightOffset) != utxoView.GlobalParamsEntry.MaxNonceExpirationBlockHeightOffset {
+	if requestData.MaxNonceExpirationBlockHeightOffset >= 0 && uint64(requestData.MaxNonceExpirationBlockHeightOffset) != globalParamsEntry.MaxNonceExpirationBlockHeightOffset {
 		maxNonceExpirationBlockHeightOffset = requestData.MaxNonceExpirationBlockHeightOffset
+	}
+
+	extraData := make(map[string][]byte)
+
+	// Update Proof of Stake consensus related global params if they have changed.
+	if requestData.StakeLockupEpochDuration > 0 &&
+		requestData.StakeLockupEpochDuration != globalParamsEntry.StakeLockupEpochDuration {
+		extraData[lib.StakeLockupEpochDurationKey] = lib.UintToBuf(requestData.StakeLockupEpochDuration)
+	}
+
+	if requestData.ValidatorJailEpochDuration > 0 &&
+		requestData.ValidatorJailEpochDuration != globalParamsEntry.ValidatorJailEpochDuration {
+		extraData[lib.ValidatorJailEpochDurationKey] = lib.UintToBuf(requestData.ValidatorJailEpochDuration)
+	}
+
+	if requestData.LeaderScheduleMaxNumValidators > 0 &&
+		requestData.LeaderScheduleMaxNumValidators != globalParamsEntry.LeaderScheduleMaxNumValidators {
+		extraData[lib.LeaderScheduleMaxNumValidatorsKey] = lib.UintToBuf(requestData.LeaderScheduleMaxNumValidators)
+	}
+
+	if requestData.ValidatorSetMaxNumValidators > 0 &&
+		requestData.ValidatorSetMaxNumValidators != globalParamsEntry.ValidatorSetMaxNumValidators {
+		extraData[lib.ValidatorSetMaxNumValidatorsKey] = lib.UintToBuf(requestData.ValidatorSetMaxNumValidators)
+	}
+
+	if requestData.StakingRewardsMaxNumStakes > 0 &&
+		requestData.StakingRewardsMaxNumStakes != globalParamsEntry.StakingRewardsMaxNumStakes {
+		extraData[lib.StakingRewardsMaxNumStakesKey] = lib.UintToBuf(requestData.StakingRewardsMaxNumStakes)
+	}
+
+	if requestData.StakingRewardsAPYBasisPoints > 0 &&
+		requestData.StakingRewardsAPYBasisPoints != globalParamsEntry.StakingRewardsAPYBasisPoints {
+		extraData[lib.StakingRewardsAPYBasisPointsKey] = lib.UintToBuf(requestData.StakingRewardsAPYBasisPoints)
+	}
+
+	if requestData.EpochDurationNumBlocks > 0 &&
+		requestData.EpochDurationNumBlocks != globalParamsEntry.EpochDurationNumBlocks {
+		extraData[lib.EpochDurationNumBlocksKey] = lib.UintToBuf(requestData.EpochDurationNumBlocks)
+	}
+
+	if requestData.JailInactiveValidatorGracePeriodEpochs > 0 &&
+		requestData.JailInactiveValidatorGracePeriodEpochs != globalParamsEntry.JailInactiveValidatorGracePeriodEpochs {
+		extraData[lib.JailInactiveValidatorGracePeriodEpochsKey] = lib.UintToBuf(requestData.JailInactiveValidatorGracePeriodEpochs)
+	}
+
+	if requestData.MaximumVestedIntersectionsPerLockupTransaction > 0 &&
+		requestData.MaximumVestedIntersectionsPerLockupTransaction != globalParamsEntry.MaximumVestedIntersectionsPerLockupTransaction {
+		extraData[lib.MaximumVestedIntersectionsPerLockupTransactionKey] = lib.IntToBuf(int64(requestData.MaximumVestedIntersectionsPerLockupTransaction))
+	}
+
+	if requestData.FeeBucketGrowthRateBasisPoints > 0 &&
+		requestData.FeeBucketGrowthRateBasisPoints != globalParamsEntry.FeeBucketGrowthRateBasisPoints {
+		extraData[lib.FeeBucketGrowthRateBasisPointsKey] = lib.UintToBuf(requestData.FeeBucketGrowthRateBasisPoints)
+	}
+
+	if requestData.BlockTimestampDriftNanoSecs > 0 &&
+		requestData.BlockTimestampDriftNanoSecs != globalParamsEntry.BlockTimestampDriftNanoSecs {
+		extraData[lib.BlockTimestampDriftNanoSecsKey] = lib.IntToBuf(requestData.BlockTimestampDriftNanoSecs)
+	}
+
+	if requestData.MempoolMaxSizeBytes > 0 &&
+		requestData.MempoolMaxSizeBytes != globalParamsEntry.MempoolMaxSizeBytes {
+		extraData[lib.MempoolMaxSizeBytesKey] = lib.UintToBuf(requestData.MempoolMaxSizeBytes)
+	}
+
+	if requestData.MempoolFeeEstimatorNumMempoolBlocks > 0 &&
+		requestData.MempoolFeeEstimatorNumMempoolBlocks != globalParamsEntry.MempoolFeeEstimatorNumMempoolBlocks {
+		extraData[lib.MempoolFeeEstimatorNumMempoolBlocksKey] = lib.UintToBuf(requestData.MempoolFeeEstimatorNumMempoolBlocks)
+	}
+
+	if requestData.MempoolFeeEstimatorNumPastBlocks > 0 &&
+		requestData.MempoolFeeEstimatorNumPastBlocks != globalParamsEntry.MempoolFeeEstimatorNumPastBlocks {
+		extraData[lib.MempoolFeeEstimatorNumPastBlocksKey] = lib.UintToBuf(requestData.MempoolFeeEstimatorNumPastBlocks)
+	}
+
+	if requestData.MaxBlockSizeBytesPoS > 0 &&
+		requestData.MaxBlockSizeBytesPoS != globalParamsEntry.MaxBlockSizeBytesPoS {
+		extraData[lib.MaxBlockSizeBytesPoSKey] = lib.UintToBuf(requestData.MaxBlockSizeBytesPoS)
+	}
+
+	if requestData.SoftMaxBlockSizeBytesPoS > 0 &&
+		requestData.SoftMaxBlockSizeBytesPoS != globalParamsEntry.SoftMaxBlockSizeBytesPoS {
+		extraData[lib.SoftMaxBlockSizeBytesPoSKey] = lib.UintToBuf(requestData.SoftMaxBlockSizeBytesPoS)
+	}
+
+	if requestData.MaxTxnSizeBytesPoS > 0 &&
+		requestData.MaxTxnSizeBytesPoS != globalParamsEntry.MaxTxnSizeBytesPoS {
+		extraData[lib.MaxTxnSizeBytesPoSKey] = lib.UintToBuf(requestData.MaxTxnSizeBytesPoS)
+	}
+
+	if requestData.BlockProductionIntervalMillisecondsPoS > 0 &&
+		requestData.BlockProductionIntervalMillisecondsPoS != globalParamsEntry.BlockProductionIntervalMillisecondsPoS {
+		extraData[lib.BlockProductionIntervalPoSKey] = lib.UintToBuf(requestData.BlockProductionIntervalMillisecondsPoS)
+	}
+
+	if requestData.TimeoutIntervalMillisecondsPoS > 0 &&
+		requestData.TimeoutIntervalMillisecondsPoS != globalParamsEntry.TimeoutIntervalMillisecondsPoS {
+		extraData[lib.TimeoutIntervalPoSKey] = lib.UintToBuf(requestData.TimeoutIntervalMillisecondsPoS)
 	}
 
 	// Try and create the update txn for the user.
@@ -182,6 +388,7 @@ func (fes *APIServer) UpdateGlobalParams(ww http.ResponseWriter, req *http.Reque
 		minimumNetworkFeeNanosPerKb,
 		[]byte{},
 		maxNonceExpirationBlockHeightOffset,
+		extraData,
 		requestData.MinFeeRateNanosPerKB,
 		fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
@@ -226,6 +433,8 @@ type SwapIdentityRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // SwapIdentityResponse ...
@@ -237,7 +446,13 @@ type SwapIdentityResponse struct {
 	TransactionHex    string
 }
 
-func (fes *APIServer) getPublicKeyFromUsernameOrPublicKeyString(usernameOrPublicKey string) ([]byte, error) {
+func (fes *APIServer) getPublicKeyFromUsernameOrPublicKeyString(
+	usernameOrPublicKey string,
+	optionalPrecedingTransactions []*lib.MsgDeSoTxn,
+) (
+	[]byte,
+	error,
+) {
 	if (strings.HasPrefix(usernameOrPublicKey, fes.PublicKeyBase58Prefix)) &&
 		len(usernameOrPublicKey) >= btcec.PubKeyBytesLenCompressed {
 
@@ -251,7 +466,10 @@ func (fes *APIServer) getPublicKeyFromUsernameOrPublicKeyString(usernameOrPublic
 	}
 
 	// Otherwise, parse the string as a username
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		optionalPrecedingTransactions,
+	)
 	if err != nil {
 		return nil, errors.Wrap(fmt.Errorf("getPublicKeyFromUsernameOrPublicKeyString: Error generating "+
 			"view to verify username: %v", err), "")
@@ -292,13 +510,13 @@ func (fes *APIServer) SwapIdentity(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	fromPublicKey, err := fes.getPublicKeyFromUsernameOrPublicKeyString(
-		requestData.FromUsernameOrPublicKeyBase58Check)
+		requestData.FromUsernameOrPublicKeyBase58Check, requestData.OptionalPrecedingTransactions)
 	if err != nil {
 		_AddBadRequestError(ww, err.Error())
 		return
 	}
 	toPublicKey, err := fes.getPublicKeyFromUsernameOrPublicKeyString(
-		requestData.ToUsernameOrPublicKeyBase58Check)
+		requestData.ToUsernameOrPublicKeyBase58Check, requestData.OptionalPrecedingTransactions)
 	if err != nil {
 		_AddBadRequestError(ww, err.Error())
 		return

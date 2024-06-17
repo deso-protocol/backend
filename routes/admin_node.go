@@ -63,6 +63,26 @@ type PeerResponse struct {
 	IsSyncPeer   bool
 }
 
+type RemoteNodeResponse struct {
+	// The latest block height the validator is at.
+	LatestBlockHeight uint64
+
+	// RemoteNodeStatus is the string representation of the RemoteNode's status.
+	RemoteNodeStatus string
+
+	// PeerResponse is the IP and port of the peer the validator is connected to.
+	PeerResponse *PeerResponse
+
+	// PeerConnected is a boolean indicating whether the peer is connected.
+	PeerConnected bool
+
+	// ValidatorResponse is the ValidatorEntry converted to a human-readable response.
+	ValidatorResponse *ValidatorResponse
+
+	// IsValidator is a boolean indicating whether the remote node is a validator.
+	IsValidator bool
+}
+
 // NodeControlResponse ...
 type NodeControlResponse struct {
 	// The current status the DeSo node is at in terms of syncing the DeSo
@@ -72,6 +92,8 @@ type NodeControlResponse struct {
 	DeSoOutboundPeers    []*PeerResponse
 	DeSoInboundPeers     []*PeerResponse
 	DeSoUnconnectedPeers []*PeerResponse
+
+	RemoteNodeConnections []*RemoteNodeResponse
 
 	MinerPublicKeys []string
 }
@@ -109,13 +131,13 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 	{
 		desoNodeStatus.LatestHeaderHeight = desoHeaderTip.Height
 		desoNodeStatus.LatestHeaderHash = hex.EncodeToString(desoHeaderTip.Hash[:])
-		desoNodeStatus.LatestHeaderTstampSecs = uint32(desoHeaderTip.Header.TstampSecs)
+		desoNodeStatus.LatestHeaderTstampSecs = uint32(desoHeaderTip.Header.GetTstampSecs())
 	}
 	// Main block chain fields
 	{
 		desoNodeStatus.LatestBlockHeight = desoBlockTip.Height
 		desoNodeStatus.LatestBlockHash = hex.EncodeToString(desoBlockTip.Hash[:])
-		desoNodeStatus.LatestBlockTstampSecs = uint32(desoBlockTip.Header.TstampSecs)
+		desoNodeStatus.LatestBlockTstampSecs = uint32(desoBlockTip.Header.GetTstampSecs())
 	}
 	if fes.TXIndex != nil {
 		// TxIndex status
@@ -167,7 +189,7 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 		existingDeSoPeers[currentPeerRes.IP+fmt.Sprintf(":%d", currentPeerRes.ProtocolPort)] = true
 	}
 	// Return some deso addrs from the addr manager.
-	desoAddrs := fes.backendServer.GetConnectionManager().GetAddrManager().AddressCache()
+	desoAddrs := fes.backendServer.AddrMgr.AddressCache()
 	sort.Slice(desoAddrs, func(ii, jj int) bool {
 		// Use a hash to get a random but deterministic ordering.
 		hashI := string(lib.Sha256DoubleHash([]byte(desoAddrs[ii].IP.String() + fmt.Sprintf(":%d", desoAddrs[ii].Port)))[:])
@@ -197,6 +219,23 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 			publicKey.SerializeCompressed(), fes.Params))
 	}
 
+	// Get the network manager connections
+	networkManagerConnections := fes.backendServer.GetNetworkManagerConnections()
+	uncommittedTipView, err := fes.backendServer.GetBlockchain().GetUncommittedTipView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("NodeControl: Problem getting uncommitted tip view: %v", err))
+		return
+	}
+	remoteNodeConnections := make([]*RemoteNodeResponse, 0)
+	for _, connection := range networkManagerConnections {
+		remoteNodeConnection, err := _remoteNodeToResponse(connection, uncommittedTipView, fes.Params)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("NodeControl: Problem getting remote node response: %v", err))
+			return
+		}
+		remoteNodeConnections = append(remoteNodeConnections, remoteNodeConnection)
+	}
+
 	res := NodeControlResponse{
 		DeSoStatus: desoNodeStatus,
 
@@ -205,11 +244,49 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 		DeSoUnconnectedPeers: desoUnconnectedPeers,
 
 		MinerPublicKeys: minerPublicKeyStrs,
+
+		RemoteNodeConnections: remoteNodeConnections,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("NodeControl: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+func _remoteNodeToResponse(remoteNode *lib.RemoteNode, utxoView *lib.UtxoView, params *lib.DeSoParams) (*RemoteNodeResponse, error) {
+	remoteNodeResponse := &RemoteNodeResponse{}
+
+	// If the remote node connection has been attempted but a peer hasn't been attached yet, there is no peer
+	// information to return.
+	peer := remoteNode.GetPeer()
+	if peer != nil {
+		remoteNodeResponse.PeerResponse = &PeerResponse{
+			IP:           remoteNode.GetPeer().IP(),
+			ProtocolPort: remoteNode.GetPeer().Port(),
+		}
+	}
+
+	remoteNodeResponse.RemoteNodeStatus = remoteNode.GetStatus().String()
+	remoteNodeResponse.PeerConnected = peer != nil && remoteNode.GetPeer().Connected()
+	remoteNodeResponse.IsValidator = remoteNode.IsValidator()
+	remoteNodeResponse.LatestBlockHeight = remoteNode.GetLatestBlockHeight()
+	if remoteNodeResponse.IsValidator {
+		blsPublicKeyPKIDPairEntry, err := utxoView.GetBLSPublicKeyPKIDPairEntry(remoteNode.GetValidatorPublicKey())
+		if err != nil {
+			return nil, fmt.Errorf("_remoteNodeToResponse: Problem getting BLS public key PKID pair entry: %v", err)
+		}
+		// If the node identified itself as a validator but it does not have a validator entry in the UtxoView,
+		// then it is not a registered validator. We should not return a ValidatorResponse in this case.
+		if blsPublicKeyPKIDPairEntry == nil {
+			return remoteNodeResponse, nil
+		}
+		validatorEntry, err := utxoView.GetValidatorByPKID(blsPublicKeyPKIDPairEntry.PKID)
+		if err != nil {
+			return nil, fmt.Errorf("_remoteNodeToResponse: Problem getting validator entry: %v", err)
+		}
+		remoteNodeResponse.ValidatorResponse = _convertValidatorEntryToResponse(utxoView, validatorEntry, params)
+	}
+	return remoteNodeResponse, nil
 }
 
 func (fes *APIServer) _handleConnectDeSoNode(
@@ -239,12 +316,12 @@ func (fes *APIServer) _handleConnectDeSoNode(
 	// increasing retry delay, but we should still clean it up at some point.
 	connectPeerDone := make(chan bool)
 	go func() {
-		netAddr, err := fes.backendServer.GetConnectionManager().GetAddrManager().HostToNetAddress(ip, protocolPort, 0)
+		netAddr, err := fes.backendServer.AddrMgr.HostToNetAddress(ip, protocolPort, 0)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("_handleConnectDeSoNode: Cannot connect to node %s:%d: %v", ip, protocolPort, err))
 			return
 		}
-		fes.backendServer.GetConnectionManager().ConnectPeer(nil, netAddr)
+		fes.backendServer.GetNetworkManager().CreateNonValidatorOutboundConnection(ip)
 
 		// Spin until the peer shows up in the connection manager or until 100 iterations.
 		// Note the pause between each iteration.
@@ -274,7 +351,7 @@ func (fes *APIServer) _handleConnectDeSoNode(
 				// At this point the peer shoud be connected. Add their address to the addrmgr
 				// in case the user wants to connect again in the future. Set the source to be
 				// the address itself since we don't have anything else.
-				fes.backendServer.GetConnectionManager().GetAddrManager().AddAddress(netAddr, netAddr)
+				fes.backendServer.AddrMgr.AddAddress(netAddr, netAddr)
 
 				connectPeerDone <- true
 				return
@@ -320,13 +397,13 @@ func (fes *APIServer) _handleDisconnectDeSoNode(
 
 	// Manually remove the peer from the connection manager and mark it as such
 	// so that the connection manager won't reconnect to it or replace it.
-	fes.backendServer.GetConnectionManager().RemovePeer(peerFound)
-	peerFound.PeerManuallyRemovedFromConnectionManager = true
-
-	peerFound.Disconnect()
+	remoteNode := fes.backendServer.GetNetworkManager().GetRemoteNodeFromPeer(peerFound)
+	if remoteNode != nil {
+		fes.backendServer.GetNetworkManager().Disconnect(remoteNode)
+	}
 
 	res := NodeControlResponse{
-		// Return an empty response, which indicates we set the peer up to be connected.
+		// Return an empty response, which indicates we set the peer up to be disconnected.
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("NodeControl: Problem encoding response as JSON: %v", err))

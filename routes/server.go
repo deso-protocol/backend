@@ -50,6 +50,7 @@ const (
 	// transaction.go
 	RoutePathGetTxn                   = "/api/v0/get-txn"
 	RoutePathSubmitTransaction        = "/api/v0/submit-transaction"
+	RoutePathSubmitAtomicTransaction  = "/api/v0/submit-atomic-transaction"
 	RoutePathUpdateProfile            = "/api/v0/update-profile"
 	RoutePathExchangeBitcoin          = "/api/v0/exchange-bitcoin"
 	RoutePathSendDeSo                 = "/api/v0/send-deso"
@@ -68,6 +69,7 @@ const (
 	RoutePathAppendExtraData          = "/api/v0/append-extra-data"
 	RoutePathGetTransactionSpending   = "/api/v0/get-transaction-spending"
 	RoutePathGetSignatureIndex        = "/api/v0/signature-index"
+	RoutePathGetTxnConstructionParams = "/api/v0/txn-construction-params"
 
 	RoutePathGetUsersStateless                          = "/api/v0/get-users-stateless"
 	RoutePathDeleteIdentities                           = "/api/v0/delete-identities"
@@ -75,6 +77,7 @@ const (
 	RoutePathGetSingleProfile                           = "/api/v0/get-single-profile"
 	RoutePathGetSingleProfilePicture                    = "/api/v0/get-single-profile-picture"
 	RoutePathGetHodlersForPublicKey                     = "/api/v0/get-hodlers-for-public-key"
+	RoutePathGetTokenBalancesForPublicKey               = "/api/v0/get-token-balances-for-public-key"
 	RoutePathGetHodlersCountForPublicKeys               = "/api/v0/get-hodlers-count-for-public-keys"
 	RoutePathGetDiamondsForPublicKey                    = "/api/v0/get-diamonds-for-public-key"
 	RoutePathGetFollowsStateless                        = "/api/v0/get-follows-stateless"
@@ -98,6 +101,7 @@ const (
 
 	// dao_coin_exchange.go
 	RoutePathGetDaoCoinLimitOrders           = "/api/v0/get-dao-coin-limit-orders"
+	RoutePathGetDaoCoinLimitOrdersById       = "/api/v0/get-dao-coin-limit-orders-by-id"
 	RoutePathGetTransactorDaoCoinLimitOrders = "/api/v0/get-transactor-dao-coin-limit-orders"
 
 	// post.go
@@ -313,6 +317,28 @@ const (
 	// snapshot.go
 	RoutePathSnapshotEpochMetadata = "/api/v0/snapshot-epoch-metadata"
 	RoutePathStateChecksum         = "/api/v0/state-checksum"
+
+	// validators.go
+	RoutePathValidators           = "/api/v0/validators"
+	RoutePathCheckNodeStatus      = "/api/v0/check-node-status"
+	RoutePathCurrentEpochProgress = "/api/v0/current-epoch-progress"
+
+	// stake.go
+	RoutePathStake       = "/api/v0/stake"
+	RoutePathUnstake     = "/api/v0/unstake"
+	RoutePathUnlockStake = "/api/v0/unlock-stake"
+	RoutePathLockedStake = "/api/v0/locked-stake"
+
+	// lockups.go
+	RoutePathCoinLockup             = "/api/v0/coin-lockup"
+	RoutePathUpdateCoinLockupParams = "/api/v0/update-coin-lockup-params"
+	RoutePathCoinLockupTransfer     = "/api/v0/coin-lockup-transfer"
+	RoutePathCoinUnlock             = "/api/v0/coin-unlock"
+	RoutePathLockupYieldCurvePoints = "/api/v0/lockup-yield-curve-points"
+	RoutePathLockedBalanceEntries   = "/api/v0/locked-balance-entries"
+
+	// atomic_txns.go
+	RoutePathCreateAtomicTxnsWrapper = "/api/v0/create-atomic-txns-wrapper"
 )
 
 // APIServer provides the interface between the blockchain and things like the
@@ -320,7 +346,7 @@ const (
 // frontend cares about, from posts to profiles to purchasing DeSo with Bitcoin.
 type APIServer struct {
 	backendServer *lib.Server
-	mempool       *lib.DeSoMempool
+	mempool       lib.Mempool
 	blockchain    *lib.Blockchain
 	blockProducer *lib.DeSoBlockProducer
 	Params        *lib.DeSoParams
@@ -475,7 +501,7 @@ type LastTradePriceHistoryItem struct {
 // NewAPIServer ...
 func NewAPIServer(
 	_backendServer *lib.Server,
-	_mempool *lib.DeSoMempool,
+	_mempool lib.Mempool,
 	_blockchain *lib.Blockchain,
 	_blockProducer *lib.DeSoBlockProducer,
 	txIndex *lib.TXIndex,
@@ -655,6 +681,15 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathSubmitTransaction,
 			fes.SubmitTransaction,
+			PublicAccess,
+		},
+
+		// Route for submitting incomplete atomic transactions and their signatures for network broadcast
+		{
+			"SubmitAtomicTransaction",
+			[]string{"POST", "OPTIONS"},
+			RoutePathSubmitAtomicTransaction,
+			fes.SubmitAtomicTransaction,
 			PublicAccess,
 		},
 
@@ -896,6 +931,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"GetTokenBalancesForPublicKey",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetTokenBalancesForPublicKey,
+			fes.GetTokenBalancesForPublicKey,
+			PublicAccess,
+		},
+		{
 			"GetHodlersCountForPublicKeys",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetHodlersCountForPublicKeys,
@@ -1005,6 +1047,20 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetSignatureIndex,
 			fes.GetSignatureIndex,
+			PublicAccess,
+		},
+		{
+			"GetTxnConstructionParams",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetTxnConstructionParams,
+			fes.GetTxnConstructionParams,
+			PublicAccess,
+		},
+		{
+			"GetCommittedTipBlockInfo",
+			[]string{"GET"},
+			lib.RoutePathGetCommittedTipBlockInfo,
+			fes.GetCommittedTipBlockInfo,
 			PublicAccess,
 		},
 		{
@@ -1190,6 +1246,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"GetDAOCoinLimitOrdersById",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetDaoCoinLimitOrdersById,
+			fes.GetDAOCoinLimitOrdersById,
+			PublicAccess,
+		},
+		{
 			"GetTransactorDAOCoinLimitOrders",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetTransactorDaoCoinLimitOrders,
@@ -1278,6 +1341,141 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathPostAssociations + "/counts",
 			fes.CountPostAssociationsByValue,
+			PublicAccess,
+		},
+		{
+			"RegisterAsValidator",
+			[]string{"POST", "OPTIONS"},
+			RoutePathValidators + "/register",
+			fes.RegisterAsValidator,
+			PublicAccess,
+		},
+		{
+			"UnregisterAsValidator",
+			[]string{"POST", "OPTIONS"},
+			RoutePathValidators + "/unregister",
+			fes.UnregisterAsValidator,
+			PublicAccess,
+		},
+		{
+			"UnjailValidator",
+			[]string{"POST", "OPTIONS"},
+			RoutePathValidators + "/unjail",
+			fes.UnjailValidator,
+			PublicAccess,
+		},
+		{
+			"GetValidatorByPublicKeyBase58Check",
+			[]string{"GET"},
+			RoutePathValidators + "/{publicKeyBase58Check:t?BC[1-9A-HJ-NP-Za-km-z]{51,53}}",
+			fes.GetValidatorByPublicKeyBase58Check,
+			PublicAccess,
+		},
+		{
+			"CheckNodeStatus",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCheckNodeStatus,
+			fes.CheckNodeStatus,
+			PublicAccess,
+		},
+		{
+			"GetCurrentEpochProgress",
+			[]string{"GET"},
+			RoutePathCurrentEpochProgress,
+			fes.GetCurrentEpochProgress,
+			PublicAccess,
+		},
+		{
+			"CreateStakeTxn",
+			[]string{"POST", "OPTIONS"},
+			RoutePathStake,
+			fes.CreateStakeTxn,
+			PublicAccess,
+		},
+		{
+			"CreateUnstakeTxn",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUnstake,
+			fes.CreateUnstakeTxn,
+			PublicAccess,
+		},
+		{
+			"CreateUnlockStakeTxn",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUnlockStake,
+			fes.CreateUnlockStakeTxn,
+			PublicAccess,
+		},
+		{
+			"GetStakeForValidatorAndStaker",
+			[]string{"GET"},
+			RoutePathStake + "/" + makePublicKeyParamRegex(validatorPublicKeyBase58CheckKey) + "/" +
+				makePublicKeyParamRegex(stakerPublicKeyBase58CheckKey),
+			fes.GetStakeForValidatorAndStaker,
+			PublicAccess,
+		},
+		{
+			"GetStakesForValidator",
+			[]string{"GET"},
+			RoutePathStake + "/validator/" + makePublicKeyParamRegex(validatorPublicKeyBase58CheckKey),
+			fes.GetStakesForValidator,
+			PublicAccess,
+		},
+		{
+			"GetLockedStakeForValidatorAndStaker",
+			[]string{"GET"},
+			RoutePathLockedStake + "/" + makePublicKeyParamRegex(validatorPublicKeyBase58CheckKey) + "/" +
+				makePublicKeyParamRegex(stakerPublicKeyBase58CheckKey),
+			fes.GetLockedStakesForValidatorAndStaker,
+			PublicAccess,
+		},
+		{
+			"CoinLockup",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCoinLockup,
+			fes.CoinLockup,
+			PublicAccess,
+		},
+		{
+			"UpdateCoinLockupParams",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateCoinLockupParams,
+			fes.UpdateCoinLockupParams,
+			PublicAccess,
+		},
+		{
+			"CoinLockupTransfer",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCoinLockupTransfer,
+			fes.CoinLockupTransfer,
+			PublicAccess,
+		},
+		{
+			"CoinUnlock",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCoinUnlock,
+			fes.CoinUnlock,
+			PublicAccess,
+		},
+		{
+			"LockedYieldCurvePoints",
+			[]string{"GET"},
+			RoutePathLockupYieldCurvePoints + "/" + makePublicKeyParamRegex(publicKeyBase58CheckKey),
+			fes.LockedYieldCurvePoints,
+			PublicAccess,
+		},
+		{
+			"LockedBalanceEntries",
+			[]string{"GET"},
+			RoutePathLockedBalanceEntries + "/" + makePublicKeyParamRegex(publicKeyBase58CheckKey),
+			fes.LockedBalanceEntries,
+			PublicAccess,
+		},
+		{
+			"CreateAtomicTxnsWrapper",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateAtomicTxnsWrapper,
+			fes.CreateAtomicTxnsWrapper,
 			PublicAccess,
 		},
 		// Jumio Routes
@@ -2195,6 +2393,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 
 		// If the route is not "PublicAccess" we wrap it in a function to check that the caller
 		// has the correct permissions before calling its handler.
+		handler = CheckPrecedingTransactions(handler, fes.Config.MaxOptionalPrecedingTransactions)
 		if route.AccessLevel != PublicAccess {
 			handler = fes.CheckAdminPublicKey(handler, route.AccessLevel)
 		}
@@ -2218,6 +2417,51 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 	}
 
 	return router
+}
+
+// CheckPrecedingTransactions is middleware that ensures any request body with the "OptionalPrecedingTransactions"
+// field set is limited in how many transactions are being sent to the server.
+//
+// By default, the maximum number that can be sent to the server is zero. The OptionalPrecedingTransactions field
+// is used in constructing UtxoViews for atomic transaction workflows.
+func CheckPrecedingTransactions(inner http.Handler, precedingTransactionsLimit int) http.Handler {
+	return http.HandlerFunc(func(ww http.ResponseWriter, rr *http.Request) {
+		// If the request is NOT a POST request, skip this middleware as the request has no relevant payload.
+		if rr.Method != "POST" || rr.Header.Get("Content-Type") != "application/json" {
+			inner.ServeHTTP(ww, rr)
+			return
+		}
+
+		// Read and replace the request body.
+		data, err := io.ReadAll(rr.Body)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("CheckPrecedingTransactions: %v", err))
+			return
+		}
+		rr.Body.Close()
+		rr.Body = io.NopCloser(bytes.NewReader(data))
+
+		// Unmarshal the request such that we snag the OptionalPrecedingTransactions field from relevant endpoints.
+		var optionalPrecedingTransactionsStruct struct {
+			OptionalPrecedingTransactions []*lib.MsgDeSoTxn
+		}
+		if err := json.Unmarshal(data, &optionalPrecedingTransactionsStruct); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("CheckPrecedingTransactions failed to unmarshal json: %v", err))
+			return
+		}
+
+		// Validate the number of transactions being sent to the endpoint.
+		if optionalPrecedingTransactionsStruct.OptionalPrecedingTransactions != nil &&
+			len(optionalPrecedingTransactionsStruct.OptionalPrecedingTransactions) > precedingTransactionsLimit {
+			_AddBadRequestError(ww,
+				fmt.Sprintf("CheckPrecedingTransactions: too many optional preceding transactions: %d > %d",
+					len(optionalPrecedingTransactionsStruct.OptionalPrecedingTransactions), precedingTransactionsLimit))
+			return
+		}
+
+		// Pass the request down to the next handler.
+		inner.ServeHTTP(ww, rr)
+	})
 }
 
 // Logger ...
@@ -2466,7 +2710,7 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 				return nil, errors.Wrapf(err, "Problem parsing derived public key bytes")
 			}
 			// Validate the derived public key.
-			utxoView, err := fes.mempool.GetAugmentedUniversalView()
+			utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 			if err != nil {
 				return nil, errors.Wrapf(err, "Problem getting utxoView")
 			}
@@ -2791,4 +3035,10 @@ func (fes *APIServer) makePKIDMapJSONEncodable(restrictedKeysMap map[lib.PKID][]
 		outputMap[lib.PkToString(k.ToBytes(), fes.Params)] = v
 	}
 	return outputMap
+}
+
+const publicKeyParamRegex = "t?BC[1-9A-HJ-NP-Za-km-z]{51,53}"
+
+func makePublicKeyParamRegex(paramName string) string {
+	return fmt.Sprintf("{%s:%s}", paramName, publicKeyParamRegex)
 }

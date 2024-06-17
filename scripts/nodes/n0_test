@@ -20,7 +20,7 @@ rm /tmp/main.*.log
 # "If you are running with Go 1.10 or newer, you need to add ` -gcflags=”all=-N -l” `
 # to the ` go build ` command."
 
-(cd ../../ && go build -o backend -gcflags="all=-N -l" main.go && ./backend run \
+(cd ../../ && go build -o backend -gcflags="all=-N -l" -tags="relic" main.go && ./backend run \
   --glog-v=0 \
   --glog-vmodule="*api*=0,*bitcoin_manager*=2,*balance*=0,*frontend*=0,*peer*=0,*addr*=0,*network*=0,*utils*=0,*connection*=0,*main*=0,server*=0,*mempool*=0,*miner*=0,*blockchain*=0,*block_producer*=1" \
   --add-ips=localhost:19000 \
@@ -33,7 +33,8 @@ rm /tmp/main.*.log
   --super-admin-public-keys=* \
   --num-mining-threads=1 \
   --miner-public-keys=BC1YLg7Bk5sq9iNY17bAwoAYiChLYpmWEi6nY6q5gnA1UQV6xixHjfV \
-  --block-producer-seed='essence camp ghost remove document vault ladder swim pupil index apart ring' \
+  --block-producer-seed='verb find card ship another until version devote guilt strong lemon six' \
+  --pos-validator-seed='verb find card ship another until version devote guilt strong lemon six' \
   --starter-deso-seed='road congress client market couple bid risk escape artwork rookie artwork food' \
   --data-dir=/tmp/n0_test_00000 \
   --access-control-allow-origins=http://localhost:4200,http://localhost:80,http://localhost:18002,http://localhost:4201,http://localhost:18001,http://localhost:3000,localhost:3000 \

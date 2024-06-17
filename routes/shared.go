@@ -8,10 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/holiman/uint256"
-
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
+	"github.com/holiman/uint256"
 	"github.com/pkg/errors"
 	"github.com/tyler-smith/go-bip39"
 )
@@ -226,7 +225,7 @@ type BalanceEntryResponse struct {
 	BalanceNanos uint64
 
 	// For simplicity, we create a new field for the uint256 balance for DAO coins
-	BalanceNanosUint256 uint256.Int
+	BalanceNanosUint256 *uint256.Int
 
 	// The net effect of transactions in the mempool on a given BalanceEntry's BalanceNanos.
 	// This is used by the frontend to convey info about mining.
@@ -394,10 +393,11 @@ func (fes *APIServer) SendSeedDeSo(recipientPkBytes []byte, amountNanos uint64, 
 		}
 
 		minFee := fes.MinFeeRateNanosPerKB
-		if utxoView.GlobalParamsEntry != nil && utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB > 0 {
-			minFee = utxoView.GlobalParamsEntry.MinimumNetworkFeeNanosPerKB
+		if utxoView.GetCurrentGlobalParamsEntry() != nil &&
+			utxoView.GetCurrentGlobalParamsEntry().MinimumNetworkFeeNanosPerKB > 0 {
+			minFee = utxoView.GetCurrentGlobalParamsEntry().MinimumNetworkFeeNanosPerKB
 		}
-		_, _, _, _, err = fes.blockchain.AddInputsAndChangeToTransaction(txn, minFee, fes.mempool)
+		_, _, _, _, err = fes.blockchain.AddInputsAndChangeToTransaction(txn, minFee, fes.backendServer.GetMempool())
 		if err != nil {
 			return nil, fmt.Errorf("SendSeedDeSo: Error adding inputs for seed DeSo: %v", err)
 		}

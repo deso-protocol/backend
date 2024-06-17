@@ -89,6 +89,8 @@ type CreateNFTRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 type CreateNFTResponse struct {
@@ -110,7 +112,10 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Grab a view (needed for getting global params, etc).
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Error getting utxoView: %v", err))
 		return
@@ -124,15 +129,15 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 	} else if requestData.UpdaterPublicKeyBase58Check == "" {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFT: Must include UpdaterPublicKeyBase58Check"))
 		return
-	} else if utxoView.GlobalParamsEntry.MaxCopiesPerNFT == 0 {
+	} else if utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT == 0 {
 		_AddBadRequestError(ww,
 			"NFT minting has not been enabled yet. Check back soon :)")
 		return
 
-	} else if requestData.NumCopies <= 0 || requestData.NumCopies > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
+	} else if requestData.NumCopies <= 0 || requestData.NumCopies > int(utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"CreateNFT: NumCopies must be between %d and %d, received: %d",
-			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.NumCopies))
+			1, utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT, requestData.NumCopies))
 		return
 
 	} else if requestData.NFTRoyaltyToCreatorBasisPoints < 0 || requestData.NFTRoyaltyToCreatorBasisPoints > int(fes.Params.MaxNFTRoyaltyBasisPoints) {
@@ -238,7 +243,7 @@ func (fes *APIServer) CreateNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	nftFee := utxoView.GlobalParamsEntry.CreateNFTFeeNanos * uint64(requestData.NumCopies)
+	nftFee := utxoView.GetCurrentGlobalParamsEntry().CreateNFTFeeNanos * uint64(requestData.NumCopies)
 
 	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
 	if err != nil {
@@ -306,6 +311,8 @@ type UpdateNFTRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 type UpdateNFTResponse struct {
@@ -327,7 +334,10 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateNFT: Error getting utxoView: %v", err))
 		return
@@ -342,10 +352,10 @@ func (fes *APIServer) UpdateNFT(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateNFT: Must include UpdaterPublicKeyBase58Check"))
 		return
 
-	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"UpdateNFT: SerialNumbers must be between %d and %d, received: %d",
-			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.SerialNumber))
+			1, utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT, requestData.SerialNumber))
 		return
 
 	} else if requestData.MinBidAmountNanos < 0 {
@@ -454,6 +464,8 @@ type CreateNFTBidRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 type CreateNFTBidResponse struct {
@@ -477,7 +489,10 @@ func (fes *APIServer) CreateNFTBid(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFTBid: Error getting utxoView: %v", err))
 		return
@@ -492,10 +507,10 @@ func (fes *APIServer) CreateNFTBid(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateNFTBid: Must include UpdaterPublicKeyBase58Check"))
 		return
 
-	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"CreateNFTBid: SerialNumbers must be between %d and %d, received: %d",
-			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.SerialNumber))
+			1, utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT, requestData.SerialNumber))
 		return
 
 	} else if requestData.BidAmountNanos < 0 {
@@ -615,6 +630,8 @@ type AcceptNFTBidRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 type AcceptNFTBidResponse struct {
@@ -638,7 +655,10 @@ func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTBid: Error getting utxoView: %v", err))
 		return
@@ -654,10 +674,10 @@ func (fes *APIServer) AcceptNFTBid(ww http.ResponseWriter, req *http.Request) {
 			"AcceptNFTBid: Must include UpdaterPublicKeyBase58Check and BidderPublicKeyBase58Check"))
 		return
 
-	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"AcceptNFTBid: SerialNumbers must be between %d and %d, received: %d",
-			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.SerialNumber))
+			1, utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT, requestData.SerialNumber))
 		return
 
 	} else if requestData.BidAmountNanos < 0 {
@@ -1531,6 +1551,8 @@ type TransferNFTRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 type TransferNFTResponse struct {
@@ -1554,7 +1576,10 @@ func (fes *APIServer) TransferNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Error getting utxoView: %v", err))
 		return
@@ -1573,10 +1598,10 @@ func (fes *APIServer) TransferNFT(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferNFT: Must include UpdaterPublicKeyBase58Check"))
 		return
 
-	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"TransferNFT: SerialNumbers must be between %d and %d, received: %d",
-			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.SerialNumber))
+			1, utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT, requestData.SerialNumber))
 		return
 
 	}
@@ -1693,6 +1718,8 @@ type AcceptNFTTransferRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 type AcceptNFTTransferResponse struct {
@@ -1715,7 +1742,10 @@ func (fes *APIServer) AcceptNFTTransfer(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: Error getting utxoView: %v", err))
 		return
@@ -1730,10 +1760,10 @@ func (fes *APIServer) AcceptNFTTransfer(ww http.ResponseWriter, req *http.Reques
 		_AddBadRequestError(ww, fmt.Sprintf("AcceptNFTTransfer: Must include UpdaterPublicKeyBase58Check"))
 		return
 
-	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"AcceptNFTTransfer: SerialNumbers must be between %d and %d, received: %d",
-			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.SerialNumber))
+			1, utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT, requestData.SerialNumber))
 		return
 
 	}
@@ -1832,6 +1862,8 @@ type BurnNFTRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 type BurnNFTResponse struct {
@@ -1854,7 +1886,10 @@ func (fes *APIServer) BurnNFT(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Error getting utxoView: %v", err))
 		return
@@ -1869,10 +1904,10 @@ func (fes *APIServer) BurnNFT(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("BurnNFT: Must include UpdaterPublicKeyBase58Check"))
 		return
 
-	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GlobalParamsEntry.MaxCopiesPerNFT) {
+	} else if requestData.SerialNumber <= 0 || requestData.SerialNumber > int(utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT) {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"BurnNFT: SerialNumbers must be between %d and %d, received: %d",
-			1, utxoView.GlobalParamsEntry.MaxCopiesPerNFT, requestData.SerialNumber))
+			1, utxoView.GetCurrentGlobalParamsEntry().MaxCopiesPerNFT, requestData.SerialNumber))
 		return
 
 	}

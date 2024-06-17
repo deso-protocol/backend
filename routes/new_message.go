@@ -372,11 +372,12 @@ func (fes *APIServer) sendMessageHandler(
 	// Call CreateNewMessageTxn the core lib to construct the transaction to send a group chat message.
 	// The message type must be lib.NewMessageTypeGroupChat, and operation type is lib.NewMessageOperationCreate.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateNewMessageTxn(
-		senderGroupOwnerPkBytes, *lib.NewPublicKey(senderGroupOwnerPkBytes), *lib.NewGroupKeyName(senderGroupKeyNameBytes), *lib.NewPublicKey(senderAccessGroupPkbytes),
-		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes), *lib.NewPublicKey(recipientAccessGroupPkbytes),
-		hexDecodedEncryptedMessageBytes, tstamp,
-		newMessageType, newMessageOperationType,
-		extraData, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), additionalOutputs)
+		senderGroupOwnerPkBytes, *lib.NewPublicKey(senderGroupOwnerPkBytes),
+		*lib.NewGroupKeyName(senderGroupKeyNameBytes), *lib.NewPublicKey(senderAccessGroupPkbytes),
+		*lib.NewPublicKey(recipientGroupOwnerPkBytes), *lib.NewGroupKeyName(recipientGroupKeyNameBytes),
+		*lib.NewPublicKey(recipientAccessGroupPkbytes), hexDecodedEncryptedMessageBytes, tstamp,
+		newMessageType, newMessageOperationType, extraData, requestData.MinFeeRateNanosPerKB,
+		fes.backendServer.GetMempool(), additionalOutputs)
 	if err != nil {
 		return errors.Wrapf(err, "Problem creating transaction: ")
 	}
