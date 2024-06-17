@@ -27,6 +27,11 @@ RUN go mod download
 # Try to checkout to the specified branch. If it fails, checkout main.
 RUN git checkout ${BRANCH_NAME} || (echo "Branch ${BRANCH_NAME} not found. Falling back to main." && git checkout main)
 
+RUN go mod download
+
+# Try to checkout to the specified branch. If it fails, checkout main.
+RUN git checkout ${BRANCH_NAME} || (echo "Branch ${BRANCH_NAME} not found. Falling back to main." && git checkout main)
+
 # Try to checkout to the specified branch. If it fails, checkout main.
 RUN git checkout ${BRANCH_NAME} || (echo "Branch ${BRANCH_NAME} not found. Falling back to main." && git checkout main)
 
