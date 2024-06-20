@@ -14,6 +14,9 @@ import (
 // _generateUnsignedSendDeSo...
 func _generateUnsignedSendDeSo(senderPubKey *btcec.PublicKey, recipientPubKey *btcec.PublicKey, amountNanos int64,
 	params *lib.DeSoParams, node string) (*routes.SendDeSoResponse, error) {
+	if !amountNanos || amountNanos <= 0 {
+		return nil, errors.New("_generateUnsignedSendDeSo() invalid AmountNanos: must be a positive integer")
+	}
 	endpoint := node + routes.RoutePathSendDeSo
 
 	// Setup request
