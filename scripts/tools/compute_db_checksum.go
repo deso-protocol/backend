@@ -3,28 +3,30 @@ package main
 import (
 	"context"
 	"fmt"
+	"sort"
+	"time"
+
 	"github.com/deso-protocol/backend/scripts/tools/toolslib"
 	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 	"golang.org/x/sync/semaphore"
-	"sort"
-	"time"
 )
 
 func main() {
-	dirSnap := "$HOME/data_dirs/hypersync/final_nodes/runner_node"
+	dirSnap := "/home/ubuntu/data_dirs/testnet_2_blocksync_with_hypersync_true/000012/v-00000"
+	snapshotPeriod := lib.DefaultSnapshotEpochPeriodPoS
 	time.Sleep(1 * time.Millisecond)
 	dbSnap, err := toolslib.OpenDataDir(dirSnap)
 	if err != nil {
 		fmt.Printf("Error reading db1 err: %v", err)
 		return
 	}
-	snap, err, _ := lib.NewSnapshot(dbSnap, dirSnap, lib.SnapshotBlockHeightPeriod, false, false, &lib.DeSoMainnetParams, false)
+	snap, err, _ := lib.NewSnapshot(dbSnap, snapshotPeriod, false, false, &lib.DeSoMainnetParams, false, 20, nil)
 	if err != nil {
 		fmt.Printf("Error reading snap err: %v", err)
 		return
 	}
-	snap.CurrentEpochSnapshotMetadata.SnapshotBlockHeight = 114000
+	snap.CurrentEpochSnapshotMetadata.SnapshotBlockHeight = 1200000
 	snap.Checksum.ResetChecksum()
 
 	maxBytes := uint32(8 << 20)

@@ -2,7 +2,10 @@ FROM alpine:latest AS backend
 
 RUN apk update
 RUN apk upgrade
-RUN apk add --update go gcc g++ vips-dev
+RUN apk add --update bash cmake g++ gcc git make vips-dev
+
+COPY --from=golang:1.20-alpine /usr/local/go/ /usr/local/go/
+ENV PATH="/usr/local/go/bin:${PATH}"
 
 WORKDIR /deso/src
 
@@ -25,10 +28,13 @@ COPY backend/countries countries
 COPY backend/main.go   .
 
 # include core src
-COPY core/desohash ../core/desohash
-COPY core/cmd       ../core/cmd
-COPY core/lib       ../core/lib
-COPY core/migrate   ../core/migrate
+COPY core/bls         ../core/bls
+COPY core/cmd         ../core/cmd
+COPY core/collections ../core/collections
+COPY core/consensus   ../core/consensus
+COPY core/desohash    ../core/desohash
+COPY core/lib         ../core/lib
+COPY core/migrate     ../core/migrate
 
 # Install Delve debugger, specifying the installation path explicitly
 ENV GOPATH=/root/go

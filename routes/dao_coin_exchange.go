@@ -2,22 +2,29 @@ package routes
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/deso-protocol/core/lib"
-	"github.com/golang/glog"
-	"github.com/holiman/uint256"
-	"github.com/pkg/errors"
 	"io"
 	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/deso-protocol/core/lib"
+	"github.com/golang/glog"
+	"github.com/holiman/uint256"
+	"github.com/pkg/errors"
 )
 
 type GetDAOCoinLimitOrdersRequest struct {
 	DAOCoin1CreatorPublicKeyBase58Check string `safeForLogging:"true"`
 	DAOCoin2CreatorPublicKeyBase58Check string `safeForLogging:"true"`
+
+	// If unset, defaults to TxnStatusInMempool. If set to "InMempool" we will
+	// consider all txns including those in the mempool. If set to "Committed" then
+	// we will only consider txns that have been committed according to consensus.
+	TxnStatus TxnStatus `safeForLogging:"true"`
 }
 
 type GetDAOCoinLimitOrdersResponse struct {
@@ -52,6 +59,26 @@ type DAOCoinLimitOrderEntryResponse struct {
 
 const DESOCoinIdentifierString = "DESO"
 
+func (fes *APIServer) GetUtxoViewGivenTxnStatus(
+	txnStatus TxnStatus,
+) (
+	*lib.UtxoView,
+	error,
+) {
+	if txnStatus == TxnStatusInMempool {
+		return fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	}
+	if txnStatus == TxnStatusCommitted {
+		return lib.NewUtxoView(
+			fes.backendServer.GetBlockchain().DB(),
+			fes.Params,
+			nil,
+			fes.backendServer.GetBlockchain().Snapshot(),
+			nil), nil
+	}
+	return nil, errors.New("GetUtxoViewGivenTxnStatus: Invalid TxnStatus")
+}
+
 func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetDAOCoinLimitOrdersRequest{}
@@ -63,8 +90,8 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 		return
 	}
 
-	if requestData.DAOCoin1CreatorPublicKeyBase58Check == DESOCoinIdentifierString &&
-		requestData.DAOCoin2CreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+	if IsDesoPkid(requestData.DAOCoin1CreatorPublicKeyBase58Check) &&
+		IsDesoPkid(requestData.DAOCoin2CreatorPublicKeyBase58Check) {
 		_AddBadRequestError(
 			ww,
 			fmt.Sprint("GetDAOCoinLimitOrders: Must provide either a "+
@@ -74,7 +101,22 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	txnStatus := requestData.TxnStatus
+	if txnStatus == "" {
+		txnStatus = TxnStatusInMempool
+	}
+	if txnStatus != TxnStatusInMempool &&
+		txnStatus != TxnStatusCommitted {
+
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("GetDAOCoinLimitOrders: Invalid TxnStatus: %v. Options "+
+				"are {InMempool, Committed}.", txnStatus),
+		)
+		return
+	}
+
+	utxoView, err := fes.GetUtxoViewGivenTxnStatus(txnStatus)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetDAOCoinLimitOrders: Problem fetching utxoView: %v", err))
 		return
@@ -83,7 +125,7 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 	coin1PKID := &lib.ZeroPKID
 	coin2PKID := &lib.ZeroPKID
 
-	if requestData.DAOCoin1CreatorPublicKeyBase58Check != DESOCoinIdentifierString {
+	if !IsDesoPkid(requestData.DAOCoin1CreatorPublicKeyBase58Check) {
 		coin1PKID, err = fes.getPKIDFromPublicKeyBase58Check(
 			utxoView,
 			requestData.DAOCoin1CreatorPublicKeyBase58Check,
@@ -97,7 +139,7 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 		}
 	}
 
-	if requestData.DAOCoin2CreatorPublicKeyBase58Check != DESOCoinIdentifierString {
+	if !IsDesoPkid(requestData.DAOCoin2CreatorPublicKeyBase58Check) {
 		coin2PKID, err = fes.getPKIDFromPublicKeyBase58Check(
 			utxoView,
 			requestData.DAOCoin2CreatorPublicKeyBase58Check,
@@ -144,8 +186,131 @@ func (fes *APIServer) GetDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Re
 	}
 }
 
+type GetDAOCoinLimitOrdersByIdRequest struct {
+	// A list of hex OrderIds that we will fetch
+	OrderIds []string `safeForLogging:"true"`
+	// If unset, defaults to TxnStatusInMempool. If set to "InMempool" we will
+	// consider all txns including those in the mempool. If set to "Committed" then
+	// we will only consider txns that have been committed according to consensus.
+	TxnStatus TxnStatus `safeForLogging:"true"`
+}
+
+func (fes *APIServer) GetDAOCoinLimitOrdersById(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetDAOCoinLimitOrdersByIdRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("GetDAOCoinLimitOrdersById: Problem parsing request body: %v", err),
+		)
+		return
+	}
+
+	txnStatus := requestData.TxnStatus
+	if txnStatus == "" {
+		txnStatus = TxnStatusInMempool
+	}
+	if txnStatus != TxnStatusInMempool &&
+		txnStatus != TxnStatusCommitted {
+
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("GetDAOCoinLimitOrdersById: Invalid TxnStatus: %v. Options "+
+				"are {InMempool, Committed}.", txnStatus),
+		)
+		return
+	}
+
+	utxoView, err := fes.GetUtxoViewGivenTxnStatus(txnStatus)
+	if err != nil {
+		_AddInternalServerError(ww, fmt.Sprintf("GetDAOCoinLimitOrdersById: Problem fetching utxoView: %v", err))
+		return
+	}
+
+	// Don't allow fetching more than this many orders
+	maxOrdersToFetch := 10000
+	if len(requestData.OrderIds) > maxOrdersToFetch {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("GetDAOCoinLimitOrdersById: Cannot fetch more than %v orders at once", maxOrdersToFetch),
+		)
+		return
+	}
+	ordersToReturn := make([]DAOCoinLimitOrderEntryResponse, 0, len(requestData.OrderIds))
+	for _, orderIdHex := range requestData.OrderIds {
+		orderIdBytes, err := hex.DecodeString(orderIdHex)
+		if err != nil {
+			_AddBadRequestError(
+				ww,
+				fmt.Sprintf("GetDAOCoinLimitOrdersById: Invalid OrderId: %v", err),
+			)
+			return
+		}
+		if len(orderIdBytes) != 32 {
+			_AddBadRequestError(
+				ww,
+				fmt.Sprintf("GetDAOCoinLimitOrdersById: Block hash has length (%d) but should "+
+					"be (%d)", len(orderIdBytes), 32),
+			)
+			return
+		}
+		orderId := lib.BlockHash{}
+		copy(orderId[:], orderIdBytes)
+		orderEntry, err := utxoView.GetDAOCoinLimitOrderEntry(&orderId)
+		if err != nil {
+			_AddBadRequestError(
+				ww,
+				fmt.Sprintf("GetDAOCoinLimitOrdersById: Error fetching order: %v", err),
+			)
+			return
+		}
+		if orderEntry == nil {
+			continue
+		}
+		if orderEntry.IsDeleted() {
+			continue
+		}
+		transactorPublicKey := utxoView.GetPublicKeyForPKID(orderEntry.TransactorPKID)
+		buyingCoinPublicKey := utxoView.GetPublicKeyForPKID(orderEntry.BuyingDAOCoinCreatorPKID)
+		sellingCoinPublicKey := utxoView.GetPublicKeyForPKID(orderEntry.SellingDAOCoinCreatorPKID)
+		orderRes, err := buildDAOCoinLimitOrderResponse(
+			lib.Base58CheckEncode(transactorPublicKey, false, fes.Params),
+			lib.Base58CheckEncode(buyingCoinPublicKey, false, fes.Params),
+			lib.Base58CheckEncode(sellingCoinPublicKey, false, fes.Params),
+			orderEntry,
+		)
+		if err != nil {
+			_AddBadRequestError(
+				ww,
+				fmt.Sprintf("GetDAOCoinLimitOrdersById: Error building order response: %v", err),
+			)
+			return
+		}
+		if orderRes == nil {
+			_AddInternalServerError(ww, "GetDAOCoinLimitOrdersById: Error building order "+
+				"response: nil order response")
+			return
+		}
+		ordersToReturn = append(ordersToReturn, *orderRes)
+	}
+	if err = json.NewEncoder(ww).Encode(GetDAOCoinLimitOrdersResponse{
+		Orders: ordersToReturn,
+	}); err != nil {
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("GetDAOCoinLimitOrders: Problem encoding response as JSON: %v", err),
+		)
+		return
+	}
+}
+
 type GetTransactorDAOCoinLimitOrdersRequest struct {
-	TransactorPublicKeyBase58Check string `safeForLogging:"true"`
+	TransactorPublicKeyBase58Check  string `safeForLogging:"true"`
+	BuyingCoinPublicKeyBase58Check  string `safeForLogging:"true"`
+	SellingCoinPublicKeyBase58Check string `safeForLogging:"true"`
+	// Defaults to TxnStatusInMempool. If set to "InMempool" we will consider all
+	// txns including those in the mempool.
+	TxnStatus TxnStatus `safeForLogging:"true"`
 }
 
 func (fes *APIServer) GetTransactorDAOCoinLimitOrders(ww http.ResponseWriter, req *http.Request) {
@@ -159,7 +324,22 @@ func (fes *APIServer) GetTransactorDAOCoinLimitOrders(ww http.ResponseWriter, re
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	txnStatus := requestData.TxnStatus
+	if txnStatus == "" {
+		txnStatus = TxnStatusInMempool
+	}
+	if txnStatus != TxnStatusInMempool &&
+		txnStatus != TxnStatusCommitted {
+
+		_AddBadRequestError(
+			ww,
+			fmt.Sprintf("GetTransactorDAOCoinLimitOrders: Invalid TxnStatus: %v. Options "+
+				"are {InMempool, Committed}.", txnStatus),
+		)
+		return
+	}
+
+	utxoView, err := fes.GetUtxoViewGivenTxnStatus(txnStatus)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetTransactorDAOCoinLimitOrders: Problem fetching utxoView: %v", err))
 		return
@@ -176,8 +356,37 @@ func (fes *APIServer) GetTransactorDAOCoinLimitOrders(ww http.ResponseWriter, re
 		)
 		return
 	}
+	var buyingCoinPkid *lib.PKID
+	if requestData.BuyingCoinPublicKeyBase58Check != "" {
+		buyingCoinPkid, err = fes.getPKIDFromPublicKeyBase58CheckOrDESOString(
+			utxoView,
+			requestData.BuyingCoinPublicKeyBase58Check,
+		)
+		if err != nil {
+			_AddBadRequestError(
+				ww,
+				fmt.Sprintf("GetTransactorDAOCoinLimitOrders: Invalid BuyingCoinPublicKeyBase58Check: %v", err),
+			)
+			return
+		}
+	}
+	var sellingCoinPkid *lib.PKID
+	if requestData.SellingCoinPublicKeyBase58Check != "" {
+		sellingCoinPkid, err = fes.getPKIDFromPublicKeyBase58CheckOrDESOString(
+			utxoView,
+			requestData.SellingCoinPublicKeyBase58Check,
+		)
+		if err != nil {
+			_AddBadRequestError(
+				ww,
+				fmt.Sprintf("GetTransactorDAOCoinLimitOrders: Invalid SellingCoinPublicKeyBase58Check: %v", err),
+			)
+			return
+		}
+	}
 
-	orders, err := utxoView.GetAllDAOCoinLimitOrdersForThisTransactor(transactorPKID)
+	orders, err := utxoView.GetAllDAOCoinLimitOrdersForThisTransactor(
+		transactorPKID, buyingCoinPkid, sellingCoinPkid)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("GetTransactorDAOCoinLimitOrders: Error getting limit orders: %v", err))
 		return
@@ -189,6 +398,16 @@ func (fes *APIServer) GetTransactorDAOCoinLimitOrders(ww http.ResponseWriter, re
 		_AddInternalServerError(ww, fmt.Sprintf("GetTransactorDAOCoinLimitOrders: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+func (fes *APIServer) getPKIDFromPublicKeyBase58CheckOrDESOString(
+	utxoView *lib.UtxoView,
+	publicKeyBase58Check string,
+) (*lib.PKID, error) {
+	if IsDesoPkid(publicKeyBase58Check) {
+		return &lib.ZeroPKID, nil
+	}
+	return fes.getPKIDFromPublicKeyBase58Check(utxoView, publicKeyBase58Check)
 }
 
 func (fes *APIServer) getPKIDFromPublicKeyBase58Check(
@@ -324,6 +543,14 @@ func buildDAOCoinLimitOrderResponse(
 		return nil, err
 	}
 
+	// We always want to return the identifier string for DESO coins in the API response
+	if IsDesoPkid(buyingCoinPublicKeyBase58Check) {
+		buyingCoinPublicKeyBase58Check = DESOCoinIdentifierString
+	}
+	if IsDesoPkid(sellingCoinPublicKeyBase58Check) {
+		sellingCoinPublicKeyBase58Check = DESOCoinIdentifierString
+	}
+
 	return &DAOCoinLimitOrderEntryResponse{
 		TransactorPublicKeyBase58Check: transactorPublicKeyBase58Check,
 
@@ -436,10 +663,10 @@ func CalculateScaledExchangeRateFromPriceString(
 
 		// For DESO <-> DAO coin trades, we scale the calculated exchange rate up or down by 1e9 to account for the
 		// scaling factor difference between DESO nanos and DAO coin base units
-		if buyingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
+		if IsDesoPkid(buyingCoinPublicKeyBase58Check) {
 			// Scale the exchange rate up by 1e9 if the buying coin is DESO
 			rawScaledExchangeRateAsBigInt.Mul(rawScaledExchangeRateAsBigInt, getDESOToDAOCoinBaseUnitsScalingFactor().ToBig())
-		} else if sellingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
+		} else if IsDesoPkid(sellingCoinPublicKeyBase58Check) {
 			// Scale the exchange rate down by 1e9 if the selling coin is DESO if  and round the quotient up.
 			// For the same reason as above, we round up the quotient, so it matches with bid orders created using the
 			// same input price
@@ -462,7 +689,7 @@ func CalculateScaledExchangeRateFromPriceString(
 	// Beyond this point, we know that the operation type is lib.DAOCoinLimitOrderOperationTypeBID
 
 	// Scale up the price to account for DAO Coin -> DESO trades
-	if buyingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
+	if IsDesoPkid(buyingCoinPublicKeyBase58Check) {
 		product := uint256.NewInt()
 		overflow := product.MulOverflow(rawScaledPrice, getDESOToDAOCoinBaseUnitsScalingFactor())
 		if overflow {
@@ -472,7 +699,7 @@ func CalculateScaledExchangeRateFromPriceString(
 	}
 
 	// Scale down the price to account for DAO Coin -> DESO trades
-	if sellingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
+	if IsDesoPkid(sellingCoinPublicKeyBase58Check) {
 		// We intentionally want to round the exchange rate down for BID orders so precision loss does not prevent the
 		// order from not getting matched with an ASK order with the same input price
 		quotient := uint256.NewInt().Div(rawScaledPrice, getDESOToDAOCoinBaseUnitsScalingFactor())
@@ -512,7 +739,7 @@ func CalculateScaledExchangeRateFromFloat(
 	if rawScaledExchangeRate.IsZero() {
 		return nil, errors.Errorf("The float value %f is too small to produce a scaled exchange rate", exchangeRateCoinsToSellPerCoinToBuy)
 	}
-	if buyingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
+	if IsDesoPkid(buyingCoinPublicKeyBase58Check) {
 		// Buying coin is $DESO
 		product := uint256.NewInt()
 		overflow := product.MulOverflow(rawScaledExchangeRate, getDESOToDAOCoinBaseUnitsScalingFactor())
@@ -520,7 +747,7 @@ func CalculateScaledExchangeRateFromFloat(
 			return nil, errors.Errorf("Overflow when convering %f to a scaled exchange rate", exchangeRateCoinsToSellPerCoinToBuy)
 		}
 		return product, nil
-	} else if sellingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
+	} else if IsDesoPkid(sellingCoinPublicKeyBase58Check) {
 		// Selling coin is $DESO
 		quotient := uint256.NewInt().Div(rawScaledExchangeRate, getDESOToDAOCoinBaseUnitsScalingFactor())
 		if quotient.IsZero() {
@@ -543,9 +770,9 @@ func CalculatePriceStringFromScaledExchangeRate(
 ) (string, error) {
 	scaledExchangeRateAsBigInt := scaledValueExchangeRate.ToBig()
 
-	if buyingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
+	if IsDesoPkid(buyingCoinPublicKeyBase58Check) {
 		scaledExchangeRateAsBigInt.Div(scaledExchangeRateAsBigInt, getDESOToDAOCoinBaseUnitsScalingFactor().ToBig())
-	} else if sellingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
+	} else if IsDesoPkid(sellingCoinPublicKeyBase58Check) {
 		scaledExchangeRateAsBigInt.Mul(scaledExchangeRateAsBigInt, getDESOToDAOCoinBaseUnitsScalingFactor().ToBig())
 	}
 
@@ -578,9 +805,9 @@ func CalculateFloatFromScaledExchangeRate(
 	scaledValue *uint256.Int,
 ) (float64, error) {
 	scaledValueAsBigInt := scaledValue.ToBig()
-	if buyingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
+	if IsDesoPkid(buyingCoinPublicKeyBase58Check) {
 		scaledValueAsBigInt.Div(scaledValueAsBigInt, getDESOToDAOCoinBaseUnitsScalingFactor().ToBig())
-	} else if sellingCoinPublicKeyBase58Check == DESOCoinIdentifierString {
+	} else if IsDesoPkid(sellingCoinPublicKeyBase58Check) {
 		scaledValueAsBigInt.Mul(scaledValueAsBigInt, getDESOToDAOCoinBaseUnitsScalingFactor().ToBig())
 	}
 
@@ -698,6 +925,17 @@ func calculateQuantityToFillAsDESONanos(quantityToFill string) (*uint256.Int, er
 	return scaledQuantity, nil
 }
 
+var (
+	DeSoZeroPkidMainnetBase58 = lib.PkToStringMainnet(lib.ZeroPKID[:])
+	DeSoZeroPkidTestnetBase58 = lib.PkToStringTestnet(lib.ZeroPKID[:])
+)
+
+func IsDesoPkid(pk string) bool {
+	return (pk == DESOCoinIdentifierString ||
+		pk == DeSoZeroPkidMainnetBase58 ||
+		pk == DeSoZeroPkidTestnetBase58)
+}
+
 // given a buying coin, selling coin, and operation type, this determines if the QuantityToFill field
 // for the coin the quantity field refers to is $DESO. If it's not $DESO, then it's assumed to be a DAO coin
 func isCoinToFillDESO(
@@ -705,8 +943,8 @@ func isCoinToFillDESO(
 	sellingCoinPublicKeyBase58Check string,
 	operationTypeString DAOCoinLimitOrderOperationTypeString,
 ) bool {
-	return buyingCoinPublicKeyBase58Check == DESOCoinIdentifierString && operationTypeString == DAOCoinLimitOrderOperationTypeStringBID ||
-		sellingCoinPublicKeyBase58Check == DESOCoinIdentifierString && operationTypeString == DAOCoinLimitOrderOperationTypeStringASK
+	return IsDesoPkid(buyingCoinPublicKeyBase58Check) && operationTypeString == DAOCoinLimitOrderOperationTypeStringBID ||
+		IsDesoPkid(sellingCoinPublicKeyBase58Check) && operationTypeString == DAOCoinLimitOrderOperationTypeStringASK
 }
 
 // DAOCoinLimitOrderOperationTypeString A convenience type that uses a string to represent BID / ASK side in the API,
@@ -856,7 +1094,7 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 
 	// If buying $DESO, the buying PKID is the ZeroPKID. Else it's the DAO coin's PKID.
 	buyingCoinPKID := &lib.ZeroPKID
-	if buyingDAOCoinCreatorPublicKeyBase58Check != DESOCoinIdentifierString {
+	if !IsDesoPkid(buyingDAOCoinCreatorPublicKeyBase58Check) {
 		buyingCoinPKID, err = fes.getPKIDFromPublicKeyBase58Check(
 			utxoView, buyingDAOCoinCreatorPublicKeyBase58Check)
 		if err != nil {
@@ -870,7 +1108,7 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 
 	// Calculate current balance for transactor.
 	transactorSellingBalanceBaseUnits := uint256.NewInt()
-	if sellingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+	if IsDesoPkid(sellingDAOCoinCreatorPublicKeyBase58Check) {
 		// Get $DESO balance nanos.
 		desoBalanceNanos, err := utxoView.GetDeSoBalanceNanosForPublicKey(transactorPublicKey)
 		if err != nil {
@@ -898,7 +1136,7 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 	}
 
 	// Get open orders for this transactor
-	orders, err := utxoView.GetAllDAOCoinLimitOrdersForThisTransactor(transactorPKID)
+	orders, err := utxoView.GetAllDAOCoinLimitOrdersForThisTransactor(transactorPKID, nil, nil)
 	if err != nil {
 		return errors.Errorf("Error getting limit orders: %v", err)
 	}
@@ -949,7 +1187,7 @@ func (fes *APIServer) validateDAOCoinOrderTransferRestriction(
 
 	// If buying $DESO, this never has a transfer restriction. We validate
 	// that you own sufficient of your selling coin elsewhere.
-	if buyingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+	if IsDesoPkid(buyingDAOCoinCreatorPublicKeyBase58Check) {
 		return nil
 	}
 
@@ -1020,7 +1258,7 @@ func (fes *APIServer) getDAOCoinLimitOrderSimulatedExecutionResult(
 	if err != nil {
 		return nil, err
 	}
-	if buyingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+	if IsDesoPkid(buyingDAOCoinCreatorPublicKeyBase58Check) {
 		// If the buying coin is DESO, then the ending balance change will have the transaction fee subtracted. In order to
 		// isolate the amount of the buying coin bought as a part of this order, we need to add back the transaction fee
 		buyingCoinEndingBalance.Add(buyingCoinEndingBalance, uint256.NewInt().SetUint64(txnFees))
@@ -1030,7 +1268,7 @@ func (fes *APIServer) getDAOCoinLimitOrderSimulatedExecutionResult(
 	if err != nil {
 		return nil, err
 	}
-	if sellingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+	if IsDesoPkid(sellingDAOCoinCreatorPublicKeyBase58Check) {
 		// If the selling coin is DESO, then the ending balance will have the network fee subtracted. In order to isolate
 		// the amount of the selling coin sold as a part of this order, we need to add back the transaction fee to the
 		// ending balance
@@ -1076,7 +1314,7 @@ func (fes *APIServer) getTransactorDesoOrDaoCoinBalance(
 		return nil, errors.Errorf("Error decoding transactor public key: %v", err)
 	}
 
-	if desoOrDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+	if IsDesoPkid(desoOrDAOCoinCreatorPublicKeyBase58Check) {
 		// Get $DESO balance nanos.
 		desoBalanceNanos, err := utxoView.GetDeSoBalanceNanosForPublicKey(transactorPublicKey)
 		if err != nil {
@@ -1099,7 +1337,7 @@ func (fes *APIServer) getTransactorDesoOrDaoCoinBalance(
 }
 
 func getScalingFactorForCoin(coinCreatorPublicKeyBase58Check string) *uint256.Int {
-	if coinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+	if IsDesoPkid(coinCreatorPublicKeyBase58Check) {
 		return uint256.NewInt().SetUint64(lib.NanosPerUnit)
 	}
 	return uint256.NewInt().Set(lib.BaseUnitsPerCoin)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+
 	"github.com/deso-protocol/backend/scripts/tools/toolslib"
 	"github.com/deso-protocol/core/lib"
 	"github.com/dgraph-io/badger/v3"

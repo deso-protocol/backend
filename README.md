@@ -71,3 +71,15 @@ go build github.com/h2non/bimg: invalid flag in pkg-config --cflags: -Xpreproces
 ```
 export CGO_CFLAGS_ALLOW="-Xpreprocessor"
 ```
+
+#### Error 
+```
+ld: library not found for -lvips
+clang: error: linker command failed with exit code 1 (use -v to see invocation)
+```
+
+#### Solution
+
+```
+go clean -cache
+```

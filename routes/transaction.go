@@ -24,9 +24,21 @@ import (
 	"github.com/pkg/errors"
 )
 
+type TxnStatus string
+
+const (
+	TxnStatusInMempool TxnStatus = "InMempool"
+	TxnStatusCommitted TxnStatus = "Committed"
+	// TODO: It would be useful to have one that is "UnconfirmedBlocks" or something like that, which
+	// means we'll consider txns that are in unconfirmed blocks but will *not* consider txns
+	// that are in the mempool. It's a kindof middle-ground.
+)
+
 type GetTxnRequest struct {
 	// TxnHashHex to fetch.
 	TxnHashHex string `safeForLogging:"true"`
+	// If unset, defaults to TxnStatusInMempool
+	TxnStatus TxnStatus `safeForLogging:"true"`
 }
 
 type GetTxnResponse struct {
@@ -57,16 +69,173 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 		copy(txnHash[:], txnHashBytes)
 	}
 
-	txnFound := fes.mempool.IsTransactionInPool(txnHash)
-	if !txnFound {
-		txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
+	txnFound := false
+	txnStatus := requestData.TxnStatus
+	if txnStatus == "" {
+		txnStatus = TxnStatusInMempool
 	}
+	switch txnStatus {
+	case TxnStatusInMempool:
+		txnFound = fes.backendServer.GetMempool().IsTransactionInPool(txnHash)
+		if !txnFound {
+			txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
+		}
+	case TxnStatusCommitted:
+		// In this case we will not consider a txn until it shows up in txindex, which means that
+		// it is committed.
+		txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
+	default:
+		_AddBadRequestError(ww, fmt.Sprintf("GetTxn: Invalid TxnStatus: %v. Options are "+
+			"{InMempool, Committed}", txnStatus))
+		return
+	}
+
 	res := &GetTxnResponse{
 		TxnFound: txnFound,
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+// SubmitAtomicTransactionRequest is meant to aid in the submission of atomic transactions
+// with identity service signed transactions. Specifically, it takes an incomplete atomic transaction
+// and "completes" the transaction by adding in identity service signed transactions.
+type SubmitAtomicTransactionRequest struct {
+	// IncompleteAtomicTransactionHex is a hex encoded transaction of type TxnTypeAtomicTxnsWrapper who
+	// is "incomplete" only by missing the signature fields of various inner transactions.
+	IncompleteAtomicTransactionHex string `safeForLogging:"true"`
+
+	// SignedInnerTransactionsHex are the hex-encoded signed inner transactions that
+	// will be used to complete the atomic transaction.
+	SignedInnerTransactionsHex []string `safeForLogging:"true"`
+}
+
+type SubmitAtomicTransactionResponse struct {
+	Transaction              *lib.MsgDeSoTxn
+	TxnHashHex               string
+	TransactionIDBase58Check string
+}
+
+func (fes *APIServer) SubmitAtomicTransaction(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := SubmitAtomicTransactionRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitAtomicTransaction: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Fetch the incomplete atomic transaction.
+	atomicTxnBytes, err := hex.DecodeString(requestData.IncompleteAtomicTransactionHex)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubmitAtomicTransaction: "+
+				"Problem deserializing atomic transaction hex: %v", err))
+		return
+	}
+	atomicTxn := &lib.MsgDeSoTxn{}
+	err = atomicTxn.FromBytes(atomicTxnBytes)
+	if err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubmitAtomicTransaction: "+
+				"Problem deserializing atomic transaction from bytes: %v", err))
+		return
+	}
+	if atomicTxn.TxnMeta.GetTxnType() != lib.TxnTypeAtomicTxnsWrapper {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitAtomicTransaction: "+
+			"IncompleteAtomicTransaction must be an atomic transaction"))
+		return
+	}
+
+	// Create a map from the pre-signature inner transaction hash to DeSo signature.
+	innerTxnPreSignatureHashToSignature := make(map[lib.BlockHash]lib.DeSoSignature)
+	for ii, signedInnerTxnHex := range requestData.SignedInnerTransactionsHex {
+		// Decode the signed inner transaction.
+		signedTxnBytes, err := hex.DecodeString(signedInnerTxnHex)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubmitAtomicTransaction: Problem decoding signed transaction hex: %v", err))
+			return
+		}
+
+		// Deserialize the signed transaction.
+		signedInnerTxn := &lib.MsgDeSoTxn{}
+		if err := signedInnerTxn.FromBytes(signedTxnBytes); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubmitAtomicTransaction: Problem deserializing signed transaction %d from bytes: %v",
+				ii, err))
+			return
+		}
+
+		// Verify the signature is present.
+		if signedInnerTxn.Signature.Sign == nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubmitAtomicTransaction: Signed transaction %d hex missing signature", ii))
+			return
+		}
+
+		// Find the pre-signature DeSo transaction hash.
+		// NOTE: We do not use the lib.MsgDeSoTxn.Hash() function here as
+		// the transactions included in the atomic transaction do not yet
+		// have their signature fields set.
+		preSignatureInnerTxnBytes, err := signedInnerTxn.ToBytes(true)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubmitAtomicTransaction: Problem serializing "+
+					"signed transaction %d without signature: %v", ii, err))
+			return
+		}
+		preSignatureInnerTxnHash := lib.Sha256DoubleHash(preSignatureInnerTxnBytes)
+		innerTxnPreSignatureHashToSignature[*preSignatureInnerTxnHash] = signedInnerTxn.Signature
+	}
+
+	// Based on the provided signatures, complete the atomic transaction.
+	for jj, innerTxn := range atomicTxn.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns {
+		// Skip signed inner transactions.
+		if innerTxn.Signature.Sign != nil {
+			continue
+		}
+
+		// Find the pre-signature DeSo transaction hash for this transaction.
+		preSignatureInnerTxnBytes, err := innerTxn.ToBytes(true)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubmitAtomicTransaction: Problem serializing "+
+					"transaction %d of atomic transaction wrapper without signature: %v", jj, err))
+			return
+		}
+		preSignatureInnerTxnHash := lib.Sha256DoubleHash(preSignatureInnerTxnBytes)
+
+		// Check that we have the signature.
+		if _, exists := innerTxnPreSignatureHashToSignature[*preSignatureInnerTxnHash]; !exists {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"SubmitAtomicTransaction: Transaction %d in atomic transaction still missing signature", jj))
+			return
+		}
+
+		// Set the signature in the atomic transaction.
+		atomicTxn.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns[jj].Signature =
+			innerTxnPreSignatureHashToSignature[*preSignatureInnerTxnHash]
+	}
+
+	// Verify and broadcast the completed atomic transaction.
+	if err := fes.backendServer.VerifyAndBroadcastTransaction(atomicTxn); err != nil {
+		_AddBadRequestError(ww,
+			fmt.Sprintf("SubmitAtomicTransaction: Problem broadcasting transaction: %v", err))
+		return
+	}
+
+	res := &SubmitAtomicTransactionResponse{
+		Transaction:              atomicTxn,
+		TxnHashHex:               atomicTxn.Hash().String(),
+		TransactionIDBase58Check: lib.PkToString(atomicTxn.Hash()[:], fes.Params),
+	}
+
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"SubmitAtomicTransaction: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
@@ -133,6 +302,7 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 // 1. Attach the PostEntry to the response so the client can render it
 // 2. Attempt to auto-whitelist the post for the global feed
 func (fes *APIServer) _afterProcessSubmitPostTransaction(txn *lib.MsgDeSoTxn, response *SubmitTransactionResponse) error {
+	fes.backendServer.GetMempool().BlockUntilReadOnlyViewRegenerated()
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return errors.Errorf("Problem with GetAugmentedUniversalView: %v", err)
@@ -238,6 +408,8 @@ type UpdateProfileRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // UpdateProfileResponse ...
@@ -282,8 +454,10 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem with getUserMetadataFromGlobalState: %v", err))
 		return
 	}
-
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Error fetching mempool view: %v", err))
 		return
@@ -318,87 +492,10 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 		profilePublicKey = profilePublicKeyBytess
 	}
 
-	if len(requestData.NewUsername) > 0 && strings.Index(requestData.NewUsername, fes.PublicKeyBase58Prefix) == 0 {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"UpdateProfile: Username cannot start with %s", fes.PublicKeyBase58Prefix))
+	// Validate the request.
+	if err := fes.ValidateAndConvertUpdateProfileRequest(&requestData, profilePublicKey, utxoView); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem validating request: %v", err))
 		return
-	}
-
-	if uint64(len([]byte(requestData.NewUsername))) > utxoView.Params.MaxUsernameLengthBytes {
-		_AddBadRequestError(ww, lib.RuleErrorProfileUsernameTooLong.Error())
-		return
-	}
-
-	if uint64(len([]byte(requestData.NewDescription))) > utxoView.Params.MaxUserDescriptionLengthBytes {
-		_AddBadRequestError(ww, lib.RuleErrorProfileDescriptionTooLong.Error())
-		return
-	}
-
-	// If an image is set on the request then resize it.
-	// Convert image to base64 by stripping the data: prefix.
-	if requestData.NewProfilePic != "" {
-		// split on base64 to get the extension
-		extensionSplit := strings.Split(requestData.NewProfilePic, ";base64")
-		if len(extensionSplit) != 2 {
-			_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Problem parsing profile pic extension: %v", err))
-			return
-		}
-		extension := extensionSplit[0]
-		switch {
-		case strings.Contains(extension, "image/png"):
-			extension = ".png"
-		case strings.Contains(extension, "image/jpeg"):
-			extension = ".jpeg"
-		case strings.Contains(extension, "image/webp"):
-			extension = ".webp"
-		case strings.Contains(extension, "image/gif"):
-			extension = ".gif"
-		default:
-			_AddBadRequestError(ww, fmt.Sprintf("UpdateProfile: Unsupported image type: %v", extension))
-			return
-		}
-		var resizedImageBytes []byte
-		resizedImageBytes, err = resizeAndConvertToWebp(
-			requestData.NewProfilePic, uint(fes.Params.MaxProfilePicDimensions), extension)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("Problem resizing profile picture: %v", err))
-			return
-		}
-		// Convert the image back into base64
-		webpBase64 := base64.StdEncoding.EncodeToString(resizedImageBytes)
-		requestData.NewProfilePic = "data:image/webp;base64," + webpBase64
-		if uint64(len([]byte(requestData.NewProfilePic))) > utxoView.Params.MaxProfilePicLengthBytes {
-			_AddBadRequestError(ww, lib.RuleErrorMaxProfilePicSize.Error())
-			return
-		}
-	}
-
-	// CreatorBasisPoints > 0 < max, uint64 can't be less than zero
-	if requestData.NewCreatorBasisPoints > fes.Params.MaxCreatorBasisPoints {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"UpdateProfile: Creator percentage must be less than %v percent",
-			fes.Params.MaxCreatorBasisPoints/100))
-		return
-	}
-
-	// Verify that this username doesn't exist in the mempool.
-	if len(requestData.NewUsername) > 0 {
-
-		utxoView.GetProfileEntryForUsername([]byte(requestData.NewUsername))
-		existingProfile, usernameExists := utxoView.ProfileUsernameToProfileEntry[lib.MakeUsernameMapKey([]byte(requestData.NewUsername))]
-		if usernameExists && existingProfile != nil && !existingProfile.IsDeleted() {
-			// Check that the existing profile does not belong to the profile public key
-			if utxoView.GetPKIDForPublicKey(profilePublicKey) != utxoView.GetPKIDForPublicKey(existingProfile.PublicKey) {
-				_AddBadRequestError(ww, fmt.Sprintf(
-					"UpdateProfile: Username %v already exists", string(existingProfile.Username)))
-				return
-			}
-
-		}
-		if !lib.UsernameRegex.Match([]byte(requestData.NewUsername)) {
-			_AddBadRequestError(ww, lib.RuleErrorInvalidUsername.Error())
-			return
-		}
 	}
 
 	extraData, err := EncodeExtraDataMap(requestData.ExtraData)
@@ -470,6 +567,93 @@ func (fes *APIServer) UpdateProfile(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
+func (fes *APIServer) ValidateAndConvertUpdateProfileRequest(
+	requestData *UpdateProfileRequest,
+	profilePublicKey []byte,
+	utxoView *lib.UtxoView,
+) error {
+	if len(requestData.NewUsername) > 0 && strings.Index(requestData.NewUsername, fes.PublicKeyBase58Prefix) == 0 {
+		return fmt.Errorf(
+			"ValidateAndConvertUpdateProfileRequest: Username cannot start with %s", fes.PublicKeyBase58Prefix)
+	}
+
+	if uint64(len([]byte(requestData.NewUsername))) > utxoView.Params.MaxUsernameLengthBytes {
+		return errors.Wrap(lib.RuleErrorProfileUsernameTooLong, "ValidateAndConvertUpdateProfileRequest")
+	}
+
+	if uint64(len([]byte(requestData.NewDescription))) > utxoView.Params.MaxUserDescriptionLengthBytes {
+		return errors.Wrap(lib.RuleErrorProfileDescriptionTooLong, "ValidateAndConvertUpdateProfileRequest")
+	}
+
+	// If an image is set on the request then resize it.
+	// Convert image to base64 by stripping the data: prefix.
+	if requestData.NewProfilePic != "" {
+		// split on base64 to get the extension
+		extensionSplit := strings.Split(requestData.NewProfilePic, ";base64")
+		if len(extensionSplit) != 2 {
+			return fmt.Errorf("ValidateAndConvertUpdateProfileRequest: " +
+				"Problem parsing profile pic extension; invalid extension split")
+		}
+		extension := extensionSplit[0]
+		switch {
+		case strings.Contains(extension, "image/png"):
+			extension = ".png"
+		case strings.Contains(extension, "image/jpeg"):
+			extension = ".jpeg"
+		case strings.Contains(extension, "image/webp"):
+			extension = ".webp"
+		case strings.Contains(extension, "image/gif"):
+			extension = ".gif"
+		default:
+			return fmt.Errorf(
+				"ValidateAndConvertUpdateProfileRequest: Unsupported image type: %v", extension)
+		}
+		var resizedImageBytes []byte
+		resizedImageBytes, err := resizeAndConvertToWebp(
+			requestData.NewProfilePic, uint(fes.Params.MaxProfilePicDimensions), extension)
+		if err != nil {
+			return fmt.Errorf(
+				"ValidateAndConvertUpdateProfileRequest: Problem resizing profile picture: %v", err)
+		}
+		// Convert the image back into base64
+		webpBase64 := base64.StdEncoding.EncodeToString(resizedImageBytes)
+		requestData.NewProfilePic = "data:image/webp;base64," + webpBase64
+		if uint64(len([]byte(requestData.NewProfilePic))) > utxoView.Params.MaxProfilePicLengthBytes {
+			return errors.Wrap(lib.RuleErrorMaxProfilePicSize, "ValidateAndConvertUpdateProfileRequest")
+		}
+	}
+
+	// CreatorBasisPoints > 0 < max, uint64 can't be less than zero
+	if requestData.NewCreatorBasisPoints > fes.Params.MaxCreatorBasisPoints {
+		return fmt.Errorf(
+			"ValidateAndConvertUpdateProfileRequest: Creator percentage must be less than %v percent",
+			fes.Params.MaxCreatorBasisPoints/100)
+	}
+
+	// Verify that this username doesn't exist in the mempool.
+	if len(requestData.NewUsername) > 0 {
+
+		utxoView.GetProfileEntryForUsername([]byte(requestData.NewUsername))
+		existingProfile, usernameExists :=
+			utxoView.ProfileUsernameToProfileEntry[lib.MakeUsernameMapKey([]byte(requestData.NewUsername))]
+		if usernameExists && existingProfile != nil && !existingProfile.IsDeleted() {
+			// Check that the existing profile does not belong to the profile public key
+			if utxoView.GetPKIDForPublicKey(profilePublicKey) !=
+				utxoView.GetPKIDForPublicKey(existingProfile.PublicKey) {
+				return fmt.Errorf(
+					"ValidateAndConvertUpdateProfileRequest: Username %v already exists",
+					string(existingProfile.Username))
+			}
+
+		}
+		if !lib.UsernameRegex.Match([]byte(requestData.NewUsername)) {
+			return errors.Wrap(lib.RuleErrorInvalidUsername, "ValidateAndConvertUpdateProfileRequest")
+		}
+	}
+
+	return nil
+}
+
 func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata *UserMetadata, utxoView *lib.UtxoView) (_additionalFee uint64, _txnHash *lib.BlockHash, _err error) {
 	// Determine if this is a profile creation request and if we need to comp the user for creating the profile.
 	existingProfileEntry := utxoView.GetProfileEntryForPublicKey(profilePublicKey)
@@ -478,7 +662,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 		return 0, nil, nil
 	}
 	// Additional fee is set to the create profile fee when we are creating a profile
-	additionalFees := utxoView.GlobalParamsEntry.CreateProfileFeeNanos
+	additionalFees := utxoView.GetCurrentGlobalParamsEntry().CreateProfileFeeNanos
 	if additionalFees == 0 {
 		return 0, nil, nil
 	}
@@ -496,7 +680,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 	if err != nil {
 		return 0, nil, errors.Wrap(fmt.Errorf("UpdateProfile: error getting current balance: %v", err), "")
 	}
-	createProfileFeeNanos := utxoView.GlobalParamsEntry.CreateProfileFeeNanos
+	createProfileFeeNanos := utxoView.GetCurrentGlobalParamsEntry().CreateProfileFeeNanos
 
 	// If a user is jumio verified, we just comp the profile even if their balance is greater than the create profile fee.
 	// If a user has a phone number verified but is not jumio verified, we need to check that they haven't spent all their
@@ -1022,6 +1206,8 @@ type SendDeSoRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // SendDeSoResponse ...
@@ -1062,7 +1248,10 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 	} else {
 		// TODO(performance): This is inefficient because it loads all mempool
 		// transactions.
-		utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+		utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+			fes.backendServer.GetMempool(),
+			requestData.OptionalPrecedingTransactions,
+		)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error generating "+
 				"view to verify username: %v", err))
@@ -1151,7 +1340,7 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 		// depending on what the user requested.
 		totalInputt, spendAmountt, changeAmountt, feeNanoss, err =
 			fes.blockchain.AddInputsAndChangeToTransaction(
-				txnn, requestData.MinFeeRateNanosPerKB, fes.mempool)
+				txnn, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error processing transaction: %v", err))
 			return
@@ -1321,6 +1510,8 @@ type SubmitPostRequest struct {
 
 	// If true, the post will be "frozen", i.e. no longer editable.
 	IsFrozen bool `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // SubmitPostResponse ...
@@ -1410,8 +1601,10 @@ func (fes *APIServer) SubmitPost(ww http.ResponseWriter, req *http.Request) {
 		postHashToModify = postHashToModifyBytes
 	}
 
-	var utxoView *lib.UtxoView
-	utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitPost: Error getting utxoView"))
 		return
@@ -1732,6 +1925,8 @@ type BuyOrSellCreatorCoinRequest struct {
 	BitCloutToSellNanos      uint64 `safeForLogging:"true"` // Deprecated
 	BitCloutToAddNanos       uint64 `safeForLogging:"true"` // Deprecated
 	MinBitCloutExpectedNanos uint64 `safeForLogging:"true"` // Deprecated
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // BuyOrSellCreatorCoinResponse ...
@@ -1846,7 +2041,10 @@ func (fes *APIServer) BuyOrSellCreatorCoin(ww http.ResponseWriter, req *http.Req
 	// Add node source to txn metadata
 	fes.AddNodeSourceToTxnMetadata(txn)
 
-	utxoView, err := fes.mempool.GetAugmentedUtxoViewForPublicKey(updaterPublicKeyBytes, txn)
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("BuyOrSellCreatorCoin: Problem computing view for transaction: %v", err))
 		return
@@ -2002,6 +2200,8 @@ type TransferCreatorCoinRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // TransferCreatorCoinResponse ...
@@ -2058,7 +2258,10 @@ func (fes *APIServer) TransferCreatorCoin(ww http.ResponseWriter, req *http.Requ
 	var receiverPublicKeyBytes []byte
 	if uint64(len(requestData.ReceiverUsernameOrPublicKeyBase58Check)) <= fes.Params.MaxUsernameLengthBytes {
 		// The receiver string is too short to be a public key.  Lookup the username.
-		utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+		utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+			fes.backendServer.GetMempool(),
+			requestData.OptionalPrecedingTransactions,
+		)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("TransferCreatorCoin: Problem fetching utxoView: %v", err))
 			return
@@ -2362,6 +2565,8 @@ type DAOCoinRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // DAOCoinResponse ...
@@ -2400,7 +2605,10 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("DAOCoin: Problem computing view: %v", err))
 		return
@@ -2538,6 +2746,8 @@ type TransferDAOCoinRequest struct {
 
 	// No need to specify ProfileEntryResponse in each TransactionFee
 	TransactionFees []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // TransferDAOCoinResponse ...
@@ -2567,7 +2777,10 @@ func (fes *APIServer) TransferDAOCoin(ww http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("TransferDAOCoin: Problem fetching utxoView: %v", err))
 		return
@@ -2707,6 +2920,8 @@ type DAOCoinLimitOrderCreationRequest struct {
 
 	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
 	TransactionFees      []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // CreateDAOCoinLimitOrder Constructs a transaction that creates a DAO coin limit order for the specified
@@ -2795,7 +3010,10 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: problem fetching utxoView: %v", err))
 		return
@@ -2897,6 +3115,8 @@ type DAOCoinMarketOrderCreationRequest struct {
 
 	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
 	TransactionFees      []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http.Request) {
@@ -2973,7 +3193,10 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: problem fetching utxoView: %v", err))
 		return
@@ -3036,8 +3259,8 @@ func (fes *APIServer) getBuyingAndSellingDAOCoinPublicKeys(
 	buyingDAOCoinCreatorPublicKeyBase58Check string,
 	sellingDAOCoinCreatorPublicKeyBase58Check string,
 ) ([]byte, []byte, error) {
-	if sellingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString &&
-		buyingDAOCoinCreatorPublicKeyBase58Check == DESOCoinIdentifierString {
+	if IsDesoPkid(sellingDAOCoinCreatorPublicKeyBase58Check) &&
+		IsDesoPkid(buyingDAOCoinCreatorPublicKeyBase58Check) {
 		return nil, nil, errors.Errorf("'DESO' specified for both the " +
 			"coin to buy and the coin to sell. At least one must specify a valid DAO public key whose coin " +
 			"will be bought or sold")
@@ -3048,14 +3271,14 @@ func (fes *APIServer) getBuyingAndSellingDAOCoinPublicKeys(
 
 	var err error
 
-	if buyingDAOCoinCreatorPublicKeyBase58Check != DESOCoinIdentifierString {
+	if !IsDesoPkid(buyingDAOCoinCreatorPublicKeyBase58Check) {
 		buyingCoinPublicKey, err = GetPubKeyBytesFromBase58Check(buyingDAOCoinCreatorPublicKeyBase58Check)
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 
-	if sellingDAOCoinCreatorPublicKeyBase58Check != DESOCoinIdentifierString {
+	if !IsDesoPkid(sellingDAOCoinCreatorPublicKeyBase58Check) {
 		sellingCoinPublicKey, err = GetPubKeyBytesFromBase58Check(sellingDAOCoinCreatorPublicKeyBase58Check)
 		if err != nil {
 			return nil, nil, err
@@ -3073,6 +3296,8 @@ type DAOCoinLimitOrderWithCancelOrderIDRequest struct {
 
 	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
 	TransactionFees      []TransactionFee `safeForLogging:"true"`
+
+	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
 // CancelDAOCoinLimitOrder Constructs a transaction that cancels an existing DAO coin limit order with the specified
@@ -3097,7 +3322,10 @@ func (fes *APIServer) CancelDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
+		fes.backendServer.GetMempool(),
+		requestData.OptionalPrecedingTransactions,
+	)
 	if err != nil {
 		_AddInternalServerError(ww, fmt.Sprintf("CancelDAOCoinLimitOrder: problem fetching utxoView: %v", err))
 		return
@@ -3255,6 +3483,28 @@ type AccessGroupMemberLimitMapItem struct {
 	OpCount                              uint64
 }
 
+type StakeLimitMapItem struct {
+	ValidatorPublicKeyBase58Check string
+	StakeLimit                    *uint256.Int
+}
+
+type UnstakeLimitMapItem struct {
+	ValidatorPublicKeyBase58Check string
+	UnstakeLimit                  *uint256.Int
+}
+
+type UnlockStakeLimitMapItem struct {
+	ValidatorPublicKeyBase58Check string
+	OpCount                       uint64
+}
+
+type LockupLimitMapItem struct {
+	ProfilePublicKeyBase58Check string
+	ScopeType                   lib.LockupLimitScopeTypeString
+	Operation                   lib.LockupLimitOperationString
+	OpCount                     uint64
+}
+
 // TransactionSpendingLimitResponse is a backend struct used to describe the TransactionSpendingLimit for a Derived key
 // in a way that can be JSON encoded/decoded.
 type TransactionSpendingLimitResponse struct {
@@ -3286,6 +3536,14 @@ type TransactionSpendingLimitResponse struct {
 	AccessGroupLimitMap []AccessGroupLimitMapItem
 	// AccessGroupMemberLimitMap is a slice of AccessGroupMemberLimitMapItems.
 	AccessGroupMemberLimitMap []AccessGroupMemberLimitMapItem
+	// StakeLimitMap is a slice of StakeLimitMapItems
+	StakeLimitMap []StakeLimitMapItem
+	// UnstakeLimitMap is a slice of UnstakeLimitMapItems
+	UnstakeLimitMap []UnstakeLimitMapItem
+	// UnlockStakeLimitMap is a slice of UnlockStakeLimitMapItems
+	UnlockStakeLimitMap []UnlockStakeLimitMapItem
+	// LockupLimitMap is a slice of LockupLimitMapItems
+	LockupLimitMap []LockupLimitMapItem
 
 	// ===== ENCODER MIGRATION lib.UnlimitedDerivedKeysMigration =====
 	// IsUnlimited determines whether this derived key is unlimited. An unlimited derived key can perform all transactions
@@ -3635,6 +3893,81 @@ func TransactionSpendingLimitToResponse(
 		}
 	}
 
+	if len(transactionSpendingLimit.StakeLimitMap) > 0 {
+		for stakeLimitKey, stakeLimit := range transactionSpendingLimit.StakeLimitMap {
+			var validatorPublicKeyBase58Check string
+			if !stakeLimitKey.ValidatorPKID.IsZeroPKID() {
+				validatorPublicKey := utxoView.GetPublicKeyForPKID(&stakeLimitKey.ValidatorPKID)
+				validatorPublicKeyBase58Check = lib.Base58CheckEncode(
+					validatorPublicKey, false, params,
+				)
+			}
+			transactionSpendingLimitResponse.StakeLimitMap = append(
+				transactionSpendingLimitResponse.StakeLimitMap,
+				StakeLimitMapItem{
+					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
+					StakeLimit:                    stakeLimit.Clone(),
+				},
+			)
+		}
+	}
+
+	if len(transactionSpendingLimit.UnstakeLimitMap) > 0 {
+		for unstakeLimitKey, unstakeLimit := range transactionSpendingLimit.UnstakeLimitMap {
+			var validatorPublicKeyBase58Check string
+			if !unstakeLimitKey.ValidatorPKID.IsZeroPKID() {
+				validatorPublicKey := utxoView.GetPublicKeyForPKID(&unstakeLimitKey.ValidatorPKID)
+				validatorPublicKeyBase58Check = lib.Base58CheckEncode(
+					validatorPublicKey, false, params,
+				)
+			}
+			transactionSpendingLimitResponse.UnstakeLimitMap = append(
+				transactionSpendingLimitResponse.UnstakeLimitMap,
+				UnstakeLimitMapItem{
+					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
+					UnstakeLimit:                  unstakeLimit.Clone(),
+				},
+			)
+		}
+	}
+
+	if len(transactionSpendingLimit.UnlockStakeLimitMap) > 0 {
+		for unlockStakeLimitKey, opCount := range transactionSpendingLimit.UnlockStakeLimitMap {
+			var validatorPublicKeyBase58Check string
+			if !unlockStakeLimitKey.ValidatorPKID.IsZeroPKID() {
+				validatorPublicKey := utxoView.GetPublicKeyForPKID(&unlockStakeLimitKey.ValidatorPKID)
+				validatorPublicKeyBase58Check = lib.Base58CheckEncode(
+					validatorPublicKey, false, params,
+				)
+			}
+			transactionSpendingLimitResponse.UnlockStakeLimitMap = append(
+				transactionSpendingLimitResponse.UnlockStakeLimitMap,
+				UnlockStakeLimitMapItem{
+					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
+					OpCount:                       opCount,
+				},
+			)
+		}
+	}
+
+	if len(transactionSpendingLimit.LockupLimitMap) > 0 {
+		for lockupLimitKey, opCount := range transactionSpendingLimit.LockupLimitMap {
+			var publicKeyBase58Check string
+			if !lockupLimitKey.ProfilePKID.IsZeroPKID() {
+				publicKeyBytes := utxoView.GetPublicKeyForPKID(&lockupLimitKey.ProfilePKID)
+				publicKeyBase58Check = lib.Base58CheckEncode(publicKeyBytes, false, params)
+			}
+			transactionSpendingLimitResponse.LockupLimitMap = append(
+				transactionSpendingLimitResponse.LockupLimitMap,
+				LockupLimitMapItem{
+					ProfilePublicKeyBase58Check: publicKeyBase58Check,
+					ScopeType:                   lockupLimitKey.ScopeType.ToScopeString(),
+					Operation:                   lockupLimitKey.Operation.ToOperationString(),
+					OpCount:                     opCount,
+				})
+		}
+	}
+
 	return transactionSpendingLimitResponse
 }
 
@@ -3795,6 +4128,68 @@ func (fes *APIServer) TransactionSpendingLimitFromResponse(
 				accessGroupMemberLimitMapItem.OperationType.ToAccessGroupMemberOperation(),
 			)
 			transactionSpendingLimit.AccessGroupMemberMap[accessGroupMemberLimitKey] = accessGroupMemberLimitMapItem.OpCount
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.StakeLimitMap) > 0 {
+		transactionSpendingLimit.StakeLimitMap = make(map[lib.StakeLimitKey]*uint256.Int)
+		for _, stakeLimitMapItem := range transactionSpendingLimitResponse.StakeLimitMap {
+			validatorPKID := &lib.ZeroPKID
+			if stakeLimitMapItem.ValidatorPublicKeyBase58Check != "" {
+				validatorPKID, err = getCreatorPKIDForBase58Check(stakeLimitMapItem.ValidatorPublicKeyBase58Check)
+				if err != nil {
+					return nil, err
+				}
+			}
+			stakeLimitKey := lib.MakeStakeLimitKey(validatorPKID)
+			transactionSpendingLimit.StakeLimitMap[stakeLimitKey] = stakeLimitMapItem.StakeLimit.Clone()
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.UnstakeLimitMap) > 0 {
+		transactionSpendingLimit.UnstakeLimitMap = make(map[lib.StakeLimitKey]*uint256.Int)
+		for _, unstakeLimitMapItem := range transactionSpendingLimitResponse.UnstakeLimitMap {
+			validatorPKID := &lib.ZeroPKID
+			if unstakeLimitMapItem.ValidatorPublicKeyBase58Check != "" {
+				validatorPKID, err = getCreatorPKIDForBase58Check(unstakeLimitMapItem.ValidatorPublicKeyBase58Check)
+				if err != nil {
+					return nil, err
+				}
+			}
+			unstakeLimitKey := lib.MakeStakeLimitKey(validatorPKID)
+			transactionSpendingLimit.UnstakeLimitMap[unstakeLimitKey] = unstakeLimitMapItem.UnstakeLimit.Clone()
+		}
+	}
+
+	if len(transactionSpendingLimitResponse.UnlockStakeLimitMap) > 0 {
+		transactionSpendingLimit.UnlockStakeLimitMap = make(map[lib.StakeLimitKey]uint64)
+		for _, unlockStakeLimitMapItem := range transactionSpendingLimitResponse.UnlockStakeLimitMap {
+			validatorPKID := &lib.ZeroPKID
+			if unlockStakeLimitMapItem.ValidatorPublicKeyBase58Check != "" {
+				validatorPKID, err = getCreatorPKIDForBase58Check(unlockStakeLimitMapItem.ValidatorPublicKeyBase58Check)
+				if err != nil {
+					return nil, err
+				}
+			}
+			unlockStakeLimitKey := lib.MakeStakeLimitKey(validatorPKID)
+			transactionSpendingLimit.UnlockStakeLimitMap[unlockStakeLimitKey] = unlockStakeLimitMapItem.OpCount
+		}
+	}
+	if len(transactionSpendingLimitResponse.LockupLimitMap) > 0 {
+		transactionSpendingLimit.LockupLimitMap = make(map[lib.LockupLimitKey]uint64)
+		for _, lockupLimitMapItem := range transactionSpendingLimitResponse.LockupLimitMap {
+			profilePKID := &lib.ZeroPKID
+			if lockupLimitMapItem.ProfilePublicKeyBase58Check != "" {
+				profilePKID, err = getCreatorPKIDForBase58Check(lockupLimitMapItem.ProfilePublicKeyBase58Check)
+				if err != nil {
+					return nil, err
+				}
+			}
+			transactionSpendingLimit.LockupLimitMap[lib.MakeLockupLimitKey(
+				*profilePKID,
+				lockupLimitMapItem.ScopeType.ToScopeType(),
+				lockupLimitMapItem.Operation.ToOperationType(),
+			)] = lockupLimitMapItem.OpCount
 		}
 	}
 
@@ -4008,8 +4403,8 @@ func (fes *APIServer) simulateSubmitTransaction(utxoView *lib.UtxoView, txn *lib
 	return utxoView.ConnectTransaction(
 		txn,
 		txn.Hash(),
-		0,
 		bestHeight,
+		time.Now().UnixNano(),
 		false,
 		false,
 	)
@@ -4051,4 +4446,54 @@ func (fes *APIServer) GetSignatureIndex(ww http.ResponseWriter, req *http.Reques
 		_AddBadRequestError(ww, fmt.Sprintf("GetSignatureIndex: Problem encoding response as JSON: %v", err))
 	}
 	return
+}
+
+type GetTxnConstructionParamsRequest struct {
+	MinFeeRateNanosPerKB uint64
+}
+
+type GetTxnConstructionParamsResponse struct {
+	FeeRateNanosPerKB uint64
+	BlockHeight       uint64
+}
+
+func (fes *APIServer) GetTxnConstructionParams(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(req.Body)
+	requestData := GetTxnConstructionParamsRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, "GetTxnConstructionParams: Problem parsing request body: "+err.Error())
+		return
+	}
+
+	// Get the fees from the mempool
+	feeRate := fes.backendServer.GetMempool().EstimateFeeRate(requestData.MinFeeRateNanosPerKB)
+	// Return the fees
+	if err := json.NewEncoder(ww).Encode(GetTxnConstructionParamsResponse{
+		FeeRateNanosPerKB: feeRate,
+		BlockHeight:       uint64(fes.backendServer.GetBlockchain().BlockTip().Height),
+	}); err != nil {
+		_AddBadRequestError(ww, "GetTxnConstructionParams: Problem encoding response as JSON: "+err.Error())
+		return
+	}
+}
+
+func (fes *APIServer) GetCommittedTipBlockInfo(ww http.ResponseWriter, req *http.Request) {
+	// Get the block tip from the blockchain.
+	fes.backendServer.GetBlockchain().ChainLock.RLock()
+	blockTip, idx := fes.backendServer.GetBlockchain().GetCommittedTip()
+	fes.backendServer.GetBlockchain().ChainLock.RUnlock()
+	if idx == -1 {
+		_AddBadRequestError(ww, "GetCommittedTipBlockInfo: Problem getting block tip")
+		return
+	}
+	// Return the block tip.
+	if err := json.NewEncoder(ww).Encode(&lib.CheckpointBlockInfo{
+		Height:     blockTip.Header.Height,
+		Hash:       blockTip.Hash,
+		HashHex:    blockTip.Hash.String(),
+		LatestView: fes.backendServer.GetLatestView(),
+	}); err != nil {
+		_AddBadRequestError(ww, "GetCommittedTipBlockInfo: Problem encoding response as JSON: "+err.Error())
+		return
+	}
 }

@@ -112,6 +112,13 @@ func init() {
 	runCmd.PersistentFlags().String("amplitude-key", "", "Client-side amplitude key for instrumenting user behavior.")
 	runCmd.PersistentFlags().String("amplitude-domain", "api.amplitude.com", "Client-side amplitude API Endpoint.")
 
+	// Transactions
+	runCmd.PersistentFlags().Int("max-optional-preceding-transactions", 0,
+		"If set, enables certain transaction construction "+
+			"endpoints to accept transactions that should be connected "+
+			"before constructing the specified transaction. "+
+			"Setting this flag can aid in workflows that deal with atomic transaction construction.")
+
 	// User Interface
 	runCmd.PersistentFlags().String("support-email", "", "Show a support email to users of this node")
 	runCmd.PersistentFlags().Bool("show-processing-spinners", false,

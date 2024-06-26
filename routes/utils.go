@@ -2,7 +2,12 @@ package routes
 
 import (
 	"encoding/hex"
+	"encoding/json"
+	"io"
+	"net/http"
+
 	"github.com/deso-protocol/core/lib"
+	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 )
 
@@ -22,4 +27,30 @@ func decodeBlockHashFromHex(hexEncoding string) (*lib.BlockHash, error) {
 		return nil, errors.Errorf("the hex encoded string %v does not decode into a valid block hash", hexEncoding)
 	}
 	return lib.NewBlockHash(decodedBytes), nil
+}
+
+func parseRequestBodyParams[TRequestParams any](request *http.Request) (*TRequestParams, error) {
+	var requestParams TRequestParams
+
+	decoder := json.NewDecoder(io.LimitReader(request.Body, MaxRequestBodySizeBytes))
+	if err := decoder.Decode(&requestParams); err != nil {
+		return nil, errors.Errorf("Error parsing request body: %v", err)
+	}
+
+	return &requestParams, nil
+}
+
+func parseRequestQueryParams[TRequestParams any](request *http.Request) (*TRequestParams, error) {
+	var requestParams TRequestParams
+
+	serializedJson, err := json.Marshal(mux.Vars(request))
+	if err != nil {
+		return nil, err
+	}
+
+	if err := json.Unmarshal(serializedJson, requestParams); err != nil {
+		return nil, err
+	}
+
+	return &requestParams, nil
 }

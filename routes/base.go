@@ -150,14 +150,14 @@ func (fes *APIServer) GetBlockchainDotComExchangeRate() (_exchangeRate float64, 
 		url := "https://api.blockchain.com/v3/exchange/tickers/CLOUT-USD"
 		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
-			glog.Errorf("GetBlockchainDotComExchangeRate: Problem creating request: %v", err)
+			glog.V(2).Infof("GetBlockchainDotComExchangeRate: Problem creating request: %v", err)
 			continue
 		}
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			glog.Errorf("GetBlockchainDotComExchangeRate: Problem with HTTP request %s: %v", url, err)
+			glog.V(2).Infof("GetBlockchainDotComExchangeRate: Problem with HTTP request %s: %v", url, err)
 			continue
 		}
 		defer resp.Body.Close()
@@ -167,7 +167,7 @@ func (fes *APIServer) GetBlockchainDotComExchangeRate() (_exchangeRate float64, 
 		responseData := &BlockchainDeSoTickerResponse{}
 		decoder := json.NewDecoder(bytes.NewReader(body))
 		if err = decoder.Decode(responseData); err != nil {
-			glog.Errorf("GetBlockchainDotComExchangeRate: Problem decoding response JSON into "+
+			glog.V(2).Infof("GetBlockchainDotComExchangeRate: Problem decoding response JSON into "+
 				"interface %v, response: %v, error: %v", responseData, resp, err)
 			continue
 		}
@@ -179,13 +179,13 @@ func (fes *APIServer) GetBlockchainDotComExchangeRate() (_exchangeRate float64, 
 	}
 	blockchainDotComExchangeRate, err := stats.Max(exchangeRatesFetched)
 	if err != nil {
-		glog.Errorf("GetBlockchainDotComExchangeRate: Problem getting max from list of float64s: %v", err)
+		glog.V(2).Infof("GetBlockchainDotComExchangeRate: Problem getting max from list of float64s: %v", err)
 		return 0, err
 	}
-	glog.Infof("Blockchain exchange rate: %v %v", blockchainDotComExchangeRate, exchangeRatesFetched)
+	glog.V(2).Infof("Blockchain exchange rate: %v %v", blockchainDotComExchangeRate, exchangeRatesFetched)
 	if fes.backendServer != nil && fes.backendServer.GetStatsdClient() != nil {
 		if err = fes.backendServer.GetStatsdClient().Gauge("BLOCKCHAIN_LAST_TRADE_PRICE", blockchainDotComExchangeRate, []string{}, 1); err != nil {
-			glog.Errorf("GetBlockchainDotComExchangeRate: Error logging Last Trade Price of %f to datadog: %v", blockchainDotComExchangeRate, err)
+			glog.V(2).Infof("GetBlockchainDotComExchangeRate: Error logging Last Trade Price of %f to datadog: %v", blockchainDotComExchangeRate, err)
 		}
 	}
 	return blockchainDotComExchangeRate, nil
@@ -243,18 +243,18 @@ func (fes *APIServer) GetCoinbaseExchangeRate() (_exchangeRate float64, _err err
 
 // UpdateUSDCentsToDeSoExchangeRate updates app state's USD Cents per DeSo value
 func (fes *APIServer) UpdateUSDCentsToDeSoExchangeRate() {
-	glog.Infof("Refreshing exchange rate...")
+	glog.V(2).Info("Refreshing exchange rate...")
 
 	// Fetch price from blockchain.com
 	blockchainDotComPrice, err := fes.GetBlockchainDotComExchangeRate()
-	glog.Infof("Blockchain.com price (USD cents): %v", blockchainDotComPrice)
+	glog.V(2).Infof("Blockchain.com price (USD cents): %v", blockchainDotComPrice)
 	if err != nil {
 		glog.Errorf("UpdateUSDCentsToDeSoExchangeRate: Error fetching exchange rate from blockchain.com: %v", err)
 	}
 
 	// Fetch price from coinbase
 	coinbasePrice, err := fes.GetCoinbaseExchangeRate()
-	glog.Infof("Coinbase price (USD Cents): %v", coinbasePrice)
+	glog.V(2).Infof("Coinbase price (USD Cents): %v", coinbasePrice)
 	if err != nil {
 		glog.Errorf("UpdateUSDCentsToDeSoExchangeRate: Error fetching exchange rate from coinbase: %v", err)
 	}
@@ -283,29 +283,29 @@ func (fes *APIServer) UpdateUSDCentsToDeSoExchangeRate() {
 		fes.UsdCentsPerDeSoExchangeRate = maxPrice
 	}
 
-	glog.Infof("Final exchange rate: %v", fes.UsdCentsPerDeSoExchangeRate)
+	glog.V(2).Infof("Final exchange rate: %v", fes.UsdCentsPerDeSoExchangeRate)
 }
 
 func (fes *APIServer) UpdateUSDToBTCPrice() {
-	glog.Info("Refreshing USD to BTC exchange rate")
+	glog.V(2).Info("Refreshing USD to BTC exchange rate")
 	btcExchangeRate, err := GetUSDToBTCPrice()
 	if err != nil {
 		glog.Errorf("Error getting BTC price: %v", err)
 		return
 	}
 	fes.UsdCentsPerBitCoinExchangeRate = btcExchangeRate * 100
-	glog.Infof("New USD to BTC exchange rate: %f", fes.UsdCentsPerBitCoinExchangeRate/100)
+	glog.V(2).Infof("New USD to BTC exchange rate: %f", fes.UsdCentsPerBitCoinExchangeRate/100)
 }
 
 func (fes *APIServer) UpdateUSDToETHPrice() {
-	glog.Info("Refreshing USD to ETH exchange rate")
+	glog.V(2).Info("Refreshing USD to ETH exchange rate")
 	ethExchangeRate, err := apis.GetUSDToETHPrice()
 	if err != nil {
 		glog.Errorf("Error getting ETH price: %v", err)
 		return
 	}
 	fes.UsdCentsPerETHExchangeRate = uint64(ethExchangeRate * 100)
-	glog.Infof("New USD to ETH exchange rate: %f", float64(fes.UsdCentsPerETHExchangeRate)/100)
+	glog.V(2).Infof("New USD to ETH exchange rate: %f", float64(fes.UsdCentsPerETHExchangeRate)/100)
 }
 
 // getMaxPriceFromHistoryAndCull removes elements that are outside of the lookback window and return the max price
@@ -389,7 +389,7 @@ func (fes *APIServer) GetAppState(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Compute a default fee rate.
-	globalParams := utxoView.GlobalParamsEntry
+	globalParams := utxoView.GetCurrentGlobalParamsEntry()
 	defaultFeeRateNanosPerKB := fes.MinFeeRateNanosPerKB
 	if globalParams != nil && globalParams.MinimumNetworkFeeNanosPerKB > 0 {
 		defaultFeeRateNanosPerKB = globalParams.MinimumNetworkFeeNanosPerKB

@@ -31,7 +31,7 @@ var (
 	IsBlacklisted = []byte{1}
 )
 
-const NodeVersion = "3.4.5"
+const NodeVersion = "4.0.0"
 
 const (
 	// RoutePathAPIBase ...
@@ -143,7 +143,8 @@ func _headerToResponse(header *lib.MsgDeSoHeader, hash string) *HeaderResponse {
 		Version:                  header.Version,
 		PrevBlockHashHex:         header.PrevBlockHash.String(),
 		TransactionMerkleRootHex: header.TransactionMerkleRoot.String(),
-		TstampSecs:               header.TstampSecs,
+		TstampSecs:               header.GetTstampSecs(),
+		TstampNanoSecs:           header.TstampNanoSecs,
 		Height:                   header.Height,
 		Nonce:                    header.Nonce,
 		ExtraNonce:               header.ExtraNonce,
@@ -377,7 +378,7 @@ func (fes *APIServer) APIBalance(ww http.ResponseWriter, rr *http.Request) {
 	}
 
 	// Get all the UTXOs for the public key.
-	utxoView, err := fes.mempool.GetAugmentedUtxoViewForPublicKey(publicKeyBytes, nil)
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUtxoViewForPublicKey(publicKeyBytes, nil)
 	if err != nil {
 		APIAddError(ww, fmt.Sprintf("APIBalanceRequest: Problem getting UTXOs for public key: %v", err))
 		return
@@ -639,6 +640,11 @@ func APITransactionToResponse(
 		basicMetadata := *txnMeta.BasicTransferTxindexMetadata
 		basicMetadata.UtxoOps = nil
 		txnMetaResponse.BasicTransferTxindexMetadata = &basicMetadata
+		if txnMeta.AtomicTxnsWrapperTxindexMetadata != nil {
+			for _, innerMetadata := range txnMeta.AtomicTxnsWrapperTxindexMetadata.InnerTxnsTransactionMetadata {
+				innerMetadata.BasicTransferTxindexMetadata.UtxoOps = nil
+			}
+		}
 	}
 
 	txnBytes, _ := txnn.ToBytes(false /*preSignature*/)
@@ -677,7 +683,7 @@ func APITransactionToResponse(
 	if block != nil && block.Header != nil {
 		ret.BlockInfo = &TransactionBlockInfo{
 			Height:        block.Header.Height,
-			TimestampSecs: block.Header.TstampSecs,
+			TimestampSecs: uint64(block.Header.GetTstampSecs()),
 		}
 	}
 
@@ -775,8 +781,7 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 		// Create a MAX transaction
 		txnn, totalInputt, spendAmountt, feeNanoss, err = fes.blockchain.CreateMaxSpend(
 			senderPublicKeyBytes, recipientPub.SerializeCompressed(), nil,
-			uint64(minFeeRateNanosPerKB),
-			fes.backendServer.GetMempool(), additionalOutputs)
+			uint64(minFeeRateNanosPerKB), fes.backendServer.GetMempool(), additionalOutputs)
 		if err != nil {
 			APIAddError(ww, fmt.Sprintf("APITransferDeSo: Error processing MAX transaction: %v", err))
 			return
@@ -979,11 +984,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	// IsMempool means we should just return all of the transactions that are currently in the mempool.
 	if transactionInfoRequest.IsMempool {
 		// Get all the txns from the mempool.
-		poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
-		if err != nil {
-			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error getting txns from mempool: %v", err))
-			return
-		}
+		poolTxns := fes.backendServer.GetMempool().GetOrderedTransactions()
 
 		res := &APITransactionInfoResponse{}
 		res.Transactions = []*TransactionResponse{}
@@ -1050,7 +1051,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 
 		if txn == nil {
 			// Try to look the transaction up in the mempool before giving up.
-			txnInPool := fes.mempool.GetTransaction(txID)
+			txnInPool := fes.backendServer.GetMempool().GetMempoolTx(txID)
 			if txnInPool == nil {
 				APIAddError(ww, fmt.Sprintf("APITransactionInfo: Could not find transaction with TransactionIDBase58Check = %s",
 					transactionInfoRequest.TransactionIDBase58Check))
@@ -1165,11 +1166,7 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	if transactionInfoRequest.LastPublicKeyTransactionIndex <= 0 {
 
 		// Start with the mempool
-		poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
-		if err != nil {
-			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Error getting txns from mempool: %v", err))
-			return
-		}
+		poolTxns := fes.backendServer.GetMempool().GetOrderedTransactions()
 
 		// Go from most recent to least recent
 		// TODO: Support pagination for mempool transactions
@@ -1280,7 +1277,10 @@ type HeaderResponse struct {
 	TransactionMerkleRootHex string
 	// The unix timestamp (in seconds) specifying when this block was
 	// mined.
-	TstampSecs uint64
+	TstampSecs int64
+	// The unix timestamp (in nanoseconds) specifying when this block was
+	// mined.
+	TstampNanoSecs int64
 	// The height of the block this header corresponds to.
 	Height uint64
 
@@ -1420,6 +1420,8 @@ func (fes *APIServer) _processTransactionWithKey(
 		// transaction will be mined at the earliest.
 		blockHeight+1,
 		true,
+		// TODO: Do we want to use fes.backendServer.GetMempool here?
+		// There are probably other updates we need to make here for PoS as well.
 		fes.mempool)
 	if err != nil {
 		return fmt.Errorf("_processTransactionWithKey: Problem validating txn: %v", err)
@@ -1453,7 +1455,7 @@ func (fes *APIServer) _augmentAndProcessTransactionWithSubsidyWithKey(
 	// return an error.
 	totalInput, spendAmount, changeAmount, fees, err :=
 		fes.blockchain.AddInputsAndChangeToTransactionWithSubsidy(txn, minFeeRateNanosPerKB,
-			inputSubsidy, fes.mempool, 0)
+			inputSubsidy, fes.backendServer.GetMempool(), 0)
 	if err != nil {
 		return 0, 0, 0, 0, fmt.Errorf("_augmentAndProcessTransactionWithKey: Problem adding inputs and "+
 			"change to transaction %v: %v", txn, err)

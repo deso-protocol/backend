@@ -15,11 +15,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/holiman/uint256"
-
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/dgraph-io/badger/v3"
 	"github.com/gorilla/mux"
+	"github.com/holiman/uint256"
 
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
@@ -99,7 +98,7 @@ func (fes *APIServer) updateUsersStateless(userList []*User, skipForLeaderboard 
 	if err != nil {
 		return nil, fmt.Errorf("updateUserFields: Error calling GetAugmentedUtxoViewForPublicKey: %v", err)
 	}
-	globalParams := utxoView.GlobalParamsEntry
+	globalParams := utxoView.GetCurrentGlobalParamsEntry()
 	for _, user := range userList {
 		// If we get an error updating the user, log it but don't stop the show.
 		if err = fes.updateUserFieldsStateless(
@@ -136,7 +135,7 @@ func (fes *APIServer) updateUserFieldsStateless(user *User, utxoView *lib.UtxoVi
 
 	// We do not need a user's balance for the leaderboard
 	if !skipForLeaderboard || includeBalance {
-		if getUnminedBalance {
+		if getUnminedBalance && fes.blockchain.BlockTip().Height < utxoView.Params.ForkHeights.BalanceModelBlockHeight {
 			// Get the UtxoEntries from the augmented view
 			utxoEntries, err := fes.blockchain.GetSpendableUtxosForPublicKey(
 				publicKeyBytes, fes.backendServer.GetMempool(), utxoView)
@@ -364,7 +363,7 @@ func (fes *APIServer) _balanceEntryToResponse(
 		// CreatorCoins can't exceed uint64
 		BalanceNanos: balanceEntry.BalanceNanos.Uint64(),
 		// Use this value for DAO Coins balances
-		BalanceNanosUint256: balanceEntry.BalanceNanos,
+		BalanceNanosUint256: &balanceEntry.BalanceNanos,
 		NetBalanceInMempool: int64(balanceEntry.BalanceNanos.Uint64()) - int64(dbBalanceNanos),
 
 		// If the profile is nil, this will be nil
@@ -641,10 +640,11 @@ type CoinEntryResponse struct {
 }
 
 type DAOCoinEntryResponse struct {
-	NumberOfHolders           uint64
-	CoinsInCirculationNanos   uint256.Int
-	MintingDisabled           bool
-	TransferRestrictionStatus TransferRestrictionStatusString
+	NumberOfHolders                 uint64
+	CoinsInCirculationNanos         *uint256.Int
+	MintingDisabled                 bool
+	TransferRestrictionStatus       TransferRestrictionStatusString
+	LockupTransferRestrictionStatus TransferRestrictionStatusString
 }
 
 // GetProfiles ...
@@ -1056,10 +1056,12 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		},
 		DAOCoinEntry: &DAOCoinEntryResponse{
 			NumberOfHolders:         profileEntry.DAOCoinEntry.NumberOfHolders,
-			CoinsInCirculationNanos: profileEntry.DAOCoinEntry.CoinsInCirculationNanos,
+			CoinsInCirculationNanos: &profileEntry.DAOCoinEntry.CoinsInCirculationNanos,
 			MintingDisabled:         profileEntry.DAOCoinEntry.MintingDisabled,
 			TransferRestrictionStatus: getTransferRestrictionStatusStringFromTransferRestrictionStatus(
 				profileEntry.DAOCoinEntry.TransferRestrictionStatus),
+			LockupTransferRestrictionStatus: getTransferRestrictionStatusStringFromTransferRestrictionStatus(
+				profileEntry.DAOCoinEntry.LockupTransferRestrictionStatus),
 		},
 		CoinPriceDeSoNanos:             coinPriceDeSoNanos,
 		CoinPriceBitCloutNanos:         coinPriceDeSoNanos,
@@ -1417,7 +1419,7 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 			requestData.SortType == TopHodlerSortTypeCoinBalance {
 
 			if requestData.IsDAOCoin {
-				return hodlList[ii].BalanceNanosUint256.Gt(&hodlList[jj].BalanceNanosUint256)
+				return hodlList[ii].BalanceNanosUint256.Gt(hodlList[jj].BalanceNanosUint256)
 			}
 			return hodlList[ii].BalanceNanos > hodlList[jj].BalanceNanos
 		} else if requestData.SortType == TopHodlerSortTypeWealth {
@@ -1474,6 +1476,120 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetHodlersForPublicKey: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+type GetTokenBalancesForPublicKeyRequest struct {
+	// The public key we're fetching balances for
+	UserPublicKey string `safeForLogging:"true"`
+
+	// A list of public keys of the crators whose coins we want to fetch
+	// the balance of for the user. For DESO,
+	// can specify either "DESO" or the ZeroPkid via base58check encoding.
+	// Either will work.
+	CreatorPublicKeys []string
+
+	// If unset, defaults to TxnStatusInMempool
+	TxnStatus TxnStatus `safeForLogging:"true"`
+}
+
+type SimpleTokenBalanceResponse struct {
+	// The public key of the user whose balance we're fetching
+	UserPublicKeyBase58Check string
+	// The public key of the user whose coin we're fetching the balance of
+	CreatorPublicKeyBase58Check string
+
+	// A base-10 encoded string of the balance in base units, which is internally
+	// represented as a uint256
+	BalanceBaseUnits string
+}
+
+type GetTokenBalancesForPublicKeyResponse struct {
+	Balances map[string]*SimpleTokenBalanceResponse
+}
+
+func (fes *APIServer) GetTokenBalancesForPublicKey(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetTokenBalancesForPublicKeyRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetTokenBalancesForPublicKey: Problem parsing request body: %v", err))
+		return
+	}
+
+	txnStatus := requestData.TxnStatus
+	if txnStatus == "" {
+		txnStatus = TxnStatusInMempool
+	}
+	// Get a view based on the txnStatus
+	utxoView, err := fes.GetUtxoViewGivenTxnStatus(txnStatus)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTokenBalancesForPublicKey: Error getting utxoView: %v", err))
+		return
+	}
+
+	// Decode the public key for which we are fetching balances
+	if requestData.UserPublicKey == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTokenBalancesForPublicKey: Missing UserPublicKey"))
+		return
+	}
+	userPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.UserPublicKey)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTokenBalancesForPublicKey: Problem decoding user public key: %v", err))
+		return
+	}
+	if len(requestData.CreatorPublicKeys) == 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTokenBalancesForPublicKey: Missing CreatorPublicKeys"))
+		return
+	}
+
+	balancesMap := make(map[string]*SimpleTokenBalanceResponse)
+	for _, creatorPublicKeyStr := range requestData.CreatorPublicKeys {
+		// Deso is a special case
+		if IsDesoPkid(creatorPublicKeyStr) {
+			desoNanos, err := utxoView.GetDeSoBalanceNanosForPublicKey(userPublicKeyBytes)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("GetTokenBalancesForPublicKey: Problem getting DESO balance: %v", err))
+				return
+			}
+			// When we're dealing with DESO, we use whatever identifier they passed
+			// in as the key. This is the most convenient thing to do for the caller.
+			// If we instead always returned DESO as the key then they would have to
+			// accommodate that, which would be annoying.
+			balancesMap[creatorPublicKeyStr] = &SimpleTokenBalanceResponse{
+				UserPublicKeyBase58Check:    requestData.UserPublicKey,
+				CreatorPublicKeyBase58Check: creatorPublicKeyStr,
+				BalanceBaseUnits:            strconv.FormatUint(desoNanos, 10),
+			}
+			continue
+		}
+		creatorPkBytes, _, err := lib.Base58CheckDecode(creatorPublicKeyStr)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"GetTokenBalancesForPublicKey: Problem decoding creator public key: %v", err))
+			return
+		}
+
+		balanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(
+			userPublicKeyBytes, creatorPkBytes, true)
+		if balanceEntry == nil || balanceEntry.IsDeleted() {
+			balanceEntry = &lib.BalanceEntry{}
+		}
+		// Convert balanceEntry uint256 to string
+		balancesMap[creatorPublicKeyStr] = &SimpleTokenBalanceResponse{
+			UserPublicKeyBase58Check:    requestData.UserPublicKey,
+			CreatorPublicKeyBase58Check: creatorPublicKeyStr,
+			BalanceBaseUnits:            balanceEntry.BalanceNanos.String(),
+		}
+	}
+
+	res := &GetTokenBalancesForPublicKeyResponse{
+		Balances: balancesMap,
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetTokenBalancesForPublicKey: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
@@ -2535,10 +2651,7 @@ func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest,
 		//
 		// TODO(performance): This could get slow if the mempool gets big. Fix is to organize everything
 		// in the mempool by public key and only look up transactions that are relevant to this public key.
-		poolTxns, _, err := fes.mempool.GetTransactionsOrderedByTimeAdded()
-		if err != nil {
-			return nil, errors.Errorf("APITransactionInfo: Error getting txns from mempool: %v", err)
-		}
+		poolTxns := fes.backendServer.GetMempool().GetOrderedTransactions()
 
 		mempoolTxnMetadata := []*TransactionMetadataResponse{}
 		for _, poolTx := range poolTxns {
@@ -2634,7 +2747,7 @@ func (fes *APIServer) _getNotificationsCount(request *GetNotificationsRequest) (
 
 	// A valid mempool object is used to compute the TransactionMetadata for the mempool
 	// and to allow for things like: filtering notifications for a hidden post.
-	utxoView, err := fes.mempool.GetAugmentedUniversalView()
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return 0, 0, errors.Errorf("GetNotifications: Problem getting view: %v", err)
 	}
@@ -2688,7 +2801,7 @@ func (fes *APIServer) _getNotifications(request *GetNotificationsRequest) ([]*Tr
 
 	// A valid mempool object is used to compute the TransactionMetadata for the mempool
 	// and to allow for things like: filtering notifications for a hidden post.
-	utxoView, err := fes.mempool.GetAugmentedUniversalView()
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return nil, nil, errors.Errorf("GetNotifications: Problem getting view: %v", err)
 	}

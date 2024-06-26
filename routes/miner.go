@@ -96,15 +96,20 @@ func (fes *APIServer) GetBlockTemplate(ww http.ResponseWriter, req *http.Request
 		return
 	}
 
+	difficultyTargetHex := ""
+	if diffTarget != nil {
+		difficultyTargetHex = hex.EncodeToString(diffTarget[:])
+	}
+
 	res := &GetBlockTemplateResponse{
 		BlockID:                  blockID,
 		Headers:                  headers,
 		ExtraDatas:               extraDatas,
-		DifficultyTargetHex:      hex.EncodeToString(diffTarget[:]),
+		DifficultyTargetHex:      difficultyTargetHex,
 		LatestBlockTemplateStats: fes.blockProducer.GetLatestBlockTemplateStats(),
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetBlockTemplate: Problem encoding response as JSON: %v", err))
 		return
 	}
@@ -167,7 +172,7 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 	blockFound.Txns[0].TxOutputs[0].PublicKey = pkBytes
 	blockFound.Txns[0].TxnMeta.(*lib.BlockRewardMetadataa).ExtraData = lib.UintToBuf(requestData.ExtraData)
 
-	blockFound, err = lib.RecomputeBlockRewardWithBlockRewardOutputPublicKey(blockFound, pkBytes)
+	blockFound, err = lib.RecomputeBlockRewardWithBlockRewardOutputPublicKey(blockFound, pkBytes, fes.Params)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitBlock: Problem recomputing block reward: %v", err))
 		return
@@ -192,7 +197,7 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 	// TODO: Signature checking slows things down because it acquires the ChainLock.
 	// The optimal solution is to check signatures in a way that doesn't acquire the
 	// ChainLock, which is what Bitcoin Core does.
-	isMainChain, isOrphan, err := fes.blockchain.ProcessBlock(
+	isMainChain, isOrphan, _, err := fes.blockchain.ProcessBlock(
 		blockFound, true /*verifySignatures*/)
 	glog.V(1).Infof("Called ProcessBlock/ConnectBlock: isMainChain=(%v), isOrphan=(%v), err=(%v)",
 		isMainChain, isOrphan, err)
