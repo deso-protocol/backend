@@ -1176,6 +1176,8 @@ func (fes *APIServer) GetPostsHashHexList(ww http.ResponseWriter, req *http.Requ
 
 		postEntryResponses = append(postEntryResponses, postEntryResponse)
 
+		postEntryResponse.PostEntryReaderState = utxoView.GetPostEntryReaderState(readerPublicKeyBytes, postEntry)
+
 	}
 
 	if requestData.OrderBy == "newest" {
