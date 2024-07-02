@@ -1222,6 +1222,78 @@ type SendDeSoResponse struct {
 	TxnHashHex               string
 }
 
+func (fes *APIServer) CreateSendDesoTxn(
+	amountNanos int64,
+	senderPkBytes []byte,
+	recipientPkBytes []byte,
+	extraData map[string][]byte,
+	minFeeRateNanosPerKb uint64,
+	additionalOutputs []*lib.DeSoOutput,
+) (
+	_txn *lib.MsgDeSoTxn,
+	_totalInput uint64,
+	_spendAmount uint64,
+	_changeAmount uint64,
+	_feeNanos uint64,
+	_err error,
+) {
+	// If the AmountNanos is less than zero then we have a special case where we create
+	// a transaction with the maximum spend.
+	var txnn *lib.MsgDeSoTxn
+	var totalInputt uint64
+	var spendAmountt uint64
+	var changeAmountt uint64
+	var feeNanoss uint64
+	var err error
+	if amountNanos < 0 {
+		// Create a MAX transaction
+		txnn, totalInputt, spendAmountt, feeNanoss, err = fes.blockchain.CreateMaxSpend(
+			senderPkBytes, recipientPkBytes, extraData, minFeeRateNanosPerKb,
+			fes.backendServer.GetMempool(), additionalOutputs)
+		if err != nil {
+			return nil, 0, 0, 0, 0, fmt.Errorf("CreateSendDesoTxn: Error creating max spend: %v", err)
+		}
+
+	} else {
+		// In this case, we are spending what the user asked us to spend as opposed to
+		// spending the maximum amount possible.
+
+		// Create the transaction outputs and add the recipient's public key and the
+		// amount we want to pay them
+		txnOutputs := append(additionalOutputs, &lib.DeSoOutput{
+			PublicKey: recipientPkBytes,
+			// If we get here we know the amount is non-negative.
+			AmountNanos: uint64(amountNanos),
+		})
+
+		// Assemble the transaction so that inputs can be found and fees can
+		// be computed.
+		txnn = &lib.MsgDeSoTxn{
+			// The inputs will be set below.
+			TxInputs:  []*lib.DeSoInput{},
+			TxOutputs: txnOutputs,
+			PublicKey: senderPkBytes,
+			TxnMeta:   &lib.BasicTransferMetadata{},
+			// We wait to compute the signature until we've added all the
+			// inputs and change.
+		}
+
+		if len(extraData) > 0 {
+			txnn.ExtraData = extraData
+		}
+
+		// Add inputs to the transaction and do signing, validation, and broadcast
+		// depending on what the user requested.
+		totalInputt, spendAmountt, changeAmountt, feeNanoss, err =
+			fes.blockchain.AddInputsAndChangeToTransaction(
+				txnn, minFeeRateNanosPerKb, fes.backendServer.GetMempool())
+		if err != nil {
+			return nil, 0, 0, 0, 0, fmt.Errorf("CreateSendDesoTxn: Error adding inputs and change to transaction: %v", err)
+		}
+	}
+	return txnn, totalInputt, spendAmountt, changeAmountt, feeNanoss, nil
+}
+
 // SendDeSo ...
 func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
@@ -1291,61 +1363,13 @@ func (fes *APIServer) SendDeSo(ww http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// If the AmountNanos is less than zero then we have a special case where we create
-	// a transaction with the maximum spend.
-	var txnn *lib.MsgDeSoTxn
-	var totalInputt uint64
-	var spendAmountt uint64
-	var changeAmountt uint64
-	var feeNanoss uint64
-	if requestData.AmountNanos < 0 {
-		// Create a MAX transaction
-		txnn, totalInputt, spendAmountt, feeNanoss, err = fes.blockchain.CreateMaxSpend(
-			senderPkBytes, recipientPkBytes, extraData, requestData.MinFeeRateNanosPerKB,
-			fes.backendServer.GetMempool(), additionalOutputs)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error processing MAX transaction: %v", err))
-			return
-		}
-
-	} else {
-		// In this case, we are spending what the user asked us to spend as opposed to
-		// spending the maximum amount possible.
-
-		// Create the transaction outputs and add the recipient's public key and the
-		// amount we want to pay them
-		txnOutputs := append(additionalOutputs, &lib.DeSoOutput{
-			PublicKey: recipientPkBytes,
-			// If we get here we know the amount is non-negative.
-			AmountNanos: uint64(requestData.AmountNanos),
-		})
-
-		// Assemble the transaction so that inputs can be found and fees can
-		// be computed.
-		txnn = &lib.MsgDeSoTxn{
-			// The inputs will be set below.
-			TxInputs:  []*lib.DeSoInput{},
-			TxOutputs: txnOutputs,
-			PublicKey: senderPkBytes,
-			TxnMeta:   &lib.BasicTransferMetadata{},
-			// We wait to compute the signature until we've added all the
-			// inputs and change.
-		}
-
-		if len(extraData) > 0 {
-			txnn.ExtraData = extraData
-		}
-
-		// Add inputs to the transaction and do signing, validation, and broadcast
-		// depending on what the user requested.
-		totalInputt, spendAmountt, changeAmountt, feeNanoss, err =
-			fes.blockchain.AddInputsAndChangeToTransaction(
-				txnn, requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool())
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("SendDeSo: Error processing transaction: %v", err))
-			return
-		}
-	}
+	txnn, totalInputt, spendAmountt, changeAmountt, feeNanoss, err := fes.CreateSendDesoTxn(
+		requestData.AmountNanos,
+		senderPkBytes,
+		recipientPkBytes,
+		extraData,
+		requestData.MinFeeRateNanosPerKB,
+		additionalOutputs)
 
 	// Sanity check that the input is equal to:
 	//   (spend amount + change amount + fees)
@@ -2924,28 +2948,21 @@ type DAOCoinLimitOrderCreationRequest struct {
 	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
-// CreateDAOCoinLimitOrder Constructs a transaction that creates a DAO coin limit order for the specified
-// DAO coin pair, price, quantity, operation type, and fill type
-func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := DAOCoinLimitOrderCreationRequest{}
-
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: Problem parsing request body: %v", err))
-		return
-	}
-
+func (fes *APIServer) createDaoCoinLimitOrderHelper(
+	requestData *DAOCoinLimitOrderCreationRequest,
+) (
+	_res *DAOCoinLimitOrderResponse,
+	_err error,
+) {
 	// Basic validation that we have a transactor
 	if requestData.TransactorPublicKeyBase58Check == "" {
-		_AddBadRequestError(ww, "CreateDAOCoinLimitOrder: must provide a TransactorPublicKeyBase58Check")
-		return
+		return nil, errors.New("CreateDAOCoinLimitOrder: must provide a TransactorPublicKeyBase58Check")
 	}
 
 	// Validate operation type
 	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinLimitOrder: %v", err)
 	}
 
 	// Parse and validate fill type; for backwards compatibility, default the empty string to GoodTillCancelled
@@ -2953,8 +2970,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 	if requestData.FillType != "" {
 		fillType, err = orderFillTypeToUint64(requestData.FillType)
 		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-			return
+			return nil, errors.Errorf("CreateDAOCoinLimitOrder: %v", err)
 		}
 	}
 
@@ -2980,8 +2996,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		)
 	}
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinLimitOrder: %v", err)
 	}
 
 	// Parse and validated quantity
@@ -3006,8 +3021,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		)
 	}
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinLimitOrder: %v", err)
 	}
 
 	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
@@ -3015,8 +3029,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		requestData.OptionalPrecedingTransactions,
 	)
 	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: problem fetching utxoView: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinMarketOrder: problem fetching utxoView: %v", err)
 	}
 
 	// Decode and validate the buying / selling coin public keys
@@ -3025,8 +3038,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
 	)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinLimitOrder: %v", err)
 	}
 
 	// Validate transactor has sufficient selling coins.
@@ -3039,8 +3051,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		quantityToFillInBaseUnits,
 	)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinLimitOrder: %v", err)
 	}
 
 	// Validate any transfer restrictions on buying the DAO coin.
@@ -3048,8 +3059,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		requestData.TransactorPublicKeyBase58Check,
 		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinLimitOrder: %v", err)
 	}
 
 	// Create order.
@@ -3067,8 +3077,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		requestData.TransactionFees,
 	)
 	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinLimitOrder: %v", err)
 	}
 
 	res.SimulatedExecutionResult, err = fes.getDAOCoinLimitOrderSimulatedExecutionResult(
@@ -3079,7 +3088,26 @@ func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.
 		res.Transaction,
 	)
 	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
+		return nil, errors.Errorf("CreateDAOCoinLimitOrder: %v", err)
+	}
+
+	return res, nil
+}
+
+// CreateDAOCoinLimitOrder Constructs a transaction that creates a DAO coin limit order for the specified
+// DAO coin pair, price, quantity, operation type, and fill type
+func (fes *APIServer) CreateDAOCoinLimitOrder(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := DAOCoinLimitOrderCreationRequest{}
+
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: Problem parsing request body: %v", err))
+		return
+	}
+
+	res, err := fes.createDaoCoinLimitOrderHelper(&requestData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrder: %v", err))
 		return
 	}
 
@@ -3119,26 +3147,21 @@ type DAOCoinMarketOrderCreationRequest struct {
 	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
 
-func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := DAOCoinMarketOrderCreationRequest{}
-
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: Problem parsing request body: %v", err))
-		return
-	}
-
+func (fes *APIServer) createDaoCoinMarketOrderHelper(
+	requestData *DAOCoinMarketOrderCreationRequest,
+) (
+	_res *DAOCoinLimitOrderResponse,
+	_err error,
+) {
 	// Basic validation that we have a transactor
 	if requestData.TransactorPublicKeyBase58Check == "" {
-		_AddBadRequestError(ww, "CreateDAOCoinMarketOrder: must provide a TransactorPublicKeyBase58Check")
-		return
+		return nil, errors.New("CreateDAOCoinMarketOrder: must provide a TransactorPublicKeyBase58Check")
 	}
 
 	// Validate operation type
 	operationType, err := orderOperationTypeToUint64(requestData.OperationType)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinMarketOrder: %v", err)
 	}
 
 	// Validate and convert quantity to base units
@@ -3166,22 +3189,16 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 	}
 
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinMarketOrder: %v", err)
 	}
 
 	// Validate fill type
 	fillType, err := orderFillTypeToUint64(requestData.FillType)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinMarketOrder: %v", err)
 	}
 	if fillType == lib.DAOCoinLimitOrderFillTypeGoodTillCancelled {
-		_AddBadRequestError(
-			ww,
-			fmt.Sprintf("CreateDAOCoinMarketOrder: %v fill type not supported for market orders", requestData.FillType),
-		)
-		return
+		return nil, errors.New("CreateDAOCoinMarketOrder: GoodTillCancelled fill type not supported for market orders")
 	}
 
 	// Validate any transfer restrictions on buying the DAO coin.
@@ -3189,8 +3206,7 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 		requestData.TransactorPublicKeyBase58Check,
 		requestData.BuyingDAOCoinCreatorPublicKeyBase58Check)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinMarketOrder: %v", err)
 	}
 
 	utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
@@ -3198,8 +3214,7 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 		requestData.OptionalPrecedingTransactions,
 	)
 	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: problem fetching utxoView: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinMarketOrder: problem fetching utxoView: %v", err)
 	}
 
 	// Decode and validate the buying / selling coin public keys
@@ -3208,8 +3223,7 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 		requestData.SellingDAOCoinCreatorPublicKeyBase58Check,
 	)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinMarketOrder: %v", err)
 	}
 
 	// override the initial value and explicitly set to 0 for clarity
@@ -3229,8 +3243,7 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 		requestData.TransactionFees,
 	)
 	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
-		return
+		return nil, errors.Errorf("CreateDAOCoinMarketOrder: %v", err)
 	}
 
 	res.SimulatedExecutionResult, err = fes.getDAOCoinLimitOrderSimulatedExecutionResult(
@@ -3241,7 +3254,23 @@ func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http
 		res.Transaction,
 	)
 	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
+		return nil, errors.Errorf("CreateDAOCoinMarketOrder: %v", err)
+	}
+	return res, nil
+}
+
+func (fes *APIServer) CreateDAOCoinMarketOrder(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := DAOCoinMarketOrderCreationRequest{}
+
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: Problem parsing request body: %v", err))
+		return
+	}
+
+	res, err := fes.createDaoCoinMarketOrderHelper(&requestData)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinMarketOrder: %v", err))
 		return
 	}
 
@@ -3890,6 +3919,81 @@ func TransactionSpendingLimitToResponse(
 					OpCount:                              opCount,
 				},
 			)
+		}
+	}
+
+	if len(transactionSpendingLimit.StakeLimitMap) > 0 {
+		for stakeLimitKey, stakeLimit := range transactionSpendingLimit.StakeLimitMap {
+			var validatorPublicKeyBase58Check string
+			if !stakeLimitKey.ValidatorPKID.IsZeroPKID() {
+				validatorPublicKey := utxoView.GetPublicKeyForPKID(&stakeLimitKey.ValidatorPKID)
+				validatorPublicKeyBase58Check = lib.Base58CheckEncode(
+					validatorPublicKey, false, params,
+				)
+			}
+			transactionSpendingLimitResponse.StakeLimitMap = append(
+				transactionSpendingLimitResponse.StakeLimitMap,
+				StakeLimitMapItem{
+					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
+					StakeLimit:                    stakeLimit.Clone(),
+				},
+			)
+		}
+	}
+
+	if len(transactionSpendingLimit.UnstakeLimitMap) > 0 {
+		for unstakeLimitKey, unstakeLimit := range transactionSpendingLimit.UnstakeLimitMap {
+			var validatorPublicKeyBase58Check string
+			if !unstakeLimitKey.ValidatorPKID.IsZeroPKID() {
+				validatorPublicKey := utxoView.GetPublicKeyForPKID(&unstakeLimitKey.ValidatorPKID)
+				validatorPublicKeyBase58Check = lib.Base58CheckEncode(
+					validatorPublicKey, false, params,
+				)
+			}
+			transactionSpendingLimitResponse.UnstakeLimitMap = append(
+				transactionSpendingLimitResponse.UnstakeLimitMap,
+				UnstakeLimitMapItem{
+					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
+					UnstakeLimit:                  unstakeLimit.Clone(),
+				},
+			)
+		}
+	}
+
+	if len(transactionSpendingLimit.UnlockStakeLimitMap) > 0 {
+		for unlockStakeLimitKey, opCount := range transactionSpendingLimit.UnlockStakeLimitMap {
+			var validatorPublicKeyBase58Check string
+			if !unlockStakeLimitKey.ValidatorPKID.IsZeroPKID() {
+				validatorPublicKey := utxoView.GetPublicKeyForPKID(&unlockStakeLimitKey.ValidatorPKID)
+				validatorPublicKeyBase58Check = lib.Base58CheckEncode(
+					validatorPublicKey, false, params,
+				)
+			}
+			transactionSpendingLimitResponse.UnlockStakeLimitMap = append(
+				transactionSpendingLimitResponse.UnlockStakeLimitMap,
+				UnlockStakeLimitMapItem{
+					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
+					OpCount:                       opCount,
+				},
+			)
+		}
+	}
+
+	if len(transactionSpendingLimit.LockupLimitMap) > 0 {
+		for lockupLimitKey, opCount := range transactionSpendingLimit.LockupLimitMap {
+			var publicKeyBase58Check string
+			if !lockupLimitKey.ProfilePKID.IsZeroPKID() {
+				publicKeyBytes := utxoView.GetPublicKeyForPKID(&lockupLimitKey.ProfilePKID)
+				publicKeyBase58Check = lib.Base58CheckEncode(publicKeyBytes, false, params)
+			}
+			transactionSpendingLimitResponse.LockupLimitMap = append(
+				transactionSpendingLimitResponse.LockupLimitMap,
+				LockupLimitMapItem{
+					ProfilePublicKeyBase58Check: publicKeyBase58Check,
+					ScopeType:                   lockupLimitKey.ScopeType.ToScopeString(),
+					Operation:                   lockupLimitKey.Operation.ToOperationString(),
+					OpCount:                     opCount,
+				})
 		}
 	}
 
