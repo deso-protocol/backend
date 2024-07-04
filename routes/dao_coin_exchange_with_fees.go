@@ -426,6 +426,35 @@ func GetQuoteBasePkidFromBuyingSellingPkids(
 	}
 }
 
+type GetQuoteCurrencyPriceInUsdRequest struct {
+	QuoteCurrencyPublicKeyBase58Check string `safeForLogging:"true"`
+}
+
+type GetQuoteCurrencyPriceInUsdResponse struct {
+	UsdPrice string `safeForLogging:"true"`
+}
+
+func (fes *APIServer) GetQuoteCurrencyPriceInUsdEndpoint(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetQuoteCurrencyPriceInUsdRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetQuoteCurrencyPriceInUsd: Problem parsing request body: %v", err))
+		return
+	}
+
+	usdPrice, err := fes.GetQuoteCurrencyPriceInUsd(requestData.QuoteCurrencyPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetQuoteCurrencyPriceInUsd: Problem getting quote currency price in USD: %v", err))
+		return
+	}
+
+	res := GetQuoteCurrencyPriceInUsdResponse{UsdPrice: usdPrice}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetQuoteCurrencyPriceInUsd: Problem encoding response: %v", err))
+		return
+	}
+}
+
 func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 	quoteCurrencyPublicKey string) (string, error) {
 	if IsDesoPkid(quoteCurrencyPublicKey) {
@@ -650,7 +679,7 @@ func (fes *APIServer) HandleMarketOrder(
 		if err != nil {
 			return ""
 		}
-		return fmt.Sprintf("%.9f", quoteAmount/quoteCurrencyUsdValue)
+		return fmt.Sprintf("%.9f", quoteAmount*quoteCurrencyUsdValue)
 	}
 
 	quantityStr := req.Quantity
