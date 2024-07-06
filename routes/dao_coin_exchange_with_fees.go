@@ -924,7 +924,7 @@ func (fes *APIServer) HandleMarketOrder(
 		// we can only do this if the user specified a price. If they didn't specify a price, then we
 		// need to fall back on the simulated amount, which is OK since this is a market order anyway.
 		var remainingQuoteQuantityDecimal string
-		if req.QuantityCurrencyType == CurrencyTypeQuote || req.PriceCurrencyType == CurrencyTypeUsd {
+		if req.QuantityCurrencyType == CurrencyTypeQuote || req.QuantityCurrencyType == CurrencyTypeUsd {
 			// In this case, quantityStr is the amount that the order executed with
 			// originally. So we deduct the fees from that and run.
 			quoteCurrencyQuantityTotalBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
