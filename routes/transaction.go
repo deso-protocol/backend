@@ -69,21 +69,39 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 		copy(txnHash[:], txnHashBytes)
 	}
 
-	txnFound := false
+	// The order of operations is tricky here. We need to do the following in this
+	// exact order:
+	// 1. Check the mempool for the txn
+	// 2. Wait for txindex to fully sync
+	// 3. Then check txindex
+	//
+	// If we instead check the mempool afterward, then there is a chance that the txn
+	// has been removed by a new block that is not yet in txindex. This would cause the
+	// endpoint to incorrectly report that the txn doesn't exist on the node, when in
+	// fact it is in "limbo" between the mempool and txindex.
 	txnStatus := requestData.TxnStatus
 	if txnStatus == "" {
 		txnStatus = TxnStatusInMempool
 	}
+	txnInMempool := fes.backendServer.GetMempool().IsTransactionInPool(txnHash)
+	startTime := time.Now()
+	for !fes.TXIndex.FinishedSyncing() {
+		if time.Since(startTime) > 30*time.Second {
+			_AddBadRequestError(ww, fmt.Sprintf("GetTxn: Timed out waiting for txindex to sync."))
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	txnInTxindex := lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
+	txnFound := false
 	switch txnStatus {
 	case TxnStatusInMempool:
-		txnFound = fes.backendServer.GetMempool().IsTransactionInPool(txnHash)
-		if !txnFound {
-			txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
-		}
+		// In this case, we're fine if the txn is either in the mempool or in txindex.
+		txnFound = txnInMempool || txnInTxindex
 	case TxnStatusCommitted:
 		// In this case we will not consider a txn until it shows up in txindex, which means that
 		// it is committed.
-		txnFound = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
+		txnFound = txnInTxindex
 	default:
 		_AddBadRequestError(ww, fmt.Sprintf("GetTxn: Invalid TxnStatus: %v. Options are "+
 			"{InMempool, Committed}", txnStatus))
