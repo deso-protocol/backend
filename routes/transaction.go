@@ -85,7 +85,10 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 	}
 	txnInMempool := fes.backendServer.GetMempool().IsTransactionInPool(txnHash)
 	startTime := time.Now()
-	for !fes.TXIndex.FinishedSyncing() {
+	// We have to wait until txindex has reached the uncommitted tip height, not the
+	// committed tip height. Otherwise we'll be missing ~2 blocks in limbo.
+	coreChainTipHeight := fes.TXIndex.CoreChain.BlockTip().Height
+	for fes.TXIndex.TXIndexChain.BlockTip().Height < coreChainTipHeight {
 		if time.Since(startTime) > 30*time.Second {
 			_AddBadRequestError(ww, fmt.Sprintf("GetTxn: Timed out waiting for txindex to sync."))
 			return
