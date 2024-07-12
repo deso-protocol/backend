@@ -874,7 +874,12 @@ func CalculateBaseUnitsFromStringDecimalAmountSimple(
 	quantityToFill string,
 ) (*uint256.Int, error) {
 	// If we don't return zero here, we error later because it thinks we overflowed
-	if quantityToFill == "0" || quantityToFill == "0.0" {
+	quantityToFillFloat, err := strconv.ParseFloat(quantityToFill, 64)
+	if err != nil {
+		return nil, errors.Wrapf(err, "CalculateBaseUnitsFromStringDecimalAmountSimple: "+
+			"Problem parsing quantity %v", quantityToFill)
+	}
+	if quantityToFillFloat == 0.0 {
 		return uint256.NewInt(), nil
 	}
 	if err := validateNonNegativeDecimalString(quantityToFill); err != nil {

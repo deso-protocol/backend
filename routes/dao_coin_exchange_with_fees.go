@@ -25,12 +25,12 @@ type UpdateDaoCoinMarketFeesRequest struct {
 	// assumed to own the profile being updated.
 	ProfilePublicKeyBase58Check string `safeForLogging:"true"`
 
-	// A map of pkid->feeBasisPoints that the user wants to set for their market.
-	// If the map contains {pkid1: 100, pkid2: 200} then the user is setting the
-	// feeBasisPoints for pkid1 to 100 and the feeBasisPoints for pkid2 to 200.
-	// This means that pkid1 will get 1% of every taker's trade and pkid2 will get
+	// A map of pubkey->feeBasisPoints that the user wants to set for their market.
+	// If the map contains {pk1: 100, pk2: 200} then the user is setting the
+	// feeBasisPoints for pk1 to 100 and the feeBasisPoints for pk2 to 200.
+	// This means that pk1 will get 1% of every taker's trade and pk2 will get
 	// 2%.
-	FeeBasisPointsByPkid map[string]uint64 `safeForLogging:"true"`
+	FeeBasisPointsByPublicKey map[string]uint64 `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
 
@@ -47,8 +47,23 @@ type UpdateDaoCoinMarketFeesResponse struct {
 }
 
 func ValidateTradingFeeMap(feeMap map[string]uint64) error {
+	if len(feeMap) > 100 {
+		return fmt.Errorf("Trading fees map must have 100 or fewer entries")
+	}
+	for pkStr, _ := range feeMap {
+		pkBytes, _, err := lib.Base58CheckDecode(pkStr)
+		if err != nil {
+			return fmt.Errorf("Trading fee map contains invalid public key: %v", pkStr)
+		}
+		if len(pkBytes) != btcec.PubKeyBytesLenCompressed {
+			return fmt.Errorf("Trading fee map contains invalid public key: %v", pkStr)
+		}
+	}
 	totalFeeBasisPoints := big.NewInt(0)
 	for _, feeBasisPoints := range feeMap {
+		if feeBasisPoints == 0 {
+			return fmt.Errorf("Trading fees must be greater than zero")
+		}
 		totalFeeBasisPoints.Add(totalFeeBasisPoints, big.NewInt(int64(feeBasisPoints)))
 	}
 	if totalFeeBasisPoints.Cmp(big.NewInt(100*100)) > 0 {
@@ -75,13 +90,13 @@ func (fes *APIServer) UpdateDaoCoinMarketFees(ww http.ResponseWriter, req *http.
 	}
 
 	// If we're missing trading fees then error
-	if len(requestData.FeeBasisPointsByPkid) == 0 {
+	if len(requestData.FeeBasisPointsByPublicKey) == 0 {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateDaoCoinMarketFees: Must provide at least one fee to update"))
 		return
 	}
 
 	// Validate the fee map.
-	if err := ValidateTradingFeeMap(requestData.FeeBasisPointsByPkid); err != nil {
+	if err := ValidateTradingFeeMap(requestData.FeeBasisPointsByPublicKey); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateDaoCoinMarketFees: %v", err))
 		return
 	}
@@ -97,10 +112,10 @@ func (fes *APIServer) UpdateDaoCoinMarketFees(ww http.ResponseWriter, req *http.
 
 	// When this is nil then the UpdaterPublicKey is assumed to be the owner of
 	// the profile.
-	var profilePublicKeyBytess []byte
+	var profilePublicKeyBytes []byte
 	if requestData.ProfilePublicKeyBase58Check != "" {
-		profilePublicKeyBytess, _, err = lib.Base58CheckDecode(requestData.ProfilePublicKeyBase58Check)
-		if err != nil || len(profilePublicKeyBytess) != btcec.PubKeyBytesLenCompressed {
+		profilePublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ProfilePublicKeyBase58Check)
+		if err != nil || len(profilePublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
 			_AddBadRequestError(ww, fmt.Sprintf(
 				"UpdateDaoCoinMarketFees: Problem decoding public key %s: %v",
 				requestData.ProfilePublicKeyBase58Check, err))
@@ -111,7 +126,7 @@ func (fes *APIServer) UpdateDaoCoinMarketFees(ww http.ResponseWriter, req *http.
 	// Get the public key.
 	profilePublicKey := updaterPublicKeyBytes
 	if requestData.ProfilePublicKeyBase58Check != "" {
-		profilePublicKey = profilePublicKeyBytess
+		profilePublicKey = profilePublicKeyBytes
 	}
 
 	// Pull the existing profile. If one doesn't exist, then we error. The user should
@@ -125,31 +140,46 @@ func (fes *APIServer) UpdateDaoCoinMarketFees(ww http.ResponseWriter, req *http.
 	}
 
 	// Update the fees on the just the trading fees on the extradata map of the profile.
-	feeMap := make(map[lib.PublicKey]uint64)
-	for pkidString, feeBasisPoints := range requestData.FeeBasisPointsByPkid {
-		pkidBytes, _, err := lib.Base58CheckDecode(pkidString)
+	feeMapByPkid := make(map[lib.PublicKey]uint64)
+	for pubkeyString, feeBasisPoints := range requestData.FeeBasisPointsByPublicKey {
+		pkBytes, _, err := lib.Base58CheckDecode(pubkeyString)
+		if err != nil || len(pkBytes) != btcec.PubKeyBytesLenCompressed {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"UpdateDaoCoinMarketFees: Problem decoding public key %s: %v",
+				pubkeyString, err))
+			return
+		}
+		pkidEntry := utxoView.GetPKIDForPublicKey(pkBytes)
+		// TODO: Should maybe also check IsDeleted here, but it's impossible for it to be
+		// IsDeleted so it should be fine for now.
+		if pkidEntry == nil {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"UpdateDaoCoinMarketFees: PKID for public key %v does not exist",
+				pubkeyString))
+			return
+		}
+		pkidBytes := pkidEntry.PKID[:]
 		if err != nil || len(pkidBytes) != btcec.PubKeyBytesLenCompressed {
 			_AddBadRequestError(ww, fmt.Sprintf(
 				"UpdateDaoCoinMarketFees: Problem decoding public key %s: %v",
-				pkidString, err))
+				pubkeyString, err))
 			return
 		}
-		feeMap[*lib.NewPublicKey(pkidBytes)] = feeBasisPoints
+		feeMapByPkid[*lib.NewPublicKey(pkidBytes)] = feeBasisPoints
 	}
-	feeMapBytes, err := lib.SerializePubKeyToUint64Map(feeMap)
+	feeMapByPkidBytes, err := lib.SerializePubKeyToUint64Map(feeMapByPkid)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateDaoCoinMarketFees: Problem serializing fee map: %v", err))
 		return
 	}
-	if len(existingProfileEntry.ExtraData) == 0 {
-		existingProfileEntry.ExtraData = make(map[string][]byte)
-	}
-	existingProfileEntry.ExtraData[lib.TokenTradingFeesMapKey] = feeMapBytes
+	// This will merge in with existing ExtraData.
+	additionalExtraData := make(map[string][]byte)
+	additionalExtraData[lib.TokenTradingFeesByPkidMapKey] = feeMapByPkidBytes
 
 	// Try and create the UpdateProfile txn for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateUpdateProfileTxn(
 		updaterPublicKeyBytes,
-		profilePublicKeyBytess,
+		profilePublicKeyBytes,
 		"", // Don't update username
 		"", // Don't update description
 		"", // Don't update profile pic
@@ -157,10 +187,10 @@ func (fes *APIServer) UpdateDaoCoinMarketFees(ww http.ResponseWriter, req *http.
 		// StakeMultipleBasisPoints is a deprecated field that we don't use anywhere and will delete soon.
 		// I noticed we use a hardcoded value of 12500 in the frontend and when creating a post so I'm doing
 		// the same here for now.
-		1.25*100*100,                   // Don't update stake multiple basis points
-		existingProfileEntry.IsHidden,  // Don't update hidden status
-		0,                              // Don't add additionalFees
-		existingProfileEntry.ExtraData, // The new ExtraData
+		1.25*100*100,                  // Don't update stake multiple basis points
+		existingProfileEntry.IsHidden, // Don't update hidden status
+		0,                             // Don't add additionalFees
+		additionalExtraData,           // The new ExtraData
 		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), []*lib.DeSoOutput{})
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateDaoCoinMarketFees: Problem creating transaction: %v", err))
@@ -193,7 +223,7 @@ type GetDaoCoinMarketFeesRequest struct {
 }
 
 type GetDaoCoinMarketFeesResponse struct {
-	FeeBasisPointsByPkid map[string]uint64 `safeForLogging:"true"`
+	FeeBasisPointsByPublicKey map[string]uint64 `safeForLogging:"true"`
 }
 
 func GetTradingFeesForMarket(
@@ -201,7 +231,7 @@ func GetTradingFeesForMarket(
 	params *lib.DeSoParams,
 	profilePublicKey string,
 ) (
-	_feeMap map[string]uint64,
+	_feeMapByPubkey map[string]uint64,
 	_err error,
 ) {
 
@@ -223,18 +253,28 @@ func GetTradingFeesForMarket(
 	}
 
 	// Decode the trading fees from the profile.
-	tradingFeesBytes, exists := existingProfileEntry.ExtraData[lib.TokenTradingFeesMapKey]
+	tradingFeesByPkidBytes, exists := existingProfileEntry.ExtraData[lib.TokenTradingFeesByPkidMapKey]
 	tradingFeesMapPubkey := make(map[lib.PublicKey]uint64)
 	if exists {
-		tradingFeesMapPubkey, err = lib.DeserializePubKeyToUint64Map(tradingFeesBytes)
+		tradingFeesMapByPkid, err := lib.DeserializePubKeyToUint64Map(tradingFeesByPkidBytes)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"GetTradingFeesForMarket: Problem deserializing trading fees: %v", err)
 		}
+		for pkid, feeBasisPoints := range tradingFeesMapByPkid {
+			pkidBytes := pkid.ToBytes()
+			if len(pkidBytes) != btcec.PubKeyBytesLenCompressed {
+				return nil, fmt.Errorf(
+					"GetTradingFeesForMarket: Problem decoding public key %s: %v",
+					pkid, err)
+			}
+			pubkey := lib.PKIDToPublicKey(lib.NewPKID(pkidBytes))
+			tradingFeesMapPubkey[*lib.NewPublicKey(pubkey)] = feeBasisPoints
+		}
 	}
 	feeMap := map[string]uint64{}
 	for publicKey, feeBasisPoints := range tradingFeesMapPubkey {
-		// Convert the pkid to a base58 string
+		// Convert the pubkey to a base58 string
 		pkBase58 := lib.PkToString(publicKey[:], params)
 		feeMap[pkBase58] = feeBasisPoints
 	}
@@ -256,7 +296,7 @@ func (fes *APIServer) GetDaoCoinMarketFees(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
-	feeMap, err := GetTradingFeesForMarket(
+	feeMapByPubkey, err := GetTradingFeesForMarket(
 		utxoView,
 		fes.Params,
 		requestData.ProfilePublicKeyBase58Check)
@@ -267,7 +307,7 @@ func (fes *APIServer) GetDaoCoinMarketFees(ww http.ResponseWriter, req *http.Req
 
 	// Return all the data associated with the transaction in the response
 	res := GetDaoCoinMarketFeesResponse{
-		FeeBasisPointsByPkid: feeMap,
+		FeeBasisPointsByPublicKey: feeMapByPubkey,
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDaoCoinMarketFees: Problem encoding response as JSON: %v", err))
@@ -376,7 +416,7 @@ type DAOCoinLimitOrderWithFeeResponse struct {
 	MarketTotalTradingFeeBasisPoints string
 	// Trading fees are paid to users based on metadata in the profile. This map states the trading
 	// fee split for each user who's been allocated trading fees in the profile.
-	MarketTradingFeeBasisPointsByUserPkid map[string]uint64
+	MarketTradingFeeBasisPointsByUserPublicKey map[string]uint64
 }
 
 // Used by the client to convert as needed
@@ -460,96 +500,92 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 	if IsDesoPkid(quoteCurrencyPublicKey) {
 		desoUsdCents := fes.GetExchangeDeSoPrice()
 		return fmt.Sprintf("%0.9f", float64(desoUsdCents)/100), nil
-	} else {
-		utxoView, err := lib.GetAugmentedUniversalViewWithAdditionalTransactions(
-			fes.backendServer.GetMempool(),
-			nil,
-		)
-		if err != nil {
-			return "", fmt.Errorf(
-				"GetQuoteCurrencyPriceInUsd: Error fetching mempool view: %v", err)
-		}
-
-		pkBytes, _, err := lib.Base58CheckDecode(quoteCurrencyPublicKey)
-		if err != nil || len(pkBytes) != btcec.PubKeyBytesLenCompressed {
-			return "", fmt.Errorf(
-				"GetQuoteCurrencyPriceInUsd: Problem decoding public key %s: %v",
-				quoteCurrencyPublicKey, err)
-		}
-
-		existingProfileEntry := utxoView.GetProfileEntryForPublicKey(pkBytes)
-		if existingProfileEntry == nil || existingProfileEntry.IsDeleted() {
-			return "", fmt.Errorf(
-				"GetQuoteCurrencyPriceInUsd: Profile for quote currency public "+
-					"key %v does not exist",
-				quoteCurrencyPublicKey)
-		}
-
-		// If the profile is the dusdc profile then just return 1.0
-		lowerUsername := strings.ToLower(string(existingProfileEntry.Username))
-		if strings.Contains(lowerUsername, "dusdc") {
-			return "1.0", nil
-		} else if strings.Contains(lowerUsername, "focus") ||
-			strings.Contains(lowerUsername, "openfund") {
-
-			desoUsdCents := fes.GetExchangeDeSoPrice()
-			pkid := utxoView.GetPKIDForPublicKey(pkBytes)
-			if pkid == nil {
-				return "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error getting pkid for public key %v",
-					quoteCurrencyPublicKey)
-			}
-			ordersBuyingCoin1, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
-				&lib.ZeroPKID, pkid.PKID)
-			if err != nil {
-				return "", fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
-			}
-			ordersBuyingCoin2, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
-				pkid.PKID, &lib.ZeroPKID)
-			if err != nil {
-				return "", fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
-			}
-			allOrders := append(ordersBuyingCoin1, ordersBuyingCoin2...)
-			// Find the highest bid price and the lowest ask price
-			highestBidPrice := float64(0.0)
-			lowestAskPrice := math.MaxFloat64
-			for _, order := range allOrders {
-				priceStr, err := CalculatePriceStringFromScaledExchangeRate(
-					lib.PkToStringMainnet(order.BuyingDAOCoinCreatorPKID[:]),
-					lib.PkToStringMainnet(order.SellingDAOCoinCreatorPKID[:]),
-					order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
-					DAOCoinLimitOrderOperationTypeString(order.OperationType.String()))
-				if err != nil {
-					return "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price: %v", err)
-				}
-				priceFloat, err := strconv.ParseFloat(priceStr, 64)
-				if err != nil {
-					return "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error parsing price: %v", err)
-				}
-				if order.OperationType == lib.DAOCoinLimitOrderOperationTypeBID &&
-					priceFloat > highestBidPrice {
-
-					highestBidPrice = priceFloat
-				}
-				if order.OperationType == lib.DAOCoinLimitOrderOperationTypeASK &&
-					priceFloat < lowestAskPrice {
-
-					lowestAskPrice = priceFloat
-				}
-			}
-			if highestBidPrice != 0.0 && lowestAskPrice != math.MaxFloat64 {
-				midPriceDeso := (highestBidPrice + lowestAskPrice) / 2.0
-				midPriceUsd := midPriceDeso * float64(desoUsdCents) / 100
-
-				return fmt.Sprintf("%0.9f", midPriceUsd), nil
-			}
-
-			return "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price")
-		}
-
+	}
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
 		return "", fmt.Errorf(
-			"GetQuoteCurrencyPriceInUsd: Quote currency %v not supported",
+			"GetQuoteCurrencyPriceInUsd: Error fetching mempool view: %v", err)
+	}
+
+	pkBytes, _, err := lib.Base58CheckDecode(quoteCurrencyPublicKey)
+	if err != nil || len(pkBytes) != btcec.PubKeyBytesLenCompressed {
+		return "", fmt.Errorf(
+			"GetQuoteCurrencyPriceInUsd: Problem decoding public key %s: %v",
+			quoteCurrencyPublicKey, err)
+	}
+
+	existingProfileEntry := utxoView.GetProfileEntryForPublicKey(pkBytes)
+	if existingProfileEntry == nil || existingProfileEntry.IsDeleted() {
+		return "", fmt.Errorf(
+			"GetQuoteCurrencyPriceInUsd: Profile for quote currency public "+
+				"key %v does not exist",
 			quoteCurrencyPublicKey)
 	}
+
+	// If the profile is the dusdc profile then just return 1.0
+	lowerUsername := strings.ToLower(string(existingProfileEntry.Username))
+	if strings.Contains(lowerUsername, "dusdc") {
+		return "1.0", nil
+	} else if strings.Contains(lowerUsername, "focus") ||
+		strings.Contains(lowerUsername, "openfund") {
+
+		desoUsdCents := fes.GetExchangeDeSoPrice()
+		pkid := utxoView.GetPKIDForPublicKey(pkBytes)
+		if pkid == nil {
+			return "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error getting pkid for public key %v",
+				quoteCurrencyPublicKey)
+		}
+		ordersBuyingCoin1, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
+			&lib.ZeroPKID, pkid.PKID)
+		if err != nil {
+			return "", fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
+		}
+		ordersBuyingCoin2, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
+			pkid.PKID, &lib.ZeroPKID)
+		if err != nil {
+			return "", fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
+		}
+		allOrders := append(ordersBuyingCoin1, ordersBuyingCoin2...)
+		// Find the highest bid price and the lowest ask price
+		highestBidPrice := float64(0.0)
+		lowestAskPrice := math.MaxFloat64
+		for _, order := range allOrders {
+			priceStr, err := CalculatePriceStringFromScaledExchangeRate(
+				lib.PkToString(order.BuyingDAOCoinCreatorPKID[:], fes.Params),
+				lib.PkToString(order.SellingDAOCoinCreatorPKID[:], fes.Params),
+				order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
+				DAOCoinLimitOrderOperationTypeString(order.OperationType.String()))
+			if err != nil {
+				return "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price: %v", err)
+			}
+			priceFloat, err := strconv.ParseFloat(priceStr, 64)
+			if err != nil {
+				return "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error parsing price: %v", err)
+			}
+			if order.OperationType == lib.DAOCoinLimitOrderOperationTypeBID &&
+				priceFloat > highestBidPrice {
+
+				highestBidPrice = priceFloat
+			}
+			if order.OperationType == lib.DAOCoinLimitOrderOperationTypeASK &&
+				priceFloat < lowestAskPrice {
+
+				lowestAskPrice = priceFloat
+			}
+		}
+		if highestBidPrice != 0.0 && lowestAskPrice != math.MaxFloat64 {
+			midPriceDeso := (highestBidPrice + lowestAskPrice) / 2.0
+			midPriceUsd := midPriceDeso * float64(desoUsdCents) / 100
+
+			return fmt.Sprintf("%0.9f", midPriceUsd), nil
+		}
+
+		return "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price")
+	}
+
+	return "", fmt.Errorf(
+		"GetQuoteCurrencyPriceInUsd: Quote currency %v not supported",
+		quoteCurrencyPublicKey)
 }
 
 func (fes *APIServer) CreateMarketOrLimitOrder(
@@ -606,26 +642,26 @@ func InvertPriceStr(priceStr string) (string, error) {
 }
 
 func (fes *APIServer) SendCoins(
-	coinPkid string,
+	coinPublicKey string,
 	transactorPubkeyBytes []byte,
-	receiverPkidBytes []byte,
+	receiverPubkeyBytes []byte,
 	amountBaseUnits *uint256.Int,
 	minFeeRateNanosPerKb uint64,
 ) (
 	*lib.MsgDeSoTxn,
 	error,
 ) {
-	coinPkidBytes, _, err := lib.Base58CheckDecode(coinPkid)
-	if err != nil || len(coinPkidBytes) != btcec.PubKeyBytesLenCompressed {
-		return nil, fmt.Errorf("HandleMarketOrder: Problem decoding coin pkid %s: %v", coinPkid, err)
+	coinPkBytes, _, err := lib.Base58CheckDecode(coinPublicKey)
+	if err != nil || len(coinPkBytes) != btcec.PubKeyBytesLenCompressed {
+		return nil, fmt.Errorf("HandleMarketOrder: Problem decoding coin pkid %s: %v", coinPublicKey, err)
 	}
 
 	var txn *lib.MsgDeSoTxn
-	if IsDesoPkid(coinPkid) {
+	if IsDesoPkid(coinPublicKey) {
 		txn, _, _, _, _, err = fes.CreateSendDesoTxn(
 			int64(amountBaseUnits.Uint64()),
 			transactorPubkeyBytes,
-			receiverPkidBytes,
+			receiverPubkeyBytes,
 			nil,
 			minFeeRateNanosPerKb,
 			nil)
@@ -636,8 +672,8 @@ func (fes *APIServer) SendCoins(
 		txn, _, _, _, err = fes.blockchain.CreateDAOCoinTransferTxn(
 			transactorPubkeyBytes,
 			&lib.DAOCoinTransferMetadata{
-				ProfilePublicKey:       coinPkidBytes,
-				ReceiverPublicKey:      receiverPkidBytes,
+				ProfilePublicKey:       coinPkBytes,
+				ReceiverPublicKey:      receiverPubkeyBytes,
 				DAOCoinToTransferNanos: *amountBaseUnits,
 			},
 			// Standard transaction fields
@@ -654,7 +690,7 @@ func (fes *APIServer) HandleMarketOrder(
 	isMarketOrder bool,
 	req *DAOCoinLimitOrderWithFeeRequest,
 	isBuyOrder bool,
-	feeMap map[string]uint64,
+	feeMapByPubkey map[string]uint64,
 ) (
 	*DAOCoinLimitOrderWithFeeResponse,
 	error,
@@ -829,22 +865,22 @@ func (fes *APIServer) HandleMarketOrder(
 	}
 
 	// Compute how much in quote currency we need to pay each constituent
-	feeBaseUnitsByPkid := make(map[string]*uint256.Int)
+	feeBaseUnitsByPubkey := make(map[string]*uint256.Int)
 	totalFeeBaseUnits := uint256.NewInt()
-	for pkid, feeBasisPoints := range feeMap {
+	for pubkey, feeBasisPoints := range feeMapByPubkey {
 		feeBaseUnits, err := lib.SafeUint256().Mul(
 			quoteCurrencyExecutedBeforeFeesBaseUnits, uint256.NewInt().SetUint64(feeBasisPoints))
 		if err != nil {
-			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating fee: %v", err)
+			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating fee for quote: %v", err)
 		}
 		feeBaseUnits, err = lib.SafeUint256().Div(feeBaseUnits, uint256.NewInt().SetUint64(10000))
 		if err != nil {
-			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating fee: %v", err)
+			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating fee div: %v", err)
 		}
-		feeBaseUnitsByPkid[pkid] = feeBaseUnits
+		feeBaseUnitsByPubkey[pubkey] = feeBaseUnits
 		totalFeeBaseUnits, err = lib.SafeUint256().Add(totalFeeBaseUnits, feeBaseUnits)
 		if err != nil {
-			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating total fee: %v", err)
+			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating total fee add: %v", err)
 		}
 	}
 
@@ -855,7 +891,7 @@ func (fes *APIServer) HandleMarketOrder(
 
 	// Precompute the total fee to return it later
 	marketTakerFeeBaseUnits := uint64(0)
-	for _, feeBaseUnits := range feeMap {
+	for _, feeBaseUnits := range feeMapByPubkey {
 		marketTakerFeeBaseUnits += feeBaseUnits
 	}
 	marketTakerFeeBaseUnitsStr := fmt.Sprintf("%d", marketTakerFeeBaseUnits)
@@ -891,11 +927,11 @@ func (fes *APIServer) HandleMarketOrder(
 		// For each trading fee we need to pay, construct a transfer txn that sends the amount
 		// from the transactor directly to the person receiving the fee.
 		transferTxns := []*lib.MsgDeSoTxn{}
-		for pkid, feeBaseUnits := range feeBaseUnitsByPkid {
-			receiverPkidBytes, _, err := lib.Base58CheckDecode(pkid)
-			if err != nil || len(receiverPkidBytes) != btcec.PubKeyBytesLenCompressed {
+		for pubkey, feeBaseUnits := range feeBaseUnitsByPubkey {
+			receiverPubkeyBytes, _, err := lib.Base58CheckDecode(pubkey)
+			if err != nil || len(receiverPubkeyBytes) != btcec.PubKeyBytesLenCompressed {
 				return nil, fmt.Errorf("HandleMarketOrder: Problem decoding public key %s: %v",
-					pkid, err)
+					pubkey, err)
 			}
 			// Try and create the TransferDaoCoin transaction for the user.
 			//
@@ -904,7 +940,7 @@ func (fes *APIServer) HandleMarketOrder(
 			txn, err := fes.SendCoins(
 				req.QuoteCurrencyPublicKeyBase58Check,
 				transactorPubkeyBytes,
-				receiverPkidBytes,
+				receiverPubkeyBytes,
 				feeBaseUnits,
 				req.MinFeeRateNanosPerKB)
 			_, _, _, _, err = utxoView.ConnectTransaction(
@@ -935,12 +971,12 @@ func (fes *APIServer) HandleMarketOrder(
 			quoteCurrencyQuantityMinusFeesBaseUnits, err := lib.SafeUint256().Sub(
 				quoteCurrencyQuantityTotalBaseUnits, totalFeeBaseUnits)
 			if err != nil {
-				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency: %v", err)
+				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency 1: %v", err)
 			}
 			remainingQuoteQuantityDecimal, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
 				req.QuoteCurrencyPublicKeyBase58Check, quoteCurrencyQuantityMinusFeesBaseUnits)
 			if err != nil {
-				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency: %v", err)
+				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency 2: %v", err)
 			}
 		} else if req.QuantityCurrencyType == CurrencyTypeBase {
 			// In this case the user specified base currency. If there's a price then try and estimate
@@ -981,24 +1017,24 @@ func (fes *APIServer) HandleMarketOrder(
 				totalQuantityQuoteCurrencyAfterFeesBaseUnits, err := lib.SafeUint256().Sub(
 					uint256LimitAmount, totalFeeBaseUnits)
 				if err != nil {
-					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency: %v", err)
+					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency 1: %v", err)
 				}
 				remainingQuoteQuantityDecimal, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
 					req.QuoteCurrencyPublicKeyBase58Check, totalQuantityQuoteCurrencyAfterFeesBaseUnits)
 				if err != nil {
-					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency: %v", err)
+					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency 2: %v", err)
 				}
 			} else {
 				// If there's no price quote then use the simulated amount, minus fees
 				quotCurrencyExecutedAfterFeesBaseUnits, err := lib.SafeUint256().Sub(
 					quoteCurrencyExecutedBeforeFeesBaseUnits, totalFeeBaseUnits)
 				if err != nil {
-					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency: %v", err)
+					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency 3: %v", err)
 				}
 				remainingQuoteQuantityDecimal, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
 					req.QuoteCurrencyPublicKeyBase58Check, quotCurrencyExecutedAfterFeesBaseUnits)
 				if err != nil {
-					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency: %v", err)
+					return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency 4: %v", err)
 				}
 			}
 		} else {
@@ -1007,7 +1043,7 @@ func (fes *APIServer) HandleMarketOrder(
 				req.QuantityCurrencyType)
 		}
 		if remainingQuoteQuantityDecimal == "" {
-			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency")
+			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating remaining quote currency 5")
 		}
 
 		// Now we need to execute the order with the remaining quote currency.
@@ -1084,12 +1120,12 @@ func (fes *APIServer) HandleMarketOrder(
 		quoteCurrencyExecutedAfterFeesBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
 			req.QuoteCurrencyPublicKeyBase58Check, quoteCurrencyExecutedAfterFeesStr)
 		if err != nil {
-			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating quote currency total: %v", err)
+			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating quote currency total 1: %v", err)
 		}
 		quoteCurrencyExecutedPlusFeesBaseUnits, err := lib.SafeUint256().Add(
 			quoteCurrencyExecutedAfterFeesBaseUnits, totalFeeBaseUnits)
 		if err != nil {
-			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating quote currency total: %v", err)
+			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating quote currency total 2: %v", err)
 		}
 		executionAmount, err := CalculateStringDecimalAmountFromBaseUnitsSimple(
 			req.QuoteCurrencyPublicKeyBase58Check, quoteCurrencyExecutedPlusFeesBaseUnits)
@@ -1161,8 +1197,8 @@ func (fes *APIServer) HandleMarketOrder(
 			ExecutionFeeAmountInQuoteCurrency:  executionFeeAmountInQuoteCurrency,
 			ExecutionFeeAmountInUsd:            convertToUsd(executionFeeAmountInQuoteCurrency),
 
-			MarketTotalTradingFeeBasisPoints:      marketTakerFeeBaseUnitsStr,
-			MarketTradingFeeBasisPointsByUserPkid: feeMap,
+			MarketTotalTradingFeeBasisPoints:           marketTakerFeeBaseUnitsStr,
+			MarketTradingFeeBasisPointsByUserPublicKey: feeMapByPubkey,
 		}
 
 		if !isMarketOrder {
@@ -1260,9 +1296,9 @@ func (fes *APIServer) HandleMarketOrder(
 		// For each trading fee we need to pay, construct a transfer txn that sends the amount
 		// from the transactor directly to the person receiving the fee.
 		transferTxns := []*lib.MsgDeSoTxn{}
-		for pkid, feeBaseUnits := range feeBaseUnitsByPkid {
-			receiverPkidBytes, _, err := lib.Base58CheckDecode(pkid)
-			if err != nil || len(receiverPkidBytes) != btcec.PubKeyBytesLenCompressed {
+		for pkid, feeBaseUnits := range feeBaseUnitsByPubkey {
+			receiverPubkeyBytes, _, err := lib.Base58CheckDecode(pkid)
+			if err != nil || len(receiverPubkeyBytes) != btcec.PubKeyBytesLenCompressed {
 				return nil, fmt.Errorf("HandleMarketOrder: Problem decoding public key %s: %v",
 					pkid, err)
 			}
@@ -1274,7 +1310,7 @@ func (fes *APIServer) HandleMarketOrder(
 				transactorPubkeyBytes,
 				&lib.DAOCoinTransferMetadata{
 					ProfilePublicKey:       quoteCurrencyPkidBytes,
-					ReceiverPublicKey:      receiverPkidBytes,
+					ReceiverPublicKey:      receiverPubkeyBytes,
 					DAOCoinToTransferNanos: *feeBaseUnits,
 				},
 				// Standard transaction fields
@@ -1356,14 +1392,14 @@ func (fes *APIServer) HandleMarketOrder(
 				percentageSpentOnFees, lib.BaseUnitsPerCoin.ToBig())
 		}
 
-		tradingFeesInQuoteCurrencyByPkid := make(map[string]string)
-		for pkid, feeBaseUnits := range feeBaseUnitsByPkid {
+		tradingFeesInQuoteCurrencyByPubkey := make(map[string]string)
+		for pubkey, feeBaseUnits := range feeBaseUnitsByPubkey {
 			feeStr, err := CalculateStringDecimalAmountFromBaseUnitsSimple(
 				req.QuoteCurrencyPublicKeyBase58Check, feeBaseUnits)
 			if err != nil {
 				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating fee: %v", err)
 			}
-			tradingFeesInQuoteCurrencyByPkid[pkid] = feeStr
+			tradingFeesInQuoteCurrencyByPubkey[pubkey] = feeStr
 		}
 
 		res := &DAOCoinLimitOrderWithFeeResponse{
@@ -1387,7 +1423,7 @@ func (fes *APIServer) HandleMarketOrder(
 			MarketTotalTradingFeeBasisPoints: marketTakerFeeBaseUnitsStr,
 			// Trading fees are paid to users based on metadata in the profile. This map states the trading
 			// fee split for each user who's been allocated trading fees in the profile.
-			MarketTradingFeeBasisPointsByUserPkid: feeMap,
+			MarketTradingFeeBasisPointsByUserPublicKey: feeMapByPubkey,
 		}
 
 		if !isMarketOrder {
@@ -1465,18 +1501,6 @@ func (fes *APIServer) HandleMarketOrder(
 	}
 }
 
-func (fes *APIServer) HandleLimitOrder(
-	req *DAOCoinLimitOrderWithFeeRequest,
-	isBuyOrder bool,
-	feeMap map[string]uint64,
-) (
-	*DAOCoinLimitOrderWithFeeResponse,
-	error,
-) {
-
-	return nil, fmt.Errorf("HandleLimitOrder: Not implemented")
-}
-
 func (fes *APIServer) CreateDAOCoinLimitOrderWithFee(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := DAOCoinLimitOrderWithFeeRequest{}
@@ -1544,7 +1568,7 @@ func (fes *APIServer) CreateDAOCoinLimitOrderWithFee(ww http.ResponseWriter, req
 
 	// Get the trading fees for the market. This is the trading fee split for each user
 	// Only the base currency can have fees on it. The quote currency cannot.
-	feeMap, err := GetTradingFeesForMarket(
+	feeMapByPubkey, err := GetTradingFeesForMarket(
 		utxoView,
 		fes.Params,
 		requestData.BaseCurrencyPublicKeyBase58Check)
@@ -1553,19 +1577,19 @@ func (fes *APIServer) CreateDAOCoinLimitOrderWithFee(ww http.ResponseWriter, req
 		return
 	}
 	// Validate the fee map.
-	if err := ValidateTradingFeeMap(feeMap); err != nil {
+	if err := ValidateTradingFeeMap(feeMapByPubkey); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateDaoCoinMarketFees: %v", err))
 		return
 	}
 
 	// If the trading user is in the fee map, remove them so that we don't end up
 	// doing a self-send
-	if _, exists := feeMap[requestData.TransactorPublicKeyBase58Check]; exists {
-		delete(feeMap, requestData.TransactorPublicKeyBase58Check)
+	if _, exists := feeMapByPubkey[requestData.TransactorPublicKeyBase58Check]; exists {
+		delete(feeMapByPubkey, requestData.TransactorPublicKeyBase58Check)
 	}
 
 	var res *DAOCoinLimitOrderWithFeeResponse
-	res, err = fes.HandleMarketOrder(isMarketOrder, &requestData, isBuyOrder, feeMap)
+	res, err = fes.HandleMarketOrder(isMarketOrder, &requestData, isBuyOrder, feeMapByPubkey)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrderWithFee: %v", err))
 		return
