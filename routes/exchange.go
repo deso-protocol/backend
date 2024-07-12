@@ -1173,21 +1173,22 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		// Tack on mempool transactions if LastPublicKeyTransactionIndex is not specified
 		for _, poolTx := range poolTxns {
 			txnMeta := poolTx.TxMeta
+			if txnMeta == nil {
+				continue
+			}
 
 			isRelevantTxn := false
-			if txnMeta != nil {
-				// Iterate over the affected public keys to see if any of them hit the one we're looking for.
-				for _, affectedPks := range txnMeta.AffectedPublicKeys {
-					if affectedPks.PublicKeyBase58Check == transactionInfoRequest.PublicKeyBase58Check {
-						isRelevantTxn = true
-						break
-					}
+			// Iterate over the affected public keys to see if any of them hit the one we're looking for.
+			for _, affectedPks := range txnMeta.AffectedPublicKeys {
+				if affectedPks.PublicKeyBase58Check == transactionInfoRequest.PublicKeyBase58Check {
+					isRelevantTxn = true
+					break
 				}
+			}
 
-				// Skip irrelevant transactions
-				if !isRelevantTxn && txnMeta.TransactorPublicKeyBase58Check != transactionInfoRequest.PublicKeyBase58Check {
-					continue
-				}
+			// Skip irrelevant transactions
+			if !isRelevantTxn && txnMeta.TransactorPublicKeyBase58Check != transactionInfoRequest.PublicKeyBase58Check {
+				continue
 			}
 			// Finally, add the transaction to our list if it's relevant
 			if transactionInfoRequest.IDsOnly {
