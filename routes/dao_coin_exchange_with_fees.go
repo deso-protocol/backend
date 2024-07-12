@@ -32,7 +32,8 @@ type UpdateDaoCoinMarketFeesRequest struct {
 	// 2%.
 	FeeBasisPointsByPublicKey map[string]uint64 `safeForLogging:"true"`
 
-	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
+	TransactionFees      []TransactionFee `safeForLogging:"true"`
 
 	OptionalPrecedingTransactions []*lib.MsgDeSoTxn `safeForLogging:"true"`
 }
@@ -50,7 +51,7 @@ func ValidateTradingFeeMap(feeMap map[string]uint64) error {
 	if len(feeMap) > 100 {
 		return fmt.Errorf("Trading fees map must have 100 or fewer entries")
 	}
-	for pkStr, _ := range feeMap {
+	for pkStr := range feeMap {
 		pkBytes, _, err := lib.Base58CheckDecode(pkStr)
 		if err != nil {
 			return fmt.Errorf("Trading fee map contains invalid public key: %v", pkStr)
@@ -176,6 +177,14 @@ func (fes *APIServer) UpdateDaoCoinMarketFees(ww http.ResponseWriter, req *http.
 	additionalExtraData := make(map[string][]byte)
 	additionalExtraData[lib.TokenTradingFeesByPkidMapKey] = feeMapByPkidBytes
 
+	// Compute the additional transaction fees as specified by the request body and the node-level fees.
+	additionalOutputs, err := fes.getTransactionFee(
+		lib.TxnTypeAuthorizeDerivedKey, updaterPublicKeyBytes, requestData.TransactionFees)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: TransactionFees specified in Request body are invalid: %v", err))
+		return
+	}
+
 	// Try and create the UpdateProfile txn for the user.
 	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateUpdateProfileTxn(
 		updaterPublicKeyBytes,
@@ -191,7 +200,8 @@ func (fes *APIServer) UpdateDaoCoinMarketFees(ww http.ResponseWriter, req *http.
 		existingProfileEntry.IsHidden, // Don't update hidden status
 		0,                             // Don't add additionalFees
 		additionalExtraData,           // The new ExtraData
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), []*lib.DeSoOutput{})
+		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(),
+		additionalOutputs)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateDaoCoinMarketFees: Problem creating transaction: %v", err))
 		return
@@ -268,7 +278,7 @@ func GetTradingFeesForMarket(
 					"GetTradingFeesForMarket: Problem decoding public key %s: %v",
 					pkid, err)
 			}
-			pubkey := lib.PKIDToPublicKey(lib.NewPKID(pkidBytes))
+			pubkey := utxoView.GetPublicKeyForPKID(lib.NewPKID(pkidBytes))
 			tradingFeesMapPubkey[*lib.NewPublicKey(pubkey)] = feeBasisPoints
 		}
 	}
@@ -454,7 +464,7 @@ func GetQuoteBasePkidFromBuyingSellingPkids(
 	_baseCurrencyPkid string,
 	_err error,
 ) {
-	// The rule of thumb is we're seeling the base with an ask and buying the
+	// The rule of thumb is we're selling the base with an ask and buying the
 	// base with a bid.
 	if side == lib.DAOCoinLimitOrderOperationTypeBID.String() {
 		return sellingPkid, buyingPkid, nil
@@ -524,10 +534,10 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 
 	// If the profile is the dusdc profile then just return 1.0
 	lowerUsername := strings.ToLower(string(existingProfileEntry.Username))
-	if strings.Contains(lowerUsername, "dusdc") {
+	if lowerUsername == "dusdc_" {
 		return "1.0", nil
-	} else if strings.Contains(lowerUsername, "focus") ||
-		strings.Contains(lowerUsername, "openfund") {
+	} else if lowerUsername == "focus" ||
+		lowerUsername == "openfund" {
 
 		desoUsdCents := fes.GetExchangeDeSoPrice()
 		pkid := utxoView.GetPKIDForPublicKey(pkBytes)
@@ -647,6 +657,7 @@ func (fes *APIServer) SendCoins(
 	receiverPubkeyBytes []byte,
 	amountBaseUnits *uint256.Int,
 	minFeeRateNanosPerKb uint64,
+	additionalOutputs []*lib.DeSoOutput,
 ) (
 	*lib.MsgDeSoTxn,
 	error,
@@ -664,7 +675,7 @@ func (fes *APIServer) SendCoins(
 			receiverPubkeyBytes,
 			nil,
 			minFeeRateNanosPerKb,
-			nil)
+			additionalOutputs)
 		if err != nil {
 			return nil, fmt.Errorf("HandleMarketOrder: Problem creating transaction: %v", err)
 		}
@@ -677,7 +688,9 @@ func (fes *APIServer) SendCoins(
 				DAOCoinToTransferNanos: *amountBaseUnits,
 			},
 			// Standard transaction fields
-			minFeeRateNanosPerKb, fes.backendServer.GetMempool(), nil)
+			minFeeRateNanosPerKb,
+			fes.backendServer.GetMempool(),
+			additionalOutputs)
 		if err != nil {
 			return nil, fmt.Errorf("HandleMarketOrder: Problem creating transaction: %v", err)
 		}
@@ -942,7 +955,8 @@ func (fes *APIServer) HandleMarketOrder(
 				transactorPubkeyBytes,
 				receiverPubkeyBytes,
 				feeBaseUnits,
-				req.MinFeeRateNanosPerKB)
+				req.MinFeeRateNanosPerKB,
+				nil)
 			_, _, _, _, err = utxoView.ConnectTransaction(
 				txn, txn.Hash(), fes.blockchain.BlockTip().Height,
 				fes.blockchain.BlockTip().Header.TstampNanoSecs,
