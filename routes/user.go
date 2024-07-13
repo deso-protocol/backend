@@ -1534,11 +1534,6 @@ func (fes *APIServer) GetTokenBalancesForPublicKey(ww http.ResponseWriter, req *
 		_AddBadRequestError(ww, fmt.Sprintf("GetTokenBalancesForPublicKey: Missing UserPublicKey"))
 		return
 	}
-	userPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.UserPublicKey)
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetTokenBalancesForPublicKey: Problem decoding user public key: %v", err))
-		return
-	}
 	if len(requestData.CreatorPublicKeys) == 0 {
 		_AddBadRequestError(ww, fmt.Sprintf("GetTokenBalancesForPublicKey: Missing CreatorPublicKeys"))
 		return
@@ -1546,41 +1541,21 @@ func (fes *APIServer) GetTokenBalancesForPublicKey(ww http.ResponseWriter, req *
 
 	balancesMap := make(map[string]*SimpleTokenBalanceResponse)
 	for _, creatorPublicKeyStr := range requestData.CreatorPublicKeys {
-		// Deso is a special case
-		if IsDesoPkid(creatorPublicKeyStr) {
-			desoNanos, err := utxoView.GetDeSoBalanceNanosForPublicKey(userPublicKeyBytes)
-			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("GetTokenBalancesForPublicKey: Problem getting DESO balance: %v", err))
-				return
-			}
-			// When we're dealing with DESO, we use whatever identifier they passed
-			// in as the key. This is the most convenient thing to do for the caller.
-			// If we instead always returned DESO as the key then they would have to
-			// accommodate that, which would be annoying.
-			balancesMap[creatorPublicKeyStr] = &SimpleTokenBalanceResponse{
-				UserPublicKeyBase58Check:    requestData.UserPublicKey,
-				CreatorPublicKeyBase58Check: creatorPublicKeyStr,
-				BalanceBaseUnits:            strconv.FormatUint(desoNanos, 10),
-			}
-			continue
-		}
-		creatorPkBytes, _, err := lib.Base58CheckDecode(creatorPublicKeyStr)
+
+		balance, err := fes.getTransactorDesoOrDaoCoinBalance(
+			utxoView,
+			requestData.UserPublicKey,
+			creatorPublicKeyStr)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf(
-				"GetTokenBalancesForPublicKey: Problem decoding creator public key: %v", err))
+				"GetTokenBalancesForPublicKey: Problem getting balance for user %v and creator %v: %v",
+				requestData.UserPublicKey, creatorPublicKeyStr, err))
 			return
 		}
-
-		balanceEntry, _, _ := utxoView.GetBalanceEntryForHODLerPubKeyAndCreatorPubKey(
-			userPublicKeyBytes, creatorPkBytes, true)
-		if balanceEntry == nil || balanceEntry.IsDeleted() {
-			balanceEntry = &lib.BalanceEntry{}
-		}
-		// Convert balanceEntry uint256 to string
 		balancesMap[creatorPublicKeyStr] = &SimpleTokenBalanceResponse{
 			UserPublicKeyBase58Check:    requestData.UserPublicKey,
 			CreatorPublicKeyBase58Check: creatorPublicKeyStr,
-			BalanceBaseUnits:            balanceEntry.BalanceNanos.String(),
+			BalanceBaseUnits:            balance.ToBig().Text(10),
 		}
 	}
 
