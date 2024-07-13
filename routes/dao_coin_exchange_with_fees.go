@@ -179,7 +179,7 @@ func (fes *APIServer) UpdateDaoCoinMarketFees(ww http.ResponseWriter, req *http.
 
 	// Compute the additional transaction fees as specified by the request body and the node-level fees.
 	additionalOutputs, err := fes.getTransactionFee(
-		lib.TxnTypeAuthorizeDerivedKey, updaterPublicKeyBytes, requestData.TransactionFees)
+		lib.TxnTypeUpdateProfile, updaterPublicKeyBytes, requestData.TransactionFees)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: TransactionFees specified in Request body are invalid: %v", err))
 		return
@@ -931,8 +931,8 @@ func (fes *APIServer) HandleMarketOrder(
 		return nil, fmt.Errorf("HandleMarketOrder: Problem decoding public key %s: %v",
 			req.TransactorPublicKeyBase58Check, err)
 	}
-	quoteCurrencyPkidBytes, _, err := lib.Base58CheckDecode(req.QuoteCurrencyPublicKeyBase58Check)
-	if err != nil || len(quoteCurrencyPkidBytes) != btcec.PubKeyBytesLenCompressed {
+	quoteCurrencyPubkeyBytes, _, err := lib.Base58CheckDecode(req.QuoteCurrencyPublicKeyBase58Check)
+	if err != nil || len(quoteCurrencyPubkeyBytes) != btcec.PubKeyBytesLenCompressed {
 		return nil, fmt.Errorf("HandleMarketOrder: Problem decoding public key %s: %v",
 			req.QuoteCurrencyPublicKeyBase58Check, err)
 	}
@@ -1310,11 +1310,11 @@ func (fes *APIServer) HandleMarketOrder(
 		// For each trading fee we need to pay, construct a transfer txn that sends the amount
 		// from the transactor directly to the person receiving the fee.
 		transferTxns := []*lib.MsgDeSoTxn{}
-		for pkid, feeBaseUnits := range feeBaseUnitsByPubkey {
-			receiverPubkeyBytes, _, err := lib.Base58CheckDecode(pkid)
+		for pubkey, feeBaseUnits := range feeBaseUnitsByPubkey {
+			receiverPubkeyBytes, _, err := lib.Base58CheckDecode(pubkey)
 			if err != nil || len(receiverPubkeyBytes) != btcec.PubKeyBytesLenCompressed {
 				return nil, fmt.Errorf("HandleMarketOrder: Problem decoding public key %s: %v",
-					pkid, err)
+					pubkey, err)
 			}
 			// Try and create the TransferDaoCoin transaction for the user.
 			//
@@ -1323,7 +1323,7 @@ func (fes *APIServer) HandleMarketOrder(
 			txn, _, _, _, err := fes.blockchain.CreateDAOCoinTransferTxn(
 				transactorPubkeyBytes,
 				&lib.DAOCoinTransferMetadata{
-					ProfilePublicKey:       quoteCurrencyPkidBytes,
+					ProfilePublicKey:       quoteCurrencyPubkeyBytes,
 					ReceiverPublicKey:      receiverPubkeyBytes,
 					DAOCoinToTransferNanos: *feeBaseUnits,
 				},
