@@ -473,6 +473,8 @@ type APIServer struct {
 	// Cache of Total Supply and Rich List
 	TotalSupplyNanos  uint64
 	TotalSupplyDESO   float64
+	TotalStakedNanos  uint64
+	TotalStakedDESO   float64
 	RichList          []RichListEntryResponse
 	CountKeysWithDESO uint64
 
