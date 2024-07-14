@@ -1216,8 +1216,15 @@ func (fes *APIServer) validateTransactorSellingCoinBalance(
 
 	// Compare transactor selling balance to total selling quantity.
 	if transactorSellingBalanceBaseUnits.Lt(totalSellingBaseUnits) {
-		return errors.Errorf("Insufficient balance to open order: Need %v but have %v",
-			totalSellingBaseUnits, transactorSellingBalanceBaseUnits)
+		coinAmountNeeded, _ := CalculateStringDecimalAmountFromBaseUnitsSimple(
+			sellingDAOCoinCreatorPublicKeyBase58Check,
+			totalSellingBaseUnits)
+		coinAmountHave, _ := CalculateStringDecimalAmountFromBaseUnitsSimple(
+			sellingDAOCoinCreatorPublicKeyBase58Check,
+			transactorSellingBalanceBaseUnits)
+		return errors.Errorf("Insufficient balance to open order: Need %v (%v) but have %v (%v)",
+			totalSellingBaseUnits, coinAmountNeeded,
+			transactorSellingBalanceBaseUnits, coinAmountHave)
 	}
 
 	// Happy path. No error. Transactor has sufficient balance to cover their selling quantity.
