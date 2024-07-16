@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core/lib"
@@ -100,6 +101,58 @@ func (fes *APIServer) UpdateSupplyStats() {
 		totalSupply += lib.DecodeUint64(ccKey[1 : 1+uint64BytesLen])
 	}
 
+	validatorsStartPrefix := append([]byte{}, lib.Prefixes.PrefixValidatorByStatusAndStakeAmount...)
+	validatorsValidForPrefix := append([]byte{}, lib.Prefixes.PrefixValidatorByStatusAndStakeAmount...)
+	validatorsKeysFound, _, err := lib.DBGetPaginatedKeysAndValuesForPrefix(
+		fes.TXIndex.TXIndexChain.DB(), validatorsStartPrefix, validatorsValidForPrefix,
+		0, -1, false, false)
+	if err != nil {
+		glog.Errorf("StartSupplyMonitoring: Error getting all validators")
+	}
+	totalStakeSupply := uint64(0)
+	for _, validatorKey := range validatorsKeysFound {
+		validatorStakeAmount, err := lib.FixedWidthDecodeUint256(bytes.NewReader(validatorKey[2:]))
+		if err != nil {
+			glog.Errorf("StartSupplyMonitoring: Error decoding validator stake amount: %v", err)
+			continue
+		}
+		if validatorStakeAmount == nil || !validatorStakeAmount.IsUint64() {
+			glog.Errorf("StartSupplyMonitoring: Validator stake amount is not a uint64")
+			continue
+		}
+		totalStakeSupply += validatorStakeAmount.Uint64()
+	}
+	totalSupply += totalStakeSupply
+
+	lockedStakeStartPrefix := append([]byte{}, lib.Prefixes.PrefixLockedStakeByValidatorAndStakerAndLockedAt...)
+	lockedStakeValidForPrefix := append([]byte{}, lib.Prefixes.PrefixLockedStakeByValidatorAndStakerAndLockedAt...)
+	_, lockedStakeEntries, err := lib.DBGetPaginatedKeysAndValuesForPrefix(
+		fes.TXIndex.TXIndexChain.DB(), lockedStakeStartPrefix, lockedStakeValidForPrefix,
+		0, -1, false, true)
+	if err != nil {
+		glog.Errorf("StartSupplyMonitoring: Error getting all locked stake entries")
+	}
+	committedTip, _ := fes.TXIndex.TXIndexChain.GetCommittedTip()
+
+	for _, lockedStakeEntry := range lockedStakeEntries {
+		lse := &lib.LockedStakeEntry{}
+		if err = lse.RawDecodeWithoutMetadata(
+			uint64(committedTip.Height),
+			bytes.NewReader(lockedStakeEntry),
+		); err != nil {
+			glog.Errorf("StartSupplyMonitoring: Error decoding locked stake entry: %v", err)
+			continue
+		}
+
+		if !lse.LockedAmountNanos.IsUint64() {
+			glog.Errorf("StartSupplyMonitoring: Locked amount is not a uint64")
+			continue
+		}
+		totalSupply += lse.LockedAmountNanos.Uint64()
+	}
+
+	fes.TotalStakedNanos = totalStakeSupply
+	fes.TotalStakedDESO = float64(totalStakeSupply) / float64(lib.NanosPerUnit)
 	fes.TotalSupplyNanos = totalSupply
 	fes.TotalSupplyDESO = float64(totalSupply) / float64(lib.NanosPerUnit)
 

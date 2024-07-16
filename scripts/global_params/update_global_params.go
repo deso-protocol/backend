@@ -5,12 +5,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/golang-jwt/jwt/v4"
 	"io/ioutil"
 	"net/http"
 	"reflect"
 
-	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/golang-jwt/jwt/v4"
+
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/deso-protocol/backend/routes"
 	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
