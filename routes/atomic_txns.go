@@ -28,6 +28,10 @@ type CreateAtomicTxnsWrapperResponse struct {
 	TotalFeeNanos  uint64
 	Transaction    *lib.MsgDeSoTxn
 	TransactionHex string
+
+	// InnerTransactionHexes is a list of hex-encoded inner transactions
+	// contained in Transaction above.
+	InnerTransactionHexes []string
 }
 
 func (fes *APIServer) CreateAtomicTxnsWrapper(ww http.ResponseWriter, req *http.Request) {
@@ -92,12 +96,23 @@ func (fes *APIServer) CreateAtomicTxnsWrapper(ww http.ResponseWriter, req *http.
 		}
 	}
 
+	innerTransactionHexes := []string{}
+	for _, innerTxn := range txn.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns {
+		innerTxnBytes, err := innerTxn.ToBytes(true)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("CreateAtomicTxnsWrapper: Problem serializing inner transaction: %v", err))
+			return
+		}
+		innerTransactionHexes = append(innerTransactionHexes, hex.EncodeToString(innerTxnBytes))
+	}
+
 	// Construct a response.
 	res := CreateAtomicTxnsWrapperResponse{
-		TransactionsWrapped: uint64(len(txn.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns)),
-		TotalFeeNanos:       totalFees,
-		Transaction:         txn,
-		TransactionHex:      hex.EncodeToString(txnBytes),
+		TransactionsWrapped:   uint64(len(txn.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns)),
+		TotalFeeNanos:         totalFees,
+		Transaction:           txn,
+		TransactionHex:        hex.EncodeToString(txnBytes),
+		InnerTransactionHexes: innerTransactionHexes,
 	}
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {

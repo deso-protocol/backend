@@ -386,6 +386,8 @@ type DAOCoinLimitOrderWithFeeResponse struct {
 	TransactionHex string
 	TxnHashHex     string
 
+	InnerTransactionHexes []string
+
 	// The amount represents either the amount being spent (in the case of a buy) or
 	// the amount being sold (in the case of a sell). For a buy, the amount is in quote
 	// currency, while for a sell the amount is in base currency. The messages should
@@ -1286,6 +1288,16 @@ func (fes *APIServer) HandleMarketOrder(
 			res.LimitPriceInUsd = convertToUsd(priceStrQuote)
 		}
 
+		innerTransactionHexes := []string{}
+		for _, innerTxn := range res.Transaction.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns {
+			innerTxnBytes, err := innerTxn.ToBytes(true)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem serializing inner txn: %v", err)
+			}
+			innerTransactionHexes = append(innerTransactionHexes, hex.EncodeToString(innerTxnBytes))
+		}
+		res.InnerTransactionHexes = innerTransactionHexes
+
 		return res, nil
 	} else {
 		// We already have the txn that executes the order from previously
@@ -1510,6 +1522,16 @@ func (fes *APIServer) HandleMarketOrder(
 			res.LimitPriceInQuoteCurrency = priceStrQuote
 			res.LimitPriceInUsd = convertToUsd(priceStrQuote)
 		}
+
+		innerTransactionHexes := []string{}
+		for _, innerTxn := range res.Transaction.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns {
+			innerTxnBytes, err := innerTxn.ToBytes(true)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem serializing inner txn: %v", err)
+			}
+			innerTransactionHexes = append(innerTransactionHexes, hex.EncodeToString(innerTxnBytes))
+		}
+		res.InnerTransactionHexes = innerTransactionHexes
 
 		return res, nil
 	}
