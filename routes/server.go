@@ -1681,7 +1681,7 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathAdminUpdateViewNumber,
 			fes.AdminUpdateViewNumber,
-			PublicAccess,
+			SuperAdminAccess,
 		},
 		{
 			"AdminGetGlobalParams",
