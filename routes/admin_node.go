@@ -502,3 +502,22 @@ func (fes *APIServer) AdminGetMempoolStats(ww http.ResponseWriter, req *http.Req
 		return
 	}
 }
+
+type AdminUpdateViewNumberRequest struct {
+	ViewNumber uint64
+}
+
+func (fes *APIServer) AdminUpdateViewNumber(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := AdminUpdateViewNumberRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateViewNumber: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Update the view number.
+	if err := fes.backendServer.AdminOverrideViewNumber(requestData.ViewNumber); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("AdminUpdateViewNumber: Problem updating view number: %v", err))
+		return
+	}
+}
