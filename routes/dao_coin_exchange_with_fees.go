@@ -386,6 +386,8 @@ type DAOCoinLimitOrderWithFeeResponse struct {
 	TransactionHex string
 	TxnHashHex     string
 
+	InnerTransactionHexes []string
+
 	// The amount represents either the amount being spent (in the case of a buy) or
 	// the amount being sold (in the case of a sell). For a buy, the amount is in quote
 	// currency, while for a sell the amount is in base currency. The messages should
@@ -481,7 +483,9 @@ type GetQuoteCurrencyPriceInUsdRequest struct {
 }
 
 type GetQuoteCurrencyPriceInUsdResponse struct {
-	UsdPrice string `safeForLogging:"true"`
+	MidPrice string `safeForLogging:"true"`
+	BestAsk  string `safeForLogging:"true"`
+	BestBid  string `safeForLogging:"true"`
 }
 
 func (fes *APIServer) GetQuoteCurrencyPriceInUsdEndpoint(ww http.ResponseWriter, req *http.Request) {
@@ -492,41 +496,46 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsdEndpoint(ww http.ResponseWriter,
 		return
 	}
 
-	usdPrice, err := fes.GetQuoteCurrencyPriceInUsd(requestData.QuoteCurrencyPublicKeyBase58Check)
+	usdPrice, bestBid, bestAsk, err := fes.GetQuoteCurrencyPriceInUsd(requestData.QuoteCurrencyPublicKeyBase58Check)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetQuoteCurrencyPriceInUsd: Problem getting quote currency price in USD: %v", err))
 		return
 	}
 
-	res := GetQuoteCurrencyPriceInUsdResponse{UsdPrice: usdPrice}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	res := GetQuoteCurrencyPriceInUsdResponse{
+		MidPrice: usdPrice,
+		BestAsk:  bestAsk,
+		BestBid:  bestBid,
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetQuoteCurrencyPriceInUsd: Problem encoding response: %v", err))
 		return
 	}
 }
 
 func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
-	quoteCurrencyPublicKey string) (string, error) {
+	quoteCurrencyPublicKey string) (_midmarket string, _bid string, _ask string, _err error) {
 	if IsDesoPkid(quoteCurrencyPublicKey) {
 		desoUsdCents := fes.GetExchangeDeSoPrice()
-		return fmt.Sprintf("%0.9f", float64(desoUsdCents)/100), nil
+		price := fmt.Sprintf("%0.9f", float64(desoUsdCents)/100)
+		return price, price, price, nil // TODO: get real bid and ask prices.
 	}
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
-		return "", fmt.Errorf(
+		return "", "", "", fmt.Errorf(
 			"GetQuoteCurrencyPriceInUsd: Error fetching mempool view: %v", err)
 	}
 
 	pkBytes, _, err := lib.Base58CheckDecode(quoteCurrencyPublicKey)
 	if err != nil || len(pkBytes) != btcec.PubKeyBytesLenCompressed {
-		return "", fmt.Errorf(
+		return "", "", "", fmt.Errorf(
 			"GetQuoteCurrencyPriceInUsd: Problem decoding public key %s: %v",
 			quoteCurrencyPublicKey, err)
 	}
 
 	existingProfileEntry := utxoView.GetProfileEntryForPublicKey(pkBytes)
 	if existingProfileEntry == nil || existingProfileEntry.IsDeleted() {
-		return "", fmt.Errorf(
+		return "", "", "", fmt.Errorf(
 			"GetQuoteCurrencyPriceInUsd: Profile for quote currency public "+
 				"key %v does not exist",
 			quoteCurrencyPublicKey)
@@ -535,25 +544,25 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 	// If the profile is the dusdc profile then just return 1.0
 	lowerUsername := strings.ToLower(string(existingProfileEntry.Username))
 	if lowerUsername == "dusdc_" {
-		return "1.0", nil
+		return "1.0", "1.0", "1.0", nil
 	} else if lowerUsername == "focus" ||
 		lowerUsername == "openfund" {
 
 		desoUsdCents := fes.GetExchangeDeSoPrice()
 		pkid := utxoView.GetPKIDForPublicKey(pkBytes)
 		if pkid == nil {
-			return "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error getting pkid for public key %v",
+			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error getting pkid for public key %v",
 				quoteCurrencyPublicKey)
 		}
 		ordersBuyingCoin1, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
 			&lib.ZeroPKID, pkid.PKID)
 		if err != nil {
-			return "", fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
+			return "", "", "", fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
 		}
 		ordersBuyingCoin2, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
 			pkid.PKID, &lib.ZeroPKID)
 		if err != nil {
-			return "", fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
+			return "", "", "", fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
 		}
 		allOrders := append(ordersBuyingCoin1, ordersBuyingCoin2...)
 		// Find the highest bid price and the lowest ask price
@@ -566,11 +575,11 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 				order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
 				DAOCoinLimitOrderOperationTypeString(order.OperationType.String()))
 			if err != nil {
-				return "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price: %v", err)
+				return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price: %v", err)
 			}
 			priceFloat, err := strconv.ParseFloat(priceStr, 64)
 			if err != nil {
-				return "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error parsing price: %v", err)
+				return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error parsing price: %v", err)
 			}
 			if order.OperationType == lib.DAOCoinLimitOrderOperationTypeBID &&
 				priceFloat > highestBidPrice {
@@ -587,13 +596,16 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 			midPriceDeso := (highestBidPrice + lowestAskPrice) / 2.0
 			midPriceUsd := midPriceDeso * float64(desoUsdCents) / 100
 
-			return fmt.Sprintf("%0.9f", midPriceUsd), nil
+			return fmt.Sprintf("%0.9f", midPriceUsd),
+				fmt.Sprintf("%0.9f", highestBidPrice),
+				fmt.Sprintf("%0.9f", lowestAskPrice),
+				nil
 		}
 
-		return "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price")
+		return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price")
 	}
 
-	return "", fmt.Errorf(
+	return "", "", "", fmt.Errorf(
 		"GetQuoteCurrencyPriceInUsd: Quote currency %v not supported",
 		quoteCurrencyPublicKey)
 }
@@ -709,7 +721,7 @@ func (fes *APIServer) HandleMarketOrder(
 	error,
 ) {
 	quoteCurrencyUsdValue := float64(0.0)
-	quoteCurrencyUsdValueStr, err := fes.GetQuoteCurrencyPriceInUsd(
+	quoteCurrencyUsdValueStr, _, _, err := fes.GetQuoteCurrencyPriceInUsd(
 		req.QuoteCurrencyPublicKeyBase58Check)
 	if err != nil {
 		// If we can't get the price of the quote currency in usd, then we can't
@@ -1286,6 +1298,12 @@ func (fes *APIServer) HandleMarketOrder(
 			res.LimitPriceInUsd = convertToUsd(priceStrQuote)
 		}
 
+		innerTransactionHexes, err := GetInnerTransactionHexesFromAtomicTxn(res.Transaction)
+		if err != nil {
+			return nil, fmt.Errorf("HandleMarketOrder: Problem getting inner transaction hexes: %v", err)
+		}
+		res.InnerTransactionHexes = innerTransactionHexes
+
 		return res, nil
 	} else {
 		// We already have the txn that executes the order from previously
@@ -1510,6 +1528,12 @@ func (fes *APIServer) HandleMarketOrder(
 			res.LimitPriceInQuoteCurrency = priceStrQuote
 			res.LimitPriceInUsd = convertToUsd(priceStrQuote)
 		}
+
+		innerTransactionHexes, err := GetInnerTransactionHexesFromAtomicTxn(res.Transaction)
+		if err != nil {
+			return nil, fmt.Errorf("HandleMarketOrder: Problem getting inner transaction hexes: %v", err)
+		}
+		res.InnerTransactionHexes = innerTransactionHexes
 
 		return res, nil
 	}
