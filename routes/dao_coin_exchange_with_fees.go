@@ -1298,13 +1298,9 @@ func (fes *APIServer) HandleMarketOrder(
 			res.LimitPriceInUsd = convertToUsd(priceStrQuote)
 		}
 
-		innerTransactionHexes := []string{}
-		for _, innerTxn := range res.Transaction.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns {
-			innerTxnBytes, err := innerTxn.ToBytes(true)
-			if err != nil {
-				return nil, fmt.Errorf("HandleMarketOrder: Problem serializing inner txn: %v", err)
-			}
-			innerTransactionHexes = append(innerTransactionHexes, hex.EncodeToString(innerTxnBytes))
+		innerTransactionHexes, err := GetInnerTransactionHexesFromAtomicTxn(res.Transaction)
+		if err != nil {
+			return nil, fmt.Errorf("HandleMarketOrder: Problem getting inner transaction hexes: %v", err)
 		}
 		res.InnerTransactionHexes = innerTransactionHexes
 
@@ -1533,13 +1529,9 @@ func (fes *APIServer) HandleMarketOrder(
 			res.LimitPriceInUsd = convertToUsd(priceStrQuote)
 		}
 
-		innerTransactionHexes := []string{}
-		for _, innerTxn := range res.Transaction.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns {
-			innerTxnBytes, err := innerTxn.ToBytes(true)
-			if err != nil {
-				return nil, fmt.Errorf("HandleMarketOrder: Problem serializing inner txn: %v", err)
-			}
-			innerTransactionHexes = append(innerTransactionHexes, hex.EncodeToString(innerTxnBytes))
+		innerTransactionHexes, err := GetInnerTransactionHexesFromAtomicTxn(res.Transaction)
+		if err != nil {
+			return nil, fmt.Errorf("HandleMarketOrder: Problem getting inner transaction hexes: %v", err)
 		}
 		res.InnerTransactionHexes = innerTransactionHexes
 

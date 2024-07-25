@@ -96,14 +96,10 @@ func (fes *APIServer) CreateAtomicTxnsWrapper(ww http.ResponseWriter, req *http.
 		}
 	}
 
-	innerTransactionHexes := []string{}
-	for _, innerTxn := range txn.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns {
-		innerTxnBytes, err := innerTxn.ToBytes(true)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("CreateAtomicTxnsWrapper: Problem serializing inner transaction: %v", err))
-			return
-		}
-		innerTransactionHexes = append(innerTransactionHexes, hex.EncodeToString(innerTxnBytes))
+	innerTransactionHexes, err := GetInnerTransactionHexesFromAtomicTxn(txn)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateAtomicTxnsWrapper: Problem getting inner transaction hexes: %v", err))
+		return
 	}
 
 	// Construct a response.
@@ -120,4 +116,21 @@ func (fes *APIServer) CreateAtomicTxnsWrapper(ww http.ResponseWriter, req *http.
 			fmt.Sprintf("CreateAtomicTxnsWrapper: Problem serializing object to JSON: %v", err))
 		return
 	}
+}
+
+func GetInnerTransactionHexesFromAtomicTxn(txn *lib.MsgDeSoTxn) ([]string, error) {
+	if txn.TxnMeta.GetTxnType() != lib.TxnTypeAtomicTxnsWrapper {
+		return nil,
+			fmt.Errorf("GetInnerTransactionHexesFromAtomicTxn: Transaction is not an atomic transaction wrapper")
+	}
+	innerTransactionHexes := []string{}
+	for _, innerTxn := range txn.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns {
+		innerTxnBytes, err := innerTxn.ToBytes(true)
+		if err != nil {
+			return nil,
+				fmt.Errorf("GetInnerTransactionHexesFromAtomicTxn: Problem serializing inner transaction: %v", err)
+		}
+		innerTransactionHexes = append(innerTransactionHexes, hex.EncodeToString(innerTxnBytes))
+	}
+	return innerTransactionHexes, nil
 }
