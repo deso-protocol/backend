@@ -483,7 +483,7 @@ type GetQuoteCurrencyPriceInUsdRequest struct {
 }
 
 type GetQuoteCurrencyPriceInUsdResponse struct {
-	UsdPrice string `safeForLogging:"true"`
+	MidPrice string `safeForLogging:"true"`
 	BestAsk  string `safeForLogging:"true"`
 	BestBid  string `safeForLogging:"true"`
 }
@@ -503,11 +503,11 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsdEndpoint(ww http.ResponseWriter,
 	}
 
 	res := GetQuoteCurrencyPriceInUsdResponse{
-		UsdPrice: usdPrice,
+		MidPrice: usdPrice,
 		BestAsk:  bestAsk,
 		BestBid:  bestBid,
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetQuoteCurrencyPriceInUsd: Problem encoding response: %v", err))
 		return
 	}
