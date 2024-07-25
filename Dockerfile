@@ -38,7 +38,7 @@ COPY core/migrate     ../core/migrate
 
 # Install Delve debugger, specifying the installation path explicitly
 ENV GOPATH=/root/go
-RUN go install github.com/go-delve/delve/cmd/dlv@latest
+RUN go install github.com/go-delve/delve/cmd/dlv@v1.22.1
 
 # build backend
 #RUN GOOS=linux go build -mod=mod -a -installsuffix cgo -o bin/backend main.go

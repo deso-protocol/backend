@@ -197,8 +197,9 @@ const (
 	// Admin route paths can only be accessed if a user's public key is whitelisted as an admin.
 
 	// admin_node.go
-	RoutePathNodeControl          = "/api/v0/admin/node-control"
-	RoutePathAdminGetMempoolStats = "/api/v0/admin/get-mempool-stats"
+	RoutePathNodeControl           = "/api/v0/admin/node-control"
+	RoutePathAdminGetMempoolStats  = "/api/v0/admin/get-mempool-stats"
+	RoutePathAdminUpdateViewNumber = "/api/v0/admin/update-view-number"
 
 	// admin_buy_deso.go
 	RoutePathSetUSDCentsToDeSoReserveExchangeRate = "/api/v0/admin/set-usd-cents-to-deso-reserve-exchange-rate"
@@ -1674,6 +1675,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			RoutePathAdminGetMempoolStats,
 			fes.AdminGetMempoolStats,
 			AdminAccess,
+		},
+		{
+			"AdminUpdateViewNumber",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateViewNumber,
+			fes.AdminUpdateViewNumber,
+			SuperAdminAccess,
 		},
 		{
 			"AdminGetGlobalParams",
