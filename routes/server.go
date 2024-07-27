@@ -2877,6 +2877,41 @@ func (fes *APIServer) StartExchangePriceMonitoring() {
 	}()
 }
 
+func (fes *APIServer) StartPeerMonitoring() {
+	go func() {
+	out:
+		for {
+			select {
+			case <-time.After(10 * time.Second):
+				fes.UpdatePeerInfo()
+			case <-fes.quit:
+				break out
+			}
+		}
+	}()
+}
+
+func (fes *APIServer) UpdatePeerInfo() {
+	connManager := fes.backendServer.GetConnectionManager()
+	peers := connManager.GetAllPeers()
+
+	// Loop through all peers and update their info
+	for _, peer := range peers {
+		// TODO: Retrieve all validators, see if any of the peers match the validator URLs.
+		// TODO: Loop through all the nodes, see if any of the peers match the node URLs.
+		// TODO: Create a function to take a URL and get the IP address.
+		// TODO: Create a function to regularly go through the URL list, repopulate it from the validators + nodes, and
+		// then update an IP address -> URL map.
+		// TODO: Figure out how to structure the data dog table such that my data is captured as expected.
+		peer.Connected()
+	}
+
+	if err := fes.backendServer.GetStatsdClient().Gauge(fmt.Sprintf("%v_BALANCE", seedName), float64(balance), tags, 1); err != nil {
+		glog.Errorf("LogBalanceForSeed: Error logging balance to datadog for %v seed", seedName)
+	}
+
+}
+
 // Monitor balances for starter deso seed and buy deso seed
 func (fes *APIServer) StartSeedBalancesMonitoring() {
 	go func() {
