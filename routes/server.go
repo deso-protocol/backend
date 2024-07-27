@@ -109,6 +109,7 @@ const (
 	RoutePathGetDaoCoinMarketFees           = "/api/v0/get-dao-coin-market-fees"
 	RoutePathCreateDAOCoinLimitOrderWithFee = "/api/v0/create-dao-coin-limit-order-with-fee"
 	RoutePathGetQuoteCurrencyPriceInUsd     = "/api/v0/get-quote-currency-price-in-usd"
+	RoutePathGetBaseCurrencyPrice           = "/api/v0/get-base-currency-price"
 
 	// post.go
 	RoutePathGetPostsHashHexList    = "/api/v0/get-posts-hashhexlist"
@@ -1287,6 +1288,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathCreateDAOCoinLimitOrderWithFee,
 			fes.CreateDAOCoinLimitOrderWithFee,
+			PublicAccess,
+		},
+		{
+			"GetBaseCurrencyPrice",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetBaseCurrencyPrice,
+			fes.GetBaseCurrencyPriceEndpoint,
 			PublicAccess,
 		},
 		{
