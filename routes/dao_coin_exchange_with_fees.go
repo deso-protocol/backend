@@ -707,7 +707,10 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 
 	// Now the amount to fill and the quote currency received should be ready to go
 	// so we can compute the price.
-	priceInQuoteCurrency := quoteCurrencyReceived / baseCurrencyFilled
+	priceInQuoteCurrency := 0.0
+	if baseCurrencyFilled > 0 {
+		priceInQuoteCurrency = quoteCurrencyReceived / baseCurrencyFilled
+	}
 
 	// Get the price of the quote currency in usd. Use the mid price
 	quoteCurrencyPriceInUsdStr, _, _, err := fes.GetQuoteCurrencyPriceInUsd(
