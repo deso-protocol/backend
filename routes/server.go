@@ -3045,6 +3045,8 @@ func (fes *APIServer) GetUntrackedDeSoNodeUrls(trackedDomains map[string]bool) (
 	return nodeUrls, trackedDomains
 }
 
+// LogConnectedPeers logs the connected peers to datadog. It will give each peer a human-readable name if it can find one
+// in the URL map.
 func (fes *APIServer) LogConnectedPeers(ipAddressMap map[string]string) {
 	connManager := fes.backendServer.GetConnectionManager()
 	peers := connManager.GetAllPeers()
@@ -3052,29 +3054,13 @@ func (fes *APIServer) LogConnectedPeers(ipAddressMap map[string]string) {
 	// Loop through all peers and update their info
 	for _, peer := range peers {
 		peerIdentifier := peer.IP()
+
+		// Try to give our peer a more human-readable name from the URL map if we can.
 		if url, ok := ipAddressMap[peerIdentifier]; ok {
 			peerIdentifier = url
-		} else {
-			fmt.Printf("Peer %v not found in IP address map\n", peerIdentifier)
-			fmt.Printf("IP address map: %+v\n", ipAddressMap)
 		}
 
-		if peer.Connected() {
-			fmt.Printf("Peer %v is connected\n", peerIdentifier)
-		} else {
-			fmt.Printf("Peer %v is disconnected\n", peerIdentifier)
-		}
-		if peer.IsPersistent() {
-			fmt.Printf("Peer %v is persistent\n", peerIdentifier)
-		} else {
-			fmt.Printf("Peer %v is not persistent\n", peerIdentifier)
-		}
-		if peer.IsOutbound() {
-			fmt.Printf("Peer %v is outbound\n", peerIdentifier)
-		} else {
-			fmt.Printf("Peer %v is inbound\n", peerIdentifier)
-		}
-
+		// Get the peer's statuses.
 		isConnected := 0
 		if peer.Connected() {
 			isConnected = 1
@@ -3097,6 +3083,7 @@ func (fes *APIServer) LogConnectedPeers(ipAddressMap map[string]string) {
 			fmt.Sprintf("is_outbound:%d", isOutbound),
 		}
 
+		// Log the peer statuses to datadog.
 		if err := fes.backendServer.GetStatsdClient().Gauge("node.peer.status", 1, tags, 1); err != nil {
 			glog.Errorf("LogConnectedPeers: Error logging peer to datadog: %v", err)
 		}
