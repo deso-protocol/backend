@@ -2879,7 +2879,7 @@ func (fes *APIServer) StartExchangePriceMonitoring() {
 	}()
 }
 
-var PeerUrls = []string{"deso-seed-2.io"}
+var PeerUrls = []string{"gold.deso.org", "deso-seed-2.io"}
 
 func (fes *APIServer) StartPeerMonitoring() {
 	//if fes.backendServer == nil || fes.backendServer.GetStatsdClient() == nil {
@@ -2958,11 +2958,10 @@ func (fes *APIServer) TrackNewValidatorUrls(ipAddressMap map[string]string, trac
 func UpdateIPsForURLs(urlList []string, ipAddressMap map[string]string, trackedDomains map[string]bool) (map[string]string, map[string]bool, error) {
 	for _, url := range urlList {
 		if _, ok := trackedDomains[url]; !ok {
-			fullUrl := fmt.Sprintf("https://%v", url)
-
-			ipAddresses, err := GetIPsForURL(fullUrl)
+			ipAddresses, err := GetIPsForURL(url)
 			if err != nil {
-				return nil, nil, errors.Wrapf(err, "UpdateIPsForURLs: Error getting IP for URL %v", url)
+				fmt.Printf("Error getting IP for URL %v: %v\n", url, err)
+				continue
 			}
 			for _, ipAddress := range ipAddresses {
 				ipAddressMap[ipAddress] = url
@@ -3006,6 +3005,9 @@ func (fes *APIServer) GetValidatorUrls(trackedDomains map[string]bool) ([]string
 			// Retrieve only the part of the domain before the ":".
 			validatorUrl := strings.Split(domain, ":")[0]
 
+			// Remove https:// from the URL
+			validatorUrl = strings.Replace(validatorUrl, "https://", "", 1)
+
 			if _, ok := trackedDomains[validatorUrl]; !ok {
 				validatorUrls = append(validatorUrls, validatorUrl)
 			}
@@ -3018,6 +3020,8 @@ func (fes *APIServer) GetValidatorUrls(trackedDomains map[string]bool) ([]string
 // GetDeSoNodeUrls returns the URLs of all tracked DESO nodes. It filters out the URLs that are already being tracked.
 func (fes *APIServer) GetDeSoNodeUrls(trackedDomains map[string]bool) []string {
 	var nodeUrls []string
+
+	// TODO: Retrieve connect IPs and add IPs.
 
 	for _, node := range lib.NODES {
 		// Get node URL
