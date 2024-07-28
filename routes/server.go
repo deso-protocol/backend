@@ -2882,9 +2882,9 @@ func (fes *APIServer) StartExchangePriceMonitoring() {
 var PeerUrls = []string{"gold.deso.org", "deso-seed-2.io"}
 
 func (fes *APIServer) StartPeerMonitoring() {
-	//if fes.backendServer == nil || fes.backendServer.GetStatsdClient() == nil {
-	//	return
-	//}
+	if fes.backendServer == nil || fes.backendServer.GetStatsdClient() == nil {
+		return
+	}
 
 	ipAddressMap, trackedDomains, err := fes.InitializePeerIpAddressMap()
 	if err != nil {
@@ -3097,10 +3097,25 @@ func (fes *APIServer) LogConnectedPeers(ipAddressMap map[string]string) {
 			fmt.Sprintf("is_outbound:%d", isOutbound),
 		}
 
-		// TODO: Update this to correctly log the peer's status to datadog.
 		if err := fes.backendServer.GetStatsdClient().Gauge("node.peer.status", 1, tags, 1); err != nil {
 			glog.Errorf("LogConnectedPeers: Error logging peer to datadog: %v", err)
 		}
+		if isConnected == 1 {
+			if err := fes.backendServer.GetStatsdClient().Gauge("node.peer.status_connected", 1, tags, 1); err != nil {
+				glog.Errorf("LogConnectedPeers: Error logging peer to datadog: %v", err)
+			}
+		}
+		if isPersistent == 1 {
+			if err := fes.backendServer.GetStatsdClient().Gauge("node.peer.status_persistent", 1, tags, 1); err != nil {
+				glog.Errorf("LogConnectedPeers: Error logging peer to datadog: %v", err)
+			}
+		}
+		if isOutbound == 1 {
+			if err := fes.backendServer.GetStatsdClient().Gauge("node.peer.status_outbound", 1, tags, 1); err != nil {
+				glog.Errorf("LogConnectedPeers: Error logging peer to datadog: %v", err)
+			}
+		}
+
 	}
 }
 
