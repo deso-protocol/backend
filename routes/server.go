@@ -6,6 +6,7 @@ import (
 	fmt "fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -560,6 +561,7 @@ func NewAPIServer(
 	}
 
 	fes.StartSeedBalancesMonitoring()
+	fes.StartPeerMonitoring()
 
 	// Call this once upon starting server to ensure we have a good initial value
 	fes.UpdateUSDCentsToDeSoExchangeRate()
@@ -2877,38 +2879,186 @@ func (fes *APIServer) StartExchangePriceMonitoring() {
 	}()
 }
 
+var PeerUrls = []string{"deso-seed-2.io"}
+
 func (fes *APIServer) StartPeerMonitoring() {
+	//if fes.backendServer == nil || fes.backendServer.GetStatsdClient() == nil {
+	//	return
+	//}
+
+	ipAddressMap, trackedDomains, err := fes.InitializePeerIpAddressMap()
+	if err != nil {
+		fmt.Printf("Error initializing peer IP address map: %v\n", err)
+	}
+
 	go func() {
-	out:
+		peerLoggingTicker := time.NewTicker(30 * time.Second)
+		validatorUrlRefreshTicker := time.NewTicker(1 * time.Hour)
+		defer peerLoggingTicker.Stop()
+		defer validatorUrlRefreshTicker.Stop()
+
 		for {
 			select {
-			case <-time.After(10 * time.Second):
-				fes.UpdatePeerInfo()
+			case <-peerLoggingTicker.C:
+				fes.LogConnectedPeers(ipAddressMap)
+			case <-validatorUrlRefreshTicker.C:
+				var err error
+				ipAddressMap, trackedDomains, err = fes.TrackNewValidatorUrls(ipAddressMap, trackedDomains)
+				if err != nil {
+					fmt.Printf("Error tracking new validator URLs: %v\n", err)
+				}
 			case <-fes.quit:
-				break out
+				return
 			}
 		}
 	}()
 }
 
-func (fes *APIServer) UpdatePeerInfo() {
+func (fes *APIServer) InitializePeerIpAddressMap() (map[string]string, map[string]bool, error) {
+	ipAddressMap := make(map[string]string)
+	trackedDomains := make(map[string]bool)
+
+	// Track all the manually-tracked DeSo node URLs.
+	ipAddressMap, trackedDomains, err := UpdateIPsForURLs(PeerUrls, ipAddressMap, trackedDomains)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "InitializePeerIpAddressMap: Error tracking DeSo node URLs")
+	}
+
+	// Track all the validator URLs
+	ipAddressMap, trackedDomains, err = fes.TrackNewValidatorUrls(ipAddressMap, trackedDomains)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "InitializePeerIpAddressMap: Error tracking validator URLs")
+	}
+
+	// Track all the DeSo node URLs
+	ipAddressMap, trackedDomains, err = UpdateIPsForURLs(fes.GetDeSoNodeUrls(trackedDomains), ipAddressMap, trackedDomains)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "InitializePeerIpAddressMap: Error tracking DeSo node URLs")
+	}
+
+	return ipAddressMap, trackedDomains, nil
+}
+
+func (fes *APIServer) TrackNewValidatorUrls(ipAddressMap map[string]string, trackedDomains map[string]bool) (map[string]string, map[string]bool, error) {
+	validatorUrls, err := fes.GetValidatorUrls(trackedDomains)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "TrackNewValidatorUrls: Error getting validator URLs")
+	}
+
+	ipAddressMap, trackedDomains, err = UpdateIPsForURLs(validatorUrls, ipAddressMap, trackedDomains)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "TrackNewValidatorUrls: Error updating IP address map")
+	}
+
+	return ipAddressMap, trackedDomains, nil
+}
+
+// UpdateIPsForURLs updates the IP address map with the IP addresses associated with the URLs in the URL list.
+// It also updates the tracked domains map with the URLs in the URL list.
+func UpdateIPsForURLs(urlList []string, ipAddressMap map[string]string, trackedDomains map[string]bool) (map[string]string, map[string]bool, error) {
+	for _, url := range urlList {
+		if _, ok := trackedDomains[url]; !ok {
+			fullUrl := fmt.Sprintf("https://%v", url)
+
+			ipAddresses, err := GetIPsForURL(fullUrl)
+			if err != nil {
+				return nil, nil, errors.Wrapf(err, "UpdateIPsForURLs: Error getting IP for URL %v", url)
+			}
+			for _, ipAddress := range ipAddresses {
+				ipAddressMap[ipAddress] = url
+			}
+			trackedDomains[url] = true
+		}
+	}
+	return ipAddressMap, trackedDomains, nil
+}
+
+// GetIPsForURL returns the IP addresses associated with the URL.
+func GetIPsForURL(url string) ([]string, error) {
+	returnIps := []string{}
+
+	ips, err := net.LookupIP(url)
+	if err != nil {
+		return nil, errors.Wrapf(err, "GetIPsForURL: Error looking up IP for URL %v", url)
+	}
+	for _, ip := range ips {
+		returnIps = append(returnIps, ip.String())
+	}
+	return returnIps, nil
+}
+
+// GetValidatorUrls returns the URLs of the top 200 validators.
+func (fes *APIServer) GetValidatorUrls(trackedDomains map[string]bool) ([]string, error) {
+	utxoView, error := fes.mempool.GetAugmentedUniversalView()
+	if error != nil {
+		return nil, errors.Wrapf(error, "GetAllValidatorUrls: Error getting utxoView")
+	}
+	validatorEntries, err := utxoView.GetTopActiveValidatorsByStakeAmount(200)
+	if err != nil {
+		return nil, errors.Wrapf(err, "GetAllValidatorUrls: Error getting top active validators")
+	}
+
+	var validatorUrls []string
+
+	for _, validatorEntry := range validatorEntries {
+		for _, domainBytes := range validatorEntry.Domains {
+			domain := string(domainBytes)
+			// Retrieve only the part of the domain before the ":".
+			validatorUrl := strings.Split(domain, ":")[0]
+
+			if _, ok := trackedDomains[validatorUrl]; !ok {
+				validatorUrls = append(validatorUrls, validatorUrl)
+			}
+		}
+	}
+
+	return validatorUrls, nil
+}
+
+// GetDeSoNodeUrls returns the URLs of all tracked DESO nodes. It filters out the URLs that are already being tracked.
+func (fes *APIServer) GetDeSoNodeUrls(trackedDomains map[string]bool) []string {
+	var nodeUrls []string
+
+	for _, node := range lib.NODES {
+		// Get node URL
+		nodeUrl := node.URL
+		// Remove https:// from the URL
+		nodeUrl = strings.Replace(nodeUrl, "https://", "", 1)
+
+		if _, ok := trackedDomains[nodeUrl]; !ok {
+			nodeUrls = append(nodeUrls, nodeUrl)
+		}
+	}
+
+	return nodeUrls
+}
+
+func (fes *APIServer) LogConnectedPeers(ipAddressMap map[string]string) {
 	connManager := fes.backendServer.GetConnectionManager()
 	peers := connManager.GetAllPeers()
 
 	// Loop through all peers and update their info
 	for _, peer := range peers {
-		// TODO: Retrieve all validators, see if any of the peers match the validator URLs.
-		// TODO: Loop through all the nodes, see if any of the peers match the node URLs.
-		// TODO: Create a function to take a URL and get the IP address.
-		// TODO: Create a function to regularly go through the URL list, repopulate it from the validators + nodes, and
-		// then update an IP address -> URL map.
+		peerIdentifier := peer.IP()
+		if url, ok := ipAddressMap[peerIdentifier]; ok {
+			peerIdentifier = url
+		} else {
+			fmt.Printf("Peer %v not found in IP address map\n", peerIdentifier)
+			fmt.Printf("IP address map: %+v\n", ipAddressMap)
+		}
+
+		if peer.Connected() {
+			fmt.Printf("Peer %v is connected\n", peerIdentifier)
+		} else {
+			fmt.Printf("Peer %v is disconnected\n", peerIdentifier)
+		}
 		// TODO: Figure out how to structure the data dog table such that my data is captured as expected.
 		peer.Connected()
 	}
 
-	if err := fes.backendServer.GetStatsdClient().Gauge(fmt.Sprintf("%v_BALANCE", seedName), float64(balance), tags, 1); err != nil {
-		glog.Errorf("LogBalanceForSeed: Error logging balance to datadog for %v seed", seedName)
-	}
+	//if err := fes.backendServer.GetStatsdClient().Gauge(fmt.Sprintf("%v_BALANCE", seedName), float64(balance), tags, 1); err != nil {
+	//	glog.Errorf("LogBalanceForSeed: Error logging balance to datadog for %v seed", seedName)
+	//}
 
 }
 
