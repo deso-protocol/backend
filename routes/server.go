@@ -2880,11 +2880,9 @@ func (fes *APIServer) StartExchangePriceMonitoring() {
 }
 
 func (fes *APIServer) StartPeerMonitoring() {
-	if fes.backendServer == nil || fes.backendServer.GetStatsdClient() == nil || fes.backendServer.GetStatsdClient().Namespace == "" {
+	if fes.backendServer == nil || fes.backendServer.GetStatsdClient() == nil {
 		return
 	}
-
-	fmt.Printf("Statsd client namespace: %v\n", fes.backendServer.GetStatsdClient().Namespace)
 
 	ipAddressMap, trackedDomains, err := fes.InitializePeerIpAddressMap()
 	if err != nil {
