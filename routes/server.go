@@ -2991,7 +2991,7 @@ func GetIPsForURL(url string) ([]string, error) {
 
 // GetUntrackedValidatorUrls returns the URLs of the top 200 validators that aren't already being tracked.
 func (fes *APIServer) GetUntrackedValidatorUrls(trackedDomains map[string]bool) ([]string, map[string]bool, error) {
-	utxoView, error := fes.mempool.GetAugmentedUniversalView()
+	utxoView, error := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if error != nil {
 		return nil, nil, errors.Wrapf(error, "GetAllValidatorUrls: Error getting utxoView")
 	}
