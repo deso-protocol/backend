@@ -2879,6 +2879,7 @@ func (fes *APIServer) StartExchangePriceMonitoring() {
 	}()
 }
 
+// URLs that we want to monitor for peer connectivity. Validators and default DeSo nodes will automatically be included.
 var PeerUrls = []string{"gold.deso.org", "deso-seed-2.io"}
 
 func (fes *APIServer) StartPeerMonitoring() {
