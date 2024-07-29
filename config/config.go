@@ -100,6 +100,9 @@ type Config struct {
 
 	// Secret used to validate hCaptcha tokens.
 	HCaptchaSecret string
+
+	// URLs + optional port for peers that we may connect to and should monitor.
+	PeersToMonitor []string
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -205,6 +208,8 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 
 	// hCaptcha secret
 	config.HCaptchaSecret = viper.GetString("hcaptcha-secret")
+
+	config.PeersToMonitor = viper.GetStringSlice("peers-to-monitor")
 
 	// Public keys that need their balances monitored. Map of Label to Public key
 	labelsToPublicKeys := viper.GetString("public-key-balances-to-monitor")

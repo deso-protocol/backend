@@ -2879,13 +2879,12 @@ func (fes *APIServer) StartExchangePriceMonitoring() {
 	}()
 }
 
-// URLs that we want to monitor for peer connectivity. Validators and default DeSo nodes will automatically be included.
-var PeerUrls = []string{"gold.deso.org", "deso-seed-2.io"}
-
 func (fes *APIServer) StartPeerMonitoring() {
-	if fes.backendServer == nil || fes.backendServer.GetStatsdClient() == nil {
+	if fes.backendServer == nil || fes.backendServer.GetStatsdClient() == nil || fes.backendServer.GetStatsdClient().Namespace == "" {
 		return
 	}
+
+	fmt.Printf("Statsd client namespace: %v\n", fes.backendServer.GetStatsdClient().Namespace)
 
 	ipAddressMap, trackedDomains, err := fes.InitializePeerIpAddressMap()
 	if err != nil {
@@ -3009,9 +3008,6 @@ func (fes *APIServer) GetUntrackedValidatorUrls(trackedDomains map[string]bool) 
 			// Retrieve only the part of the domain before the ":".
 			validatorUrl := strings.Split(domain, ":")[0]
 
-			// Remove https:// from the URL
-			validatorUrl = strings.Replace(validatorUrl, "https://", "", 1)
-
 			if _, ok := trackedDomains[validatorUrl]; !ok {
 				validatorUrls = append(validatorUrls, validatorUrl)
 				trackedDomains[validatorUrl] = true
@@ -3026,11 +3022,18 @@ func (fes *APIServer) GetUntrackedValidatorUrls(trackedDomains map[string]bool) 
 func (fes *APIServer) GetUntrackedDeSoNodeUrls(trackedDomains map[string]bool) ([]string, map[string]bool) {
 	// Start with the manually-tracked DeSo node URLs.
 	var nodeUrls []string
-	for _, url := range PeerUrls {
-		trackedDomains[url] = true
-		nodeUrls = append(nodeUrls, url)
+	if fes.Config.PeersToMonitor != nil {
+		for _, url := range fes.Config.PeersToMonitor {
+			// Remove https:// from the URL
+			url = strings.Replace(url, "https://", "", 1)
+			// Remove port from URL.
+			url = strings.Split(url, ":")[0]
+			trackedDomains[url] = true
+			nodeUrls = append(nodeUrls, url)
+		}
 	}
 
+	// Loop through the default DeSo node URLs.
 	for _, node := range lib.NODES {
 		// Get node URL
 		nodeUrl := node.URL
