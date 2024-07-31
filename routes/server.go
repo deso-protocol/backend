@@ -209,6 +209,7 @@ const (
 
 	// admin_transaction.go
 	RoutePathGetGlobalParams                   = "/api/v0/get-global-params"
+	RoutePathGetAllGlobalParams                = "/api/v0/get-all-global-params"
 	RoutePathTestSignTransactionWithDerivedKey = "/api/v0/admin/test-sign-transaction-with-derived-key"
 
 	// Eventually we will deprecate the admin endpoint since it does not need to be protected.
@@ -665,6 +666,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetGlobalParams,
 			fes.GetGlobalParams,
+			PublicAccess,
+		},
+		{
+			"GetAllGlobalParams",
+			[]string{"GET"},
+			RoutePathGetAllGlobalParams,
+			fes.GetAllGlobalParams,
 			PublicAccess,
 		},
 		// Route for sending DeSo
