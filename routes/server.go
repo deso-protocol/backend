@@ -6,6 +6,7 @@ import (
 	fmt "fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -560,6 +561,7 @@ func NewAPIServer(
 	}
 
 	fes.StartSeedBalancesMonitoring()
+	fes.StartPeerMonitoring()
 
 	// Call this once upon starting server to ensure we have a good initial value
 	fes.UpdateUSDCentsToDeSoExchangeRate()
@@ -2875,6 +2877,235 @@ func (fes *APIServer) StartExchangePriceMonitoring() {
 			}
 		}
 	}()
+}
+
+func (fes *APIServer) StartPeerMonitoring() {
+	if fes.backendServer == nil || fes.backendServer.GetStatsdClient() == nil {
+		return
+	}
+
+	ipAddressMap, trackedDomains, err := fes.InitializePeerIpAddressMap()
+	if err != nil {
+		fmt.Printf("Error initializing peer IP address map: %v\n", err)
+	}
+
+	go func() {
+		peerLoggingTicker := time.NewTicker(30 * time.Second)
+		validatorUrlRefreshTicker := time.NewTicker(1 * time.Hour)
+		defer peerLoggingTicker.Stop()
+		defer validatorUrlRefreshTicker.Stop()
+
+		for {
+			select {
+			case <-peerLoggingTicker.C:
+				fes.LogConnectedPeers(ipAddressMap)
+			case <-validatorUrlRefreshTicker.C:
+				var err error
+				ipAddressMap, trackedDomains, err = fes.TrackNewValidatorUrls(ipAddressMap, trackedDomains)
+				if err != nil {
+					fmt.Printf("Error tracking new validator URLs: %v\n", err)
+				}
+			case <-fes.quit:
+				return
+			}
+		}
+	}()
+}
+
+// InitializePeerIpAddressMap retrieves a list of likely peer URLs from the validator set, the set of default DeSo nodes,
+// and the set of manually-tracked DeSo nodes. It then retrieves the IP addresses associated with these URLs and stores
+// them in a map.
+func (fes *APIServer) InitializePeerIpAddressMap() (map[string]string, map[string]bool, error) {
+	ipAddressMap := make(map[string]string)
+	trackedDomains := make(map[string]bool)
+
+	// Retrieve DeSo node URLs.
+	desoNodeUrls, trackedDomains := fes.GetUntrackedDeSoNodeUrls(trackedDomains)
+
+	// Retrieve validator URLs.
+	validatorUrls, trackedDomains, err := fes.GetUntrackedValidatorUrls(trackedDomains)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "InitializePeerIpAddressMap: Error getting validator URLs")
+	}
+
+	// Combine the DeSo node URLs and validator URLs.
+	urls := append(desoNodeUrls, validatorUrls...)
+
+	// Create an IP address map for the URLs.
+	ipAddressMap, err = UpdateIPsForURLs(urls, ipAddressMap)
+
+	return ipAddressMap, trackedDomains, nil
+}
+
+// TrackNewValidatorUrls retrieves the URLs of the top 200 validators that aren't already being tracked, updates the IP
+// address map with the IP addresses associated with these URLs, and returns the updated IP address map and tracked
+// domains.
+func (fes *APIServer) TrackNewValidatorUrls(ipAddressMap map[string]string, trackedDomains map[string]bool) (map[string]string, map[string]bool, error) {
+	validatorUrls, trackedDomains, err := fes.GetUntrackedValidatorUrls(trackedDomains)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "TrackNewValidatorUrls: Error getting validator URLs")
+	}
+
+	if len(validatorUrls) == 0 {
+		return ipAddressMap, trackedDomains, nil
+	}
+
+	ipAddressMap, err = UpdateIPsForURLs(validatorUrls, ipAddressMap)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "TrackNewValidatorUrls: Error updating IP address map")
+	}
+
+	return ipAddressMap, trackedDomains, nil
+}
+
+// UpdateIPsForURLs updates the IP address map with the IP addresses associated with the URLs in the URL list.
+func UpdateIPsForURLs(urlList []string, ipAddressMap map[string]string) (map[string]string, error) {
+	for _, url := range urlList {
+		ipAddresses, err := GetIPsForURL(url)
+		if err != nil {
+			fmt.Printf("Error getting IP for URL %v: %v\n", url, err)
+			continue
+		}
+		for _, ipAddress := range ipAddresses {
+			ipAddressMap[ipAddress] = url
+		}
+	}
+	return ipAddressMap, nil
+}
+
+// GetIPsForURL returns the IP addresses associated with the URL.
+func GetIPsForURL(url string) ([]string, error) {
+	returnIps := []string{}
+
+	ips, err := net.LookupIP(url)
+	if err != nil {
+		return nil, errors.Wrapf(err, "GetIPsForURL: Error looking up IP for URL %v", url)
+	}
+	for _, ip := range ips {
+		returnIps = append(returnIps, ip.String())
+	}
+	return returnIps, nil
+}
+
+// GetUntrackedValidatorUrls returns the URLs of the top 200 validators that aren't already being tracked.
+func (fes *APIServer) GetUntrackedValidatorUrls(trackedDomains map[string]bool) ([]string, map[string]bool, error) {
+	utxoView, error := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if error != nil {
+		return nil, nil, errors.Wrapf(error, "GetAllValidatorUrls: Error getting utxoView")
+	}
+	validatorEntries, err := utxoView.GetTopActiveValidatorsByStakeAmount(200)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "GetAllValidatorUrls: Error getting top active validators")
+	}
+
+	var validatorUrls []string
+
+	for _, validatorEntry := range validatorEntries {
+		for _, domainBytes := range validatorEntry.Domains {
+			domain := string(domainBytes)
+			// Retrieve only the part of the domain before the ":".
+			validatorUrl := strings.Split(domain, ":")[0]
+
+			if _, ok := trackedDomains[validatorUrl]; !ok {
+				validatorUrls = append(validatorUrls, validatorUrl)
+				trackedDomains[validatorUrl] = true
+			}
+		}
+	}
+
+	return validatorUrls, trackedDomains, nil
+}
+
+// GetUntrackedDeSoNodeUrls returns the URLs of all tracked DESO nodes. It filters out the URLs that are already being tracked.
+func (fes *APIServer) GetUntrackedDeSoNodeUrls(trackedDomains map[string]bool) ([]string, map[string]bool) {
+	// Start with the manually-tracked DeSo node URLs.
+	var nodeUrls []string
+	if fes.Config.PeersToMonitor != nil {
+		for _, url := range fes.Config.PeersToMonitor {
+			// Remove https:// from the URL
+			url = strings.Replace(url, "https://", "", 1)
+			// Remove port from URL.
+			url = strings.Split(url, ":")[0]
+			trackedDomains[url] = true
+			nodeUrls = append(nodeUrls, url)
+		}
+	}
+
+	// Loop through the default DeSo node URLs.
+	for _, node := range lib.NODES {
+		// Get node URL
+		nodeUrl := node.URL
+		// Remove https:// from the URL
+		nodeUrl = strings.Replace(nodeUrl, "https://", "", 1)
+
+		if _, ok := trackedDomains[nodeUrl]; !ok {
+			nodeUrls = append(nodeUrls, nodeUrl)
+			trackedDomains[nodeUrl] = true
+		}
+	}
+
+	return nodeUrls, trackedDomains
+}
+
+// LogConnectedPeers logs the connected peers to datadog. It will give each peer a human-readable name if it can find one
+// in the URL map.
+func (fes *APIServer) LogConnectedPeers(ipAddressMap map[string]string) {
+	connManager := fes.backendServer.GetConnectionManager()
+	peers := connManager.GetAllPeers()
+
+	// Loop through all peers and update their info
+	for _, peer := range peers {
+		peerIdentifier := peer.IP()
+
+		// Try to give our peer a more human-readable name from the URL map if we can.
+		if url, ok := ipAddressMap[peerIdentifier]; ok {
+			peerIdentifier = url
+		}
+
+		// Get the peer's statuses.
+		isConnected := 0
+		if peer.Connected() {
+			isConnected = 1
+		}
+
+		isPersistent := 0
+		if peer.IsPersistent() {
+			isPersistent = 1
+		}
+
+		isOutbound := 0
+		if peer.IsOutbound() {
+			isOutbound = 1
+		}
+
+		tags := []string{
+			fmt.Sprintf("peer_name:%s", peerIdentifier),
+			fmt.Sprintf("is_connected:%d", isConnected),
+			fmt.Sprintf("is_persistent:%d", isPersistent),
+			fmt.Sprintf("is_outbound:%d", isOutbound),
+		}
+
+		// Log the peer statuses to datadog.
+		if err := fes.backendServer.GetStatsdClient().Gauge("node.peer.status", 1, tags, 1); err != nil {
+			glog.Errorf("LogConnectedPeers: Error logging peer to datadog: %v", err)
+		}
+		if isConnected == 1 {
+			if err := fes.backendServer.GetStatsdClient().Gauge("node.peer.status_connected", 1, tags, 1); err != nil {
+				glog.Errorf("LogConnectedPeers: Error logging peer to datadog: %v", err)
+			}
+		}
+		if isPersistent == 1 {
+			if err := fes.backendServer.GetStatsdClient().Gauge("node.peer.status_persistent", 1, tags, 1); err != nil {
+				glog.Errorf("LogConnectedPeers: Error logging peer to datadog: %v", err)
+			}
+		}
+		if isOutbound == 1 {
+			if err := fes.backendServer.GetStatsdClient().Gauge("node.peer.status_outbound", 1, tags, 1); err != nil {
+				glog.Errorf("LogConnectedPeers: Error logging peer to datadog: %v", err)
+			}
+		}
+
+	}
 }
 
 // Monitor balances for starter deso seed and buy deso seed
