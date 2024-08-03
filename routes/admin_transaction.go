@@ -92,6 +92,22 @@ func (fes *APIServer) GetGlobalParams(ww http.ResponseWriter, req *http.Request)
 	}
 }
 
+func (fes *APIServer) GetAllGlobalParams(ww http.ResponseWriter, req *http.Request) {
+	// Get a view
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllGlobalParams: Error getting utxoView: %v", err))
+		return
+	}
+	globalParamsEntry := utxoView.GetCurrentGlobalParamsEntry()
+	// Return all the data associated with the transaction in the response
+	res := globalParamsEntry
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllGlobalParams: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
 // UpdateGlobalParamsRequest ...
 type UpdateGlobalParamsRequest struct {
 	UpdaterPublicKeyBase58Check string `safeForLogging:"true"`
