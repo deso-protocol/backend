@@ -985,10 +985,35 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 	if transactionInfoRequest.IsMempool {
 		// Get all the txns from the mempool.
 		poolTxns := fes.backendServer.GetMempool().GetOrderedTransactions()
-
+		uncommittedTipView, err := fes.backendServer.GetBlockchain().GetUncommittedTipView()
+		if err != nil {
+			APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem fetching uncommittedTipView: %v", err))
+			return
+		}
+		uncommittedTipHeight := fes.backendServer.GetBlockchain().BlockTip().Height
+		safeUncommittedTipUtxoView := lib.NewSafeUtxoView(uncommittedTipView)
+		currentTimestamp := time.Now().UnixNano()
 		res := &APITransactionInfoResponse{}
 		res.Transactions = []*TransactionResponse{}
 		for _, poolTx := range poolTxns {
+			if fes.Params.IsPoSBlockHeight(uint64(uncommittedTipHeight + 1)) {
+				// Skip transactions that are not validated yet.
+				if !poolTx.IsValidated() {
+					continue
+				}
+				totalNanosPurchasedBefore := safeUncommittedTipUtxoView.GetUtxoView().NanosPurchased
+				usdCentsPerBitcoinBefore := safeUncommittedTipUtxoView.GetUtxoView().GetCurrentUSDCentsPerBitcoin()
+				utxoOps, totalInput, totalOutput, txFee, err := safeUncommittedTipUtxoView.ConnectTransaction(
+					poolTx.Tx, poolTx.Hash, uncommittedTipHeight+1, currentTimestamp, false /*verifySignatures*/, false)
+				if err != nil {
+					APIAddError(ww, fmt.Sprintf("APITransactionInfo: Problem connecting transaction: %v", err))
+					return
+				}
+				txindexMetadata := lib.ComputeTransactionMetadata(
+					poolTx.Tx, safeUncommittedTipUtxoView.GetUtxoView(), nil, totalNanosPurchasedBefore,
+					usdCentsPerBitcoinBefore, totalInput, totalOutput, txFee, uint64(0), utxoOps, uint64(uncommittedTipHeight+1))
+				poolTx.TxMeta = txindexMetadata
+			}
 			// If we haven't seen the last transaction of the previous page, skip ahead until we find it.
 			if !lastTxSeen {
 				if reflect.DeepEqual(poolTx.Hash, lastTxHash) {
