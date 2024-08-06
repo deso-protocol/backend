@@ -522,44 +522,32 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 		return
 	}
 
-	quotePkBytes, _, err := lib.Base58CheckDecode(requestData.QuoteCurrencyPublicKeyBase58Check)
-	if err != nil || len(quotePkBytes) != btcec.PubKeyBytesLenCompressed {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetBaseCurrencyPrice: Problem decoding public key %s: %v",
-			requestData.QuoteCurrencyPublicKeyBase58Check, err))
-		return
-	}
-	basePkBytes, _, err := lib.Base58CheckDecode(requestData.BaseCurrencyPublicKeyBase58Check)
-	if err != nil || len(basePkBytes) != btcec.PubKeyBytesLenCompressed {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetBaseCurrencyPrice: Problem decoding public key %s: %v",
-			requestData.BaseCurrencyPublicKeyBase58Check, err))
+	quotePkid, err := fes.getPKIDFromPublicKeyBase58CheckOrDESOString(
+		utxoView,
+		requestData.QuoteCurrencyPublicKeyBase58Check,
+	)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Error getting quote pkid: %v", err))
 		return
 	}
 
-	quotePkid := utxoView.GetPKIDForPublicKey(quotePkBytes)
-	if quotePkid == nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetBaseCurrencyPrice: Quote currency pkid not found: %v",
-			requestData.QuoteCurrencyPublicKeyBase58Check))
-		return
-	}
-	basePkid := utxoView.GetPKIDForPublicKey(basePkBytes)
-	if basePkid == nil {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"GetBaseCurrencyPrice: Base currency pkid not found: %v",
-			requestData.BaseCurrencyPublicKeyBase58Check))
+	basePkid, err := fes.getPKIDFromPublicKeyBase58CheckOrDESOString(
+		utxoView,
+		requestData.BaseCurrencyPublicKeyBase58Check,
+	)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Error getting base pkid: %v", err))
 		return
 	}
 	// Super annoying, but it takes two fetches to get all the orders for a market
 	ordersSide1, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
-		basePkid.PKID, quotePkid.PKID)
+		basePkid, quotePkid)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Error getting limit orders: %v", err))
 		return
 	}
 	ordersSide2, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
-		quotePkid.PKID, basePkid.PKID)
+		quotePkid, basePkid)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Error getting limit orders: %v", err))
 		return
@@ -574,10 +562,15 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 	simpleBidOrders := []*SimpleOrder{}
 	simpleAskOrders := []*SimpleOrder{}
 	for _, order := range allOrders {
+		// Skip invalid dao coin limit orders. This filters out orders where
+		// the transactor does not have sufficient funds to fill the order.
+		if err = utxoView.IsValidDAOCoinLimitOrder(order); err != nil {
+			continue
+		}
 		// An order is technically a bid order as long as the "buying" currency is the
 		// base currency. Otherwise, it's an ask currency because the base currency is
 		// the one being sold.
-		if order.BuyingDAOCoinCreatorPKID.Eq(basePkid.PKID) {
+		if order.BuyingDAOCoinCreatorPKID.Eq(basePkid) {
 			// Computing the price "just works" when the base currency is the buying
 			// coin because the exchange rate is expressed in quote currency (= selling
 			// coin) per base currency (= buying coin).
