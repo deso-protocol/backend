@@ -501,11 +501,11 @@ type GetBaseCurrencyPriceResponse struct {
 	BestBidInUsd            float64 `safeForLogging:"true"`
 
 	// Useful for computing "cashout" values on the wallet page
-	ExecutionAmountInBaseCurrency float64 `safeForLogging:"true"`
-	ReceiveAmountInQuoteCurrency  float64 `safeForLogging:"true"`
-	ReceiveAmountInUsd            float64 `safeForLogging:"true"`
-	ExecutionPriceInQuoteCurrency float64 `safeForLogging:"true"`
-	ExecutionPriceInUsd           float64 `safeForLogging:"true"`
+	ExecutionAmountInBaseCurrency string `safeForLogging:"true"`
+	ReceiveAmountInQuoteCurrency  string `safeForLogging:"true"`
+	ReceiveAmountInUsd            string `safeForLogging:"true"`
+	ExecutionPriceInQuoteCurrency string `safeForLogging:"true"`
+	ExecutionPriceInUsd           string `safeForLogging:"true"`
 }
 
 func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *http.Request) {
@@ -681,28 +681,35 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 
 	// Iterate through the bids "filling" orders until we hit the base currency
 	// quantity we're looking for.
-	baseCurrencyFilled := float64(0.0)
-	baseCurrencyToFill := requestData.BaseCurrencyQuantityToSell
-	quoteCurrencyReceived := float64(0.0)
+	baseCurrencyFilled := big.NewFloat(0.0)
+	baseCurrencyToFill := big.NewFloat(requestData.BaseCurrencyQuantityToSell)
+	quoteCurrencyReceived := big.NewFloat(0.0)
 	for _, bid := range simpleBidOrders {
 		// If the amount filled plus the amount we're about to fill is greater
 		// than the amount we're looking to fill, then we just partially fill
 		// the order.
-		if baseCurrencyFilled+bid.AmountInBaseCurrency > baseCurrencyToFill {
-			baseCurrencyFromThisOrder := baseCurrencyToFill - baseCurrencyFilled
-			quoteCurrencyReceived += baseCurrencyFromThisOrder * bid.PriceInQuoteCurrency
+		if big.NewFloat(0.0).Add(
+			baseCurrencyFilled,
+			big.NewFloat(bid.AmountInBaseCurrency),
+		).Cmp(baseCurrencyToFill) > 0 {
+			baseCurrencyFromThisOrder := big.NewFloat(0).Sub(baseCurrencyToFill, baseCurrencyFilled)
+			addlQuoteCurrencyReceivedFromOrdered := big.NewFloat(0).Mul(baseCurrencyFromThisOrder, big.NewFloat(bid.PriceInQuoteCurrency))
+			quoteCurrencyReceived = big.NewFloat(0).Add(quoteCurrencyReceived, addlQuoteCurrencyReceivedFromOrdered)
+			// Since we've fully filled the order, we can simply set the base currency filled
+			// to the amount we're looking to fill from the request.
 			baseCurrencyFilled = baseCurrencyToFill
 			break
 		}
-		quoteCurrencyReceived += bid.AmountInBaseCurrency * bid.PriceInQuoteCurrency
-		baseCurrencyFilled += bid.AmountInBaseCurrency
+		addlQuoteCurrencyReceivedFromOrder := big.NewFloat(0).Mul(big.NewFloat(bid.AmountInBaseCurrency), big.NewFloat(bid.PriceInQuoteCurrency))
+		quoteCurrencyReceived = big.NewFloat(0).Add(quoteCurrencyReceived, addlQuoteCurrencyReceivedFromOrder)
+		baseCurrencyFilled = big.NewFloat(0).Add(baseCurrencyFilled, big.NewFloat(bid.AmountInBaseCurrency))
 	}
 
 	// Now the amount to fill and the quote currency received should be ready to go
 	// so we can compute the price.
-	priceInQuoteCurrency := 0.0
-	if baseCurrencyFilled > 0 {
-		priceInQuoteCurrency = quoteCurrencyReceived / baseCurrencyFilled
+	priceInQuoteCurrency := big.NewFloat(0.0)
+	if baseCurrencyFilled.Sign() > 0 {
+		priceInQuoteCurrency = big.NewFloat(0).Quo(quoteCurrencyReceived, baseCurrencyFilled)
 	}
 
 	// Get the price of the quote currency in usd. Use the mid price
@@ -730,11 +737,11 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 		BestBidInUsd:            bestBidPriceInQuoteCurrency * quoteCurrencyPriceInUsd,
 
 		// Useful for computing "cashout" values on the wallet page
-		ExecutionAmountInBaseCurrency: baseCurrencyFilled,
-		ReceiveAmountInQuoteCurrency:  quoteCurrencyReceived,
-		ReceiveAmountInUsd:            quoteCurrencyReceived * quoteCurrencyPriceInUsd,
-		ExecutionPriceInQuoteCurrency: priceInQuoteCurrency,
-		ExecutionPriceInUsd:           priceInQuoteCurrency * quoteCurrencyPriceInUsd,
+		ExecutionAmountInBaseCurrency: baseCurrencyFilled.String(),
+		ReceiveAmountInQuoteCurrency:  quoteCurrencyReceived.String(),
+		ReceiveAmountInUsd:            big.NewFloat(0).Mul(quoteCurrencyReceived, big.NewFloat(quoteCurrencyPriceInUsd)).String(),
+		ExecutionPriceInQuoteCurrency: priceInQuoteCurrency.String(),
+		ExecutionPriceInUsd:           big.NewFloat(0).Mul(priceInQuoteCurrency, big.NewFloat(quoteCurrencyPriceInUsd)).String(),
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetQuoteCurrencyPriceInUsd: Problem encoding response: %v", err))
