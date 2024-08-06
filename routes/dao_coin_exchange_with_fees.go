@@ -11,6 +11,7 @@ import (
 	"math"
 	"math/big"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -475,6 +476,276 @@ func GetQuoteBasePkidFromBuyingSellingPkids(
 	} else {
 		return "", "", fmt.Errorf(
 			"GetQuoteBasePkidFromBuyingSellingPkids: Invalid side: %v", side)
+	}
+}
+
+type GetBaseCurrencyPriceRequest struct {
+	BaseCurrencyPublicKeyBase58Check string `safeForLogging:"true"`
+	// Only deso, focus, and usdc supported
+	QuoteCurrencyPublicKeyBase58Check string `safeForLogging:"true"`
+	// Currently, we only compute values for selling base currency. This is
+	// because our only use-case is computing cashout value.
+	BaseCurrencyQuantityToSell float64 `safeForLogging:"true"`
+}
+
+type GetBaseCurrencyPriceResponse struct {
+	// It's useful to include the quote currency price used for USD conversions
+	QuoteCurrencyPriceInUsd float64 `safeForLogging:"true"`
+
+	// Traditional price values
+	MidPriceInQuoteCurrency float64 `safeForLogging:"true"`
+	MidPriceInUsd           float64 `safeForLogging:"true"`
+	BestAskInQuoteCurrency  float64 `safeForLogging:"true"`
+	BestAskInUsd            float64 `safeForLogging:"true"`
+	BestBidInQuoteCurrency  float64 `safeForLogging:"true"`
+	BestBidInUsd            float64 `safeForLogging:"true"`
+
+	// Useful for computing "cashout" values on the wallet page
+	ExecutionAmountInBaseCurrency float64 `safeForLogging:"true"`
+	ReceiveAmountInQuoteCurrency  float64 `safeForLogging:"true"`
+	ReceiveAmountInUsd            float64 `safeForLogging:"true"`
+	ExecutionPriceInQuoteCurrency float64 `safeForLogging:"true"`
+	ExecutionPriceInUsd           float64 `safeForLogging:"true"`
+}
+
+func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetBaseCurrencyPriceRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Problem parsing request body: %v", err))
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Error fetching mempool view: %v", err))
+		return
+	}
+
+	quotePkBytes, _, err := lib.Base58CheckDecode(requestData.QuoteCurrencyPublicKeyBase58Check)
+	if err != nil || len(quotePkBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetBaseCurrencyPrice: Problem decoding public key %s: %v",
+			requestData.QuoteCurrencyPublicKeyBase58Check, err))
+		return
+	}
+	basePkBytes, _, err := lib.Base58CheckDecode(requestData.BaseCurrencyPublicKeyBase58Check)
+	if err != nil || len(basePkBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetBaseCurrencyPrice: Problem decoding public key %s: %v",
+			requestData.BaseCurrencyPublicKeyBase58Check, err))
+		return
+	}
+
+	quotePkid := utxoView.GetPKIDForPublicKey(quotePkBytes)
+	if quotePkid == nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetBaseCurrencyPrice: Quote currency pkid not found: %v",
+			requestData.QuoteCurrencyPublicKeyBase58Check))
+		return
+	}
+	basePkid := utxoView.GetPKIDForPublicKey(basePkBytes)
+	if basePkid == nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetBaseCurrencyPrice: Base currency pkid not found: %v",
+			requestData.BaseCurrencyPublicKeyBase58Check))
+		return
+	}
+	// Super annoying, but it takes two fetches to get all the orders for a market
+	ordersSide1, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
+		basePkid.PKID, quotePkid.PKID)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Error getting limit orders: %v", err))
+		return
+	}
+	ordersSide2, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
+		quotePkid.PKID, basePkid.PKID)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Error getting limit orders: %v", err))
+		return
+	}
+	allOrders := append(ordersSide1, ordersSide2...)
+
+	type SimpleOrder struct {
+		PriceInQuoteCurrency float64
+		AmountInBaseCurrency float64
+		Side                 string
+	}
+	simpleBidOrders := []*SimpleOrder{}
+	simpleAskOrders := []*SimpleOrder{}
+	for _, order := range allOrders {
+		// An order is technically a bid order as long as the "buying" currency is the
+		// base currency. Otherwise, it's an ask currency because the base currency is
+		// the one being sold.
+		if order.BuyingDAOCoinCreatorPKID.Eq(basePkid.PKID) {
+			// Computing the price "just works" when the base currency is the buying
+			// coin because the exchange rate is expressed in quote currency (= selling
+			// coin) per base currency (= buying coin).
+			priceFloat, err := CalculateFloatFromScaledExchangeRate(
+				lib.PkToString(order.BuyingDAOCoinCreatorPKID[:], fes.Params),
+				lib.PkToString(order.SellingDAOCoinCreatorPKID[:], fes.Params),
+				order.ScaledExchangeRateCoinsToSellPerCoinToBuy)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice for bid: Error calculating price: %v", err))
+				return
+			}
+
+			// The quantity is tricky. If we had a bid order then the quantity is just the
+			// quantity specified in the order. However, if we had an ask then the quantity
+			// is actually the amount of quote currency being sold. In the latter case, a
+			// conversion is required.
+			quantityToFillFloat, err := CalculateFloatQuantityFromBaseUnits(
+				lib.PkToString(order.BuyingDAOCoinCreatorPKID[:], fes.Params),
+				lib.PkToString(order.SellingDAOCoinCreatorPKID[:], fes.Params),
+				DAOCoinLimitOrderOperationTypeString(order.OperationType.String()),
+				order.QuantityToFillInBaseUnits)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Error calculating quantity: %v", err))
+				return
+			}
+			if order.OperationType == lib.DAOCoinLimitOrderOperationTypeASK {
+				// If the order is an ask, then the quantity is the amount of quote currency
+				// being sold. To convert it to base currency, we just have to divide by the
+				// price in quote currency. This ends up doing (quote currency) / (quote currency / base currency)
+				quantityToFillFloat = quantityToFillFloat / priceFloat
+			}
+
+			simpleBidOrders = append(simpleBidOrders, &SimpleOrder{
+				PriceInQuoteCurrency: priceFloat,
+				AmountInBaseCurrency: quantityToFillFloat,
+				Side:                 "BID",
+			})
+		} else {
+			// If we're here then it means that the order is selling the base currency.
+			// This means the exchange rate is (coins to sell) / (coins to buy), which is
+			// (base currency) / (quote currency). This is the inverse of what we want
+			// so we have to flip it.
+			priceFloat, err := CalculateFloatFromScaledExchangeRate(
+				lib.PkToString(order.BuyingDAOCoinCreatorPKID[:], fes.Params),
+				lib.PkToString(order.SellingDAOCoinCreatorPKID[:], fes.Params),
+				order.ScaledExchangeRateCoinsToSellPerCoinToBuy)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice for ask: Error calculating price: %v", err))
+				return
+			}
+			if priceFloat == 0.0 {
+				// We should never see an order with a zero price so error if we see one.
+				_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Zero price order: %v", order))
+				return
+			}
+			priceFloat = 1.0 / priceFloat
+
+			// The quantity is tricky. If we had a bid order then the quantity is the quote
+			// currency (because the buying coin is the quote currency). If we have an ask
+			// then the quantity is the base currency (because the selling coin is the base
+			// currency). In the latter case, a conversion is required.
+			quantityToFillFloat, err := CalculateFloatQuantityFromBaseUnits(
+				lib.PkToString(order.BuyingDAOCoinCreatorPKID[:], fes.Params),
+				lib.PkToString(order.SellingDAOCoinCreatorPKID[:], fes.Params),
+				DAOCoinLimitOrderOperationTypeString(order.OperationType.String()),
+				order.QuantityToFillInBaseUnits)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Error calculating quantity: %v", err))
+				return
+			}
+			if order.OperationType == lib.DAOCoinLimitOrderOperationTypeBID {
+				// If the order is an bid, then the quantity is the amount of quote currency
+				// being bought so we need to invert.
+				quantityToFillFloat = quantityToFillFloat / priceFloat
+			}
+
+			simpleAskOrders = append(simpleAskOrders, &SimpleOrder{
+				PriceInQuoteCurrency: priceFloat,
+				AmountInBaseCurrency: quantityToFillFloat,
+				Side:                 "ASK",
+			})
+		}
+	}
+	// We can rule out a whole host of errors if we force the market to have
+	// at least one ask and one bid order in order for a price to be defined.
+	if len(simpleAskOrders) == 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: No ask orders found"))
+		return
+	}
+	if len(simpleBidOrders) == 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: No bid orders found"))
+		return
+	}
+
+	// Sort the bids by their price, highest first
+	sort.Slice(simpleBidOrders, func(ii, jj int) bool {
+		return simpleBidOrders[ii].PriceInQuoteCurrency > simpleBidOrders[jj].PriceInQuoteCurrency
+	})
+	// Sort the asks by their price, lowest first
+	sort.Slice(simpleAskOrders, func(ii, jj int) bool {
+		return simpleAskOrders[ii].PriceInQuoteCurrency < simpleAskOrders[jj].PriceInQuoteCurrency
+	})
+
+	// We can easily compute the best bid and best ask price in quote currency now.
+	bestBidPriceInQuoteCurrency := simpleBidOrders[0].PriceInQuoteCurrency
+	bestAskPriceInQuoteCurrency := simpleAskOrders[0].PriceInQuoteCurrency
+	midPriceInQuoteCurrency := (bestBidPriceInQuoteCurrency + bestAskPriceInQuoteCurrency) / 2
+
+	// Iterate through the bids "filling" orders until we hit the base currency
+	// quantity we're looking for.
+	baseCurrencyFilled := float64(0.0)
+	baseCurrencyToFill := requestData.BaseCurrencyQuantityToSell
+	quoteCurrencyReceived := float64(0.0)
+	for _, bid := range simpleBidOrders {
+		// If the amount filled plus the amount we're about to fill is greater
+		// than the amount we're looking to fill, then we just partially fill
+		// the order.
+		if baseCurrencyFilled+bid.AmountInBaseCurrency > baseCurrencyToFill {
+			baseCurrencyFromThisOrder := baseCurrencyToFill - baseCurrencyFilled
+			quoteCurrencyReceived += baseCurrencyFromThisOrder * bid.PriceInQuoteCurrency
+			baseCurrencyFilled = baseCurrencyToFill
+			break
+		}
+		quoteCurrencyReceived += bid.AmountInBaseCurrency * bid.PriceInQuoteCurrency
+		baseCurrencyFilled += bid.AmountInBaseCurrency
+	}
+
+	// Now the amount to fill and the quote currency received should be ready to go
+	// so we can compute the price.
+	priceInQuoteCurrency := 0.0
+	if baseCurrencyFilled > 0 {
+		priceInQuoteCurrency = quoteCurrencyReceived / baseCurrencyFilled
+	}
+
+	// Get the price of the quote currency in usd. Use the mid price
+	quoteCurrencyPriceInUsdStr, _, _, err := fes.GetQuoteCurrencyPriceInUsd(
+		requestData.QuoteCurrencyPublicKeyBase58Check)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Problem getting quote currency price in usd: %v", err))
+		return
+	}
+	quoteCurrencyPriceInUsd, err := strconv.ParseFloat(quoteCurrencyPriceInUsdStr, 64)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Problem parsing quote currency price in usd: %v", err))
+		return
+	}
+
+	res := &GetBaseCurrencyPriceResponse{
+		QuoteCurrencyPriceInUsd: quoteCurrencyPriceInUsd,
+
+		// Traditional price values
+		MidPriceInQuoteCurrency: midPriceInQuoteCurrency,
+		MidPriceInUsd:           midPriceInQuoteCurrency * quoteCurrencyPriceInUsd,
+		BestAskInQuoteCurrency:  bestAskPriceInQuoteCurrency,
+		BestAskInUsd:            bestAskPriceInQuoteCurrency * quoteCurrencyPriceInUsd,
+		BestBidInQuoteCurrency:  bestBidPriceInQuoteCurrency,
+		BestBidInUsd:            bestBidPriceInQuoteCurrency * quoteCurrencyPriceInUsd,
+
+		// Useful for computing "cashout" values on the wallet page
+		ExecutionAmountInBaseCurrency: baseCurrencyFilled,
+		ReceiveAmountInQuoteCurrency:  quoteCurrencyReceived,
+		ReceiveAmountInUsd:            quoteCurrencyReceived * quoteCurrencyPriceInUsd,
+		ExecutionPriceInQuoteCurrency: priceInQuoteCurrency,
+		ExecutionPriceInUsd:           priceInQuoteCurrency * quoteCurrencyPriceInUsd,
+	}
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetQuoteCurrencyPriceInUsd: Problem encoding response: %v", err))
+		return
 	}
 }
 
