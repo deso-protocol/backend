@@ -17,21 +17,19 @@ import (
 )
 
 type UpdateDaoCoinMarketFeesRequest struct {
-	// The public key of the user who is trying to update the
-	// fees for their market.
-	UpdaterPublicKeyBase58Check string `safeForLogging:"true"`
-
-	// This is only set when the user wants to modify a profile
-	// that isn't theirs. Otherwise, the UpdaterPublicKeyBase58Check is
-	// assumed to own the profile being updated.
+	// The profile that the fees are being modified for.
 	ProfilePublicKeyBase58Check string `safeForLogging:"true"`
 
-	// A map of pubkey->feeBasisPoints that the user wants to set for their market.
+	// A map of pubkey->feeBasisPoints that the user wants to set for this market.
 	// If the map contains {pk1: 100, pk2: 200} then the user is setting the
 	// feeBasisPoints for pk1 to 100 and the feeBasisPoints for pk2 to 200.
 	// This means that pk1 will get 1% of every taker's trade and pk2 will get
 	// 2%.
 	FeeBasisPointsByPublicKey map[string]uint64 `safeForLogging:"true"`
+
+	// If set to true, trading fee updates will be permanently disabled
+	// for this market. Use with caution!
+	DisableTradingFeeUpdate bool `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
 	TransactionFees      []TransactionFee `safeForLogging:"true"`
@@ -74,20 +72,25 @@ func ValidateTradingFeeMap(feeMap map[string]uint64) error {
 	return nil
 }
 
+func IsTradingFeeUpdateDisabled(association *lib.UserAssociationEntry) bool {
+	val, exists := association.ExtraData[lib.DisableTradingFeeUpdateKey]
+	if exists && len(val) == 1 && val[0] == 1 {
+		return true
+	}
+	return false
+}
+
 func (fes *APIServer) UpdateDaoCoinMarketFees(ww http.ResponseWriter, req *http.Request) {
+	if fes.Config.AmmMetadataPublicKey == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateDaoCoinMarketFees: AMM_METADATA_PUBLIC_KEY must be set "+
+			"in the node's config for fees to work"))
+		return
+	}
+
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := UpdateDaoCoinMarketFeesRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateDaoCoinMarketFees: Problem parsing request body: %v", err))
-		return
-	}
-
-	// Decode the public key
-	updaterPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.UpdaterPublicKeyBase58Check)
-	if err != nil || len(updaterPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"UpdateDAOCoinMarketFees: Problem decoding public key %s: %v",
-			requestData.UpdaterPublicKeyBase58Check, err))
 		return
 	}
 
@@ -112,28 +115,24 @@ func (fes *APIServer) UpdateDaoCoinMarketFees(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	// When this is nil then the UpdaterPublicKey is assumed to be the owner of
-	// the profile.
-	var profilePublicKeyBytes []byte
-	if requestData.ProfilePublicKeyBase58Check != "" {
-		profilePublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ProfilePublicKeyBase58Check)
-		if err != nil || len(profilePublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"UpdateDaoCoinMarketFees: Problem decoding public key %s: %v",
-				requestData.ProfilePublicKeyBase58Check, err))
-			return
-		}
+	if requestData.ProfilePublicKeyBase58Check == "" {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"UpdateDaoCoinMarketFees: ProfilePublicKeyBase58Check and UpdaterPublicKeyBase58Check must be provided"))
+		return
 	}
 
-	// Get the public key.
-	profilePublicKey := updaterPublicKeyBytes
-	if requestData.ProfilePublicKeyBase58Check != "" {
-		profilePublicKey = profilePublicKeyBytes
+	// Decode the profile public key.
+	profilePublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.ProfilePublicKeyBase58Check)
+	if err != nil || len(profilePublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"UpdateDaoCoinMarketFees: Problem decoding public key %s: %v",
+			requestData.ProfilePublicKeyBase58Check, err))
+		return
 	}
 
 	// Pull the existing profile. If one doesn't exist, then we error. The user should
 	// create a profile first before trying to update the fee params for their market.
-	existingProfileEntry := utxoView.GetProfileEntryForPublicKey(profilePublicKey)
+	existingProfileEntry := utxoView.GetProfileEntryForPublicKey(profilePublicKeyBytes)
 	if existingProfileEntry == nil || existingProfileEntry.IsDeleted() {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"UpdateDaoCoinMarketFees: Profile for public key %v does not exist",
@@ -178,33 +177,70 @@ func (fes *APIServer) UpdateDaoCoinMarketFees(ww http.ResponseWriter, req *http.
 	additionalExtraData := make(map[string][]byte)
 	additionalExtraData[lib.TokenTradingFeesByPkidMapKey] = feeMapByPkidBytes
 
+	// Setting this byte makes it impossible to update the trading fee map in the
+	// future. Use with caution.
+	if requestData.DisableTradingFeeUpdate {
+		additionalExtraData[lib.DisableTradingFeeUpdateKey] = []byte{1}
+	}
+
+	ammPublicKeyBytes, _, err := lib.Base58CheckDecode(fes.Config.AmmMetadataPublicKey)
+	if err != nil || len(ammPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"UpdateDaoCoinMarketFees: Problem decoding public key %s: %v",
+			fes.Config.AmmMetadataPublicKey, err))
+		return
+	}
+
+	// Fetch the existing fee association to check if fee updates are still allowed.
+	associationFilter := &lib.UserAssociationQuery{
+		AssociationType:  []byte(lib.TokenTradingFeesByPkidMapKey),
+		AssociationValue: []byte(lib.TokenTradingFeesByPkidMapKey),
+		TransactorPKID:   lib.NewPKID(ammPublicKeyBytes),
+		TargetUserPKID:   lib.NewPKID(profilePublicKeyBytes),
+		AppPKID:          lib.NewPKID(ammPublicKeyBytes),
+	}
+	associations, err := utxoView.GetUserAssociationsByAttributes(associationFilter)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateDaoCoinMarketFees: Problem fetching associations: %v", err))
+		return
+	}
+	if len(associations) == 1 {
+		association := associations[0]
+		if IsTradingFeeUpdateDisabled(association) {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"UpdateDaoCoinMarketFees: Trading fee updates are disabled for this market"))
+			return
+		}
+	} else if len(associations) != 0 {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"UpdateDaoCoinMarketFees: Expected at most one association but got %d", len(associations)))
+		return
+	}
+
 	// Compute the additional transaction fees as specified by the request body and the node-level fees.
 	additionalOutputs, err := fes.getTransactionFee(
-		lib.TxnTypeUpdateProfile, updaterPublicKeyBytes, requestData.TransactionFees)
+		lib.TxnTypeUpdateProfile, ammPublicKeyBytes, requestData.TransactionFees)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: TransactionFees specified in Request body are invalid: %v", err))
 		return
 	}
 
-	// Try and create the UpdateProfile txn for the user.
-	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateUpdateProfileTxn(
-		updaterPublicKeyBytes,
-		profilePublicKeyBytes,
-		"", // Don't update username
-		"", // Don't update description
-		"", // Don't update profile pic
-		existingProfileEntry.CreatorCoinEntry.CreatorBasisPoints, // Don't update creator basis points
-		// StakeMultipleBasisPoints is a deprecated field that we don't use anywhere and will delete soon.
-		// I noticed we use a hardcoded value of 12500 in the frontend and when creating a post so I'm doing
-		// the same here for now.
-		1.25*100*100,                  // Don't update stake multiple basis points
-		existingProfileEntry.IsHidden, // Don't update hidden status
-		0,                             // Don't add additionalFees
-		additionalExtraData,           // The new ExtraData
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(),
-		additionalOutputs)
+	// Try and create the association txn for the UpdaterPublicKey.
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateCreateUserAssociationTxn(
+		ammPublicKeyBytes,
+		&lib.CreateUserAssociationMetadata{
+			TargetUserPublicKey: lib.NewPublicKey(profilePublicKeyBytes),
+			AppPublicKey:        lib.NewPublicKey(ammPublicKeyBytes),
+			AssociationType:     []byte(lib.TokenTradingFeesByPkidMapKey),
+			AssociationValue:    []byte(lib.TokenTradingFeesByPkidMapKey),
+		},
+		additionalExtraData,
+		requestData.MinFeeRateNanosPerKB,
+		fes.backendServer.GetMempool(),
+		additionalOutputs,
+	)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("UpdateDaoCoinMarketFees: Problem creating transaction: %v", err))
+		_AddInternalServerError(ww, fmt.Sprintf("CreateUserAssociation: problem creating txn: %v", err))
 		return
 	}
 
@@ -235,47 +271,86 @@ type GetDaoCoinMarketFeesRequest struct {
 
 type GetDaoCoinMarketFeesResponse struct {
 	FeeBasisPointsByPublicKey map[string]uint64 `safeForLogging:"true"`
+	TradingFeeUpdateDisabled  bool              `safeForLogging:"true"`
 }
 
 func GetTradingFeesForMarket(
 	utxoView *lib.UtxoView,
 	params *lib.DeSoParams,
+	ammMetadataPublicKey string,
 	profilePublicKey string,
 ) (
 	_feeMapByPubkey map[string]uint64,
+	_tradingFeeUpdateDisabled bool,
 	_err error,
 ) {
-
 	// Decode the public key
 	profilePublicKeyBytes, _, err := lib.Base58CheckDecode(profilePublicKey)
 	if err != nil || len(profilePublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
-		return nil, fmt.Errorf(
+		return nil, false, fmt.Errorf(
 			"GetTradingFeesForMarket: Problem decoding public key %s: %v",
 			profilePublicKey, err)
 	}
-
-	// Pull the existing profile. If one doesn't exist, then we error. The user should
-	// create a profile first before trying to update the fee params for their market.
-	existingProfileEntry := utxoView.GetProfileEntryForPublicKey(profilePublicKeyBytes)
-	if existingProfileEntry == nil || existingProfileEntry.IsDeleted() {
-		return nil, fmt.Errorf(
+	profilePkid := utxoView.GetPKIDForPublicKey(profilePublicKeyBytes)
+	if profilePkid == nil {
+		return nil, false, fmt.Errorf(
 			"GetTradingFeesForMarket: Profile for public key %v does not exist",
 			profilePublicKey)
 	}
 
+	ammMetadataPublicKeyBytes, _, err := lib.Base58CheckDecode(ammMetadataPublicKey)
+	if err != nil || len(ammMetadataPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		return nil, false, fmt.Errorf(
+			"GetTradingFeesForMarket: Problem decoding public key %s: %v",
+			ammMetadataPublicKey, err)
+	}
+	ammPkid := utxoView.GetPKIDForPublicKey(ammMetadataPublicKeyBytes)
+	if ammPkid == nil {
+		return nil, false, fmt.Errorf(
+			"GetTradingFeesForMarket: AMM metadata for public key %v does not exist",
+			ammMetadataPublicKey)
+	}
+
+	// Look up the association
+	filter := &lib.UserAssociationQuery{
+		AssociationType:  []byte(lib.TokenTradingFeesByPkidMapKey),
+		AssociationValue: []byte(lib.TokenTradingFeesByPkidMapKey),
+		TransactorPKID:   ammPkid.PKID,
+		TargetUserPKID:   profilePkid.PKID,
+		AppPKID:          ammPkid.PKID,
+	}
+	associations, err := utxoView.GetUserAssociationsByAttributes(filter)
+	if err != nil {
+		return nil, false, fmt.Errorf(
+			"GetTradingFeesForMarket: Problem fetching associations: %v", err)
+	}
+	if len(associations) == 0 {
+		// Returning a non-nil empty map makes error handling a little easier.
+		return make(map[string]uint64), false, nil
+	} else if len(associations) > 1 {
+		return nil, false, fmt.Errorf(
+			"GetTradingFeesForMarket: Expected at most one association but got %d", len(associations))
+	}
+	association := associations[0]
+
+	tradingFeeUpdateDisabled := false
+	if IsTradingFeeUpdateDisabled(association) {
+		tradingFeeUpdateDisabled = true
+	}
+
 	// Decode the trading fees from the profile.
-	tradingFeesByPkidBytes, exists := existingProfileEntry.ExtraData[lib.TokenTradingFeesByPkidMapKey]
+	tradingFeesByPkidBytes, exists := association.ExtraData[lib.TokenTradingFeesByPkidMapKey]
 	tradingFeesMapPubkey := make(map[lib.PublicKey]uint64)
 	if exists {
 		tradingFeesMapByPkid, err := lib.DeserializePubKeyToUint64Map(tradingFeesByPkidBytes)
 		if err != nil {
-			return nil, fmt.Errorf(
+			return nil, false, fmt.Errorf(
 				"GetTradingFeesForMarket: Problem deserializing trading fees: %v", err)
 		}
 		for pkid, feeBasisPoints := range tradingFeesMapByPkid {
 			pkidBytes := pkid.ToBytes()
 			if len(pkidBytes) != btcec.PubKeyBytesLenCompressed {
-				return nil, fmt.Errorf(
+				return nil, false, fmt.Errorf(
 					"GetTradingFeesForMarket: Problem decoding public key %s: %v",
 					pkid, err)
 			}
@@ -290,10 +365,15 @@ func GetTradingFeesForMarket(
 		feeMap[pkBase58] = feeBasisPoints
 	}
 
-	return feeMap, nil
+	return feeMap, tradingFeeUpdateDisabled, nil
 }
 
 func (fes *APIServer) GetDaoCoinMarketFees(ww http.ResponseWriter, req *http.Request) {
+	if fes.Config.AmmMetadataPublicKey == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("GetDaoCoinMarketFees: AMM_METADATA_PUBLIC_KEY must be set "+
+			"in the node's config for fees to work"))
+		return
+	}
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetDaoCoinMarketFeesRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
@@ -307,9 +387,10 @@ func (fes *APIServer) GetDaoCoinMarketFees(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
-	feeMapByPubkey, err := GetTradingFeesForMarket(
+	feeMapByPubkey, tradingFeeUpdateDisabled, err := GetTradingFeesForMarket(
 		utxoView,
 		fes.Params,
+		fes.Config.AmmMetadataPublicKey,
 		requestData.ProfilePublicKeyBase58Check)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDaoCoinMarketFees: Problem getting trading fees: %v", err))
@@ -319,6 +400,7 @@ func (fes *APIServer) GetDaoCoinMarketFees(ww http.ResponseWriter, req *http.Req
 	// Return all the data associated with the transaction in the response
 	res := GetDaoCoinMarketFeesResponse{
 		FeeBasisPointsByPublicKey: feeMapByPubkey,
+		TradingFeeUpdateDisabled:  tradingFeeUpdateDisabled,
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDaoCoinMarketFees: Problem encoding response as JSON: %v", err))
@@ -1811,6 +1893,12 @@ func (fes *APIServer) HandleMarketOrder(
 }
 
 func (fes *APIServer) CreateDAOCoinLimitOrderWithFee(ww http.ResponseWriter, req *http.Request) {
+	if fes.Config.AmmMetadataPublicKey == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateDaoCoinMarketFees: AMM_METADATA_PUBLIC_KEY must be set "+
+			"in the node's config for fees to work"))
+		return
+	}
+
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := DAOCoinLimitOrderWithFeeRequest{}
 
@@ -1877,9 +1965,10 @@ func (fes *APIServer) CreateDAOCoinLimitOrderWithFee(ww http.ResponseWriter, req
 
 	// Get the trading fees for the market. This is the trading fee split for each user
 	// Only the base currency can have fees on it. The quote currency cannot.
-	feeMapByPubkey, err := GetTradingFeesForMarket(
+	feeMapByPubkey, _, err := GetTradingFeesForMarket(
 		utxoView,
 		fes.Params,
+		fes.Config.AmmMetadataPublicKey,
 		requestData.BaseCurrencyPublicKeyBase58Check)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDaoCoinMarketFees: Problem getting trading fees: %v", err))
