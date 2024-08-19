@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/core/lib"
 )
 
@@ -192,8 +192,8 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 	desoAddrs := fes.backendServer.AddrMgr.AddressCache()
 	sort.Slice(desoAddrs, func(ii, jj int) bool {
 		// Use a hash to get a random but deterministic ordering.
-		hashI := string(lib.Sha256DoubleHash([]byte(desoAddrs[ii].IP.String() + fmt.Sprintf(":%d", desoAddrs[ii].Port)))[:])
-		hashJ := string(lib.Sha256DoubleHash([]byte(desoAddrs[jj].IP.String() + fmt.Sprintf(":%d", desoAddrs[jj].Port)))[:])
+		hashI := string(lib.Sha256DoubleHash([]byte(desoAddrs[ii].ToLegacy().IP.String() + fmt.Sprintf(":%d", desoAddrs[ii].Port)))[:])
+		hashJ := string(lib.Sha256DoubleHash([]byte(desoAddrs[jj].ToLegacy().IP.String() + fmt.Sprintf(":%d", desoAddrs[jj].Port)))[:])
 
 		return hashI < hashJ
 	})
@@ -201,12 +201,12 @@ func (fes *APIServer) _handleNodeControlGetInfo(
 		if len(desoUnconnectedPeers) >= 250 {
 			break
 		}
-		addr := netAddr.IP.String() + fmt.Sprintf(":%d", netAddr.Port)
+		addr := netAddr.ToLegacy().IP.String() + fmt.Sprintf(":%d", netAddr.Port)
 		if _, exists := existingDeSoPeers[addr]; exists {
 			continue
 		}
 		desoUnconnectedPeers = append(desoUnconnectedPeers, &PeerResponse{
-			IP:           netAddr.IP.String(),
+			IP:           netAddr.ToLegacy().IP.String(),
 			ProtocolPort: netAddr.Port,
 			// Unconnected peers are not sync peers so leave it set to false.
 		})
@@ -462,7 +462,7 @@ func (fes *APIServer) NodeControl(ww http.ResponseWriter, req *http.Request) {
 					_AddBadRequestError(ww, fmt.Sprintf("NodeControlRequest: Problem decoding miner public key from base58 %s: %v", pkStr, err))
 					return
 				}
-				pk, err := btcec.ParsePubKey(publicKeyBytes, btcec.S256())
+				pk, err := btcec.ParsePubKey(publicKeyBytes)
 				if err != nil {
 					_AddBadRequestError(ww, fmt.Sprintf("NodeControlRequest: Problem parsing miner public key %s: %v", pkStr, err))
 					return

@@ -1,7 +1,7 @@
 package toolslib
 
 import (
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/fatih/structs"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/pkg/errors"
