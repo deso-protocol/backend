@@ -10,7 +10,6 @@ import (
 
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
-	"github.com/holiman/uint256"
 	"github.com/pkg/errors"
 	"github.com/tyler-smith/go-bip39"
 )
@@ -225,7 +224,7 @@ type BalanceEntryResponse struct {
 	BalanceNanos uint64
 
 	// For simplicity, we create a new field for the uint256 balance for DAO coins
-	BalanceNanosUint256 *uint256.Int
+	BalanceNanosUint256 Uint256Hex
 
 	// The net effect of transactions in the mempool on a given BalanceEntry's BalanceNanos.
 	// This is used by the frontend to convey info about mining.

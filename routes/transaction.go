@@ -3535,12 +3535,12 @@ type AccessGroupMemberLimitMapItem struct {
 
 type StakeLimitMapItem struct {
 	ValidatorPublicKeyBase58Check string
-	StakeLimit                    *uint256.Int
+	StakeLimit                    *Uint256Hex
 }
 
 type UnstakeLimitMapItem struct {
 	ValidatorPublicKeyBase58Check string
-	UnstakeLimit                  *uint256.Int
+	UnstakeLimit                  *Uint256Hex
 }
 
 type UnlockStakeLimitMapItem struct {
@@ -3952,11 +3952,12 @@ func TransactionSpendingLimitToResponse(
 					validatorPublicKey, false, params,
 				)
 			}
+			stakeLimitVal := NewUint256Hex(stakeLimit.Clone())
 			transactionSpendingLimitResponse.StakeLimitMap = append(
 				transactionSpendingLimitResponse.StakeLimitMap,
 				StakeLimitMapItem{
 					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
-					StakeLimit:                    stakeLimit.Clone(),
+					StakeLimit:                    &stakeLimitVal,
 				},
 			)
 		}
@@ -3971,11 +3972,12 @@ func TransactionSpendingLimitToResponse(
 					validatorPublicKey, false, params,
 				)
 			}
+			unstakeLimitVal := NewUint256Hex(unstakeLimit.Clone())
 			transactionSpendingLimitResponse.UnstakeLimitMap = append(
 				transactionSpendingLimitResponse.UnstakeLimitMap,
 				UnstakeLimitMapItem{
 					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
-					UnstakeLimit:                  unstakeLimit.Clone(),
+					UnstakeLimit:                  &unstakeLimitVal,
 				},
 			)
 		}
