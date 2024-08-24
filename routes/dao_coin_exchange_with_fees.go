@@ -72,12 +72,31 @@ func ValidateTradingFeeMap(feeMap map[string]uint64) error {
 	return nil
 }
 
-func IsTradingFeeUpdateDisabled(association *lib.UserAssociationEntry) bool {
-	val, exists := association.ExtraData[lib.DisableTradingFeeUpdateKey]
+func IsExtraDataValueTrueString(extraData map[string]string, key string) bool {
+	newMap := make(map[string][]byte)
+	for k, v := range extraData {
+		newMap[k] = []byte(v)
+	}
+	return IsExtraDataValueTrue(newMap, key)
+}
+
+func IsExtraDataValueTrue(extraData map[string][]byte, key string) bool {
+	if len(extraData) == 0 {
+		return false
+	}
+	val, exists := extraData[key]
 	if exists && len(val) == 1 && val[0] == 1 {
 		return true
 	}
 	return false
+}
+
+func SetExtraDataValueTrue(extraData map[string][]byte, key string) {
+	extraData[key] = []byte{1}
+}
+
+func SetExtraDataValueTrueString(extraData map[string]string, key string) {
+	extraData[key] = string([]byte{1})
 }
 
 func (fes *APIServer) UpdateDaoCoinMarketFees(ww http.ResponseWriter, req *http.Request) {
@@ -180,7 +199,7 @@ func (fes *APIServer) UpdateDaoCoinMarketFees(ww http.ResponseWriter, req *http.
 	// Setting this byte makes it impossible to update the trading fee map in the
 	// future. Use with caution.
 	if requestData.DisableTradingFeeUpdate {
-		additionalExtraData[lib.DisableTradingFeeUpdateKey] = []byte{1}
+		SetExtraDataValueTrue(additionalExtraData, lib.DisableTradingFeeUpdateKey)
 	}
 
 	ammPublicKeyBytes, _, err := lib.Base58CheckDecode(fes.Config.AmmMetadataPublicKey)
@@ -206,7 +225,7 @@ func (fes *APIServer) UpdateDaoCoinMarketFees(ww http.ResponseWriter, req *http.
 	}
 	if len(associations) == 1 {
 		association := associations[0]
-		if IsTradingFeeUpdateDisabled(association) {
+		if IsExtraDataValueTrue(association.ExtraData, lib.DisableTradingFeeUpdateKey) {
 			_AddBadRequestError(ww, fmt.Sprintf(
 				"UpdateDaoCoinMarketFees: Trading fee updates are disabled for this market"))
 			return
@@ -334,7 +353,7 @@ func GetTradingFeesForMarket(
 	association := associations[0]
 
 	tradingFeeUpdateDisabled := false
-	if IsTradingFeeUpdateDisabled(association) {
+	if IsExtraDataValueTrue(association.ExtraData, lib.DisableTradingFeeUpdateKey) {
 		tradingFeeUpdateDisabled = true
 	}
 
