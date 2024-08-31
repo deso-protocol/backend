@@ -31,8 +31,10 @@ const (
 	DefaultHotFeedInteractionCap uint64 = 4e12
 	// Maximum score amount that any individual PKID can contribute before time decay for a particular tag grouping.
 	DefaultHotFeedTagInteractionCap uint64 = 4e12
-	// How many iterations of the hot feed calculation until the built-up caches should be reset. (Once per day)
-	ResetCachesIterationLimit int = 288
+	// How many iterations of the hot feed calculation until the built-up caches should be reset.
+	// Once per day.
+	// TODO: Get this from consensus... Right now we assume 1.5s per block
+	ResetCachesIterationLimit int = 3600 * 24 * 1000 / 1500
 )
 
 // A single element in the server's HotFeedOrderedList.
@@ -402,15 +404,6 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	// which is useful for testing purposes.
 	blockOffsetForTesting := 0
 
-	// Grab the last 60 days worth of blocks (25,920 blocks @ 5min/block).
-	lookbackWindowBlocks := 60 * 24 * 60 / 5
-	// Check if the most recent blocks that we'll be considering in hot feed computation have been processed.
-	for _, blockNode := range fes.blockchain.BestChain() {
-		if blockNode.Height < blockTip.Height-uint32(lookbackWindowBlocks+blockOffsetForTesting) {
-			continue
-		}
-	}
-
 	// Log how long this routine takes, since it could be heavy.
 	glog.V(2).Info("UpdateHotFeedOrderedList: Starting new update cycle.")
 	start := time.Now()
@@ -420,6 +413,19 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	if err != nil {
 		glog.Infof("UpdateHotFeedOrderedList: ERROR - Failed to get utxo view: %v", err)
 		return nil
+	}
+
+	globalParams := utxoView.GetCurrentGlobalParamsEntry()
+	millisPerBlock := globalParams.BlockProductionIntervalMillisecondsPoS
+	blocksPerDay := int(24 * 60 * 60 * 1000 / millisPerBlock)
+
+	// Grab the last 7 days worth of blocks.
+	lookbackWindowBlocks := 7 * blocksPerDay
+	// Check if the most recent blocks that we'll be considering in hot feed computation have been processed.
+	for _, blockNode := range fes.blockchain.BestChain() {
+		if blockNode.Height < blockTip.Height-uint32(lookbackWindowBlocks+blockOffsetForTesting) {
+			continue
+		}
 	}
 
 	// Grab the last 24 hours worth of blocks (288 blocks @ 5min/block).
