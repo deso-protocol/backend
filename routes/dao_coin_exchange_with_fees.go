@@ -490,6 +490,8 @@ type DAOCoinLimitOrderWithFeeResponse struct {
 
 	InnerTransactionHexes []string
 
+	QuoteCurrencyPriceInUsd string `safeForLogging:"true"`
+
 	// The amount represents either the amount being spent (in the case of a buy) or
 	// the amount being sold (in the case of a sell). For a buy, the amount is in quote
 	// currency, while for a sell the amount is in base currency. The messages should
@@ -1407,6 +1409,29 @@ func (fes *APIServer) HandleMarketOrder(
 				}
 				bigLimitAmount := big.NewInt(0).Mul(totalQuantityBaseCurrencyBaseUnits.ToBig(), scaledPrice.ToBig())
 				bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, lib.OneE38.ToBig())
+				// The reason why this extra step is needed is extremely subtle. It's required because
+				// scaledPrice represents (whole coin / whole coin) rather than (base unit / base unit).
+				// When the coins have the same number of base units per whole coin, this conversion isn't
+				// needed because we have:
+				// - (whole coin / whole coin) = ((1e18 base units) / (1e18 base units)) = (base unit / base unit)
+				//
+				// However, in the case where DESO is the quote currency, the (whole coin / whole coin) exchange
+				// rate is NOT the same as the (base unit / base unit) rate because DESO has a different number
+				// of base units per whole coin. So we have to first compute:
+				// - (deso nanos / daocoin base units)
+				// = (1e9 * deso whole coin) / (1e18 * daocoin whole coin))
+				// = (1 / 1e9) * (deso whole coin / daocoin whole coin)
+				// = (1 / 1e9) * scaledPriceQuotePerBase
+				//
+				// And so this translates to a modification to the equation above as follows:
+				// - quantityBaseUnits * (deso nanos / daocoin base units)
+				// = quantityBaseUnits * (1 / 1e9) * scaledPriceQuotePerBase
+				// = (1 / 1e9) * quantityBaseUnits * scaledPriceQuotePerBase
+				//
+				// Again ONLY when deso is the quote currency do we need to do this extra step.
+				if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
+					bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
+				}
 				uint256LimitAmount := uint256.NewInt()
 				if overflow := uint256LimitAmount.SetFromBig(bigLimitAmount); overflow {
 					return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit amount")
@@ -1549,8 +1574,15 @@ func (fes *APIServer) HandleMarketOrder(
 				quoteCurrencyExecutedPlusFeesBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
 			priceQuotePerBase = big.NewInt(0).Div(
 				priceQuotePerBase, executionReceiveAmountBaseUnits.ToBig())
-			executionPriceInQuoteCurrency = lib.FormatScaledUint256AsDecimalString(
-				priceQuotePerBase, lib.BaseUnitsPerCoin.ToBig())
+			uint256PriceQuotePerBase := uint256.NewInt()
+			if overflow := uint256PriceQuotePerBase.SetFromBig(priceQuotePerBase); overflow {
+				return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating price: %v", err)
+			}
+			executionPriceInQuoteCurrency, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
+				req.QuoteCurrencyPublicKeyBase58Check, uint256PriceQuotePerBase)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating price: %v", err)
+			}
 		}
 
 		// Compute the percentage of the amount spent that went to fees
@@ -1580,6 +1612,8 @@ func (fes *APIServer) HandleMarketOrder(
 			TransactionHex: atomicTxnHex,
 			TxnHashHex:     txn.Hash().String(),
 
+			QuoteCurrencyPriceInUsd: fmt.Sprintf("%0.9f", quoteCurrencyUsdValue),
+
 			// For a market order, the amount will generally match the amount requested. However, for
 			// a limit order, the amount may be less than the amount requested if the order was only
 			// partially filled.
@@ -1606,7 +1640,7 @@ func (fes *APIServer) HandleMarketOrder(
 			if req.QuantityCurrencyType == CurrencyTypeBase {
 				// In this case the quantityStr needs to be converted from base to quote currency:
 				// - scaledPrice := priceQuotePerBase * 1e38
-				// - quantityBaseUnits * scaledPrice / 1e38
+				// - quantityBaseUnits * scaledPriceQuotePerBase / 1e38
 				//
 				// This multiplies the scaled price by 1e38 then we have to reverse it later
 				scaledPrice, err := lib.CalculateScaledExchangeRateFromString(priceStrQuote)
@@ -1620,10 +1654,34 @@ func (fes *APIServer) HandleMarketOrder(
 				}
 				bigLimitAmount := big.NewInt(0).Mul(quantityBaseUnits.ToBig(), scaledPrice.ToBig())
 				bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, lib.OneE38.ToBig())
+				// The reason why this extra step is needed is extremely subtle. It's required because
+				// scaledPrice represents (whole coin / whole coin) rather than (base unit / base unit).
+				// When the coins have the same number of base units per whole coin, this conversion isn't
+				// needed because we have:
+				// - (whole coin / whole coin) = ((1e18 base units) / (1e18 base units)) = (base unit / base unit)
+				//
+				// However, in the case where DESO is one of the pairs, the (whole coin / whole coin) exchange
+				// rate is NOT the same as the (base unit / base unit) rate because DESO has a different number
+				// of base units per whole coin. So we have:
+				// - (deso nanos / daocoin base units)
+				// = (1e9 deso whole coin) / (1e18 daocoin whole coin)
+				// = (1/1e9) * (deso whole coin / daocoin whole coin)
+				// = (1/1e9) * scaledPrice
+				//
+				// And so we need to modify the previous formula to be:
+				// - quantityBaseUnits * (deso nanos / daocoin base units)
+				// = quantityBaseUnits * (1 / 1e9) * scaledPrice
+				// = 1/1e9 * quantityBaseUnits * scaledPrice
+				//
+				// Again ONLY when deso is the quote currency do we need to do this extra step.
+				if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
+					bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
+				}
 				uint256LimitAmount := uint256.NewInt()
 				if overflow := uint256LimitAmount.SetFromBig(bigLimitAmount); overflow {
 					return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit amount")
 				}
+
 				limitAmount, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
 					req.QuoteCurrencyPublicKeyBase58Check, uint256LimitAmount)
 				if err != nil {
@@ -1632,8 +1690,8 @@ func (fes *APIServer) HandleMarketOrder(
 			}
 
 			// The limit receive amount is computed as follows:
-			// - limitAmount / price
-			// - = limitAmount * 1e38 / (price * 1e38)
+			// - limitAmountQuote / priceQuotePerBase
+			// - = limitAmountQuote * 1e38 / (priceQuotePerBase * 1e38)
 			limitReceiveAmountBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
 				req.QuoteCurrencyPublicKeyBase58Check, limitAmount)
 			if err != nil {
@@ -1648,6 +1706,18 @@ func (fes *APIServer) HandleMarketOrder(
 			limitReceiveAmount := ""
 			if !scaledPrice.IsZero() {
 				bigLimitReceiveAmount = big.NewInt(0).Div(bigLimitReceiveAmount, scaledPrice.ToBig())
+				// See above comment on why we need to adjust the scaledPrice when deso is the quote currency
+				// - (deso nanos / daocoin base units)
+				// = (1e9 deso whole coin) / (1e18 daocoin whole coin)
+				// = (1/1e9) * (deso whole coin / daocoin whole coin)
+				// = (1/1e9) * scaledPrice
+				//
+				// - limitAmountQuote / ((deso nanos / daocoin base units))
+				// = limitAmountQuote / ((1/1e9) * scaledPrice)
+				// = (1e9) * limitAmountQuote / scaledPrice
+				if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
+					bigLimitReceiveAmount = big.NewInt(0).Mul(bigLimitReceiveAmount, big.NewInt(int64(lib.NanosPerUnit)))
+				}
 				uint256LimitReceiveAmount := uint256.NewInt()
 				if overflow := uint256LimitReceiveAmount.SetFromBig(bigLimitReceiveAmount); overflow {
 					return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit receive amount")
@@ -1710,15 +1780,13 @@ func (fes *APIServer) HandleMarketOrder(
 			//
 			// TODO: Add ExtraData to the transaction to make it easier to report it as an
 			// earning to the user who's receiving the fee.
-			txn, _, _, _, err := fes.blockchain.CreateDAOCoinTransferTxn(
+			txn, err := fes.SendCoins(
+				req.QuoteCurrencyPublicKeyBase58Check,
 				transactorPubkeyBytes,
-				&lib.DAOCoinTransferMetadata{
-					ProfilePublicKey:       quoteCurrencyPubkeyBytes,
-					ReceiverPublicKey:      receiverPubkeyBytes,
-					DAOCoinToTransferNanos: *feeBaseUnits,
-				},
-				// Standard transaction fields
-				req.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), nil)
+				receiverPubkeyBytes,
+				feeBaseUnits,
+				req.MinFeeRateNanosPerKB,
+				nil)
 			if err != nil {
 				return nil, fmt.Errorf("HandleMarketOrder: Problem creating transaction: %v", err)
 			}
@@ -1780,7 +1848,15 @@ func (fes *APIServer) HandleMarketOrder(
 				quoteAmountReceivedBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
 			priceQuotePerBase = big.NewInt(0).Div(
 				priceQuotePerBase, baseAmountSpentBaseUnits.ToBig())
-			finalPriceStr = lib.FormatScaledUint256AsDecimalString(priceQuotePerBase, lib.BaseUnitsPerCoin.ToBig())
+			uint256PriceQuotePerBase := uint256.NewInt()
+			if overflow := uint256PriceQuotePerBase.SetFromBig(priceQuotePerBase); overflow {
+				return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating price: %v", err)
+			}
+			finalPriceStr, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
+				req.QuoteCurrencyPublicKeyBase58Check, uint256PriceQuotePerBase)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating price: %v", err)
+			}
 		}
 
 		// Compute the percentage of the amount spent that went to fees
@@ -1812,6 +1888,8 @@ func (fes *APIServer) HandleMarketOrder(
 			TxnHashHex:     atomicTxn.Hash().String(),
 			Transaction:    atomicTxn,
 
+			QuoteCurrencyPriceInUsd: fmt.Sprintf("%0.9f", quoteCurrencyUsdValue),
+
 			ExecutionAmount:                    baseAmountSpentStr,
 			ExecutionAmountCurrencyType:        CurrencyTypeBase,
 			ExecutionAmountUsd:                 "", // dont convert base currency to usd
@@ -1836,9 +1914,10 @@ func (fes *APIServer) HandleMarketOrder(
 			limitAmount := quantityStr
 			if req.QuantityCurrencyType == CurrencyTypeQuote ||
 				req.QuantityCurrencyType == CurrencyTypeUsd {
-				// In this case we need to convert the quantity to base units:
-				// - quoteAmount / price
-				// - = quoteAmount * 1e38 / (price * 1e38)
+				// Price is in (base coin amount / quote coin amount), and in this case we need to
+				// convert base units of the quote currency to base units of the base currency:
+				// - quoteAmount / priceQuotePerBase
+				// = quoteAmountBaseUnits / (priceQuotePerBase * 1e38) * 1e38
 				quantityBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
 					req.QuoteCurrencyPublicKeyBase58Check, quantityStr)
 				if err != nil {
@@ -1853,6 +1932,26 @@ func (fes *APIServer) HandleMarketOrder(
 				if !scaledPrice.IsZero() {
 					bigLimitAmount := big.NewInt(0).Mul(quantityBaseUnits.ToBig(), lib.OneE38.ToBig())
 					bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, scaledPrice.ToBig())
+					// The reason why this extra step is needed is extremely subtle. It's required because
+					// scaledPrice represents (whole coin / whole coin) rather than (base unit / base unit).
+					// When the coins have the same number of base units per whole coin, this conversion isn't
+					// needed because we have:
+					// - (whole coin / whole coin) = ((1e18 base units) / (1e18 base units)) = (base unit / base unit)
+					//
+					// However, in the case where DESO is one of the pairs, the (whole coin / whole coin) exchange
+					// rate is NOT the same as the (base unit / base unit) rate because DESO has a different number
+					// of base units per whole coin. So we have:
+					// - (deso nanos) / (daocoin base units)
+					// = (1e9 deso whole coin) / (1e18 daocoin whole coin)
+					// = (1/1e9) * (deso whole coin / daocoin whole coin)
+					// = (1/1e9) * scaledPriceQuotePerBase
+					//
+					// And so we need to modify the previous formula to be:
+					// - quoteAmount / ((1/1e9) * scaledPriceQuotePerBase)
+					// - 1e9 * quoteAmount / scaledPriceBasePerQuote
+					if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
+						bigLimitAmount = big.NewInt(0).Mul(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
+					}
 					uint256LimitAmount := uint256.NewInt()
 					if overflow := uint256LimitAmount.SetFromBig(bigLimitAmount); overflow {
 						return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit amount")
@@ -1866,8 +1965,8 @@ func (fes *APIServer) HandleMarketOrder(
 			}
 
 			// The limit receive amount is computed as follows:
-			// - limitAmount * price
-			// - = limitAmount * (price * 1e38) / 1e38
+			// - limitAmountBaseUnits * priceQuotePerBase
+			// - = limitAmountBaseUnits * (priceQuotePerBase * 1e38) / 1e38
 			limitReceiveAmountBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
 				req.BaseCurrencyPublicKeyBase58Check, limitAmount)
 			if err != nil {
@@ -1880,6 +1979,27 @@ func (fes *APIServer) HandleMarketOrder(
 			}
 			bigLimitReceiveAmount := big.NewInt(0).Mul(limitReceiveAmountBaseUnits.ToBig(), scaledPrice.ToBig())
 			bigLimitReceiveAmount = big.NewInt(0).Div(bigLimitReceiveAmount, lib.OneE38.ToBig())
+			// The reason why this extra step is needed is extremely subtle. It's required because
+			// scaledPrice represents (whole coin / whole coin) rather than (base unit / base unit).
+			// When the coins have the same number of base units per whole coin, this conversion isn't
+			// needed because we have:
+			// - (whole coin / whole coin) = ((1e18 base units) / (1e18 base units)) = (base unit / base unit)
+			//
+			// However, in the case where DESO is one of the pairs, the (whole coin / whole coin) exchange
+			// rate is NOT the same as the (base unit / base unit) rate because DESO has a different number
+			// of base units per whole coin. So we have:
+			// - (deso nanos) / (daocoin base units)
+			// = (1e9 deso whole coin) / (1e18 daocoin whole coin)
+			// = (1/1e9) * (deso whole coin / daocoin whole coin)
+			// = (1/1e9) * scaledPriceQuotePerBase
+			//
+			// And so we need to modify the previous formula to be:
+			// - limitAmountBaseUnits * (deso nanos / daocoin base units)
+			// = limitAmountBaseUnits * (1 / 1e9) * scaledPriceQuotePerBase
+			// = 1/1e9 * limitAmountBaseUnits * scaledPriceQuotePerBase
+			if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
+				bigLimitReceiveAmount = big.NewInt(0).Div(bigLimitReceiveAmount, big.NewInt(int64(lib.NanosPerUnit)))
+			}
 			uint256LimitReceiveAmount := uint256.NewInt()
 			if overflow := uint256LimitReceiveAmount.SetFromBig(bigLimitReceiveAmount); overflow {
 				return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit receive amount")
