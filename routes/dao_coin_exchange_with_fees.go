@@ -604,11 +604,11 @@ type GetBaseCurrencyPriceResponse struct {
 	BestBidInUsd            float64 `safeForLogging:"true"`
 
 	// Useful for computing "cashout" values on the wallet page
-	ExecutionAmountInBaseCurrency string `safeForLogging:"true"`
-	ReceiveAmountInQuoteCurrency  string `safeForLogging:"true"`
-	ReceiveAmountInUsd            string `safeForLogging:"true"`
-	ExecutionPriceInQuoteCurrency string `safeForLogging:"true"`
-	ExecutionPriceInUsd           string `safeForLogging:"true"`
+	ExecutionAmountInBaseCurrency float64 `safeForLogging:"true"`
+	ReceiveAmountInQuoteCurrency  float64 `safeForLogging:"true"`
+	ReceiveAmountInUsd            float64 `safeForLogging:"true"`
+	ExecutionPriceInQuoteCurrency float64 `safeForLogging:"true"`
+	ExecutionPriceInUsd           float64 `safeForLogging:"true"`
 }
 
 func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *http.Request) {
@@ -757,16 +757,6 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 			})
 		}
 	}
-	// We can rule out a whole host of errors if we force the market to have
-	// at least one ask and one bid order in order for a price to be defined.
-	if len(simpleAskOrders) == 0 {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: No ask orders found"))
-		return
-	}
-	if len(simpleBidOrders) == 0 {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: No bid orders found"))
-		return
-	}
 
 	// Sort the bids by their price, highest first
 	sort.Slice(simpleBidOrders, func(ii, jj int) bool {
@@ -778,41 +768,50 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 	})
 
 	// We can easily compute the best bid and best ask price in quote currency now.
-	bestBidPriceInQuoteCurrency := simpleBidOrders[0].PriceInQuoteCurrency
-	bestAskPriceInQuoteCurrency := simpleAskOrders[0].PriceInQuoteCurrency
-	midPriceInQuoteCurrency := (bestBidPriceInQuoteCurrency + bestAskPriceInQuoteCurrency) / 2
-
-	// Iterate through the bids "filling" orders until we hit the base currency
-	// quantity we're looking for.
+	var bestBidPriceInQuoteCurrency float64
+	var bestAskPriceInQuoteCurrency float64
+	var midPriceInQuoteCurrency float64
 	baseCurrencyFilled := big.NewFloat(0.0)
-	baseCurrencyToFill := big.NewFloat(requestData.BaseCurrencyQuantityToSell)
 	quoteCurrencyReceived := big.NewFloat(0.0)
-	for _, bid := range simpleBidOrders {
-		// If the amount filled plus the amount we're about to fill is greater
-		// than the amount we're looking to fill, then we just partially fill
-		// the order.
-		if big.NewFloat(0.0).Add(
-			baseCurrencyFilled,
-			big.NewFloat(bid.AmountInBaseCurrency),
-		).Cmp(baseCurrencyToFill) > 0 {
-			baseCurrencyFromThisOrder := big.NewFloat(0).Sub(baseCurrencyToFill, baseCurrencyFilled)
-			addlQuoteCurrencyReceivedFromOrdered := big.NewFloat(0).Mul(baseCurrencyFromThisOrder, big.NewFloat(bid.PriceInQuoteCurrency))
-			quoteCurrencyReceived = big.NewFloat(0).Add(quoteCurrencyReceived, addlQuoteCurrencyReceivedFromOrdered)
-			// Since we've fully filled the order, we can simply set the base currency filled
-			// to the amount we're looking to fill from the request.
-			baseCurrencyFilled = baseCurrencyToFill
-			break
-		}
-		addlQuoteCurrencyReceivedFromOrder := big.NewFloat(0).Mul(big.NewFloat(bid.AmountInBaseCurrency), big.NewFloat(bid.PriceInQuoteCurrency))
-		quoteCurrencyReceived = big.NewFloat(0).Add(quoteCurrencyReceived, addlQuoteCurrencyReceivedFromOrder)
-		baseCurrencyFilled = big.NewFloat(0).Add(baseCurrencyFilled, big.NewFloat(bid.AmountInBaseCurrency))
-	}
-
-	// Now the amount to fill and the quote currency received should be ready to go
-	// so we can compute the price.
 	priceInQuoteCurrency := big.NewFloat(0.0)
-	if baseCurrencyFilled.Sign() > 0 {
-		priceInQuoteCurrency = big.NewFloat(0).Quo(quoteCurrencyReceived, baseCurrencyFilled)
+	if len(simpleAskOrders) != 0 {
+		bestAskPriceInQuoteCurrency = simpleAskOrders[0].PriceInQuoteCurrency
+	}
+	if len(simpleBidOrders) != 0 {
+		bestBidPriceInQuoteCurrency = simpleBidOrders[0].PriceInQuoteCurrency
+
+		// Iterate through the bids "filling" orders until we hit the base currency
+		// quantity we're looking for.
+		baseCurrencyToFill := big.NewFloat(requestData.BaseCurrencyQuantityToSell)
+		for _, bid := range simpleBidOrders {
+			// If the amount filled plus the amount we're about to fill is greater
+			// than the amount we're looking to fill, then we just partially fill
+			// the order.
+			if big.NewFloat(0.0).Add(
+				baseCurrencyFilled,
+				big.NewFloat(bid.AmountInBaseCurrency),
+			).Cmp(baseCurrencyToFill) > 0 {
+				baseCurrencyFromThisOrder := big.NewFloat(0).Sub(baseCurrencyToFill, baseCurrencyFilled)
+				addlQuoteCurrencyReceivedFromOrdered := big.NewFloat(0).Mul(baseCurrencyFromThisOrder, big.NewFloat(bid.PriceInQuoteCurrency))
+				quoteCurrencyReceived = big.NewFloat(0).Add(quoteCurrencyReceived, addlQuoteCurrencyReceivedFromOrdered)
+				// Since we've fully filled the order, we can simply set the base currency filled
+				// to the amount we're looking to fill from the request.
+				baseCurrencyFilled = baseCurrencyToFill
+				break
+			}
+			addlQuoteCurrencyReceivedFromOrder := big.NewFloat(0).Mul(big.NewFloat(bid.AmountInBaseCurrency), big.NewFloat(bid.PriceInQuoteCurrency))
+			quoteCurrencyReceived = big.NewFloat(0).Add(quoteCurrencyReceived, addlQuoteCurrencyReceivedFromOrder)
+			baseCurrencyFilled = big.NewFloat(0).Add(baseCurrencyFilled, big.NewFloat(bid.AmountInBaseCurrency))
+		}
+
+		// Now the amount to fill and the quote currency received should be ready to go
+		// so we can compute the price.
+		if baseCurrencyFilled.Sign() > 0 {
+			priceInQuoteCurrency = big.NewFloat(0).Quo(quoteCurrencyReceived, baseCurrencyFilled)
+		}
+	}
+	if len(simpleAskOrders) != 0 && len(simpleBidOrders) != 0 {
+		midPriceInQuoteCurrency = (bestBidPriceInQuoteCurrency + bestAskPriceInQuoteCurrency) / 2
 	}
 
 	// Get the price of the quote currency in usd. Use the mid price
@@ -828,6 +827,13 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 		return
 	}
 
+	baseCurrencyFilledFloat, _ := baseCurrencyFilled.Float64()
+	quoteCurrencyReceivedFloat, _ := quoteCurrencyReceived.Float64()
+	receiveAmountInUsdFloat, _ := big.NewFloat(0).Mul(
+		quoteCurrencyReceived, big.NewFloat(quoteCurrencyPriceInUsd)).Float64()
+	priceInQuoteCurrencyFloat, _ := priceInQuoteCurrency.Float64()
+	executionPriceInUsdFloat, _ := big.NewFloat(0).Mul(
+		priceInQuoteCurrency, big.NewFloat(quoteCurrencyPriceInUsd)).Float64()
 	res := &GetBaseCurrencyPriceResponse{
 		QuoteCurrencyPriceInUsd: quoteCurrencyPriceInUsd,
 
@@ -840,11 +846,11 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 		BestBidInUsd:            bestBidPriceInQuoteCurrency * quoteCurrencyPriceInUsd,
 
 		// Useful for computing "cashout" values on the wallet page
-		ExecutionAmountInBaseCurrency: baseCurrencyFilled.String(),
-		ReceiveAmountInQuoteCurrency:  quoteCurrencyReceived.String(),
-		ReceiveAmountInUsd:            big.NewFloat(0).Mul(quoteCurrencyReceived, big.NewFloat(quoteCurrencyPriceInUsd)).String(),
-		ExecutionPriceInQuoteCurrency: priceInQuoteCurrency.String(),
-		ExecutionPriceInUsd:           big.NewFloat(0).Mul(priceInQuoteCurrency, big.NewFloat(quoteCurrencyPriceInUsd)).String(),
+		ExecutionAmountInBaseCurrency: baseCurrencyFilledFloat,
+		ReceiveAmountInQuoteCurrency:  quoteCurrencyReceivedFloat,
+		ReceiveAmountInUsd:            receiveAmountInUsdFloat,
+		ExecutionPriceInQuoteCurrency: priceInQuoteCurrencyFloat,
+		ExecutionPriceInUsd:           executionPriceInUsdFloat,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetQuoteCurrencyPriceInUsd: Problem encoding response: %v", err))
