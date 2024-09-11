@@ -24,15 +24,18 @@ import (
 // HotnessFeed scoring algorithm knobs.
 const (
 	// Number of blocks per halving for the scoring time decay for the global hot feed.
-	DefaultHotFeedTimeDecayBlocks uint64 = 72
+	DefaultHotFeedTimeDecayBlocks uint64 = 43200
 	// Number of blocks per halving for the scoring time decay for a tag hot feed.
-	DefaultHotFeedTagTimeDecayBlocks uint64 = 96
+	DefaultHotFeedTagTimeDecayBlocks uint64 = 43200
 	// Maximum score amount that any individual PKID can contribute before time decay.
 	DefaultHotFeedInteractionCap uint64 = 4e12
 	// Maximum score amount that any individual PKID can contribute before time decay for a particular tag grouping.
 	DefaultHotFeedTagInteractionCap uint64 = 4e12
 	// How many iterations of the hot feed calculation until the built-up caches should be reset. (Once per day)
 	ResetCachesIterationLimit int = 288
+	// This is how many blocks we consider as part of our ranking. It should be a good deal bigger than
+	// the time decay blocks.
+	LookbackWindowBlocks = 7 * 24 * 60 * 60
 )
 
 // A single element in the server's HotFeedOrderedList.
@@ -402,8 +405,7 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	// which is useful for testing purposes.
 	blockOffsetForTesting := 0
 
-	// Grab the last 60 days worth of blocks (25,920 blocks @ 5min/block).
-	lookbackWindowBlocks := 60 * 24 * 60 / 5
+	lookbackWindowBlocks := LookbackWindowBlocks
 	// Check if the most recent blocks that we'll be considering in hot feed computation have been processed.
 	for _, blockNode := range fes.blockchain.BestChain() {
 		if blockNode.Height < blockTip.Height-uint32(lookbackWindowBlocks+blockOffsetForTesting) {
@@ -555,9 +557,30 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 			// to posts from the specified look-back period without even looking up the post time stamp.
 			isCreatePost, postHashCreated := CheckTxnForCreatePost(txn)
 			if isCreatePost {
+				// We start with the creator's balance in computing the score
+				timeDecayBlocks := fes.HotFeedTimeDecayBlocks
+				posterPKIDEntry := utxoView.GetPKIDForPublicKey(txn.PublicKey)
+				// Finally return the post hash and the txn's hotness score.
+				//interactionProfile := utxoView.GetProfileEntryForPKID(posterPKIDEntry.PKID)
+				interactionUserBalance, err := utxoView.GetDeSoBalanceNanosForPublicKey(txn.PublicKey)
+				if err != nil {
+					return nil, err
+				}
+				// Check for PKID-specifc multipliers for the poster and the interactor.
+				posterPKIDMultiplier, hasPosterPKIDMultiplier := pkidsToMultipliers[*posterPKIDEntry.PKID]
+				txnHotnessScore := uint64(interactionUserBalance)
+				if txnHotnessScore > fes.HotFeedInteractionCap {
+					txnHotnessScore = fes.HotFeedInteractionCap
+				}
+				if hasPosterPKIDMultiplier {
+					txnHotnessScore = uint64(
+						posterPKIDMultiplier.PostsMultiplier * float64(txnHotnessScore))
+				}
+				hotnessScoreTimeDecayed := uint64(float64(txnHotnessScore) *
+					math.Pow(0.5, float64(blockAgee)/float64(timeDecayBlocks)))
 				hotnessInfoMap[*postHashCreated] = &HotnessPostInfo{
 					PostBlockAge: blockAgee,
-					HotnessScore: 0,
+					HotnessScore: hotnessScoreTimeDecayed,
 				}
 				continue
 			}
