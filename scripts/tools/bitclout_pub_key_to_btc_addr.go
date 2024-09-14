@@ -3,8 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcutil"
 	"github.com/deso-protocol/core/lib"
 	"os"
 )
@@ -16,7 +16,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	//pubKey, err := btcec.ParsePubKey(pkBytes, btcec.S256())
+	//pubKey, err := btcec.ParsePubKey(pkBytes)
 	//if err != nil {
 	//	panic(err)
 	//}
