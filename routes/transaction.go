@@ -813,16 +813,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 func GetBalanceForPublicKeyUsingUtxoView(
 	publicKeyBytes []byte, utxoView *lib.UtxoView) (_balance uint64, _err error) {
 
-	// Get unspent utxos from the view.
-	utxoEntriesFound, err := utxoView.GetUnspentUtxoEntrysForPublicKey(publicKeyBytes)
-	if err != nil {
-		return 0, fmt.Errorf("UpdateProfile: Problem getting spendable utxos from UtxoView: %v", err)
-	}
-	totalBalanceNanos := uint64(0)
-	for _, utxoEntry := range utxoEntriesFound {
-		totalBalanceNanos += utxoEntry.AmountNanos
-	}
-	return totalBalanceNanos, nil
+	return utxoView.GetDeSoBalanceNanosForPublicKey(publicKeyBytes)
 }
 
 // ExchangeBitcoinRequest ...
