@@ -259,7 +259,8 @@ func (fes *APIServer) UpdateDaoCoinMarketFees(ww http.ResponseWriter, req *http.
 		additionalOutputs,
 	)
 	if err != nil {
-		_AddInternalServerError(ww, fmt.Sprintf("CreateUserAssociation: problem creating txn: %v", err))
+		_AddInternalServerError(ww, fmt.Sprintf("CreateUserAssociation: problem creating user "+
+			"association txn: %v", err))
 		return
 	}
 
@@ -832,6 +833,8 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 		return
 	}
 
+	// If any of these are too big for the Float64() it's better to best-effort
+	// them rather than error out.
 	baseCurrencyFilledFloat, _ := baseCurrencyFilled.Float64()
 	quoteCurrencyReceivedFloat, _ := quoteCurrencyReceived.Float64()
 	receiveAmountInUsdFloat, _ := big.NewFloat(0).Mul(

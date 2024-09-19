@@ -411,7 +411,7 @@ func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, isD
 	_youHodlMap map[string]*BalanceEntryResponse, _err error) {
 	// Get all the hodlings for this user from the db
 	entriesHodlingYou, profileHodlingYou, _, _, err := utxoView.GetHolders(
-		pkid.PKID, fetchProfiles, isDAOCoin)
+		pkid.PKID, fetchProfiles, false, isDAOCoin)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"GetHodlingsForPublicKey: Error looking up balance entries in db: %v", err)
@@ -1602,7 +1602,8 @@ func (fes *APIServer) GetHodlersCountForPublicKeys(ww http.ResponseWriter, req *
 		}
 		// Get PKID and then get holders for PKID
 		pkid := utxoView.GetPKIDForPublicKey(pkBytes)
-		balanceEntries, _, _, _, err := utxoView.GetHolders(pkid.PKID, false, requestData.IsDAOCoin)
+		balanceEntries, _, _, _, err := utxoView.GetHolders(
+			pkid.PKID, false, false, requestData.IsDAOCoin)
 		if err != nil {
 			_AddInternalServerError(
 				ww,
@@ -3826,7 +3827,8 @@ func (fes *APIServer) GetHoldersForPublicKeyWithLockedBalances(ww http.ResponseW
 	}
 
 	unlockedBalanceEntrys, _, lockedBalanceEntryMap, _, err := utxoView.GetHolders(
-		utxoView.GetPKIDForPublicKey(creatorPublicKeyBytes).PKID, false, true)
+		utxoView.GetPKIDForPublicKey(creatorPublicKeyBytes).PKID,
+		false, true, true)
 
 	holdersMap := make(map[string]*ExtendedBalanceEntryResponse)
 	for _, unlockedEntry := range unlockedBalanceEntrys {
@@ -3852,8 +3854,9 @@ func (fes *APIServer) GetHoldersForPublicKeyWithLockedBalances(ww http.ResponseW
 		holdersMap[holderPublicKeyStr] = prevBalance
 	}
 
-	for pkid, lockedBalanceEntrys := range lockedBalanceEntryMap {
-		publicKeyBytes := utxoView.GetPublicKeyForPKID(&pkid)
+	for pkidIter, lockedBalanceEntrys := range lockedBalanceEntryMap {
+		pkid := pkidIter.NewPKID()
+		publicKeyBytes := utxoView.GetPublicKeyForPKID(pkid)
 		publicKeyStr := lib.PkToString(publicKeyBytes, fes.Params)
 		prevBalance := holdersMap[publicKeyStr]
 
@@ -3871,7 +3874,7 @@ func (fes *APIServer) GetHoldersForPublicKeyWithLockedBalances(ww http.ResponseW
 			// entry from scratch.
 			unlockedBalanceEntryResponse := fes._balanceEntryToResponse(
 				&lib.BalanceEntry{
-					HODLerPKID:   &pkid,
+					HODLerPKID:   pkid,
 					CreatorPKID:  utxoView.GetPKIDForPublicKey(creatorPublicKeyBytes).PKID,
 					BalanceNanos: *uint256.NewInt(),
 					HasPurchased: false,
