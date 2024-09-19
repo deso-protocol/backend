@@ -474,6 +474,11 @@ type DAOCoinLimitOrderWithFeeRequest struct {
 	Quantity             string       `safeForLogging:"true"`
 	QuantityCurrencyType CurrencyType `safeForLogging:"true"`
 
+	// If set to true, the order will not automatically whitelist the coin being traded.
+	// This should be rare, but it's useful if you want to trade a coin without moving
+	// it out of the spam folder for whatever reason.
+	SkipWhitelist bool `safeForLogging:"true"`
+
 	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
 	TransactionFees      []TransactionFee `safeForLogging:"true"`
 
@@ -1043,6 +1048,86 @@ func InvertPriceStr(priceStr string) (string, error) {
 	return lib.FormatScaledUint256AsDecimalString(invertedScaledPrice, lib.OneE38.ToBig()), nil
 }
 
+func (fes *APIServer) MaybeCreateTokenWhitelistAssociation(
+	transactorPubkey string,
+	coinPubkey string,
+	minFeeRateNanosPerKB uint64,
+	additionalOutputs []*lib.DeSoOutput,
+	optionalUtxoView *lib.UtxoView) (
+	*lib.MsgDeSoTxn,
+	error,
+) {
+	utxoView := optionalUtxoView
+	if utxoView == nil {
+		var err error
+		utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
+		if err != nil {
+			return nil, fmt.Errorf("MaybeCreateTokenWhitelistAssociation: Error fetching mempool view: %v", err)
+		}
+	}
+
+	transactorPubkeyBytes, _, err := lib.Base58CheckDecode(transactorPubkey)
+	if err != nil {
+		return nil, fmt.Errorf("MaybeCreateTokenWhitelistAssociation: Problem decoding "+
+			"transactor pubkey %s: %v", transactorPubkey, err)
+	}
+	transactorPkid := utxoView.GetPKIDForPublicKey(transactorPubkeyBytes)
+
+	coinPubkeyBytes, _, err := lib.Base58CheckDecode(coinPubkey)
+	if err != nil {
+		return nil, fmt.Errorf("MaybeCreateTokenWhitelistAssociation: Problem decoding "+
+			"coin pubkey %s: %v", coinPubkey, err)
+	}
+	coinPkid := utxoView.GetPKIDForPublicKey(coinPubkeyBytes)
+
+	ammPubkeyBytes, _, err := lib.Base58CheckDecode(fes.Config.AmmMetadataPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("MaybeCreateTokenWhitelistAssociation: Problem decoding "+
+			"amm metadata pubkey %s: %v", fes.Config.AmmMetadataPublicKey, err)
+	}
+	ammPkid := utxoView.GetPKIDForPublicKey(ammPubkeyBytes)
+
+	associationQuery := &lib.UserAssociationQuery{
+		TransactorPKID:   transactorPkid.PKID,
+		TargetUserPKID:   coinPkid.PKID,
+		AppPKID:          ammPkid.PKID,
+		AssociationType:  []byte(lib.DeSoTokenWhitelistAssociationKey),
+		AssociationValue: []byte(lib.DeSoTokenWhitelistAssociationKey),
+		Limit:            10,
+	}
+
+	associationEntries, err := utxoView.GetUserAssociationsByAttributes(associationQuery)
+	if err != nil {
+		return nil, fmt.Errorf("MaybeCreateTokenWhitelistAssociation: Error fetching user associations: %v", err)
+	}
+
+	// If we found an association, there's no need to create one. In this case just return
+	// a nil transaction.
+	if len(associationEntries) > 0 {
+		return nil, nil
+	}
+
+	// Create transaction.
+	txn, _, _, _, err := fes.blockchain.CreateCreateUserAssociationTxn(
+		transactorPubkeyBytes,
+		&lib.CreateUserAssociationMetadata{
+			TargetUserPublicKey: lib.NewPublicKey(coinPubkeyBytes),
+			AppPublicKey:        lib.NewPublicKey(ammPubkeyBytes),
+			AssociationType:     []byte(lib.DeSoTokenWhitelistAssociationKey),
+			AssociationValue:    []byte(lib.DeSoTokenWhitelistAssociationKey),
+		},
+		nil,
+		minFeeRateNanosPerKB,
+		fes.backendServer.GetMempool(),
+		additionalOutputs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("MaybeCreateTokenWhitelistAssociation: Problem creating transaction: %v", err)
+	}
+
+	return txn, nil
+}
+
 func (fes *APIServer) SendCoins(
 	coinPublicKey string,
 	transactorPubkeyBytes []byte,
@@ -1096,6 +1181,7 @@ func (fes *APIServer) HandleMarketOrder(
 	req *DAOCoinLimitOrderWithFeeRequest,
 	isBuyOrder bool,
 	feeMapByPubkey map[string]uint64,
+	skipWhitelist bool,
 ) (
 	*DAOCoinLimitOrderWithFeeResponse,
 	error,
@@ -1323,6 +1409,17 @@ func (fes *APIServer) HandleMarketOrder(
 		return nil, fmt.Errorf("HandleMarketOrder: Problem decoding public key %s: %v",
 			req.TransactorPublicKeyBase58Check, err)
 	}
+	// Create a transaction to whitelist the token in the user's wallet if it's not already,
+	// and if that's desired.
+	tokenWhitelistTxn, err := fes.MaybeCreateTokenWhitelistAssociation(
+		req.TransactorPublicKeyBase58Check,
+		req.BaseCurrencyPublicKeyBase58Check,
+		req.MinFeeRateNanosPerKB,
+		nil,
+		utxoView)
+	if err != nil {
+		return nil, fmt.Errorf("HandleMarketOrder: Problem creating token whitelist txn: %v", err)
+	}
 	quoteCurrencyPubkeyBytes, _, err := lib.Base58CheckDecode(req.QuoteCurrencyPublicKeyBase58Check)
 	if err != nil || len(quoteCurrencyPubkeyBytes) != btcec.PubKeyBytesLenCompressed {
 		return nil, fmt.Errorf("HandleMarketOrder: Problem decoding public key %s: %v",
@@ -1521,6 +1618,9 @@ func (fes *APIServer) HandleMarketOrder(
 		}
 
 		allTxns := append(transferTxns, newOrderRes.Transaction)
+		if tokenWhitelistTxn != nil && !skipWhitelist {
+			allTxns = append(allTxns, tokenWhitelistTxn)
+		}
 
 		// Wrap all of the resulting txns into an atomic
 		// TODO: We can embed helpful extradata in here that will allow us to index these txns
@@ -1808,6 +1908,10 @@ func (fes *APIServer) HandleMarketOrder(
 
 		// Wrap all of the resulting txns into an atomic
 		allTxns := append(transferTxns, orderTxn)
+		if tokenWhitelistTxn != nil && !skipWhitelist {
+			allTxns = append(allTxns, tokenWhitelistTxn)
+		}
+
 		extraData := make(map[string][]byte)
 		atomicTxn, totalDesoFeeNanos, err := fes.blockchain.CreateAtomicTxnsWrapper(
 			allTxns, extraData, fes.backendServer.GetMempool(), req.MinFeeRateNanosPerKB)
@@ -2132,7 +2236,8 @@ func (fes *APIServer) CreateDAOCoinLimitOrderWithFee(ww http.ResponseWriter, req
 	}
 
 	var res *DAOCoinLimitOrderWithFeeResponse
-	res, err = fes.HandleMarketOrder(isMarketOrder, &requestData, isBuyOrder, feeMapByPubkey)
+	res, err = fes.HandleMarketOrder(
+		isMarketOrder, &requestData, isBuyOrder, feeMapByPubkey, requestData.SkipWhitelist)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrderWithFee: %v", err))
 		return
