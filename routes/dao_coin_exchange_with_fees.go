@@ -1096,7 +1096,7 @@ func (fes *APIServer) MaybeCreateTokenWhitelistAssociation(
 		AppPKID:          ammPkid.PKID,
 		AssociationType:  []byte(lib.DeSoTokenWhitelistAssociationKey),
 		AssociationValue: []byte(lib.DeSoTokenWhitelistAssociationKey),
-		Limit:            10,
+		Limit:            1,
 	}
 
 	associationEntries, err := utxoView.GetUserAssociationsByAttributes(associationQuery)
@@ -1412,16 +1412,19 @@ func (fes *APIServer) HandleMarketOrder(
 		return nil, fmt.Errorf("HandleMarketOrder: Problem decoding public key %s: %v",
 			req.TransactorPublicKeyBase58Check, err)
 	}
+	var tokenWhitelistTxn *lib.MsgDeSoTxn
 	// Create a transaction to whitelist the token in the user's wallet if it's not already,
 	// and if that's desired.
-	tokenWhitelistTxn, err := fes.MaybeCreateTokenWhitelistAssociation(
-		req.TransactorPublicKeyBase58Check,
-		req.BaseCurrencyPublicKeyBase58Check,
-		req.MinFeeRateNanosPerKB,
-		nil,
-		utxoView)
-	if err != nil {
-		return nil, fmt.Errorf("HandleMarketOrder: Problem creating token whitelist txn: %v", err)
+	if !skipWhitelist {
+		tokenWhitelistTxn, err = fes.MaybeCreateTokenWhitelistAssociation(
+			req.TransactorPublicKeyBase58Check,
+			req.BaseCurrencyPublicKeyBase58Check,
+			req.MinFeeRateNanosPerKB,
+			nil,
+			utxoView)
+		if err != nil {
+			return nil, fmt.Errorf("HandleMarketOrder: Problem creating token whitelist txn: %v", err)
+		}
 	}
 	quoteCurrencyPubkeyBytes, _, err := lib.Base58CheckDecode(req.QuoteCurrencyPublicKeyBase58Check)
 	if err != nil || len(quoteCurrencyPubkeyBytes) != btcec.PubKeyBytesLenCompressed {
