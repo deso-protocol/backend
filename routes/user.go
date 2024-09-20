@@ -410,7 +410,7 @@ func (fes *APIServer) GetHodlingsForPublicKey(
 func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, isDAOCoin bool, utxoView *lib.UtxoView) (
 	_youHodlMap map[string]*BalanceEntryResponse, _err error) {
 	// Get all the hodlings for this user from the db
-	entriesHodlingYou, profileHodlingYou, err := utxoView.GetHolders(pkid.PKID, fetchProfiles, isDAOCoin)
+	entriesHodlingYou, profileHodlingYou, _, _, err := utxoView.GetHolders(pkid.PKID, fetchProfiles, false, isDAOCoin)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"GetHodlingsForPublicKey: Error looking up balance entries in db: %v", err)
@@ -1601,7 +1601,7 @@ func (fes *APIServer) GetHodlersCountForPublicKeys(ww http.ResponseWriter, req *
 		}
 		// Get PKID and then get holders for PKID
 		pkid := utxoView.GetPKIDForPublicKey(pkBytes)
-		balanceEntries, _, err := utxoView.GetHolders(pkid.PKID, false, requestData.IsDAOCoin)
+		balanceEntries, _, _, _, err := utxoView.GetHolders(pkid.PKID, false, false, requestData.IsDAOCoin)
 		if err != nil {
 			_AddInternalServerError(
 				ww,
