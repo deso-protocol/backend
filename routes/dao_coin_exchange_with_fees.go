@@ -17,21 +17,19 @@ import (
 )
 
 type UpdateDaoCoinMarketFeesRequest struct {
-	// The public key of the user who is trying to update the
-	// fees for their market.
-	UpdaterPublicKeyBase58Check string `safeForLogging:"true"`
-
-	// This is only set when the user wants to modify a profile
-	// that isn't theirs. Otherwise, the UpdaterPublicKeyBase58Check is
-	// assumed to own the profile being updated.
+	// The profile that the fees are being modified for.
 	ProfilePublicKeyBase58Check string `safeForLogging:"true"`
 
-	// A map of pubkey->feeBasisPoints that the user wants to set for their market.
+	// A map of pubkey->feeBasisPoints that the user wants to set for this market.
 	// If the map contains {pk1: 100, pk2: 200} then the user is setting the
 	// feeBasisPoints for pk1 to 100 and the feeBasisPoints for pk2 to 200.
 	// This means that pk1 will get 1% of every taker's trade and pk2 will get
 	// 2%.
 	FeeBasisPointsByPublicKey map[string]uint64 `safeForLogging:"true"`
+
+	// If set to true, trading fee updates will be permanently disabled
+	// for this market. Use with caution!
+	DisableTradingFeeUpdate bool `safeForLogging:"true"`
 
 	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
 	TransactionFees      []TransactionFee `safeForLogging:"true"`
@@ -74,20 +72,44 @@ func ValidateTradingFeeMap(feeMap map[string]uint64) error {
 	return nil
 }
 
+func IsExtraDataValueTrueString(extraData map[string]string, key string) bool {
+	newMap := make(map[string][]byte)
+	for k, v := range extraData {
+		newMap[k] = []byte(v)
+	}
+	return IsExtraDataValueTrue(newMap, key)
+}
+
+func IsExtraDataValueTrue(extraData map[string][]byte, key string) bool {
+	if len(extraData) == 0 {
+		return false
+	}
+	val, exists := extraData[key]
+	if exists && len(val) == 1 && val[0] == 1 {
+		return true
+	}
+	return false
+}
+
+func SetExtraDataValueTrue(extraData map[string][]byte, key string) {
+	extraData[key] = []byte{1}
+}
+
+func SetExtraDataValueTrueString(extraData map[string]string, key string) {
+	extraData[key] = string([]byte{1})
+}
+
 func (fes *APIServer) UpdateDaoCoinMarketFees(ww http.ResponseWriter, req *http.Request) {
+	if fes.Config.AmmMetadataPublicKey == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateDaoCoinMarketFees: AMM_METADATA_PUBLIC_KEY must be set "+
+			"in the node's config for fees to work"))
+		return
+	}
+
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := UpdateDaoCoinMarketFeesRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("UpdateDaoCoinMarketFees: Problem parsing request body: %v", err))
-		return
-	}
-
-	// Decode the public key
-	updaterPublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.UpdaterPublicKeyBase58Check)
-	if err != nil || len(updaterPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
-		_AddBadRequestError(ww, fmt.Sprintf(
-			"UpdateDAOCoinMarketFees: Problem decoding public key %s: %v",
-			requestData.UpdaterPublicKeyBase58Check, err))
 		return
 	}
 
@@ -112,28 +134,24 @@ func (fes *APIServer) UpdateDaoCoinMarketFees(ww http.ResponseWriter, req *http.
 		return
 	}
 
-	// When this is nil then the UpdaterPublicKey is assumed to be the owner of
-	// the profile.
-	var profilePublicKeyBytes []byte
-	if requestData.ProfilePublicKeyBase58Check != "" {
-		profilePublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.ProfilePublicKeyBase58Check)
-		if err != nil || len(profilePublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
-			_AddBadRequestError(ww, fmt.Sprintf(
-				"UpdateDaoCoinMarketFees: Problem decoding public key %s: %v",
-				requestData.ProfilePublicKeyBase58Check, err))
-			return
-		}
+	if requestData.ProfilePublicKeyBase58Check == "" {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"UpdateDaoCoinMarketFees: ProfilePublicKeyBase58Check and UpdaterPublicKeyBase58Check must be provided"))
+		return
 	}
 
-	// Get the public key.
-	profilePublicKey := updaterPublicKeyBytes
-	if requestData.ProfilePublicKeyBase58Check != "" {
-		profilePublicKey = profilePublicKeyBytes
+	// Decode the profile public key.
+	profilePublicKeyBytes, _, err := lib.Base58CheckDecode(requestData.ProfilePublicKeyBase58Check)
+	if err != nil || len(profilePublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"UpdateDaoCoinMarketFees: Problem decoding public key %s: %v",
+			requestData.ProfilePublicKeyBase58Check, err))
+		return
 	}
 
 	// Pull the existing profile. If one doesn't exist, then we error. The user should
 	// create a profile first before trying to update the fee params for their market.
-	existingProfileEntry := utxoView.GetProfileEntryForPublicKey(profilePublicKey)
+	existingProfileEntry := utxoView.GetProfileEntryForPublicKey(profilePublicKeyBytes)
 	if existingProfileEntry == nil || existingProfileEntry.IsDeleted() {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"UpdateDaoCoinMarketFees: Profile for public key %v does not exist",
@@ -178,33 +196,71 @@ func (fes *APIServer) UpdateDaoCoinMarketFees(ww http.ResponseWriter, req *http.
 	additionalExtraData := make(map[string][]byte)
 	additionalExtraData[lib.TokenTradingFeesByPkidMapKey] = feeMapByPkidBytes
 
+	// Setting this byte makes it impossible to update the trading fee map in the
+	// future. Use with caution.
+	if requestData.DisableTradingFeeUpdate {
+		SetExtraDataValueTrue(additionalExtraData, lib.DisableTradingFeeUpdateKey)
+	}
+
+	ammPublicKeyBytes, _, err := lib.Base58CheckDecode(fes.Config.AmmMetadataPublicKey)
+	if err != nil || len(ammPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"UpdateDaoCoinMarketFees: Problem decoding public key %s: %v",
+			fes.Config.AmmMetadataPublicKey, err))
+		return
+	}
+
+	// Fetch the existing fee association to check if fee updates are still allowed.
+	associationFilter := &lib.UserAssociationQuery{
+		AssociationType:  []byte(lib.TokenTradingFeesByPkidMapKey),
+		AssociationValue: []byte(lib.TokenTradingFeesByPkidMapKey),
+		TransactorPKID:   lib.NewPKID(ammPublicKeyBytes),
+		TargetUserPKID:   lib.NewPKID(profilePublicKeyBytes),
+		AppPKID:          lib.NewPKID(ammPublicKeyBytes),
+	}
+	associations, err := utxoView.GetUserAssociationsByAttributes(associationFilter)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateDaoCoinMarketFees: Problem fetching associations: %v", err))
+		return
+	}
+	if len(associations) == 1 {
+		association := associations[0]
+		if IsExtraDataValueTrue(association.ExtraData, lib.DisableTradingFeeUpdateKey) {
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"UpdateDaoCoinMarketFees: Trading fee updates are disabled for this market"))
+			return
+		}
+	} else if len(associations) != 0 {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"UpdateDaoCoinMarketFees: Expected at most one association but got %d", len(associations)))
+		return
+	}
+
 	// Compute the additional transaction fees as specified by the request body and the node-level fees.
 	additionalOutputs, err := fes.getTransactionFee(
-		lib.TxnTypeUpdateProfile, updaterPublicKeyBytes, requestData.TransactionFees)
+		lib.TxnTypeUpdateProfile, ammPublicKeyBytes, requestData.TransactionFees)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("AuthorizeDerivedKey: TransactionFees specified in Request body are invalid: %v", err))
 		return
 	}
 
-	// Try and create the UpdateProfile txn for the user.
-	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateUpdateProfileTxn(
-		updaterPublicKeyBytes,
-		profilePublicKeyBytes,
-		"", // Don't update username
-		"", // Don't update description
-		"", // Don't update profile pic
-		existingProfileEntry.CreatorCoinEntry.CreatorBasisPoints, // Don't update creator basis points
-		// StakeMultipleBasisPoints is a deprecated field that we don't use anywhere and will delete soon.
-		// I noticed we use a hardcoded value of 12500 in the frontend and when creating a post so I'm doing
-		// the same here for now.
-		1.25*100*100,                  // Don't update stake multiple basis points
-		existingProfileEntry.IsHidden, // Don't update hidden status
-		0,                             // Don't add additionalFees
-		additionalExtraData,           // The new ExtraData
-		requestData.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(),
-		additionalOutputs)
+	// Try and create the association txn for the UpdaterPublicKey.
+	txn, totalInput, changeAmount, fees, err := fes.blockchain.CreateCreateUserAssociationTxn(
+		ammPublicKeyBytes,
+		&lib.CreateUserAssociationMetadata{
+			TargetUserPublicKey: lib.NewPublicKey(profilePublicKeyBytes),
+			AppPublicKey:        lib.NewPublicKey(ammPublicKeyBytes),
+			AssociationType:     []byte(lib.TokenTradingFeesByPkidMapKey),
+			AssociationValue:    []byte(lib.TokenTradingFeesByPkidMapKey),
+		},
+		additionalExtraData,
+		requestData.MinFeeRateNanosPerKB,
+		fes.backendServer.GetMempool(),
+		additionalOutputs,
+	)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("UpdateDaoCoinMarketFees: Problem creating transaction: %v", err))
+		_AddInternalServerError(ww, fmt.Sprintf("CreateUserAssociation: problem creating user "+
+			"association txn: %v", err))
 		return
 	}
 
@@ -235,47 +291,86 @@ type GetDaoCoinMarketFeesRequest struct {
 
 type GetDaoCoinMarketFeesResponse struct {
 	FeeBasisPointsByPublicKey map[string]uint64 `safeForLogging:"true"`
+	TradingFeeUpdateDisabled  bool              `safeForLogging:"true"`
 }
 
 func GetTradingFeesForMarket(
 	utxoView *lib.UtxoView,
 	params *lib.DeSoParams,
+	ammMetadataPublicKey string,
 	profilePublicKey string,
 ) (
 	_feeMapByPubkey map[string]uint64,
+	_tradingFeeUpdateDisabled bool,
 	_err error,
 ) {
-
 	// Decode the public key
 	profilePublicKeyBytes, _, err := lib.Base58CheckDecode(profilePublicKey)
 	if err != nil || len(profilePublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
-		return nil, fmt.Errorf(
+		return nil, false, fmt.Errorf(
 			"GetTradingFeesForMarket: Problem decoding public key %s: %v",
 			profilePublicKey, err)
 	}
-
-	// Pull the existing profile. If one doesn't exist, then we error. The user should
-	// create a profile first before trying to update the fee params for their market.
-	existingProfileEntry := utxoView.GetProfileEntryForPublicKey(profilePublicKeyBytes)
-	if existingProfileEntry == nil || existingProfileEntry.IsDeleted() {
-		return nil, fmt.Errorf(
+	profilePkid := utxoView.GetPKIDForPublicKey(profilePublicKeyBytes)
+	if profilePkid == nil {
+		return nil, false, fmt.Errorf(
 			"GetTradingFeesForMarket: Profile for public key %v does not exist",
 			profilePublicKey)
 	}
 
+	ammMetadataPublicKeyBytes, _, err := lib.Base58CheckDecode(ammMetadataPublicKey)
+	if err != nil || len(ammMetadataPublicKeyBytes) != btcec.PubKeyBytesLenCompressed {
+		return nil, false, fmt.Errorf(
+			"GetTradingFeesForMarket: Problem decoding public key %s: %v",
+			ammMetadataPublicKey, err)
+	}
+	ammPkid := utxoView.GetPKIDForPublicKey(ammMetadataPublicKeyBytes)
+	if ammPkid == nil {
+		return nil, false, fmt.Errorf(
+			"GetTradingFeesForMarket: AMM metadata for public key %v does not exist",
+			ammMetadataPublicKey)
+	}
+
+	// Look up the association
+	filter := &lib.UserAssociationQuery{
+		AssociationType:  []byte(lib.TokenTradingFeesByPkidMapKey),
+		AssociationValue: []byte(lib.TokenTradingFeesByPkidMapKey),
+		TransactorPKID:   ammPkid.PKID,
+		TargetUserPKID:   profilePkid.PKID,
+		AppPKID:          ammPkid.PKID,
+	}
+	associations, err := utxoView.GetUserAssociationsByAttributes(filter)
+	if err != nil {
+		return nil, false, fmt.Errorf(
+			"GetTradingFeesForMarket: Problem fetching associations: %v", err)
+	}
+	if len(associations) == 0 {
+		// Returning a non-nil empty map makes error handling a little easier.
+		return make(map[string]uint64), false, nil
+	} else if len(associations) > 1 {
+		return nil, false, fmt.Errorf(
+			"GetTradingFeesForMarket: Expected at most one association but got %d", len(associations))
+	}
+	association := associations[0]
+
+	tradingFeeUpdateDisabled := false
+	if IsExtraDataValueTrue(association.ExtraData, lib.DisableTradingFeeUpdateKey) {
+		tradingFeeUpdateDisabled = true
+	}
+
 	// Decode the trading fees from the profile.
-	tradingFeesByPkidBytes, exists := existingProfileEntry.ExtraData[lib.TokenTradingFeesByPkidMapKey]
+	tradingFeesByPkidBytes, exists := association.ExtraData[lib.TokenTradingFeesByPkidMapKey]
 	tradingFeesMapPubkey := make(map[lib.PublicKey]uint64)
 	if exists {
 		tradingFeesMapByPkid, err := lib.DeserializePubKeyToUint64Map(tradingFeesByPkidBytes)
 		if err != nil {
-			return nil, fmt.Errorf(
+			return nil, false, fmt.Errorf(
 				"GetTradingFeesForMarket: Problem deserializing trading fees: %v", err)
 		}
 		for pkid, feeBasisPoints := range tradingFeesMapByPkid {
 			pkidBytes := pkid.ToBytes()
 			if len(pkidBytes) != btcec.PubKeyBytesLenCompressed {
-				return nil, fmt.Errorf(
+				return nil, false, fmt.Errorf(
 					"GetTradingFeesForMarket: Problem decoding public key %s: %v",
 					pkid, err)
 			}
@@ -290,10 +385,15 @@ func GetTradingFeesForMarket(
 		feeMap[pkBase58] = feeBasisPoints
 	}
 
-	return feeMap, nil
+	return feeMap, tradingFeeUpdateDisabled, nil
 }
 
 func (fes *APIServer) GetDaoCoinMarketFees(ww http.ResponseWriter, req *http.Request) {
+	if fes.Config.AmmMetadataPublicKey == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("GetDaoCoinMarketFees: AMM_METADATA_PUBLIC_KEY must be set "+
+			"in the node's config for fees to work"))
+		return
+	}
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := GetDaoCoinMarketFeesRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
@@ -307,9 +407,10 @@ func (fes *APIServer) GetDaoCoinMarketFees(ww http.ResponseWriter, req *http.Req
 		return
 	}
 
-	feeMapByPubkey, err := GetTradingFeesForMarket(
+	feeMapByPubkey, tradingFeeUpdateDisabled, err := GetTradingFeesForMarket(
 		utxoView,
 		fes.Params,
+		fes.Config.AmmMetadataPublicKey,
 		requestData.ProfilePublicKeyBase58Check)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDaoCoinMarketFees: Problem getting trading fees: %v", err))
@@ -319,6 +420,7 @@ func (fes *APIServer) GetDaoCoinMarketFees(ww http.ResponseWriter, req *http.Req
 	// Return all the data associated with the transaction in the response
 	res := GetDaoCoinMarketFeesResponse{
 		FeeBasisPointsByPublicKey: feeMapByPubkey,
+		TradingFeeUpdateDisabled:  tradingFeeUpdateDisabled,
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDaoCoinMarketFees: Problem encoding response as JSON: %v", err))
@@ -373,6 +475,11 @@ type DAOCoinLimitOrderWithFeeRequest struct {
 	Quantity             string       `safeForLogging:"true"`
 	QuantityCurrencyType CurrencyType `safeForLogging:"true"`
 
+	// If set to true, the order will not automatically whitelist the coin being traded.
+	// This should be rare, but it's useful if you want to trade a coin without moving
+	// it out of the spam folder for whatever reason.
+	SkipWhitelist bool `safeForLogging:"true"`
+
 	MinFeeRateNanosPerKB uint64           `safeForLogging:"true"`
 	TransactionFees      []TransactionFee `safeForLogging:"true"`
 
@@ -388,6 +495,8 @@ type DAOCoinLimitOrderWithFeeResponse struct {
 	TxnHashHex     string
 
 	InnerTransactionHexes []string
+
+	QuoteCurrencyPriceInUsd string `safeForLogging:"true"`
 
 	// The amount represents either the amount being spent (in the case of a buy) or
 	// the amount being sold (in the case of a sell). For a buy, the amount is in quote
@@ -501,11 +610,11 @@ type GetBaseCurrencyPriceResponse struct {
 	BestBidInUsd            float64 `safeForLogging:"true"`
 
 	// Useful for computing "cashout" values on the wallet page
-	ExecutionAmountInBaseCurrency string `safeForLogging:"true"`
-	ReceiveAmountInQuoteCurrency  string `safeForLogging:"true"`
-	ReceiveAmountInUsd            string `safeForLogging:"true"`
-	ExecutionPriceInQuoteCurrency string `safeForLogging:"true"`
-	ExecutionPriceInUsd           string `safeForLogging:"true"`
+	ExecutionAmountInBaseCurrency float64 `safeForLogging:"true"`
+	ReceiveAmountInQuoteCurrency  float64 `safeForLogging:"true"`
+	ReceiveAmountInUsd            float64 `safeForLogging:"true"`
+	ExecutionPriceInQuoteCurrency float64 `safeForLogging:"true"`
+	ExecutionPriceInUsd           float64 `safeForLogging:"true"`
 }
 
 func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *http.Request) {
@@ -654,16 +763,6 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 			})
 		}
 	}
-	// We can rule out a whole host of errors if we force the market to have
-	// at least one ask and one bid order in order for a price to be defined.
-	if len(simpleAskOrders) == 0 {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: No ask orders found"))
-		return
-	}
-	if len(simpleBidOrders) == 0 {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: No bid orders found"))
-		return
-	}
 
 	// Sort the bids by their price, highest first
 	sort.Slice(simpleBidOrders, func(ii, jj int) bool {
@@ -675,41 +774,50 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 	})
 
 	// We can easily compute the best bid and best ask price in quote currency now.
-	bestBidPriceInQuoteCurrency := simpleBidOrders[0].PriceInQuoteCurrency
-	bestAskPriceInQuoteCurrency := simpleAskOrders[0].PriceInQuoteCurrency
-	midPriceInQuoteCurrency := (bestBidPriceInQuoteCurrency + bestAskPriceInQuoteCurrency) / 2
-
-	// Iterate through the bids "filling" orders until we hit the base currency
-	// quantity we're looking for.
+	var bestBidPriceInQuoteCurrency float64
+	var bestAskPriceInQuoteCurrency float64
+	var midPriceInQuoteCurrency float64
 	baseCurrencyFilled := big.NewFloat(0.0)
-	baseCurrencyToFill := big.NewFloat(requestData.BaseCurrencyQuantityToSell)
 	quoteCurrencyReceived := big.NewFloat(0.0)
-	for _, bid := range simpleBidOrders {
-		// If the amount filled plus the amount we're about to fill is greater
-		// than the amount we're looking to fill, then we just partially fill
-		// the order.
-		if big.NewFloat(0.0).Add(
-			baseCurrencyFilled,
-			big.NewFloat(bid.AmountInBaseCurrency),
-		).Cmp(baseCurrencyToFill) > 0 {
-			baseCurrencyFromThisOrder := big.NewFloat(0).Sub(baseCurrencyToFill, baseCurrencyFilled)
-			addlQuoteCurrencyReceivedFromOrdered := big.NewFloat(0).Mul(baseCurrencyFromThisOrder, big.NewFloat(bid.PriceInQuoteCurrency))
-			quoteCurrencyReceived = big.NewFloat(0).Add(quoteCurrencyReceived, addlQuoteCurrencyReceivedFromOrdered)
-			// Since we've fully filled the order, we can simply set the base currency filled
-			// to the amount we're looking to fill from the request.
-			baseCurrencyFilled = baseCurrencyToFill
-			break
-		}
-		addlQuoteCurrencyReceivedFromOrder := big.NewFloat(0).Mul(big.NewFloat(bid.AmountInBaseCurrency), big.NewFloat(bid.PriceInQuoteCurrency))
-		quoteCurrencyReceived = big.NewFloat(0).Add(quoteCurrencyReceived, addlQuoteCurrencyReceivedFromOrder)
-		baseCurrencyFilled = big.NewFloat(0).Add(baseCurrencyFilled, big.NewFloat(bid.AmountInBaseCurrency))
-	}
-
-	// Now the amount to fill and the quote currency received should be ready to go
-	// so we can compute the price.
 	priceInQuoteCurrency := big.NewFloat(0.0)
-	if baseCurrencyFilled.Sign() > 0 {
-		priceInQuoteCurrency = big.NewFloat(0).Quo(quoteCurrencyReceived, baseCurrencyFilled)
+	if len(simpleAskOrders) != 0 {
+		bestAskPriceInQuoteCurrency = simpleAskOrders[0].PriceInQuoteCurrency
+	}
+	if len(simpleBidOrders) != 0 {
+		bestBidPriceInQuoteCurrency = simpleBidOrders[0].PriceInQuoteCurrency
+
+		// Iterate through the bids "filling" orders until we hit the base currency
+		// quantity we're looking for.
+		baseCurrencyToFill := big.NewFloat(requestData.BaseCurrencyQuantityToSell)
+		for _, bid := range simpleBidOrders {
+			// If the amount filled plus the amount we're about to fill is greater
+			// than the amount we're looking to fill, then we just partially fill
+			// the order.
+			if big.NewFloat(0.0).Add(
+				baseCurrencyFilled,
+				big.NewFloat(bid.AmountInBaseCurrency),
+			).Cmp(baseCurrencyToFill) > 0 {
+				baseCurrencyFromThisOrder := big.NewFloat(0).Sub(baseCurrencyToFill, baseCurrencyFilled)
+				addlQuoteCurrencyReceivedFromOrdered := big.NewFloat(0).Mul(baseCurrencyFromThisOrder, big.NewFloat(bid.PriceInQuoteCurrency))
+				quoteCurrencyReceived = big.NewFloat(0).Add(quoteCurrencyReceived, addlQuoteCurrencyReceivedFromOrdered)
+				// Since we've fully filled the order, we can simply set the base currency filled
+				// to the amount we're looking to fill from the request.
+				baseCurrencyFilled = baseCurrencyToFill
+				break
+			}
+			addlQuoteCurrencyReceivedFromOrder := big.NewFloat(0).Mul(big.NewFloat(bid.AmountInBaseCurrency), big.NewFloat(bid.PriceInQuoteCurrency))
+			quoteCurrencyReceived = big.NewFloat(0).Add(quoteCurrencyReceived, addlQuoteCurrencyReceivedFromOrder)
+			baseCurrencyFilled = big.NewFloat(0).Add(baseCurrencyFilled, big.NewFloat(bid.AmountInBaseCurrency))
+		}
+
+		// Now the amount to fill and the quote currency received should be ready to go
+		// so we can compute the price.
+		if baseCurrencyFilled.Sign() > 0 {
+			priceInQuoteCurrency = big.NewFloat(0).Quo(quoteCurrencyReceived, baseCurrencyFilled)
+		}
+	}
+	if len(simpleAskOrders) != 0 && len(simpleBidOrders) != 0 {
+		midPriceInQuoteCurrency = (bestBidPriceInQuoteCurrency + bestAskPriceInQuoteCurrency) / 2
 	}
 
 	// Get the price of the quote currency in usd. Use the mid price
@@ -725,6 +833,15 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 		return
 	}
 
+	// If any of these are too big for the Float64() it's better to best-effort
+	// them rather than error out.
+	baseCurrencyFilledFloat, _ := baseCurrencyFilled.Float64()
+	quoteCurrencyReceivedFloat, _ := quoteCurrencyReceived.Float64()
+	receiveAmountInUsdFloat, _ := big.NewFloat(0).Mul(
+		quoteCurrencyReceived, big.NewFloat(quoteCurrencyPriceInUsd)).Float64()
+	priceInQuoteCurrencyFloat, _ := priceInQuoteCurrency.Float64()
+	executionPriceInUsdFloat, _ := big.NewFloat(0).Mul(
+		priceInQuoteCurrency, big.NewFloat(quoteCurrencyPriceInUsd)).Float64()
 	res := &GetBaseCurrencyPriceResponse{
 		QuoteCurrencyPriceInUsd: quoteCurrencyPriceInUsd,
 
@@ -737,11 +854,11 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 		BestBidInUsd:            bestBidPriceInQuoteCurrency * quoteCurrencyPriceInUsd,
 
 		// Useful for computing "cashout" values on the wallet page
-		ExecutionAmountInBaseCurrency: baseCurrencyFilled.String(),
-		ReceiveAmountInQuoteCurrency:  quoteCurrencyReceived.String(),
-		ReceiveAmountInUsd:            big.NewFloat(0).Mul(quoteCurrencyReceived, big.NewFloat(quoteCurrencyPriceInUsd)).String(),
-		ExecutionPriceInQuoteCurrency: priceInQuoteCurrency.String(),
-		ExecutionPriceInUsd:           big.NewFloat(0).Mul(priceInQuoteCurrency, big.NewFloat(quoteCurrencyPriceInUsd)).String(),
+		ExecutionAmountInBaseCurrency: baseCurrencyFilledFloat,
+		ReceiveAmountInQuoteCurrency:  quoteCurrencyReceivedFloat,
+		ReceiveAmountInUsd:            receiveAmountInUsdFloat,
+		ExecutionPriceInQuoteCurrency: priceInQuoteCurrencyFloat,
+		ExecutionPriceInUsd:           executionPriceInUsdFloat,
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetQuoteCurrencyPriceInUsd: Problem encoding response: %v", err))
@@ -934,6 +1051,86 @@ func InvertPriceStr(priceStr string) (string, error) {
 	return lib.FormatScaledUint256AsDecimalString(invertedScaledPrice, lib.OneE38.ToBig()), nil
 }
 
+func (fes *APIServer) MaybeCreateTokenWhitelistAssociation(
+	transactorPubkey string,
+	coinPubkey string,
+	minFeeRateNanosPerKB uint64,
+	additionalOutputs []*lib.DeSoOutput,
+	optionalUtxoView *lib.UtxoView) (
+	*lib.MsgDeSoTxn,
+	error,
+) {
+	utxoView := optionalUtxoView
+	if utxoView == nil {
+		var err error
+		utxoView, err = fes.backendServer.GetMempool().GetAugmentedUniversalView()
+		if err != nil {
+			return nil, fmt.Errorf("MaybeCreateTokenWhitelistAssociation: Error fetching mempool view: %v", err)
+		}
+	}
+
+	transactorPubkeyBytes, _, err := lib.Base58CheckDecode(transactorPubkey)
+	if err != nil {
+		return nil, fmt.Errorf("MaybeCreateTokenWhitelistAssociation: Problem decoding "+
+			"transactor pubkey %s: %v", transactorPubkey, err)
+	}
+	transactorPkid := utxoView.GetPKIDForPublicKey(transactorPubkeyBytes)
+
+	coinPubkeyBytes, _, err := lib.Base58CheckDecode(coinPubkey)
+	if err != nil {
+		return nil, fmt.Errorf("MaybeCreateTokenWhitelistAssociation: Problem decoding "+
+			"coin pubkey %s: %v", coinPubkey, err)
+	}
+	coinPkid := utxoView.GetPKIDForPublicKey(coinPubkeyBytes)
+
+	ammPubkeyBytes, _, err := lib.Base58CheckDecode(fes.Config.AmmMetadataPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("MaybeCreateTokenWhitelistAssociation: Problem decoding "+
+			"amm metadata pubkey %s: %v", fes.Config.AmmMetadataPublicKey, err)
+	}
+	ammPkid := utxoView.GetPKIDForPublicKey(ammPubkeyBytes)
+
+	associationQuery := &lib.UserAssociationQuery{
+		TransactorPKID:   transactorPkid.PKID,
+		TargetUserPKID:   coinPkid.PKID,
+		AppPKID:          ammPkid.PKID,
+		AssociationType:  []byte(lib.DeSoTokenWhitelistAssociationKey),
+		AssociationValue: []byte(lib.DeSoTokenWhitelistAssociationKey),
+		Limit:            1,
+	}
+
+	associationEntries, err := utxoView.GetUserAssociationsByAttributes(associationQuery)
+	if err != nil {
+		return nil, fmt.Errorf("MaybeCreateTokenWhitelistAssociation: Error fetching user associations: %v", err)
+	}
+
+	// If we found an association, there's no need to create one. In this case just return
+	// a nil transaction.
+	if len(associationEntries) > 0 {
+		return nil, nil
+	}
+
+	// Create transaction.
+	txn, _, _, _, err := fes.blockchain.CreateCreateUserAssociationTxn(
+		transactorPubkeyBytes,
+		&lib.CreateUserAssociationMetadata{
+			TargetUserPublicKey: lib.NewPublicKey(coinPubkeyBytes),
+			AppPublicKey:        lib.NewPublicKey(ammPubkeyBytes),
+			AssociationType:     []byte(lib.DeSoTokenWhitelistAssociationKey),
+			AssociationValue:    []byte(lib.DeSoTokenWhitelistAssociationKey),
+		},
+		nil,
+		minFeeRateNanosPerKB,
+		fes.backendServer.GetMempool(),
+		additionalOutputs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("MaybeCreateTokenWhitelistAssociation: Problem creating transaction: %v", err)
+	}
+
+	return txn, nil
+}
+
 func (fes *APIServer) SendCoins(
 	coinPublicKey string,
 	transactorPubkeyBytes []byte,
@@ -987,6 +1184,7 @@ func (fes *APIServer) HandleMarketOrder(
 	req *DAOCoinLimitOrderWithFeeRequest,
 	isBuyOrder bool,
 	feeMapByPubkey map[string]uint64,
+	skipWhitelist bool,
 ) (
 	*DAOCoinLimitOrderWithFeeResponse,
 	error,
@@ -1214,6 +1412,20 @@ func (fes *APIServer) HandleMarketOrder(
 		return nil, fmt.Errorf("HandleMarketOrder: Problem decoding public key %s: %v",
 			req.TransactorPublicKeyBase58Check, err)
 	}
+	var tokenWhitelistTxn *lib.MsgDeSoTxn
+	// Create a transaction to whitelist the token in the user's wallet if it's not already,
+	// and if that's desired.
+	if !skipWhitelist {
+		tokenWhitelistTxn, err = fes.MaybeCreateTokenWhitelistAssociation(
+			req.TransactorPublicKeyBase58Check,
+			req.BaseCurrencyPublicKeyBase58Check,
+			req.MinFeeRateNanosPerKB,
+			nil,
+			utxoView)
+		if err != nil {
+			return nil, fmt.Errorf("HandleMarketOrder: Problem creating token whitelist txn: %v", err)
+		}
+	}
 	quoteCurrencyPubkeyBytes, _, err := lib.Base58CheckDecode(req.QuoteCurrencyPublicKeyBase58Check)
 	if err != nil || len(quoteCurrencyPubkeyBytes) != btcec.PubKeyBytesLenCompressed {
 		return nil, fmt.Errorf("HandleMarketOrder: Problem decoding public key %s: %v",
@@ -1306,6 +1518,29 @@ func (fes *APIServer) HandleMarketOrder(
 				}
 				bigLimitAmount := big.NewInt(0).Mul(totalQuantityBaseCurrencyBaseUnits.ToBig(), scaledPrice.ToBig())
 				bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, lib.OneE38.ToBig())
+				// The reason why this extra step is needed is extremely subtle. It's required because
+				// scaledPrice represents (whole coin / whole coin) rather than (base unit / base unit).
+				// When the coins have the same number of base units per whole coin, this conversion isn't
+				// needed because we have:
+				// - (whole coin / whole coin) = ((1e18 base units) / (1e18 base units)) = (base unit / base unit)
+				//
+				// However, in the case where DESO is the quote currency, the (whole coin / whole coin) exchange
+				// rate is NOT the same as the (base unit / base unit) rate because DESO has a different number
+				// of base units per whole coin. So we have to first compute:
+				// - (deso nanos / daocoin base units)
+				// = (1e9 * deso whole coin) / (1e18 * daocoin whole coin))
+				// = (1 / 1e9) * (deso whole coin / daocoin whole coin)
+				// = (1 / 1e9) * scaledPriceQuotePerBase
+				//
+				// And so this translates to a modification to the equation above as follows:
+				// - quantityBaseUnits * (deso nanos / daocoin base units)
+				// = quantityBaseUnits * (1 / 1e9) * scaledPriceQuotePerBase
+				// = (1 / 1e9) * quantityBaseUnits * scaledPriceQuotePerBase
+				//
+				// Again ONLY when deso is the quote currency do we need to do this extra step.
+				if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
+					bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
+				}
 				uint256LimitAmount := uint256.NewInt()
 				if overflow := uint256LimitAmount.SetFromBig(bigLimitAmount); overflow {
 					return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit amount")
@@ -1389,6 +1624,9 @@ func (fes *APIServer) HandleMarketOrder(
 		}
 
 		allTxns := append(transferTxns, newOrderRes.Transaction)
+		if tokenWhitelistTxn != nil && !skipWhitelist {
+			allTxns = append(allTxns, tokenWhitelistTxn)
+		}
 
 		// Wrap all of the resulting txns into an atomic
 		// TODO: We can embed helpful extradata in here that will allow us to index these txns
@@ -1448,8 +1686,15 @@ func (fes *APIServer) HandleMarketOrder(
 				quoteCurrencyExecutedPlusFeesBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
 			priceQuotePerBase = big.NewInt(0).Div(
 				priceQuotePerBase, executionReceiveAmountBaseUnits.ToBig())
-			executionPriceInQuoteCurrency = lib.FormatScaledUint256AsDecimalString(
-				priceQuotePerBase, lib.BaseUnitsPerCoin.ToBig())
+			uint256PriceQuotePerBase := uint256.NewInt()
+			if overflow := uint256PriceQuotePerBase.SetFromBig(priceQuotePerBase); overflow {
+				return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating price: %v", err)
+			}
+			executionPriceInQuoteCurrency, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
+				req.QuoteCurrencyPublicKeyBase58Check, uint256PriceQuotePerBase)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating price: %v", err)
+			}
 		}
 
 		// Compute the percentage of the amount spent that went to fees
@@ -1479,6 +1724,8 @@ func (fes *APIServer) HandleMarketOrder(
 			TransactionHex: atomicTxnHex,
 			TxnHashHex:     txn.Hash().String(),
 
+			QuoteCurrencyPriceInUsd: fmt.Sprintf("%0.9f", quoteCurrencyUsdValue),
+
 			// For a market order, the amount will generally match the amount requested. However, for
 			// a limit order, the amount may be less than the amount requested if the order was only
 			// partially filled.
@@ -1505,7 +1752,7 @@ func (fes *APIServer) HandleMarketOrder(
 			if req.QuantityCurrencyType == CurrencyTypeBase {
 				// In this case the quantityStr needs to be converted from base to quote currency:
 				// - scaledPrice := priceQuotePerBase * 1e38
-				// - quantityBaseUnits * scaledPrice / 1e38
+				// - quantityBaseUnits * scaledPriceQuotePerBase / 1e38
 				//
 				// This multiplies the scaled price by 1e38 then we have to reverse it later
 				scaledPrice, err := lib.CalculateScaledExchangeRateFromString(priceStrQuote)
@@ -1519,10 +1766,34 @@ func (fes *APIServer) HandleMarketOrder(
 				}
 				bigLimitAmount := big.NewInt(0).Mul(quantityBaseUnits.ToBig(), scaledPrice.ToBig())
 				bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, lib.OneE38.ToBig())
+				// The reason why this extra step is needed is extremely subtle. It's required because
+				// scaledPrice represents (whole coin / whole coin) rather than (base unit / base unit).
+				// When the coins have the same number of base units per whole coin, this conversion isn't
+				// needed because we have:
+				// - (whole coin / whole coin) = ((1e18 base units) / (1e18 base units)) = (base unit / base unit)
+				//
+				// However, in the case where DESO is one of the pairs, the (whole coin / whole coin) exchange
+				// rate is NOT the same as the (base unit / base unit) rate because DESO has a different number
+				// of base units per whole coin. So we have:
+				// - (deso nanos / daocoin base units)
+				// = (1e9 deso whole coin) / (1e18 daocoin whole coin)
+				// = (1/1e9) * (deso whole coin / daocoin whole coin)
+				// = (1/1e9) * scaledPrice
+				//
+				// And so we need to modify the previous formula to be:
+				// - quantityBaseUnits * (deso nanos / daocoin base units)
+				// = quantityBaseUnits * (1 / 1e9) * scaledPrice
+				// = 1/1e9 * quantityBaseUnits * scaledPrice
+				//
+				// Again ONLY when deso is the quote currency do we need to do this extra step.
+				if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
+					bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
+				}
 				uint256LimitAmount := uint256.NewInt()
 				if overflow := uint256LimitAmount.SetFromBig(bigLimitAmount); overflow {
 					return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit amount")
 				}
+
 				limitAmount, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
 					req.QuoteCurrencyPublicKeyBase58Check, uint256LimitAmount)
 				if err != nil {
@@ -1531,8 +1802,8 @@ func (fes *APIServer) HandleMarketOrder(
 			}
 
 			// The limit receive amount is computed as follows:
-			// - limitAmount / price
-			// - = limitAmount * 1e38 / (price * 1e38)
+			// - limitAmountQuote / priceQuotePerBase
+			// - = limitAmountQuote * 1e38 / (priceQuotePerBase * 1e38)
 			limitReceiveAmountBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
 				req.QuoteCurrencyPublicKeyBase58Check, limitAmount)
 			if err != nil {
@@ -1547,6 +1818,18 @@ func (fes *APIServer) HandleMarketOrder(
 			limitReceiveAmount := ""
 			if !scaledPrice.IsZero() {
 				bigLimitReceiveAmount = big.NewInt(0).Div(bigLimitReceiveAmount, scaledPrice.ToBig())
+				// See above comment on why we need to adjust the scaledPrice when deso is the quote currency
+				// - (deso nanos / daocoin base units)
+				// = (1e9 deso whole coin) / (1e18 daocoin whole coin)
+				// = (1/1e9) * (deso whole coin / daocoin whole coin)
+				// = (1/1e9) * scaledPrice
+				//
+				// - limitAmountQuote / ((deso nanos / daocoin base units))
+				// = limitAmountQuote / ((1/1e9) * scaledPrice)
+				// = (1e9) * limitAmountQuote / scaledPrice
+				if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
+					bigLimitReceiveAmount = big.NewInt(0).Mul(bigLimitReceiveAmount, big.NewInt(int64(lib.NanosPerUnit)))
+				}
 				uint256LimitReceiveAmount := uint256.NewInt()
 				if overflow := uint256LimitReceiveAmount.SetFromBig(bigLimitReceiveAmount); overflow {
 					return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit receive amount")
@@ -1609,15 +1892,13 @@ func (fes *APIServer) HandleMarketOrder(
 			//
 			// TODO: Add ExtraData to the transaction to make it easier to report it as an
 			// earning to the user who's receiving the fee.
-			txn, _, _, _, err := fes.blockchain.CreateDAOCoinTransferTxn(
+			txn, err := fes.SendCoins(
+				req.QuoteCurrencyPublicKeyBase58Check,
 				transactorPubkeyBytes,
-				&lib.DAOCoinTransferMetadata{
-					ProfilePublicKey:       quoteCurrencyPubkeyBytes,
-					ReceiverPublicKey:      receiverPubkeyBytes,
-					DAOCoinToTransferNanos: *feeBaseUnits,
-				},
-				// Standard transaction fields
-				req.MinFeeRateNanosPerKB, fes.backendServer.GetMempool(), nil)
+				receiverPubkeyBytes,
+				feeBaseUnits,
+				req.MinFeeRateNanosPerKB,
+				nil)
 			if err != nil {
 				return nil, fmt.Errorf("HandleMarketOrder: Problem creating transaction: %v", err)
 			}
@@ -1633,6 +1914,10 @@ func (fes *APIServer) HandleMarketOrder(
 
 		// Wrap all of the resulting txns into an atomic
 		allTxns := append(transferTxns, orderTxn)
+		if tokenWhitelistTxn != nil && !skipWhitelist {
+			allTxns = append(allTxns, tokenWhitelistTxn)
+		}
+
 		extraData := make(map[string][]byte)
 		atomicTxn, totalDesoFeeNanos, err := fes.blockchain.CreateAtomicTxnsWrapper(
 			allTxns, extraData, fes.backendServer.GetMempool(), req.MinFeeRateNanosPerKB)
@@ -1679,7 +1964,15 @@ func (fes *APIServer) HandleMarketOrder(
 				quoteAmountReceivedBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
 			priceQuotePerBase = big.NewInt(0).Div(
 				priceQuotePerBase, baseAmountSpentBaseUnits.ToBig())
-			finalPriceStr = lib.FormatScaledUint256AsDecimalString(priceQuotePerBase, lib.BaseUnitsPerCoin.ToBig())
+			uint256PriceQuotePerBase := uint256.NewInt()
+			if overflow := uint256PriceQuotePerBase.SetFromBig(priceQuotePerBase); overflow {
+				return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating price: %v", err)
+			}
+			finalPriceStr, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
+				req.QuoteCurrencyPublicKeyBase58Check, uint256PriceQuotePerBase)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating price: %v", err)
+			}
 		}
 
 		// Compute the percentage of the amount spent that went to fees
@@ -1711,6 +2004,8 @@ func (fes *APIServer) HandleMarketOrder(
 			TxnHashHex:     atomicTxn.Hash().String(),
 			Transaction:    atomicTxn,
 
+			QuoteCurrencyPriceInUsd: fmt.Sprintf("%0.9f", quoteCurrencyUsdValue),
+
 			ExecutionAmount:                    baseAmountSpentStr,
 			ExecutionAmountCurrencyType:        CurrencyTypeBase,
 			ExecutionAmountUsd:                 "", // dont convert base currency to usd
@@ -1735,9 +2030,10 @@ func (fes *APIServer) HandleMarketOrder(
 			limitAmount := quantityStr
 			if req.QuantityCurrencyType == CurrencyTypeQuote ||
 				req.QuantityCurrencyType == CurrencyTypeUsd {
-				// In this case we need to convert the quantity to base units:
-				// - quoteAmount / price
-				// - = quoteAmount * 1e38 / (price * 1e38)
+				// Price is in (base coin amount / quote coin amount), and in this case we need to
+				// convert base units of the quote currency to base units of the base currency:
+				// - quoteAmount / priceQuotePerBase
+				// = quoteAmountBaseUnits / (priceQuotePerBase * 1e38) * 1e38
 				quantityBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
 					req.QuoteCurrencyPublicKeyBase58Check, quantityStr)
 				if err != nil {
@@ -1752,6 +2048,26 @@ func (fes *APIServer) HandleMarketOrder(
 				if !scaledPrice.IsZero() {
 					bigLimitAmount := big.NewInt(0).Mul(quantityBaseUnits.ToBig(), lib.OneE38.ToBig())
 					bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, scaledPrice.ToBig())
+					// The reason why this extra step is needed is extremely subtle. It's required because
+					// scaledPrice represents (whole coin / whole coin) rather than (base unit / base unit).
+					// When the coins have the same number of base units per whole coin, this conversion isn't
+					// needed because we have:
+					// - (whole coin / whole coin) = ((1e18 base units) / (1e18 base units)) = (base unit / base unit)
+					//
+					// However, in the case where DESO is one of the pairs, the (whole coin / whole coin) exchange
+					// rate is NOT the same as the (base unit / base unit) rate because DESO has a different number
+					// of base units per whole coin. So we have:
+					// - (deso nanos) / (daocoin base units)
+					// = (1e9 deso whole coin) / (1e18 daocoin whole coin)
+					// = (1/1e9) * (deso whole coin / daocoin whole coin)
+					// = (1/1e9) * scaledPriceQuotePerBase
+					//
+					// And so we need to modify the previous formula to be:
+					// - quoteAmount / ((1/1e9) * scaledPriceQuotePerBase)
+					// - 1e9 * quoteAmount / scaledPriceBasePerQuote
+					if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
+						bigLimitAmount = big.NewInt(0).Mul(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
+					}
 					uint256LimitAmount := uint256.NewInt()
 					if overflow := uint256LimitAmount.SetFromBig(bigLimitAmount); overflow {
 						return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit amount")
@@ -1765,8 +2081,8 @@ func (fes *APIServer) HandleMarketOrder(
 			}
 
 			// The limit receive amount is computed as follows:
-			// - limitAmount * price
-			// - = limitAmount * (price * 1e38) / 1e38
+			// - limitAmountBaseUnits * priceQuotePerBase
+			// - = limitAmountBaseUnits * (priceQuotePerBase * 1e38) / 1e38
 			limitReceiveAmountBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
 				req.BaseCurrencyPublicKeyBase58Check, limitAmount)
 			if err != nil {
@@ -1779,6 +2095,27 @@ func (fes *APIServer) HandleMarketOrder(
 			}
 			bigLimitReceiveAmount := big.NewInt(0).Mul(limitReceiveAmountBaseUnits.ToBig(), scaledPrice.ToBig())
 			bigLimitReceiveAmount = big.NewInt(0).Div(bigLimitReceiveAmount, lib.OneE38.ToBig())
+			// The reason why this extra step is needed is extremely subtle. It's required because
+			// scaledPrice represents (whole coin / whole coin) rather than (base unit / base unit).
+			// When the coins have the same number of base units per whole coin, this conversion isn't
+			// needed because we have:
+			// - (whole coin / whole coin) = ((1e18 base units) / (1e18 base units)) = (base unit / base unit)
+			//
+			// However, in the case where DESO is one of the pairs, the (whole coin / whole coin) exchange
+			// rate is NOT the same as the (base unit / base unit) rate because DESO has a different number
+			// of base units per whole coin. So we have:
+			// - (deso nanos) / (daocoin base units)
+			// = (1e9 deso whole coin) / (1e18 daocoin whole coin)
+			// = (1/1e9) * (deso whole coin / daocoin whole coin)
+			// = (1/1e9) * scaledPriceQuotePerBase
+			//
+			// And so we need to modify the previous formula to be:
+			// - limitAmountBaseUnits * (deso nanos / daocoin base units)
+			// = limitAmountBaseUnits * (1 / 1e9) * scaledPriceQuotePerBase
+			// = 1/1e9 * limitAmountBaseUnits * scaledPriceQuotePerBase
+			if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
+				bigLimitReceiveAmount = big.NewInt(0).Div(bigLimitReceiveAmount, big.NewInt(int64(lib.NanosPerUnit)))
+			}
 			uint256LimitReceiveAmount := uint256.NewInt()
 			if overflow := uint256LimitReceiveAmount.SetFromBig(bigLimitReceiveAmount); overflow {
 				return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit receive amount")
@@ -1811,6 +2148,12 @@ func (fes *APIServer) HandleMarketOrder(
 }
 
 func (fes *APIServer) CreateDAOCoinLimitOrderWithFee(ww http.ResponseWriter, req *http.Request) {
+	if fes.Config.AmmMetadataPublicKey == "" {
+		_AddBadRequestError(ww, fmt.Sprintf("UpdateDaoCoinMarketFees: AMM_METADATA_PUBLIC_KEY must be set "+
+			"in the node's config for fees to work"))
+		return
+	}
+
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := DAOCoinLimitOrderWithFeeRequest{}
 
@@ -1877,9 +2220,10 @@ func (fes *APIServer) CreateDAOCoinLimitOrderWithFee(ww http.ResponseWriter, req
 
 	// Get the trading fees for the market. This is the trading fee split for each user
 	// Only the base currency can have fees on it. The quote currency cannot.
-	feeMapByPubkey, err := GetTradingFeesForMarket(
+	feeMapByPubkey, _, err := GetTradingFeesForMarket(
 		utxoView,
 		fes.Params,
+		fes.Config.AmmMetadataPublicKey,
 		requestData.BaseCurrencyPublicKeyBase58Check)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetDaoCoinMarketFees: Problem getting trading fees: %v", err))
@@ -1898,7 +2242,8 @@ func (fes *APIServer) CreateDAOCoinLimitOrderWithFee(ww http.ResponseWriter, req
 	}
 
 	var res *DAOCoinLimitOrderWithFeeResponse
-	res, err = fes.HandleMarketOrder(isMarketOrder, &requestData, isBuyOrder, feeMapByPubkey)
+	res, err = fes.HandleMarketOrder(
+		isMarketOrder, &requestData, isBuyOrder, feeMapByPubkey, requestData.SkipWhitelist)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateDAOCoinLimitOrderWithFee: %v", err))
 		return

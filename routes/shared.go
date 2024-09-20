@@ -212,6 +212,15 @@ type User struct {
 	MustCompleteTutorial bool
 }
 
+// Create a new type of BalanceEntryResponse so we don't break any existing
+// code that relies on the old version.
+type ExtendedBalanceEntryResponse struct {
+	UnlockedBalanceEntry *BalanceEntryResponse
+
+	LockedBalanceEntrys    []*LockedBalanceEntryResponse
+	LockedBalanceBaseUnits *uint256.Int
+}
+
 type BalanceEntryResponse struct {
 	// The public keys are provided for the frontend
 	HODLerPublicKeyBase58Check string

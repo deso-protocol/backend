@@ -410,7 +410,8 @@ func (fes *APIServer) GetHodlingsForPublicKey(
 func (fes *APIServer) GetHodlYouMap(pkid *lib.PKIDEntry, fetchProfiles bool, isDAOCoin bool, utxoView *lib.UtxoView) (
 	_youHodlMap map[string]*BalanceEntryResponse, _err error) {
 	// Get all the hodlings for this user from the db
-	entriesHodlingYou, profileHodlingYou, err := utxoView.GetHolders(pkid.PKID, fetchProfiles, isDAOCoin)
+	entriesHodlingYou, profileHodlingYou, _, _, err := utxoView.GetHolders(
+		pkid.PKID, fetchProfiles, false, isDAOCoin)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"GetHodlingsForPublicKey: Error looking up balance entries in db: %v", err)
@@ -1601,7 +1602,8 @@ func (fes *APIServer) GetHodlersCountForPublicKeys(ww http.ResponseWriter, req *
 		}
 		// Get PKID and then get holders for PKID
 		pkid := utxoView.GetPKIDForPublicKey(pkBytes)
-		balanceEntries, _, err := utxoView.GetHolders(pkid.PKID, false, requestData.IsDAOCoin)
+		balanceEntries, _, _, _, err := utxoView.GetHolders(
+			pkid.PKID, false, false, requestData.IsDAOCoin)
 		if err != nil {
 			_AddInternalServerError(
 				ww,
@@ -3774,4 +3776,137 @@ func (fes *APIServer) GetProfileEntryResponseForPublicKeyBytes(publicKeyBytes []
 		profileEntryResponse = fes._profileEntryToResponse(profileEntry, utxoView)
 	}
 	return profileEntryResponse
+}
+
+type GetHoldersForPublicKeyWithLockedBalancesRequest struct {
+	// Either PublicKeyBase58Check or Username can be set by the client to specify
+	// which user we're obtaining posts for
+	// If both are specified, PublicKeyBase58Check will supercede
+	PublicKeyBase58Check string `safeForLogging:"true"`
+	Username             string `safeForLogging:"true"`
+}
+
+type GetHoldersForPublicKeyWithLockedBalancesResponse struct {
+	Holders map[string]*ExtendedBalanceEntryResponse
+}
+
+func (fes *APIServer) GetHoldersForPublicKeyWithLockedBalances(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetHoldersForPublicKeyWithLockedBalancesRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetHoldersForPublicKeyWithLockedBalances: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Get a view
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetHoldersForPublicKeyWithLockedBalances: Error getting utxoView: %v", err))
+		return
+	}
+
+	// Decode the public key for which we are fetching hodlers / hodlings.  If public key is not provided, use username
+	var creatorPublicKeyBytes []byte
+	if requestData.PublicKeyBase58Check != "" {
+		creatorPublicKeyBytes, _, err = lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetHoldersForPublicKeyWithLockedBalances: Problem decoding user public key: %v", err))
+			return
+		}
+	} else {
+		username := requestData.Username
+		profileEntry := utxoView.GetProfileEntryForUsername([]byte(username))
+
+		// Return an error if we failed to find a profile entry
+		if profileEntry == nil {
+			_AddNotFoundError(ww, fmt.Sprintf("GetHoldersForPublicKeyWithLockedBalances: could not find profile for username: %v", username))
+			return
+		}
+		creatorPublicKeyBytes = profileEntry.PublicKey
+	}
+
+	unlockedBalanceEntrys, _, lockedBalanceEntryMap, _, err := utxoView.GetHolders(
+		utxoView.GetPKIDForPublicKey(creatorPublicKeyBytes).PKID,
+		false, true, true)
+
+	holdersMap := make(map[string]*ExtendedBalanceEntryResponse)
+	for _, unlockedEntry := range unlockedBalanceEntrys {
+		holderPublicKeyBytes := utxoView.GetPublicKeyForPKID(unlockedEntry.HODLerPKID)
+		holderPublicKeyStr := lib.PkToString(holderPublicKeyBytes, fes.Params)
+		unlockedBalanceEntryResponse := fes._balanceEntryToResponse(
+			unlockedEntry, 0, nil, utxoView)
+		prevBalance := holdersMap[holderPublicKeyStr]
+		if prevBalance == nil {
+			prevBalance = &ExtendedBalanceEntryResponse{
+				UnlockedBalanceEntry: unlockedBalanceEntryResponse,
+
+				LockedBalanceEntrys:    []*LockedBalanceEntryResponse{},
+				LockedBalanceBaseUnits: uint256.NewInt(),
+			}
+		} else {
+			// Error. We shouldn't have any duplicates in this list ever
+			_AddBadRequestError(ww, fmt.Sprintf(
+				"GetHoldersForPublicKeyWithLockedBalances: Duplicate "+
+					"unlocked balance entry for public key: %v", holderPublicKeyStr))
+			return
+		}
+		holdersMap[holderPublicKeyStr] = prevBalance
+	}
+
+	for pkidIter, lockedBalanceEntrys := range lockedBalanceEntryMap {
+		pkid := pkidIter.NewPKID()
+		publicKeyBytes := utxoView.GetPublicKeyForPKID(pkid)
+		publicKeyStr := lib.PkToString(publicKeyBytes, fes.Params)
+		prevBalance := holdersMap[publicKeyStr]
+
+		lockedBalResponses := []*LockedBalanceEntryResponse{}
+		totalBalanceBaseUnits := uint256.NewInt()
+		for _, lockedBalanceEntry := range lockedBalanceEntrys {
+			lockedBalResponses = append(lockedBalResponses, fes._lockedBalanceEntryToResponse(
+				lockedBalanceEntry, utxoView, fes.Params))
+			totalBalanceBaseUnits = uint256.NewInt().Add(
+				totalBalanceBaseUnits, &lockedBalanceEntry.BalanceBaseUnits)
+		}
+
+		if prevBalance == nil {
+			// If there's no unlocked balance for this key, we need to create the
+			// entry from scratch.
+			unlockedBalanceEntryResponse := fes._balanceEntryToResponse(
+				&lib.BalanceEntry{
+					HODLerPKID:   pkid,
+					CreatorPKID:  utxoView.GetPKIDForPublicKey(creatorPublicKeyBytes).PKID,
+					BalanceNanos: *uint256.NewInt(),
+					HasPurchased: false,
+				}, 0, nil, utxoView)
+
+			prevBalance = &ExtendedBalanceEntryResponse{
+				UnlockedBalanceEntry:   unlockedBalanceEntryResponse,
+				LockedBalanceEntrys:    lockedBalResponses,
+				LockedBalanceBaseUnits: totalBalanceBaseUnits,
+			}
+		} else {
+			// If this pkid already had an unlocked balance, we need to augment
+			// the existing entry rather than creating a new one.
+			if len(prevBalance.LockedBalanceEntrys) > 0 {
+				_AddBadRequestError(ww, fmt.Sprintf(
+					"GetHoldersForPublicKeyWithLockedBalances: Duplicate "+
+						"locked balance entry for public key: %v", publicKeyStr))
+				return
+			}
+			prevBalance.LockedBalanceEntrys = lockedBalResponses
+			prevBalance.LockedBalanceBaseUnits = totalBalanceBaseUnits
+		}
+
+		holdersMap[publicKeyStr] = prevBalance
+	}
+
+	res := &GetHoldersForPublicKeyWithLockedBalancesResponse{
+		Holders: holdersMap,
+	}
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetHoldersForPublicKeyWithLockedBalances: Problem encoding response as JSON: %v", err))
+		return
+	}
 }
