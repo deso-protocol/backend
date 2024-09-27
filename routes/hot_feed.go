@@ -1074,6 +1074,10 @@ func (fes *APIServer) HandleHotFeedPageRequest(
 		}
 
 		postEntry := utxoView.GetPostEntryForPostHash(hotFeedEntry.PostHash)
+		// Skip posts that are comments.
+		if len(postEntry.ParentStakeID) != 0 {
+			continue
+		}
 		postEntryResponse, err := fes._postEntryToResponse(
 			postEntry, true, fes.Params, utxoView, readerPublicKeyBytes, 1)
 		if err != nil {
