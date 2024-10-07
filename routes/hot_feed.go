@@ -403,15 +403,11 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 
 	// This offset allows us to see what the hot feed would look like in the past,
 	// which is useful for testing purposes.
-	blockOffsetForTesting := 0
+	// TODO: this is a little more annoying to support without the full history of best chain.
+	// we can revisit implementing later if needed. Just takes a few more minutes.
+	// blockOffsetForTesting := 0
 
 	lookbackWindowBlocks := LookbackWindowBlocks
-	// Check if the most recent blocks that we'll be considering in hot feed computation have been processed.
-	for _, blockNode := range fes.blockchain.BestChain() {
-		if blockNode.Height < blockTip.Height-uint32(lookbackWindowBlocks+blockOffsetForTesting) {
-			continue
-		}
-	}
 
 	// Log how long this routine takes, since it could be heavy.
 	glog.V(2).Info("UpdateHotFeedOrderedList: Starting new update cycle.")
@@ -425,10 +421,11 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 	}
 
 	// Grab the last 24 hours worth of blocks (288 blocks @ 5min/block).
-	blockTipIndex := len(fes.blockchain.BestChain()) - 1 - blockOffsetForTesting
-	relevantNodes := fes.blockchain.BestChain()
-	if len(fes.blockchain.BestChain()) > (lookbackWindowBlocks + blockOffsetForTesting) {
-		relevantNodes = fes.blockchain.BestChain()[blockTipIndex-lookbackWindowBlocks-blockOffsetForTesting : blockTipIndex]
+	startNode := fes.blockchain.BlockTip()
+	relevantNodes := []*lib.BlockNode{}
+	for len(relevantNodes) < lookbackWindowBlocks && startNode != nil {
+		relevantNodes = append(relevantNodes, startNode)
+		startNode = startNode.GetParent(fes.blockchain.GetBlockIndex())
 	}
 
 	var hotnessInfoBlocks []*HotnessInfoBlock
