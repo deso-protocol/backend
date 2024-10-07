@@ -1142,6 +1142,9 @@ func (fes *APIServer) SendCoins(
 	*lib.MsgDeSoTxn,
 	error,
 ) {
+	if amountBaseUnits == nil || amountBaseUnits.IsZero() {
+		return nil, fmt.Errorf("SendCoins: Amount must be non-zero")
+	}
 	coinPkBytes, _, err := lib.Base58CheckDecode(coinPublicKey)
 	if err != nil || len(coinPkBytes) != btcec.PubKeyBytesLenCompressed {
 		return nil, fmt.Errorf("HandleMarketOrder: Problem decoding coin pkid %s: %v", coinPublicKey, err)
@@ -1436,6 +1439,9 @@ func (fes *APIServer) HandleMarketOrder(
 		// from the transactor directly to the person receiving the fee.
 		transferTxns := []*lib.MsgDeSoTxn{}
 		for pubkey, feeBaseUnits := range feeBaseUnitsByPubkey {
+			if feeBaseUnits.IsZero() {
+				continue
+			}
 			receiverPubkeyBytes, _, err := lib.Base58CheckDecode(pubkey)
 			if err != nil || len(receiverPubkeyBytes) != btcec.PubKeyBytesLenCompressed {
 				return nil, fmt.Errorf("HandleMarketOrder: Problem decoding public key %s: %v",
@@ -1883,6 +1889,9 @@ func (fes *APIServer) HandleMarketOrder(
 		// from the transactor directly to the person receiving the fee.
 		transferTxns := []*lib.MsgDeSoTxn{}
 		for pubkey, feeBaseUnits := range feeBaseUnitsByPubkey {
+			if feeBaseUnits.IsZero() {
+				continue
+			}
 			receiverPubkeyBytes, _, err := lib.Base58CheckDecode(pubkey)
 			if err != nil || len(receiverPubkeyBytes) != btcec.PubKeyBytesLenCompressed {
 				return nil, fmt.Errorf("HandleMarketOrder: Problem decoding public key %s: %v",
