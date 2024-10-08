@@ -14,10 +14,10 @@ require (
 	github.com/deso-protocol/go-deadlock v1.0.0
 	github.com/dgraph-io/badger/v3 v3.2103.5
 	github.com/fatih/structs v1.1.0
-	github.com/golang-jwt/jwt/v4 v4.1.0
-	github.com/golang/glog v1.1.0
-	github.com/gorilla/mux v1.8.0
-	github.com/h2non/bimg v1.1.5
+	github.com/golang-jwt/jwt/v4 v4.5.0
+	github.com/golang/glog v1.2.2
+	github.com/gorilla/mux v1.8.1
+	github.com/h2non/bimg v1.1.9
 	github.com/holiman/uint256 v1.1.1
 	github.com/kevinburke/twilio-go v0.0.0-20210327194925-1623146bcf73
 	github.com/mitchellh/go-homedir v1.1.0
@@ -31,8 +31,8 @@ require (
 	github.com/spf13/viper v1.7.1
 	github.com/stretchr/testify v1.9.0
 	github.com/tyler-smith/go-bip39 v1.1.0
-	golang.org/x/crypto v0.27.0
-	golang.org/x/image v0.15.0
+	golang.org/x/crypto v0.28.0
+	golang.org/x/image v0.21.0
 	golang.org/x/sync v0.8.0
 	google.golang.org/api v0.128.0
 	gopkg.in/DataDog/dd-trace-go.v1 v1.65.1
@@ -53,13 +53,12 @@ require (
 	github.com/DataDog/sketches-go v1.4.5 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f // indirect
-	github.com/bwesterb/go-ristretto v1.2.0 // indirect
+	github.com/bwesterb/go-ristretto v1.2.3 // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
-	github.com/cloudflare/circl v1.1.0 // indirect
+	github.com/cloudflare/circl v1.4.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0 // indirect
-	github.com/decred/dcrd/lru v1.1.3 // indirect
 	github.com/deso-protocol/go-merkle-tree v1.0.0 // indirect
 	github.com/dgraph-io/ristretto v0.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -137,8 +136,8 @@ require (
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/net v0.29.0 // indirect
 	golang.org/x/oauth2 v0.9.0 // indirect
-	golang.org/x/sys v0.25.0 // indirect
-	golang.org/x/text v0.18.0 // indirect
+	golang.org/x/sys v0.26.0 // indirect
+	golang.org/x/text v0.19.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	golang.org/x/tools v0.25.0 // indirect
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
