@@ -12,7 +12,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/deso-protocol/go-deadlock"
+	"github.com/sasha-s/go-deadlock"
 
 	"github.com/golang/glog"
 )

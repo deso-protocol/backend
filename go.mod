@@ -13,7 +13,6 @@ require (
 	github.com/btcsuite/btcutil v1.0.2
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 	github.com/deso-protocol/core v0.0.0-00010101000000-000000000000
-	github.com/deso-protocol/go-deadlock v1.0.0
 	github.com/dgraph-io/badger/v3 v3.2103.5
 	github.com/fatih/structs v1.1.0
 	github.com/golang-jwt/jwt/v4 v4.1.0
@@ -27,6 +26,7 @@ require (
 	github.com/montanaflynn/stats v0.6.6
 	github.com/nyaruka/phonenumbers v1.0.69
 	github.com/pkg/errors v0.9.1
+	github.com/sasha-s/go-deadlock v0.3.5
 	github.com/sendgrid/sendgrid-go v3.10.0+incompatible
 	github.com/spf13/cobra v1.1.3
 	github.com/spf13/pflag v1.0.5
@@ -107,7 +107,7 @@ require (
 	github.com/onflow/crypto v0.25.0 // indirect
 	github.com/outcaste-io/ristretto v0.2.3 // indirect
 	github.com/pelletier/go-toml v1.7.0 // indirect
-	github.com/petermattis/goid v0.0.0-20180202154549-b0b1615b78e5 // indirect
+	github.com/petermattis/goid v0.0.0-20240813172612-4fcff4a6cae7 // indirect
 	github.com/philhofer/fwd v1.1.2 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/richardartoul/molecule v1.0.1-0.20240531184615-7ca0df43c0b3 // indirect
