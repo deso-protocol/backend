@@ -4523,9 +4523,9 @@ func (fes *APIServer) GetTxnConstructionParams(ww http.ResponseWriter, req *http
 func (fes *APIServer) GetCommittedTipBlockInfo(ww http.ResponseWriter, req *http.Request) {
 	// Get the block tip from the blockchain.
 	fes.backendServer.GetBlockchain().ChainLock.RLock()
-	blockTip, idx := fes.backendServer.GetBlockchain().GetCommittedTip()
+	blockTip, exists := fes.backendServer.GetBlockchain().GetCommittedTip()
 	fes.backendServer.GetBlockchain().ChainLock.RUnlock()
-	if idx == -1 {
+	if !exists {
 		_AddBadRequestError(ww, "GetCommittedTipBlockInfo: Problem getting block tip")
 		return
 	}
