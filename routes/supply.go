@@ -132,14 +132,9 @@ func (fes *APIServer) UpdateSupplyStats() {
 	if err != nil {
 		glog.Errorf("StartSupplyMonitoring: Error getting all locked stake entries")
 	}
-	committedTip, _ := fes.TXIndex.TXIndexChain.GetCommittedTip()
-
 	for _, lockedStakeEntry := range lockedStakeEntries {
 		lse := &lib.LockedStakeEntry{}
-		if err = lse.RawDecodeWithoutMetadata(
-			uint64(committedTip.Height),
-			bytes.NewReader(lockedStakeEntry),
-		); err != nil {
+		if exists, err := lib.DecodeFromBytes(lse, bytes.NewReader(lockedStakeEntry)); !exists || err != nil {
 			glog.Errorf("StartSupplyMonitoring: Error decoding locked stake entry: %v", err)
 			continue
 		}
