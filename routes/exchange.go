@@ -15,7 +15,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/golang/glog"
 	bip39 "github.com/tyler-smith/go-bip39"
 )
@@ -729,7 +729,7 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 			"base58 private key: %v", err))
 		return
 	}
-	senderPriv, senderPub := btcec.PrivKeyFromBytes(btcec.S256(), senderPrivBytes)
+	senderPriv, senderPub := btcec.PrivKeyFromBytes(senderPrivBytes)
 	if senderPriv == nil {
 		APIAddError(ww, fmt.Sprintf("APITransferDeSo: Problem parsing sender "+
 			"base58 private key"))
@@ -744,7 +744,7 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 			"base58 public key %s: %v", transferDeSoRequest.RecipientPublicKeyBase58Check, err))
 		return
 	}
-	recipientPub, err := btcec.ParsePubKey(recipientPubBytes, btcec.S256())
+	recipientPub, err := btcec.ParsePubKey(recipientPubBytes)
 	if err != nil {
 		APIAddError(ww, fmt.Sprintf("APITransferDeSo: Problem encoding recipient "+
 			"base58 public key %s: %v", transferDeSoRequest.RecipientPublicKeyBase58Check, err))

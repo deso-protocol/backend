@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/core/lib"
 	"github.com/holiman/uint256"
 	"io"
@@ -1142,6 +1142,9 @@ func (fes *APIServer) SendCoins(
 	*lib.MsgDeSoTxn,
 	error,
 ) {
+	if amountBaseUnits == nil || amountBaseUnits.IsZero() {
+		return nil, fmt.Errorf("SendCoins: Amount must be non-zero")
+	}
 	coinPkBytes, _, err := lib.Base58CheckDecode(coinPublicKey)
 	if err != nil || len(coinPkBytes) != btcec.PubKeyBytesLenCompressed {
 		return nil, fmt.Errorf("HandleMarketOrder: Problem decoding coin pkid %s: %v", coinPublicKey, err)
@@ -1360,14 +1363,14 @@ func (fes *APIServer) HandleMarketOrder(
 
 	// Compute how much in quote currency we need to pay each constituent
 	feeBaseUnitsByPubkey := make(map[string]*uint256.Int)
-	totalFeeBaseUnits := uint256.NewInt()
+	totalFeeBaseUnits := uint256.NewInt(0)
 	for pubkey, feeBasisPoints := range feeMapByPubkey {
 		feeBaseUnits, err := lib.SafeUint256().Mul(
-			quoteCurrencyExecutedBeforeFeesBaseUnits, uint256.NewInt().SetUint64(feeBasisPoints))
+			quoteCurrencyExecutedBeforeFeesBaseUnits, uint256.NewInt(feeBasisPoints))
 		if err != nil {
 			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating fee for quote: %v", err)
 		}
-		feeBaseUnits, err = lib.SafeUint256().Div(feeBaseUnits, uint256.NewInt().SetUint64(10000))
+		feeBaseUnits, err = lib.SafeUint256().Div(feeBaseUnits, uint256.NewInt(10000))
 		if err != nil {
 			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating fee div: %v", err)
 		}
@@ -1436,6 +1439,9 @@ func (fes *APIServer) HandleMarketOrder(
 		// from the transactor directly to the person receiving the fee.
 		transferTxns := []*lib.MsgDeSoTxn{}
 		for pubkey, feeBaseUnits := range feeBaseUnitsByPubkey {
+			if feeBaseUnits.IsZero() {
+				continue
+			}
 			receiverPubkeyBytes, _, err := lib.Base58CheckDecode(pubkey)
 			if err != nil || len(receiverPubkeyBytes) != btcec.PubKeyBytesLenCompressed {
 				return nil, fmt.Errorf("HandleMarketOrder: Problem decoding public key %s: %v",
@@ -1541,8 +1547,8 @@ func (fes *APIServer) HandleMarketOrder(
 				if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
 					bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
 				}
-				uint256LimitAmount := uint256.NewInt()
-				if overflow := uint256LimitAmount.SetFromBig(bigLimitAmount); overflow {
+				uint256LimitAmount, overflow := uint256.FromBig(bigLimitAmount)
+				if overflow {
 					return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit amount")
 				}
 				// Subtract the fees from the total quantity
@@ -1686,8 +1692,8 @@ func (fes *APIServer) HandleMarketOrder(
 				quoteCurrencyExecutedPlusFeesBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
 			priceQuotePerBase = big.NewInt(0).Div(
 				priceQuotePerBase, executionReceiveAmountBaseUnits.ToBig())
-			uint256PriceQuotePerBase := uint256.NewInt()
-			if overflow := uint256PriceQuotePerBase.SetFromBig(priceQuotePerBase); overflow {
+			uint256PriceQuotePerBase, overflow := uint256.FromBig(priceQuotePerBase)
+			if overflow {
 				return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating price: %v", err)
 			}
 			executionPriceInQuoteCurrency, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
@@ -1766,6 +1772,7 @@ func (fes *APIServer) HandleMarketOrder(
 				}
 				bigLimitAmount := big.NewInt(0).Mul(quantityBaseUnits.ToBig(), scaledPrice.ToBig())
 				bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, lib.OneE38.ToBig())
+
 				// The reason why this extra step is needed is extremely subtle. It's required because
 				// scaledPrice represents (whole coin / whole coin) rather than (base unit / base unit).
 				// When the coins have the same number of base units per whole coin, this conversion isn't
@@ -1789,8 +1796,8 @@ func (fes *APIServer) HandleMarketOrder(
 				if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
 					bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
 				}
-				uint256LimitAmount := uint256.NewInt()
-				if overflow := uint256LimitAmount.SetFromBig(bigLimitAmount); overflow {
+				uint256LimitAmount, overflow := uint256.FromBig(bigLimitAmount)
+				if overflow {
 					return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit amount")
 				}
 
@@ -1830,8 +1837,8 @@ func (fes *APIServer) HandleMarketOrder(
 				if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
 					bigLimitReceiveAmount = big.NewInt(0).Mul(bigLimitReceiveAmount, big.NewInt(int64(lib.NanosPerUnit)))
 				}
-				uint256LimitReceiveAmount := uint256.NewInt()
-				if overflow := uint256LimitReceiveAmount.SetFromBig(bigLimitReceiveAmount); overflow {
+				uint256LimitReceiveAmount, overflow := uint256.FromBig(bigLimitReceiveAmount)
+				if overflow {
 					return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit receive amount")
 				}
 				limitReceiveAmount, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
@@ -1883,6 +1890,9 @@ func (fes *APIServer) HandleMarketOrder(
 		// from the transactor directly to the person receiving the fee.
 		transferTxns := []*lib.MsgDeSoTxn{}
 		for pubkey, feeBaseUnits := range feeBaseUnitsByPubkey {
+			if feeBaseUnits.IsZero() {
+				continue
+			}
 			receiverPubkeyBytes, _, err := lib.Base58CheckDecode(pubkey)
 			if err != nil || len(receiverPubkeyBytes) != btcec.PubKeyBytesLenCompressed {
 				return nil, fmt.Errorf("HandleMarketOrder: Problem decoding public key %s: %v",
@@ -1964,8 +1974,8 @@ func (fes *APIServer) HandleMarketOrder(
 				quoteAmountReceivedBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
 			priceQuotePerBase = big.NewInt(0).Div(
 				priceQuotePerBase, baseAmountSpentBaseUnits.ToBig())
-			uint256PriceQuotePerBase := uint256.NewInt()
-			if overflow := uint256PriceQuotePerBase.SetFromBig(priceQuotePerBase); overflow {
+			uint256PriceQuotePerBase, overflow := uint256.FromBig(priceQuotePerBase)
+			if overflow {
 				return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating price: %v", err)
 			}
 			finalPriceStr, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
@@ -2068,8 +2078,8 @@ func (fes *APIServer) HandleMarketOrder(
 					if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
 						bigLimitAmount = big.NewInt(0).Mul(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
 					}
-					uint256LimitAmount := uint256.NewInt()
-					if overflow := uint256LimitAmount.SetFromBig(bigLimitAmount); overflow {
+					uint256LimitAmount, overflow := uint256.FromBig(bigLimitAmount)
+					if overflow {
 						return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit amount")
 					}
 					limitAmount, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
@@ -2116,8 +2126,8 @@ func (fes *APIServer) HandleMarketOrder(
 			if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
 				bigLimitReceiveAmount = big.NewInt(0).Div(bigLimitReceiveAmount, big.NewInt(int64(lib.NanosPerUnit)))
 			}
-			uint256LimitReceiveAmount := uint256.NewInt()
-			if overflow := uint256LimitReceiveAmount.SetFromBig(bigLimitReceiveAmount); overflow {
+			uint256LimitReceiveAmount, overflow := uint256.FromBig(bigLimitReceiveAmount)
+			if overflow {
 				return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit receive amount")
 			}
 			limitReceiveAmount, err := CalculateStringDecimalAmountFromBaseUnitsSimple(

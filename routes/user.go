@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/holiman/uint256"
 	"io"
 	"math"
 	"math/big"
@@ -15,13 +16,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/dgraph-io/badger/v3"
-	"github.com/gorilla/mux"
-	"github.com/holiman/uint256"
-
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/core/lib"
+	"github.com/dgraph-io/badger/v4"
 	"github.com/golang/glog"
+	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 )
 
@@ -363,7 +362,7 @@ func (fes *APIServer) _balanceEntryToResponse(
 		// CreatorCoins can't exceed uint64
 		BalanceNanos: balanceEntry.BalanceNanos.Uint64(),
 		// Use this value for DAO Coins balances
-		BalanceNanosUint256: &balanceEntry.BalanceNanos,
+		BalanceNanosUint256: NewUint256Hex(balanceEntry.BalanceNanos.Clone()),
 		NetBalanceInMempool: int64(balanceEntry.BalanceNanos.Uint64()) - int64(dbBalanceNanos),
 
 		// If the profile is nil, this will be nil
@@ -642,7 +641,7 @@ type CoinEntryResponse struct {
 
 type DAOCoinEntryResponse struct {
 	NumberOfHolders                 uint64
-	CoinsInCirculationNanos         *uint256.Int
+	CoinsInCirculationNanos         Uint256Hex
 	MintingDisabled                 bool
 	TransferRestrictionStatus       TransferRestrictionStatusString
 	LockupTransferRestrictionStatus TransferRestrictionStatusString
@@ -1057,7 +1056,7 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		},
 		DAOCoinEntry: &DAOCoinEntryResponse{
 			NumberOfHolders:         profileEntry.DAOCoinEntry.NumberOfHolders,
-			CoinsInCirculationNanos: &profileEntry.DAOCoinEntry.CoinsInCirculationNanos,
+			CoinsInCirculationNanos: NewUint256Hex(profileEntry.DAOCoinEntry.CoinsInCirculationNanos.Clone()),
 			MintingDisabled:         profileEntry.DAOCoinEntry.MintingDisabled,
 			TransferRestrictionStatus: getTransferRestrictionStatusStringFromTransferRestrictionStatus(
 				profileEntry.DAOCoinEntry.TransferRestrictionStatus),
@@ -1420,7 +1419,7 @@ func (fes *APIServer) GetHodlersForPublicKey(ww http.ResponseWriter, req *http.R
 			requestData.SortType == TopHodlerSortTypeCoinBalance {
 
 			if requestData.IsDAOCoin {
-				return hodlList[ii].BalanceNanosUint256.Gt(hodlList[jj].BalanceNanosUint256)
+				return hodlList[ii].BalanceNanosUint256.Gt(hodlList[jj].BalanceNanosUint256.Int)
 			}
 			return hodlList[ii].BalanceNanos > hodlList[jj].BalanceNanos
 		} else if requestData.SortType == TopHodlerSortTypeWealth {
@@ -3842,7 +3841,7 @@ func (fes *APIServer) GetHoldersForPublicKeyWithLockedBalances(ww http.ResponseW
 				UnlockedBalanceEntry: unlockedBalanceEntryResponse,
 
 				LockedBalanceEntrys:    []*LockedBalanceEntryResponse{},
-				LockedBalanceBaseUnits: uint256.NewInt(),
+				LockedBalanceBaseUnits: uint256.NewInt(0),
 			}
 		} else {
 			// Error. We shouldn't have any duplicates in this list ever
@@ -3861,11 +3860,11 @@ func (fes *APIServer) GetHoldersForPublicKeyWithLockedBalances(ww http.ResponseW
 		prevBalance := holdersMap[publicKeyStr]
 
 		lockedBalResponses := []*LockedBalanceEntryResponse{}
-		totalBalanceBaseUnits := uint256.NewInt()
+		totalBalanceBaseUnits := uint256.NewInt(0)
 		for _, lockedBalanceEntry := range lockedBalanceEntrys {
 			lockedBalResponses = append(lockedBalResponses, fes._lockedBalanceEntryToResponse(
 				lockedBalanceEntry, utxoView, fes.Params))
-			totalBalanceBaseUnits = uint256.NewInt().Add(
+			totalBalanceBaseUnits = uint256.NewInt(0).Add(
 				totalBalanceBaseUnits, &lockedBalanceEntry.BalanceBaseUnits)
 		}
 
@@ -3876,7 +3875,7 @@ func (fes *APIServer) GetHoldersForPublicKeyWithLockedBalances(ww http.ResponseW
 				&lib.BalanceEntry{
 					HODLerPKID:   pkid,
 					CreatorPKID:  utxoView.GetPKIDForPublicKey(creatorPublicKeyBytes).PKID,
-					BalanceNanos: *uint256.NewInt(),
+					BalanceNanos: *uint256.NewInt(0),
 					HasPurchased: false,
 				}, 0, nil, utxoView)
 
