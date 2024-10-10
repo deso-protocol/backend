@@ -814,16 +814,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 func GetBalanceForPublicKeyUsingUtxoView(
 	publicKeyBytes []byte, utxoView *lib.UtxoView) (_balance uint64, _err error) {
 
-	// Get unspent utxos from the view.
-	utxoEntriesFound, err := utxoView.GetUnspentUtxoEntrysForPublicKey(publicKeyBytes)
-	if err != nil {
-		return 0, fmt.Errorf("UpdateProfile: Problem getting spendable utxos from UtxoView: %v", err)
-	}
-	totalBalanceNanos := uint64(0)
-	for _, utxoEntry := range utxoEntriesFound {
-		totalBalanceNanos += utxoEntry.AmountNanos
-	}
-	return totalBalanceNanos, nil
+	return utxoView.GetDeSoBalanceNanosForPublicKey(publicKeyBytes)
 }
 
 // ExchangeBitcoinRequest ...
@@ -3535,12 +3526,12 @@ type AccessGroupMemberLimitMapItem struct {
 
 type StakeLimitMapItem struct {
 	ValidatorPublicKeyBase58Check string
-	StakeLimit                    *uint256.Int
+	StakeLimit                    *Uint256Hex
 }
 
 type UnstakeLimitMapItem struct {
 	ValidatorPublicKeyBase58Check string
-	UnstakeLimit                  *uint256.Int
+	UnstakeLimit                  *Uint256Hex
 }
 
 type UnlockStakeLimitMapItem struct {
@@ -3952,11 +3943,12 @@ func TransactionSpendingLimitToResponse(
 					validatorPublicKey, false, params,
 				)
 			}
+			stakeLimitVal := NewUint256Hex(stakeLimit.Clone())
 			transactionSpendingLimitResponse.StakeLimitMap = append(
 				transactionSpendingLimitResponse.StakeLimitMap,
 				StakeLimitMapItem{
 					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
-					StakeLimit:                    stakeLimit.Clone(),
+					StakeLimit:                    &stakeLimitVal,
 				},
 			)
 		}
@@ -3971,11 +3963,12 @@ func TransactionSpendingLimitToResponse(
 					validatorPublicKey, false, params,
 				)
 			}
+			unstakeLimitVal := NewUint256Hex(unstakeLimit.Clone())
 			transactionSpendingLimitResponse.UnstakeLimitMap = append(
 				transactionSpendingLimitResponse.UnstakeLimitMap,
 				UnstakeLimitMapItem{
 					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
-					UnstakeLimit:                  unstakeLimit.Clone(),
+					UnstakeLimit:                  &unstakeLimitVal,
 				},
 			)
 		}

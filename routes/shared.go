@@ -10,7 +10,6 @@ import (
 
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
-	"github.com/holiman/uint256"
 	"github.com/pkg/errors"
 	"github.com/tyler-smith/go-bip39"
 )
@@ -212,6 +211,15 @@ type User struct {
 	MustCompleteTutorial bool
 }
 
+// Create a new type of BalanceEntryResponse so we don't break any existing
+// code that relies on the old version.
+type ExtendedBalanceEntryResponse struct {
+	UnlockedBalanceEntry *BalanceEntryResponse
+
+	LockedBalanceEntrys    []*LockedBalanceEntryResponse
+	LockedBalanceBaseUnits *uint256.Int
+}
+
 type BalanceEntryResponse struct {
 	// The public keys are provided for the frontend
 	HODLerPublicKeyBase58Check string
@@ -225,7 +233,7 @@ type BalanceEntryResponse struct {
 	BalanceNanos uint64
 
 	// For simplicity, we create a new field for the uint256 balance for DAO coins
-	BalanceNanosUint256 *uint256.Int
+	BalanceNanosUint256 Uint256Hex
 
 	// The net effect of transactions in the mempool on a given BalanceEntry's BalanceNanos.
 	// This is used by the frontend to convey info about mining.

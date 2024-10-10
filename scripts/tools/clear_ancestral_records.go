@@ -17,7 +17,15 @@ func main() {
 		fmt.Printf("Error reading db1 err: %v", err)
 		return
 	}
-	snap, err, _ := lib.NewSnapshot(db, dbDir, lib.SnapshotBlockHeightPeriod, false, false, &lib.DeSoMainnetParams, false, lib.HypersyncDefaultMaxQueueSize)
+	snap, err, _, _ := lib.NewSnapshot(
+		db,
+		uint64(lib.DefaultSnapshotEpochPeriodPoS),
+		false,
+		false,
+		&lib.DeSoMainnetParams,
+		false,
+		lib.HypersyncDefaultMaxQueueSize,
+		nil)
 	if err != nil {
 		fmt.Printf("Error reading snap err: %v", err)
 		return
@@ -25,7 +33,7 @@ func main() {
 	snap.CurrentEpochSnapshotMetadata.SnapshotBlockHeight = 114000
 	snap.Checksum.ResetChecksum()
 	for _, prefixByte := range []byte{0, 1, 2} {
-		prefix := []byte{prefixByte}
+		prefix := []byte{lib.Prefixes.PrefixHypersyncSnapshotDBPrefix[0], prefixByte}
 		startKey := prefix
 		fetchingPrefix := true
 
