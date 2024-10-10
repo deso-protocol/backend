@@ -11,7 +11,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v4"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/backend/routes"
 	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
