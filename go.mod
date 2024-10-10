@@ -39,7 +39,7 @@ require (
 	golang.org/x/image v0.21.0
 	golang.org/x/sync v0.8.0
 	google.golang.org/api v0.200.0
-	gopkg.in/DataDog/dd-trace-go.v1 v1.66.0
+	gopkg.in/DataDog/dd-trace-go.v1 v1.68.0
 )
 
 require (
