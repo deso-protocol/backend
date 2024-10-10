@@ -17,8 +17,8 @@ import (
 type CumulativeLockedBalanceEntryResponse struct {
 	HODLerPublicKeyBase58Check   string
 	ProfilePublicKeyBase58Check  string
-	TotalLockedBaseUnits         uint256.Int
-	UnlockableBaseUnits          uint256.Int
+	TotalLockedBaseUnits         Uint256Hex
+	UnlockableBaseUnits          Uint256Hex
 	UnvestedLockedBalanceEntries []*LockedBalanceEntryResponse
 	VestedLockedBalanceEntries   []*LockedBalanceEntryResponse
 	ProfileEntryResponse         *ProfileEntryResponse
@@ -29,7 +29,7 @@ type LockedBalanceEntryResponse struct {
 	ProfilePublicKeyBase58Check string
 	UnlockTimestampNanoSecs     int64
 	VestingEndTimestampNanoSecs int64
-	BalanceBaseUnits            uint256.Int
+	BalanceBaseUnits            Uint256Hex
 }
 
 func (fes *APIServer) _lockedBalanceEntryToResponse(
@@ -42,7 +42,7 @@ func (fes *APIServer) _lockedBalanceEntryToResponse(
 		ProfilePublicKeyBase58Check: lib.PkToString(profilePublicKey, params),
 		UnlockTimestampNanoSecs:     lockedBalanceEntry.UnlockTimestampNanoSecs,
 		VestingEndTimestampNanoSecs: lockedBalanceEntry.VestingEndTimestampNanoSecs,
-		BalanceBaseUnits:            lockedBalanceEntry.BalanceBaseUnits,
+		BalanceBaseUnits:            NewUint256Hex(lockedBalanceEntry.BalanceBaseUnits.Clone()),
 	}
 }
 
@@ -645,8 +645,8 @@ func (fes *APIServer) LockedBalanceEntries(ww http.ResponseWriter, req *http.Req
 				&CumulativeLockedBalanceEntryResponse{
 					HODLerPublicKeyBase58Check:   lib.PkToString(hodlerPublicKey, fes.Params),
 					ProfilePublicKeyBase58Check:  lib.PkToString(profilePublicKey, fes.Params),
-					TotalLockedBaseUnits:         uint256.Int{},
-					UnlockableBaseUnits:          uint256.Int{},
+					TotalLockedBaseUnits:         NewUint256Hex(uint256.NewInt(0)),
+					UnlockableBaseUnits:          NewUint256Hex(uint256.NewInt(0)),
 					UnvestedLockedBalanceEntries: []*LockedBalanceEntryResponse{},
 					VestedLockedBalanceEntries:   []*LockedBalanceEntryResponse{},
 					ProfileEntryResponse:         profileEntryResponse,
@@ -660,19 +660,19 @@ func (fes *APIServer) LockedBalanceEntries(ww http.ResponseWriter, req *http.Req
 		// NOTE: It's possible to create multiple locked balance entries that are impossible to unlock due to overflow.
 		// As such, if the addition triggers an overflow we will just ignore adding more and use the max Uint256.
 		var newTotalLockedBaseUnits *uint256.Int
-		if uint256.NewInt().Sub(
+		if uint256.NewInt(0).Sub(
 			lib.MaxUint256,
-			&cumulativeResponse.TotalLockedBaseUnits).Lt(&lockedBalanceEntry.BalanceBaseUnits) {
+			cumulativeResponse.TotalLockedBaseUnits.Int).Lt(&lockedBalanceEntry.BalanceBaseUnits) {
 			newTotalLockedBaseUnits = lib.MaxUint256
 		} else {
-			newTotalLockedBaseUnits = uint256.NewInt().Add(
-				&cumulativeResponse.TotalLockedBaseUnits,
+			newTotalLockedBaseUnits = uint256.NewInt(0).Add(
+				cumulativeResponse.TotalLockedBaseUnits.Int,
 				&lockedBalanceEntry.BalanceBaseUnits)
 		}
 
 		// Compute how much (if any) is unlockable in the give entry.
-		unlockableBaseUnitsFromEntry := uint256.NewInt()
-		newTotalUnlockableBaseUnits := uint256.NewInt()
+		unlockableBaseUnitsFromEntry := uint256.NewInt(0)
+		newTotalUnlockableBaseUnits := uint256.NewInt(0)
 		if lockedBalanceEntry.UnlockTimestampNanoSecs < currentTimestampNanoSecs {
 			// Check if the locked balance entry is unvested or vested.
 			if lockedBalanceEntry.UnlockTimestampNanoSecs == lockedBalanceEntry.VestingEndTimestampNanoSecs {
@@ -687,19 +687,19 @@ func (fes *APIServer) LockedBalanceEntries(ww http.ResponseWriter, req *http.Req
 				}
 			}
 		}
-		if uint256.NewInt().Sub(
+		if uint256.NewInt(0).Sub(
 			lib.MaxUint256,
-			&cumulativeResponse.UnlockableBaseUnits).Lt(unlockableBaseUnitsFromEntry) {
+			cumulativeResponse.UnlockableBaseUnits.Int).Lt(unlockableBaseUnitsFromEntry) {
 			newTotalUnlockableBaseUnits = lib.MaxUint256
 		} else {
-			newTotalUnlockableBaseUnits = uint256.NewInt().Add(
-				&cumulativeResponse.UnlockableBaseUnits,
+			newTotalUnlockableBaseUnits = uint256.NewInt(0).Add(
+				cumulativeResponse.UnlockableBaseUnits.Int,
 				unlockableBaseUnitsFromEntry)
 		}
 
 		// Update the cumulative response.
-		cumulativeResponse.TotalLockedBaseUnits = *newTotalLockedBaseUnits
-		cumulativeResponse.UnlockableBaseUnits = *newTotalUnlockableBaseUnits
+		cumulativeResponse.TotalLockedBaseUnits = NewUint256Hex(newTotalLockedBaseUnits)
+		cumulativeResponse.UnlockableBaseUnits = NewUint256Hex(newTotalUnlockableBaseUnits)
 		if lockedBalanceEntry.UnlockTimestampNanoSecs == lockedBalanceEntry.VestingEndTimestampNanoSecs {
 			cumulativeResponse.UnvestedLockedBalanceEntries = append(
 				cumulativeResponse.UnvestedLockedBalanceEntries,
@@ -721,7 +721,7 @@ func (fes *APIServer) LockedBalanceEntries(ww http.ResponseWriter, req *http.Req
 	// Sort the response based on the amount locked.
 	sortedCumulativeResponses := collections.SortStable(cumulativeLockedBalanceEntryResponses,
 		func(ii *CumulativeLockedBalanceEntryResponse, jj *CumulativeLockedBalanceEntryResponse) bool {
-			return ii.TotalLockedBaseUnits.Lt(&jj.TotalLockedBaseUnits)
+			return ii.TotalLockedBaseUnits.Lt(jj.TotalLockedBaseUnits.Int)
 		})
 
 	// Encode and return the responses.

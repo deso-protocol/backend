@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	ecdsa2 "github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 	"io"
 	"math/big"
 	"net/http"
@@ -15,10 +16,10 @@ import (
 
 	"github.com/holiman/uint256"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
@@ -998,7 +999,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Failed to decode hash: %v", err))
 			return
 		}
-		parsedSig, err := btcec.ParseDERSignature(sig, btcec.S256())
+		parsedSig, err := ecdsa2.ParseDERSignature(sig)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Parsing "+
 				"signature failed: %v: %v", signedHash, err))
@@ -2687,13 +2688,12 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 			"DAOCoin: Must be profile owner in order to perform %v operation", requestData.OperationType))
 		return
 	}
-	zero := uint256.NewInt()
-	if operationType == lib.DAOCoinOperationTypeMint && requestData.CoinsToMintNanos.Eq(zero) {
+	if operationType == lib.DAOCoinOperationTypeMint && requestData.CoinsToMintNanos.IsZero() {
 		_AddBadRequestError(ww, fmt.Sprint("DAOCoin: Cannot mint 0 coins"))
 		return
 	}
 
-	if operationType == lib.DAOCoinOperationTypeBurn && requestData.CoinsToBurnNanos.Eq(zero) {
+	if operationType == lib.DAOCoinOperationTypeBurn && requestData.CoinsToBurnNanos.IsZero() {
 		_AddBadRequestError(ww, fmt.Sprint("DAOCoin: Cannot burn 0 coins"))
 		return
 	}
@@ -2987,7 +2987,7 @@ func (fes *APIServer) createDaoCoinLimitOrderHelper(
 	}
 
 	// Validated and parse price to a scaled exchange rate
-	scaledExchangeRateCoinsToSellPerCoinToBuy := uint256.NewInt()
+	scaledExchangeRateCoinsToSellPerCoinToBuy := uint256.NewInt(0)
 	if requestData.Price == "" && requestData.ExchangeRateCoinsToSellPerCoinToBuy == 0 {
 		err = errors.Errorf("Price must be provided as a valid decimal string (ex: 1.23)")
 	} else if requestData.Price != "" {
@@ -3012,7 +3012,7 @@ func (fes *APIServer) createDaoCoinLimitOrderHelper(
 	}
 
 	// Parse and validated quantity
-	quantityToFillInBaseUnits := uint256.NewInt()
+	quantityToFillInBaseUnits := uint256.NewInt(0)
 	if requestData.Quantity == "" && requestData.QuantityToFill == 0 {
 		err = errors.Errorf("Quantity must be provided as a valid decimal string (ex: 1.23)")
 	} else if requestData.Quantity != "" {
@@ -3179,7 +3179,7 @@ func (fes *APIServer) createDaoCoinMarketOrderHelper(
 	// Validate and convert quantity to base units
 
 	// Parse and validated quantity
-	quantityToFillInBaseUnits := uint256.NewInt()
+	quantityToFillInBaseUnits := uint256.NewInt(0)
 	if requestData.Quantity == "" && requestData.QuantityToFill == 0 {
 		err = errors.Errorf("CreateDAOCoinMarketOrder: Quantity must be provided as a valid decimal string (ex: 1.23)")
 	} else if requestData.Quantity != "" {
@@ -3239,7 +3239,7 @@ func (fes *APIServer) createDaoCoinMarketOrderHelper(
 	}
 
 	// override the initial value and explicitly set to 0 for clarity
-	zeroUint256 := uint256.NewInt().SetUint64(0)
+	zeroUint256 := uint256.NewInt(0)
 
 	res, err := fes.createDAOCoinLimitOrderResponse(
 		utxoView,
@@ -3526,12 +3526,12 @@ type AccessGroupMemberLimitMapItem struct {
 
 type StakeLimitMapItem struct {
 	ValidatorPublicKeyBase58Check string
-	StakeLimit                    *uint256.Int
+	StakeLimit                    *Uint256Hex
 }
 
 type UnstakeLimitMapItem struct {
 	ValidatorPublicKeyBase58Check string
-	UnstakeLimit                  *uint256.Int
+	UnstakeLimit                  *Uint256Hex
 }
 
 type UnlockStakeLimitMapItem struct {
@@ -3943,11 +3943,12 @@ func TransactionSpendingLimitToResponse(
 					validatorPublicKey, false, params,
 				)
 			}
+			stakeLimitVal := NewUint256Hex(stakeLimit.Clone())
 			transactionSpendingLimitResponse.StakeLimitMap = append(
 				transactionSpendingLimitResponse.StakeLimitMap,
 				StakeLimitMapItem{
 					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
-					StakeLimit:                    stakeLimit.Clone(),
+					StakeLimit:                    &stakeLimitVal,
 				},
 			)
 		}
@@ -3962,11 +3963,12 @@ func TransactionSpendingLimitToResponse(
 					validatorPublicKey, false, params,
 				)
 			}
+			unstakeLimitVal := NewUint256Hex(unstakeLimit.Clone())
 			transactionSpendingLimitResponse.UnstakeLimitMap = append(
 				transactionSpendingLimitResponse.UnstakeLimitMap,
 				UnstakeLimitMapItem{
 					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
-					UnstakeLimit:                  unstakeLimit.Clone(),
+					UnstakeLimit:                  &unstakeLimitVal,
 				},
 			)
 		}

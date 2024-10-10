@@ -13,7 +13,6 @@ import (
 	"github.com/deso-protocol/core/collections"
 	"github.com/deso-protocol/core/lib"
 	"github.com/gorilla/mux"
-	"github.com/holiman/uint256"
 )
 
 type RegisterAsValidatorRequest struct {
@@ -59,7 +58,7 @@ type ValidatorResponse struct {
 	DelegatedStakeCommissionBasisPoints uint64
 	VotingPublicKey                     string
 	VotingAuthorization                 string
-	TotalStakeAmountNanos               *uint256.Int
+	TotalStakeAmountNanos               Uint256Hex
 	Status                              string
 	LastActiveAtEpochNumber             uint64
 	JailedAtEpochNumber                 uint64
@@ -560,7 +559,7 @@ func _convertValidatorEntryToResponse(
 		DelegatedStakeCommissionBasisPoints: validatorEntry.DelegatedStakeCommissionBasisPoints,
 		VotingPublicKey:                     validatorEntry.VotingPublicKey.ToString(),
 		VotingAuthorization:                 validatorEntry.VotingAuthorization.ToString(),
-		TotalStakeAmountNanos:               validatorEntry.TotalStakeAmountNanos.Clone(),
+		TotalStakeAmountNanos:               NewUint256Hex(validatorEntry.TotalStakeAmountNanos.Clone()),
 		Status:                              validatorEntry.Status().ToString(),
 		LastActiveAtEpochNumber:             validatorEntry.LastActiveAtEpochNumber,
 		JailedAtEpochNumber:                 validatorEntry.JailedAtEpochNumber,

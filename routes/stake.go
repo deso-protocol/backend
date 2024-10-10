@@ -101,7 +101,7 @@ type StakeEntryResponse struct {
 type LockedStakeEntryResponse struct {
 	StakerPublicKeyBase58Check    string
 	ValidatorPublicKeyBase58Check string
-	LockedAmountNanos             *uint256.Int
+	LockedAmountNanos             Uint256Hex
 	LockedAtEpochNumber           uint64
 	ExtraData                     map[string]string
 }
@@ -700,7 +700,7 @@ func _lockedStakeEntryToResponse(
 	return &LockedStakeEntryResponse{
 		StakerPublicKeyBase58Check:    lib.Base58CheckEncode(stakerPublicKey, false, params),
 		ValidatorPublicKeyBase58Check: lib.Base58CheckEncode(validatorPublicKey, false, params),
-		LockedAmountNanos:             lockedStakeEntry.LockedAmountNanos,
+		LockedAmountNanos:             NewUint256Hex(lockedStakeEntry.LockedAmountNanos),
 		LockedAtEpochNumber:           lockedStakeEntry.LockedAtEpochNumber,
 		ExtraData:                     DecodeExtraDataMap(params, utxoView, lockedStakeEntry.ExtraData),
 	}
