@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/holiman/uint256"
 	"io"
 	"math"
 	"math/big"
@@ -3840,7 +3841,7 @@ func (fes *APIServer) GetHoldersForPublicKeyWithLockedBalances(ww http.ResponseW
 				UnlockedBalanceEntry: unlockedBalanceEntryResponse,
 
 				LockedBalanceEntrys:    []*LockedBalanceEntryResponse{},
-				LockedBalanceBaseUnits: uint256.NewInt(),
+				LockedBalanceBaseUnits: uint256.NewInt(0),
 			}
 		} else {
 			// Error. We shouldn't have any duplicates in this list ever
@@ -3859,11 +3860,11 @@ func (fes *APIServer) GetHoldersForPublicKeyWithLockedBalances(ww http.ResponseW
 		prevBalance := holdersMap[publicKeyStr]
 
 		lockedBalResponses := []*LockedBalanceEntryResponse{}
-		totalBalanceBaseUnits := uint256.NewInt()
+		totalBalanceBaseUnits := uint256.NewInt(0)
 		for _, lockedBalanceEntry := range lockedBalanceEntrys {
 			lockedBalResponses = append(lockedBalResponses, fes._lockedBalanceEntryToResponse(
 				lockedBalanceEntry, utxoView, fes.Params))
-			totalBalanceBaseUnits = uint256.NewInt().Add(
+			totalBalanceBaseUnits = uint256.NewInt(0).Add(
 				totalBalanceBaseUnits, &lockedBalanceEntry.BalanceBaseUnits)
 		}
 
@@ -3874,7 +3875,7 @@ func (fes *APIServer) GetHoldersForPublicKeyWithLockedBalances(ww http.ResponseW
 				&lib.BalanceEntry{
 					HODLerPKID:   pkid,
 					CreatorPKID:  utxoView.GetPKIDForPublicKey(creatorPublicKeyBytes).PKID,
-					BalanceNanos: *uint256.NewInt(),
+					BalanceNanos: *uint256.NewInt(0),
 					HasPurchased: false,
 				}, 0, nil, utxoView)
 

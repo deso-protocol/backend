@@ -137,7 +137,7 @@ func constructStakeTxn(pubKey *lib.PublicKey) routes.StakeTxnResponse {
 		TransactorPublicKeyBase58Check: publicKeyString,
 		ValidatorPublicKeyBase58Check:  publicKeyString,
 		RewardMethod:                   routes.PayToBalance,
-		StakeAmountNanos:               uint256.NewInt().SetUint64(9 * 1e9),
+		StakeAmountNanos:               uint256.NewInt(9 * 1e9),
 		ExtraData:                      map[string]string{},
 		MinFeeRateNanosPerKB:           1000,
 		TransactionFees:                []routes.TransactionFee{},

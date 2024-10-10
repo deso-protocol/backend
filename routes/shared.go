@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/holiman/uint256"
 	"net/http"
 	"time"
 
