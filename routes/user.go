@@ -362,7 +362,7 @@ func (fes *APIServer) _balanceEntryToResponse(
 		// CreatorCoins can't exceed uint64
 		BalanceNanos: balanceEntry.BalanceNanos.Uint64(),
 		// Use this value for DAO Coins balances
-		BalanceNanosUint256: balanceEntry.BalanceNanos.Clone(),
+		BalanceNanosUint256: &balanceEntry.BalanceNanos,
 		NetBalanceInMempool: int64(balanceEntry.BalanceNanos.Uint64()) - int64(dbBalanceNanos),
 
 		// If the profile is nil, this will be nil
@@ -1056,7 +1056,7 @@ func (fes *APIServer) _profileEntryToResponse(profileEntry *lib.ProfileEntry, ut
 		},
 		DAOCoinEntry: &DAOCoinEntryResponse{
 			NumberOfHolders:         profileEntry.DAOCoinEntry.NumberOfHolders,
-			CoinsInCirculationNanos: profileEntry.DAOCoinEntry.CoinsInCirculationNanos.Clone(),
+			CoinsInCirculationNanos: &profileEntry.DAOCoinEntry.CoinsInCirculationNanos,
 			MintingDisabled:         profileEntry.DAOCoinEntry.MintingDisabled,
 			TransferRestrictionStatus: getTransferRestrictionStatusStringFromTransferRestrictionStatus(
 				profileEntry.DAOCoinEntry.TransferRestrictionStatus),

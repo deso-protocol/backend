@@ -3943,12 +3943,11 @@ func TransactionSpendingLimitToResponse(
 					validatorPublicKey, false, params,
 				)
 			}
-			stakeLimitVal := stakeLimit.Clone()
 			transactionSpendingLimitResponse.StakeLimitMap = append(
 				transactionSpendingLimitResponse.StakeLimitMap,
 				StakeLimitMapItem{
 					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
-					StakeLimit:                    stakeLimitVal,
+					StakeLimit:                    stakeLimit.Clone(),
 				},
 			)
 		}
@@ -3963,12 +3962,11 @@ func TransactionSpendingLimitToResponse(
 					validatorPublicKey, false, params,
 				)
 			}
-			unstakeLimitVal := unstakeLimit.Clone()
 			transactionSpendingLimitResponse.UnstakeLimitMap = append(
 				transactionSpendingLimitResponse.UnstakeLimitMap,
 				UnstakeLimitMapItem{
 					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
-					UnstakeLimit:                  unstakeLimitVal,
+					UnstakeLimit:                  unstakeLimit.Clone(),
 				},
 			)
 		}
