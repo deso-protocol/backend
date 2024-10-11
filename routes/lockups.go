@@ -662,7 +662,7 @@ func (fes *APIServer) LockedBalanceEntries(ww http.ResponseWriter, req *http.Req
 		var newTotalLockedBaseUnits *uint256.Int
 		if uint256.NewInt(0).Sub(
 			lib.MaxUint256,
-			cumulativeResponse.TotalLockedBaseUnits).Lt(&lockedBalanceEntry.BalanceBaseUnits) {
+			&cumulativeResponse.TotalLockedBaseUnits).Lt(&lockedBalanceEntry.BalanceBaseUnits) {
 			newTotalLockedBaseUnits = lib.MaxUint256
 		} else {
 			newTotalLockedBaseUnits = uint256.NewInt(0).Add(
@@ -698,8 +698,8 @@ func (fes *APIServer) LockedBalanceEntries(ww http.ResponseWriter, req *http.Req
 		}
 
 		// Update the cumulative response.
-		cumulativeResponse.TotalLockedBaseUnits = newTotalLockedBaseUnits
-		cumulativeResponse.UnlockableBaseUnits = newTotalUnlockableBaseUnits
+		cumulativeResponse.TotalLockedBaseUnits = *newTotalLockedBaseUnits
+		cumulativeResponse.UnlockableBaseUnits = *newTotalUnlockableBaseUnits
 		if lockedBalanceEntry.UnlockTimestampNanoSecs == lockedBalanceEntry.VestingEndTimestampNanoSecs {
 			cumulativeResponse.UnvestedLockedBalanceEntries = append(
 				cumulativeResponse.UnvestedLockedBalanceEntries,
