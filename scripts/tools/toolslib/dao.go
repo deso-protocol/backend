@@ -6,7 +6,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/backend/routes"
 	"github.com/deso-protocol/core/lib"
-	"github.com/holiman/uint256"
+	"github.com/deso-protocol/uint256"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"

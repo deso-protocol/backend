@@ -2,7 +2,7 @@ package config
 
 import (
 	"fmt"
-	"github.com/holiman/uint256"
+	"github.com/deso-protocol/uint256"
 	"math/big"
 	"strconv"
 	"strings"
