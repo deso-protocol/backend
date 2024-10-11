@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/core/lib"
-	"github.com/holiman/uint256"
+	"github.com/deso-protocol/uint256"
 	"io"
 	"math"
 	"math/big"

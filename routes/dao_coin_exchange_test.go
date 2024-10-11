@@ -3,7 +3,7 @@ package routes
 import (
 	"fmt"
 	"github.com/deso-protocol/core/lib"
-	"github.com/holiman/uint256"
+	"github.com/deso-protocol/uint256"
 	"github.com/stretchr/testify/require"
 	"testing"
 )

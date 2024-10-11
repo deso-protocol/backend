@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/holiman/uint256"
+	"github.com/deso-protocol/uint256"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -3526,12 +3526,12 @@ type AccessGroupMemberLimitMapItem struct {
 
 type StakeLimitMapItem struct {
 	ValidatorPublicKeyBase58Check string
-	StakeLimit                    *Uint256Hex
+	StakeLimit                    *uint256.Int
 }
 
 type UnstakeLimitMapItem struct {
 	ValidatorPublicKeyBase58Check string
-	UnstakeLimit                  *Uint256Hex
+	UnstakeLimit                  *uint256.Int
 }
 
 type UnlockStakeLimitMapItem struct {
@@ -3943,12 +3943,12 @@ func TransactionSpendingLimitToResponse(
 					validatorPublicKey, false, params,
 				)
 			}
-			stakeLimitVal := NewUint256Hex(stakeLimit.Clone())
+			stakeLimitVal := stakeLimit.Clone()
 			transactionSpendingLimitResponse.StakeLimitMap = append(
 				transactionSpendingLimitResponse.StakeLimitMap,
 				StakeLimitMapItem{
 					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
-					StakeLimit:                    &stakeLimitVal,
+					StakeLimit:                    stakeLimitVal,
 				},
 			)
 		}
@@ -3963,12 +3963,12 @@ func TransactionSpendingLimitToResponse(
 					validatorPublicKey, false, params,
 				)
 			}
-			unstakeLimitVal := NewUint256Hex(unstakeLimit.Clone())
+			unstakeLimitVal := unstakeLimit.Clone()
 			transactionSpendingLimitResponse.UnstakeLimitMap = append(
 				transactionSpendingLimitResponse.UnstakeLimitMap,
 				UnstakeLimitMapItem{
 					ValidatorPublicKeyBase58Check: validatorPublicKeyBase58Check,
-					UnstakeLimit:                  &unstakeLimitVal,
+					UnstakeLimit:                  unstakeLimitVal,
 				},
 			)
 		}

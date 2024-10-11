@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/uint256"
 	"io"
 	"net"
 	"net/http"
@@ -58,7 +59,7 @@ type ValidatorResponse struct {
 	DelegatedStakeCommissionBasisPoints uint64
 	VotingPublicKey                     string
 	VotingAuthorization                 string
-	TotalStakeAmountNanos               Uint256Hex
+	TotalStakeAmountNanos               *uint256.Int
 	Status                              string
 	LastActiveAtEpochNumber             uint64
 	JailedAtEpochNumber                 uint64
@@ -559,7 +560,7 @@ func _convertValidatorEntryToResponse(
 		DelegatedStakeCommissionBasisPoints: validatorEntry.DelegatedStakeCommissionBasisPoints,
 		VotingPublicKey:                     validatorEntry.VotingPublicKey.ToString(),
 		VotingAuthorization:                 validatorEntry.VotingAuthorization.ToString(),
-		TotalStakeAmountNanos:               NewUint256Hex(validatorEntry.TotalStakeAmountNanos.Clone()),
+		TotalStakeAmountNanos:               validatorEntry.TotalStakeAmountNanos.Clone(),
 		Status:                              validatorEntry.Status().ToString(),
 		LastActiveAtEpochNumber:             validatorEntry.LastActiveAtEpochNumber,
 		JailedAtEpochNumber:                 validatorEntry.JailedAtEpochNumber,

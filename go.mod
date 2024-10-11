@@ -16,6 +16,7 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0
 	github.com/deso-protocol/core v1.2.9
 	github.com/deso-protocol/go-deadlock v1.0.0
+	github.com/deso-protocol/uint256 v1.0.0
 	github.com/dgraph-io/badger/v4 v4.3.1
 	github.com/fatih/structs v1.1.0
 	github.com/golang-jwt/jwt/v4 v4.5.0

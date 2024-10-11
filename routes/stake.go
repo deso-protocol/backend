@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core/lib"
+	"github.com/deso-protocol/uint256"
 	"github.com/gorilla/mux"
-	"github.com/holiman/uint256"
 	"io"
 	"math"
 	"net/http"
@@ -101,7 +101,7 @@ type StakeEntryResponse struct {
 type LockedStakeEntryResponse struct {
 	StakerPublicKeyBase58Check    string
 	ValidatorPublicKeyBase58Check string
-	LockedAmountNanos             Uint256Hex
+	LockedAmountNanos             *uint256.Int
 	LockedAtEpochNumber           uint64
 	ExtraData                     map[string]string
 }
@@ -700,7 +700,7 @@ func _lockedStakeEntryToResponse(
 	return &LockedStakeEntryResponse{
 		StakerPublicKeyBase58Check:    lib.Base58CheckEncode(stakerPublicKey, false, params),
 		ValidatorPublicKeyBase58Check: lib.Base58CheckEncode(validatorPublicKey, false, params),
-		LockedAmountNanos:             NewUint256Hex(lockedStakeEntry.LockedAmountNanos),
+		LockedAmountNanos:             lockedStakeEntry.LockedAmountNanos,
 		LockedAtEpochNumber:           lockedStakeEntry.LockedAtEpochNumber,
 		ExtraData:                     DecodeExtraDataMap(params, utxoView, lockedStakeEntry.ExtraData),
 	}
