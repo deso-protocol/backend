@@ -1468,7 +1468,7 @@ func (fes *APIServer) JumioVerifiedHandler(userMetadata *UserMetadata, jumioTran
 func (fes *APIServer) SetJumioUSDCents() {
 	val, err := fes.GlobalState.Get(GlobalStateKeyForJumioUSDCents())
 	if err != nil {
-		glog.Errorf("SetJumioUSDCents: Error getting Jumio USD Cents from global state: %v", err)
+		glog.V(2).Infof("SetJumioUSDCents: Error getting Jumio USD Cents from global state: %v", err)
 		return
 	}
 	if len(val) == 0 {
@@ -1476,7 +1476,7 @@ func (fes *APIServer) SetJumioUSDCents() {
 	}
 	jumioUSDCents, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {
-		glog.Errorf("SetJumioUSDCents: invalid bytes read: %v", bytesRead)
+		glog.V(2).Infof("SetJumioUSDCents: invalid bytes read: %v", bytesRead)
 		return
 	}
 	fes.JumioUSDCents = jumioUSDCents
@@ -1489,7 +1489,7 @@ func (fes *APIServer) GetJumioDeSoNanos() uint64 {
 func (fes *APIServer) SetJumioKickbackUSDCents() {
 	val, err := fes.GlobalState.Get(GlobalStateKeyForJumioKickbackUSDCents())
 	if err != nil {
-		glog.Errorf("SetJumioKickbackUSDCents: Error getting Jumio Kickback USD Cents from global state: %v", err)
+		glog.V(2).Infof("SetJumioKickbackUSDCents: Error getting Jumio Kickback USD Cents from global state: %v", err)
 		return
 	}
 	if len(val) == 0 {
@@ -1497,7 +1497,7 @@ func (fes *APIServer) SetJumioKickbackUSDCents() {
 	}
 	jumioKickbackUSDCents, bytesRead := lib.Uvarint(val)
 	if bytesRead <= 0 {
-		glog.Errorf("SetJumioKickbackUSDCents: invalid bytes read: %v", bytesRead)
+		glog.V(2).Infof("SetJumioKickbackUSDCents: invalid bytes read: %v", bytesRead)
 		return
 	}
 	fes.JumioKickbackUSDCents = jumioKickbackUSDCents
