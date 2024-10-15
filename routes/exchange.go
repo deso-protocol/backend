@@ -182,16 +182,34 @@ func (fes *APIServer) APIBase(ww http.ResponseWriter, rr *http.Request) {
 		return
 	}
 
+	// Handle the case where the tip is not yet committed so we haven't computed and
+	// stored the txindex metadata in the database yet.
+	uncommittedTxnMetaMap := make(map[lib.BlockHash]*lib.TransactionMetadata)
+	if !blockNode.IsCommitted() {
+		uncommittedTxnMetaMap, err = fes.getTxindexMetadataForUncommittedBlock(blockNode, blockMsg)
+		if err != nil {
+			APIAddError(ww, fmt.Sprintf(
+				"APIBlockRequest: Problem computing txindex metadata for uncommitted txns: %v", err))
+			return
+		}
+	}
+
 	for _, txn := range blockMsg.Txns {
-		// Look up the metadata for each transaction.
-		txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), nil, txn.Hash())
+		var txnMeta *lib.TransactionMetadata
+		if !blockNode.IsCommitted() {
+			// If it's not committed, pull it from the uncommitted txn meta map.
+			txnMeta = uncommittedTxnMetaMap[*blockNode.Hash]
+		} else {
+			// Look up the metadata for each transaction.
+			txnMeta = lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), nil, txn.Hash())
+		}
 
 		res.Transactions = append(
 			res.Transactions, APITransactionToResponse(
 				txn, txnMeta, blockMsg, utxoView, fes.Params))
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		APIAddError(ww, fmt.Sprintf("APIBaseResponse: Problem encoding response "+
 			"as JSON: %v", err))
 		return
@@ -1326,6 +1344,37 @@ type APIBlockResponse struct {
 	Transactions []*TransactionResponse
 }
 
+func (fes *APIServer) getTxindexMetadataForUncommittedBlock(
+	blockNode *lib.BlockNode,
+	block *lib.MsgDeSoBlock,
+) (
+	map[lib.BlockHash]*lib.TransactionMetadata,
+	error,
+) {
+	// Handle the case where the block is not yet committed so we haven't computed and
+	// stored the txindex metadata in the database yet.
+	uncommittedTxnMetaMap := make(map[lib.BlockHash]*lib.TransactionMetadata)
+	txindexUtxoView := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.TXIndex.Params, nil, nil, nil)
+	if blockNode.Header.PrevBlockHash != nil && !txindexUtxoView.TipHash.IsEqual(blockNode.Header.PrevBlockHash) {
+		utxoViewAndUtxoOps, err := fes.TXIndex.TXIndexChain.GetUtxoViewAndUtxoOpsAtBlockHash(*blockNode.Header.PrevBlockHash)
+		if err != nil {
+			return nil, errors.Wrap(err,
+				"getTxindexMetadataForUncommittedBlock: Problem fetching utxoView for uncommitted block")
+		}
+		txindexUtxoView = utxoViewAndUtxoOps.UtxoView
+	}
+	for txnIndexInBlock, txn := range block.Txns {
+		txnMeta, err := lib.ConnectTxnAndComputeTransactionMetadata(
+			txn, txindexUtxoView, blockNode.Hash, blockNode.Height,
+			blockNode.Header.TstampNanoSecs, uint64(txnIndexInBlock))
+		if err != nil {
+			return nil, errors.Wrapf(err, "APIBlockRequest: Problem connecting txn %v to txindex", txn)
+		}
+		uncommittedTxnMetaMap[*txn.Hash()] = txnMeta
+	}
+	return uncommittedTxnMetaMap, nil
+}
+
 // APIBlock can be used to query a block's information using either the block
 // hash or height.
 //
@@ -1401,26 +1450,11 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 	// stored the txindex metadata in the database yet.
 	uncommittedTxnMetaMap := make(map[lib.BlockHash]*lib.TransactionMetadata)
 	if !blockNode.IsCommitted() {
-		txindexUtxoView := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.TXIndex.Params, nil, nil, nil)
-		if blockNode.Header.PrevBlockHash != nil && !txindexUtxoView.TipHash.IsEqual(blockNode.Header.PrevBlockHash) {
-			var utxoViewAndUtxoOps *lib.BlockViewAndUtxoOps
-			utxoViewAndUtxoOps, err = fes.TXIndex.TXIndexChain.GetUtxoViewAndUtxoOpsAtBlockHash(*blockNode.Header.PrevBlockHash)
-			if err != nil {
-				APIAddError(ww, fmt.Sprintf("APIBlockRequest: Problem fetching utxoView for uncommitted block: %v", err))
-				return
-			}
-			txindexUtxoView = utxoViewAndUtxoOps.UtxoView
-		}
-		for txnIndexInBlock, txn := range blockMsg.Txns {
-			txnMeta, err := lib.ConnectTxnAndComputeTransactionMetadata(
-				txn, utxoView, blockNode.Hash, blockNode.Height,
-				blockNode.Header.TstampNanoSecs, uint64(txnIndexInBlock))
-			if err != nil {
-				APIAddError(ww, fmt.Sprintf("APIBlockRequest: Problem connecting txn %v to txindex: %v",
-					txn, err))
-				return
-			}
-			uncommittedTxnMetaMap[*txn.Hash()] = txnMeta
+		uncommittedTxnMetaMap, err = fes.getTxindexMetadataForUncommittedBlock(blockNode, blockMsg)
+		if err != nil {
+			APIAddError(ww, fmt.Sprintf(
+				"APIBlockRequest: Problem computing txindex metadata for uncommitted txns: %v", err))
+			return
 		}
 	}
 
