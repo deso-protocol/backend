@@ -645,6 +645,28 @@ func APITransactionToResponse(
 				innerMetadata.BasicTransferTxindexMetadata.UtxoOps = nil
 			}
 		}
+	} else {
+		// If we're missing the txnMeta, we'll just fill in the basic info for a basic transfer.
+		txnMetaResponse = lib.TransactionMetadata{
+			TxnType:                        txnn.TxnMeta.GetTxnType().String(),
+			TransactorPublicKeyBase58Check: lib.PkToString(txnn.PublicKey, params),
+			BasicTransferTxindexMetadata: &lib.BasicTransferTxindexMetadata{
+				FeeNanos: txnn.TxnFeeNanos,
+			},
+			TxnOutputs: txnn.TxOutputs,
+		}
+		if block != nil {
+			blockHash, err := block.Hash()
+			if err == nil && blockHash != nil {
+				txnMetaResponse.BlockHashHex = hex.EncodeToString(blockHash[:])
+			}
+		}
+		for _, output := range txnn.TxOutputs {
+			txnMetaResponse.AffectedPublicKeys = append(txnMetaResponse.AffectedPublicKeys, &lib.AffectedPublicKey{
+				PublicKeyBase58Check: lib.PkToString(output.PublicKey, params),
+				Metadata:             "BasicTransferOutput",
+			})
+		}
 	}
 
 	txnBytes, _ := txnn.ToBytes(false /*preSignature*/)
@@ -1323,6 +1345,7 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 	// If the HashHex is set, look the block up using that.
 	numBlocks := len(fes.blockchain.BestChain())
 
+	var blockNode *lib.BlockNode
 	var blockHash *lib.BlockHash
 	if blockRequest.HashHex != "" {
 		hashBytes, err := hex.DecodeString(blockRequest.HashHex)
@@ -1332,6 +1355,12 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 		}
 		blockHash = &lib.BlockHash{}
 		copy(blockHash[:], hashBytes[:])
+		blockNode = fes.blockchain.GetBlockNodeWithHash(blockHash)
+		if blockNode == nil {
+			APIAddError(ww, fmt.Sprintf(
+				"APIBlockRequest: Block node with hash %v does not exist in best chain: %v", blockHash, err))
+			return
+		}
 
 	} else {
 		// Find the block node with the corresponding height on the best chain.
@@ -1344,7 +1373,8 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 				maxHeight))
 			return
 		}
-		blockHash = fes.blockchain.BestChain()[blockRequest.Height].Hash
+		blockNode = fes.blockchain.BestChain()[blockRequest.Height]
+		blockHash = blockNode.Hash
 	}
 
 	// Take the hash computed from above and find the corresponding block.
@@ -1367,11 +1397,41 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 		APIAddError(ww, fmt.Sprintf("APIBlockRequest: Problem fetching utxoView: %v", err))
 		return
 	}
+	// Handle the case where the block is not yet committed so we haven't computed and
+	// stored the txindex metadata in the database yet.
+	uncommittedTxnMetaMap := make(map[lib.BlockHash]*lib.TransactionMetadata)
+	if !blockNode.IsCommitted() {
+		txindexUtxoView := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.TXIndex.Params, nil, nil, nil)
+		if blockNode.Header.PrevBlockHash != nil && !txindexUtxoView.TipHash.IsEqual(blockNode.Header.PrevBlockHash) {
+			var utxoViewAndUtxoOps *lib.BlockViewAndUtxoOps
+			utxoViewAndUtxoOps, err = fes.TXIndex.TXIndexChain.GetUtxoViewAndUtxoOpsAtBlockHash(*blockNode.Header.PrevBlockHash)
+			if err != nil {
+				APIAddError(ww, fmt.Sprintf("APIBlockRequest: Problem fetching utxoView for uncommitted block: %v", err))
+				return
+			}
+			txindexUtxoView = utxoViewAndUtxoOps.UtxoView
+		}
+		for txnIndexInBlock, txn := range blockMsg.Txns {
+			txnMeta, err := lib.ConnectTxnAndComputeTransactionMetadata(
+				txn, utxoView, blockNode.Hash, blockNode.Height,
+				blockNode.Header.TstampNanoSecs, uint64(txnIndexInBlock))
+			if err != nil {
+				APIAddError(ww, fmt.Sprintf("APIBlockRequest: Problem connecting txn %v to txindex: %v",
+					txn, err))
+				return
+			}
+			uncommittedTxnMetaMap[*txn.Hash()] = txnMeta
+		}
+	}
 
 	if blockRequest.FullBlock {
 		for _, txn := range blockMsg.Txns {
-			// Look up the metadata for each transaction.
-			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), nil, txn.Hash())
+			var txnMeta *lib.TransactionMetadata
+			if !blockNode.IsCommitted() {
+				txnMeta = uncommittedTxnMetaMap[*txn.Hash()]
+			} else {
+				txnMeta = lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), nil, txn.Hash())
+			}
 
 			res.Transactions = append(
 				res.Transactions, APITransactionToResponse(
