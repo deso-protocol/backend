@@ -198,7 +198,7 @@ func (fes *APIServer) APIBase(ww http.ResponseWriter, rr *http.Request) {
 		var txnMeta *lib.TransactionMetadata
 		if !blockNode.IsCommitted() {
 			// If it's not committed, pull it from the uncommitted txn meta map.
-			txnMeta = uncommittedTxnMetaMap[*blockNode.Hash]
+			txnMeta = uncommittedTxnMetaMap[*txn.Hash()]
 		} else {
 			// Look up the metadata for each transaction.
 			txnMeta = lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), nil, txn.Hash())
