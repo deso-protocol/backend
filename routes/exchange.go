@@ -1351,12 +1351,18 @@ func (fes *APIServer) getTxindexMetadataForUncommittedBlock(
 	map[lib.BlockHash]*lib.TransactionMetadata,
 	error,
 ) {
+	if blockNode == nil {
+		return nil, fmt.Errorf("getTxindexMetadataForUncommittedBlock: blockNode is nil")
+	}
+	if blockNode.IsCommitted() {
+		return nil, fmt.Errorf("getTxindexMetadataForUncommittedBlock: blockNode is committed")
+	}
 	// Handle the case where the block is not yet committed so we haven't computed and
 	// stored the txindex metadata in the database yet.
 	uncommittedTxnMetaMap := make(map[lib.BlockHash]*lib.TransactionMetadata)
-	txindexUtxoView := lib.NewUtxoView(fes.TXIndex.TXIndexChain.DB(), fes.TXIndex.Params, nil, nil, nil)
+	txindexUtxoView := lib.NewUtxoView(fes.blockchain.DB(), fes.Params, nil, nil, nil)
 	if blockNode.Header.PrevBlockHash != nil && !txindexUtxoView.TipHash.IsEqual(blockNode.Header.PrevBlockHash) {
-		utxoViewAndUtxoOps, err := fes.TXIndex.TXIndexChain.GetUtxoViewAndUtxoOpsAtBlockHash(*blockNode.Header.PrevBlockHash)
+		utxoViewAndUtxoOps, err := fes.blockchain.GetUtxoViewAndUtxoOpsAtBlockHash(*blockNode.Header.PrevBlockHash)
 		if err != nil {
 			return nil, errors.Wrap(err,
 				"getTxindexMetadataForUncommittedBlock: Problem fetching utxoView for uncommitted block")
