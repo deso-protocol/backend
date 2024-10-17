@@ -3,7 +3,7 @@ package routes
 import (
 	"fmt"
 	"github.com/deso-protocol/core/lib"
-	"github.com/holiman/uint256"
+	"github.com/deso-protocol/uint256"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
@@ -41,17 +41,17 @@ func TestCalculateScaledExchangeRate(t *testing.T) {
 	// Test when buying coin is a DAO coin and selling coin is a DAO coin, for various exchange rates
 	for _, testCase := range successTestCases {
 		exchangeRate := testCase.floatValue
-		expectedScaledExchangeRate := uint256.NewInt()
+		expectedScaledExchangeRate := uint256.NewInt(0)
 		if testCase.expectedWholeNumberDigits > 0 {
-			expectedScaledExchangeRate = uint256.NewInt().Mul(
-				lib.OneE38, uint256.NewInt().SetUint64(uint64(testCase.expectedWholeNumberDigits)),
+			expectedScaledExchangeRate = uint256.NewInt(0).Mul(
+				lib.OneE38, uint256.NewInt(uint64(testCase.expectedWholeNumberDigits)),
 			)
 		}
 
 		if testCase.decimalDigitExponent < 0 {
 			expectedScaledExchangeRate.Add(
 				expectedScaledExchangeRate,
-				uint256.NewInt().Div(lib.OneE38, uint256.NewInt().SetUint64(uint64(-testCase.decimalDigitExponent))),
+				uint256.NewInt(0).Div(lib.OneE38, uint256.NewInt(uint64(-testCase.decimalDigitExponent))),
 			)
 		}
 		scaledExchangeRate, err := CalculateScaledExchangeRateFromFloat(
@@ -72,7 +72,7 @@ func TestCalculateScaledExchangeRate(t *testing.T) {
 		)
 		require.NoError(t, err)
 		// expectedScaledExchangeRate / 1e9
-		expectedScaledExchangeRate := uint256.NewInt().Div(lib.OneE38, desoToDaoCoinBaseUnitsScalingFactor)
+		expectedScaledExchangeRate := uint256.NewInt(0).Div(lib.OneE38, desoToDaoCoinBaseUnitsScalingFactor)
 		require.Equal(t, expectedScaledExchangeRate, scaledExchangeRate)
 	}
 
@@ -84,7 +84,7 @@ func TestCalculateScaledExchangeRate(t *testing.T) {
 			1.0,
 		)
 		require.NoError(t, err)
-		expectedScaledExchangeRate := uint256.NewInt().Mul(
+		expectedScaledExchangeRate := uint256.NewInt(0).Mul(
 			lib.OneE38,
 			desoToDaoCoinBaseUnitsScalingFactor,
 		)
@@ -211,9 +211,9 @@ func TestCalculateExchangeRateAsFloat(t *testing.T) {
 	desoToDaoCoinBaseUnitsScalingFactor := getDESOToDAOCoinBaseUnitsScalingFactor()
 
 	// equivalent to 100.00000001
-	scaledExchangeRate := uint256.NewInt().Add(
-		uint256.NewInt().Mul(lib.OneE38, uint256.NewInt().SetUint64(100)),       // 100
-		uint256.NewInt().Div(lib.OneE38, uint256.NewInt().SetUint64(100000000)), // 0.00000001
+	scaledExchangeRate := uint256.NewInt(0).Add(
+		uint256.NewInt(0).Mul(lib.OneE38, uint256.NewInt(100)),       // 100
+		uint256.NewInt(0).Div(lib.OneE38, uint256.NewInt(100000000)), // 0.00000001
 	)
 	expectedExchangeRate := 100.00000001
 
@@ -257,7 +257,7 @@ func TestCalculatePriceStringFromScaledExchangeRate(t *testing.T) {
 	desoToDaoCoinBaseUnitsScalingFactor := getDESOToDAOCoinBaseUnitsScalingFactor()
 
 	// equivalent to 100 scaled up by 1e38
-	scaledExchangeRate := uint256.NewInt().Mul(lib.OneE38, uint256.NewInt().SetUint64(100))
+	scaledExchangeRate := uint256.NewInt(0).Mul(lib.OneE38, uint256.NewInt(100))
 
 	expectedStringExchangeRate := "100.0"
 	expectedInvertedStringExchangeRate := "0.01"
@@ -292,7 +292,7 @@ func TestCalculatePriceStringFromScaledExchangeRate(t *testing.T) {
 			daoCoinPubKeyBase58Check,
 			desoPubKeyBase58Check,
 			// need to account for exchange rate being scaled up by 1e9 for orders selling deso for dao coins
-			uint256.NewInt().Div(scaledExchangeRate, desoToDaoCoinBaseUnitsScalingFactor),
+			uint256.NewInt(0).Div(scaledExchangeRate, desoToDaoCoinBaseUnitsScalingFactor),
 			DAOCoinLimitOrderOperationTypeStringBID,
 		)
 		require.NoError(t, err)
@@ -305,7 +305,7 @@ func TestCalculatePriceStringFromScaledExchangeRate(t *testing.T) {
 			daoCoinPubKeyBase58Check,
 			desoPubKeyBase58Check,
 			// need to account for exchange rate being scaled up by 1e9 for orders selling deso for dao coins
-			uint256.NewInt().Div(scaledExchangeRate, desoToDaoCoinBaseUnitsScalingFactor),
+			uint256.NewInt(0).Div(scaledExchangeRate, desoToDaoCoinBaseUnitsScalingFactor),
 			DAOCoinLimitOrderOperationTypeStringASK,
 		)
 		require.NoError(t, err)
@@ -318,7 +318,7 @@ func TestCalculatePriceStringFromScaledExchangeRate(t *testing.T) {
 			desoPubKeyBase58Check,
 			daoCoinPubKeyBase58Check,
 			// need to account for exchange rate being scaled down by 1e9 for orders selling dao coins for deso
-			uint256.NewInt().Mul(scaledExchangeRate, desoToDaoCoinBaseUnitsScalingFactor),
+			uint256.NewInt(0).Mul(scaledExchangeRate, desoToDaoCoinBaseUnitsScalingFactor),
 			DAOCoinLimitOrderOperationTypeStringBID,
 		)
 		require.NoError(t, err)
@@ -331,7 +331,7 @@ func TestCalculatePriceStringFromScaledExchangeRate(t *testing.T) {
 			desoPubKeyBase58Check,
 			daoCoinPubKeyBase58Check,
 			// need to account for exchange rate being scaled down by 1e9 for orders selling dao coins for deso
-			uint256.NewInt().Mul(scaledExchangeRate, desoToDaoCoinBaseUnitsScalingFactor),
+			uint256.NewInt(0).Mul(scaledExchangeRate, desoToDaoCoinBaseUnitsScalingFactor),
 			DAOCoinLimitOrderOperationTypeStringASK,
 		)
 		require.NoError(t, err)
@@ -340,7 +340,7 @@ func TestCalculatePriceStringFromScaledExchangeRate(t *testing.T) {
 }
 
 func TestCalculateQuantityToFillAsBaseUnits(t *testing.T) {
-	expectedValueIfDESO := uint256.NewInt().SetUint64(lib.NanosPerUnit)
+	expectedValueIfDESO := uint256.NewInt(lib.NanosPerUnit)
 	expectedValueIfDAOCoin := &(*lib.BaseUnitsPerCoin)
 
 	quantity := float64(1)
@@ -535,7 +535,7 @@ func TestCalculateStringQuantityFromBaseUnits(t *testing.T) {
 			desoPubKeyBase58Check,
 			daoCoinPubKeyBase58Check,
 			DAOCoinLimitOrderOperationTypeStringBID,
-			uint256.NewInt().SetUint64(0),
+			uint256.NewInt(0),
 		)
 		require.Error(t, err)
 	}
@@ -546,7 +546,7 @@ func TestCalculateStringQuantityFromBaseUnits(t *testing.T) {
 			desoPubKeyBase58Check,
 			daoCoinPubKeyBase58Check,
 			DAOCoinLimitOrderOperationTypeStringASK,
-			uint256.NewInt().SetUint64(0),
+			uint256.NewInt(0),
 		)
 		require.Error(t, err)
 	}

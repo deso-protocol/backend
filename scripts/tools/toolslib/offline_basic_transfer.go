@@ -1,14 +1,14 @@
 package toolslib
 
 import (
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 )
 
 // ACCOUNT GENERATION
 func accountGeneration() (*btcec.PrivateKey, *btcec.PublicKey, error) {
-	privKey, err := btcec.NewPrivateKey(btcec.S256())
+	privKey, err := btcec.NewPrivateKey()
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "accountGeneration() failed to generate private key")
 	}

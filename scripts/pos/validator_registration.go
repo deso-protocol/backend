@@ -9,11 +9,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/backend/routes"
 	"github.com/deso-protocol/core/bls"
 	"github.com/deso-protocol/core/lib"
-	"github.com/holiman/uint256"
+	"github.com/deso-protocol/uint256"
 	"github.com/pkg/errors"
 	"github.com/tyler-smith/go-bip39"
 )
@@ -137,7 +137,7 @@ func constructStakeTxn(pubKey *lib.PublicKey) routes.StakeTxnResponse {
 		TransactorPublicKeyBase58Check: publicKeyString,
 		ValidatorPublicKeyBase58Check:  publicKeyString,
 		RewardMethod:                   routes.PayToBalance,
-		StakeAmountNanos:               uint256.NewInt().SetUint64(9 * 1e9),
+		StakeAmountNanos:               uint256.NewInt(9 * 1e9),
 		ExtraData:                      map[string]string{},
 		MinFeeRateNanosPerKB:           1000,
 		TransactionFees:                []routes.TransactionFee{},

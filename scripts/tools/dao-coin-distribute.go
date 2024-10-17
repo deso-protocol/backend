@@ -8,7 +8,7 @@ import (
 	"github.com/deso-protocol/backend/routes"
 	"github.com/deso-protocol/backend/scripts/tools/toolslib"
 	"github.com/deso-protocol/core/lib"
-	"github.com/holiman/uint256"
+	"github.com/deso-protocol/uint256"
 	"github.com/pkg/errors"
 	"github.com/tyler-smith/go-bip39"
 	"io/ioutil"
@@ -65,7 +65,7 @@ func _ReadSaveStateJSONFilename(saveStateJSONFilename string) (map[uint64]uint25
 		if !successfulSetString {
 			return nil, errors.Errorf("_ReadSaveStateJSONFilename(): Failed to decode uint256.Int in JSON file")
 		}
-		vvBaseUnits := uint256.NewInt()
+		vvBaseUnits := uint256.NewInt(0)
 		var overflow bool
 		overflow = vvBaseUnits.SetFromBig(vvBigInt)
 		if overflow {
@@ -153,14 +153,11 @@ func main() {
 		panic(errors.Errorf("main(): Could not decode max distribution amount from string %s",
 			*flagParamMaxDistributionAmountDAOCoinBaseUnits))
 	}
-	distributionTargetDAOCoinBaseUnits := uint256.NewInt()
-	var overflow bool
-	overflow = distributionTargetDAOCoinBaseUnits.SetFromBig(distributionTargetDAOCoinBaseUnitsBigInt)
+	distributionTargetDAOCoinBaseUnits, overflow := uint256.FromBig(distributionTargetDAOCoinBaseUnitsBigInt)
 	if overflow {
 		panic(errors.Errorf("main() failed to convert distribution target from big.Int to uint256"))
 	}
-	maxDistributionAmountDAOCoinBaseUnits := uint256.NewInt()
-	overflow = maxDistributionAmountDAOCoinBaseUnits.SetFromBig(maxDistributionAmountDAOCoinBaseUnitsBigInt)
+	maxDistributionAmountDAOCoinBaseUnits, overflow := uint256.FromBig(maxDistributionAmountDAOCoinBaseUnitsBigInt)
 	if overflow {
 		panic(errors.Errorf("main() failed to convert max distribution amount from big.Int to uint256"))
 	}
@@ -294,7 +291,7 @@ func main() {
 	publicKeyToAssociatedSerialNumbers := make(map[string][]uint64)
 	serialNumberToDAODistributionAmountBaseUnits := make(map[uint64]uint256.Int)
 	serialNumberToDAODistributionAmountReadable := make(map[uint64]string)
-	totalDistributionAmountDAOCoinBaseUnits := *uint256.NewInt().SetUint64(0)
+	totalDistributionAmountDAOCoinBaseUnits := *uint256.NewInt(0)
 	uniqueSerialNumberMap := make(map[uint64]struct{})
 
 	// Process NFT Entries and produce a map from public key to the amount of DAO coin base units needed to be sent.
@@ -303,7 +300,7 @@ func main() {
 			panic(errors.Errorf("main(): Found duplicate serial numbers in NFT entries response\n"))
 		}
 		uniqueSerialNumberMap[nftEntryResponse.SerialNumber] = struct{}{}
-		serialNumberToDAODistributionAmountBaseUnits[nftEntryResponse.SerialNumber] = *uint256.NewInt().SetUint64(0)
+		serialNumberToDAODistributionAmountBaseUnits[nftEntryResponse.SerialNumber] = *uint256.NewInt(0)
 		if nftEntryResponse.SerialNumber == 2 {
 			fmt.Printf("USER FOUND: %s\n", nftEntryResponse.OwnerPublicKeyBase58Check)
 		}
@@ -323,18 +320,18 @@ func main() {
 		}
 
 		// Check if there's previously saved state for this serial number + NFT combo.
-		previousDistributionAmountBaseUnits := uint256.NewInt().SetUint64(0)
+		previousDistributionAmountBaseUnits := uint256.NewInt(0)
 		if _, saveExists := saveStateMap[nftEntryResponse.SerialNumber]; saveExists {
 			*previousDistributionAmountBaseUnits = saveStateMap[nftEntryResponse.SerialNumber]
 		}
 
 		// Compute the amount to distribute for this serial number.
-		amountToDistributeDAOCoinBaseUnits := *uint256.NewInt().SetUint64(0)
+		amountToDistributeDAOCoinBaseUnits := *uint256.NewInt(0)
 		if distributionTargetDAOCoinBaseUnits.Cmp(previousDistributionAmountBaseUnits) == 0 ||
 			distributionTargetDAOCoinBaseUnits.Cmp(previousDistributionAmountBaseUnits) == 1 {
-			amountToDistributeDAOCoinBaseUnits = *uint256.NewInt().Sub(distributionTargetDAOCoinBaseUnits, previousDistributionAmountBaseUnits)
+			amountToDistributeDAOCoinBaseUnits = *uint256.NewInt(0).Sub(distributionTargetDAOCoinBaseUnits, previousDistributionAmountBaseUnits)
 		}
-		if maxDistributionAmountDAOCoinBaseUnits.Cmp(uint256.NewInt().SetUint64(0)) == 1 &&
+		if maxDistributionAmountDAOCoinBaseUnits.Cmp(uint256.NewInt(0)) == 1 &&
 			maxDistributionAmountDAOCoinBaseUnits.Cmp(&amountToDistributeDAOCoinBaseUnits) == -1 {
 			amountToDistributeDAOCoinBaseUnits = *maxDistributionAmountDAOCoinBaseUnits
 		}
@@ -343,7 +340,7 @@ func main() {
 		if _, entryExists := publicKeyToDAODistributionAmountBaseUnits[nftEntryResponse.OwnerPublicKeyBase58Check]; entryExists {
 			prevAmount := publicKeyToDAODistributionAmountBaseUnits[nftEntryResponse.OwnerPublicKeyBase58Check]
 			publicKeyToDAODistributionAmountBaseUnits[nftEntryResponse.OwnerPublicKeyBase58Check] =
-				*uint256.NewInt().SetUint64(0).Add(&prevAmount, &amountToDistributeDAOCoinBaseUnits)
+				*uint256.NewInt(0).Add(&prevAmount, &amountToDistributeDAOCoinBaseUnits)
 		} else {
 			publicKeyToDAODistributionAmountBaseUnits[nftEntryResponse.OwnerPublicKeyBase58Check] = amountToDistributeDAOCoinBaseUnits
 		}
@@ -355,7 +352,7 @@ func main() {
 		serialNumberToDAODistributionAmountReadable[nftEntryResponse.SerialNumber] = amountToDistributeDAOCoinBaseUnits.ToBig().String()
 
 		// Keep track of the total distribution amount.
-		totalDistributionAmountDAOCoinBaseUnits = *uint256.NewInt().SetUint64(0).Add(
+		totalDistributionAmountDAOCoinBaseUnits = *uint256.NewInt(0).Add(
 			&totalDistributionAmountDAOCoinBaseUnits, &amountToDistributeDAOCoinBaseUnits)
 	}
 
@@ -371,10 +368,10 @@ func main() {
 	fmt.Printf("Public Key Distribution Map: \n%s\n", string(pkDistributionMapBytes))
 	fmt.Printf("Serial Number Distribution Map: \n%s\n", string(serialNumDistributionMapBytes))
 	fmt.Printf("Total Amount DAO Coin Base Units to Distribute: %s\n", totalDistributionAmountDAOCoinBaseUnits.ToBig().String())
-	totalDistributionAmountBeforeDecimal := uint256.NewInt().SetUint64(0).Div(&totalDistributionAmountDAOCoinBaseUnits,
-		uint256.NewInt().SetUint64(1e18)).ToBig().String()
-	totalDistributionAmountAfterDecimal := uint256.NewInt().SetUint64(0).Mod(&totalDistributionAmountDAOCoinBaseUnits,
-		uint256.NewInt().SetUint64(1e18)).ToBig().String()
+	totalDistributionAmountBeforeDecimal := uint256.NewInt(0).Div(&totalDistributionAmountDAOCoinBaseUnits,
+		uint256.NewInt(1e18)).ToBig().String()
+	totalDistributionAmountAfterDecimal := uint256.NewInt(0).Mod(&totalDistributionAmountDAOCoinBaseUnits,
+		uint256.NewInt(1e18)).ToBig().String()
 	previousLength := len(totalDistributionAmountAfterDecimal)
 	for ii := 0; ii < 18-previousLength; ii++ {
 		totalDistributionAmountAfterDecimal = "0" + totalDistributionAmountAfterDecimal
@@ -401,7 +398,7 @@ func main() {
 	for ii := 0; ii < len(distributionPublicKeys); ii++ {
 		receiverPublicKey := distributionPublicKeys[ii]
 		receiverAmountNanosDAOCoinBaseUnits := publicKeyToDAODistributionAmountBaseUnits[receiverPublicKey]
-		if receiverAmountNanosDAOCoinBaseUnits.Cmp(uint256.NewInt().SetUint64(0)) == 0 {
+		if receiverAmountNanosDAOCoinBaseUnits.Cmp(uint256.NewInt(0)) == 0 {
 			continue
 		}
 
@@ -431,7 +428,7 @@ func main() {
 			if _, saveStateExists := saveStateMap[serialNumber]; saveStateExists {
 				prevAmount := saveStateMap[serialNumber]
 				distAmount := serialNumberToDAODistributionAmountBaseUnits[serialNumber]
-				saveStateMap[serialNumber] = *uint256.NewInt().SetUint64(0).Add(&prevAmount, &distAmount)
+				saveStateMap[serialNumber] = *uint256.NewInt(0).Add(&prevAmount, &distAmount)
 			} else {
 				saveStateMap[serialNumber] = serialNumberToDAODistributionAmountBaseUnits[serialNumber]
 			}
