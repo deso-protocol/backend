@@ -7,7 +7,7 @@ import (
 	"github.com/deso-protocol/backend/routes"
 	coreCmd "github.com/deso-protocol/core/cmd"
 	"github.com/deso-protocol/core/lib"
-	"github.com/dgraph-io/badger/v3"
+	"github.com/dgraph-io/badger/v4"
 	"github.com/golang/glog"
 	"github.com/kevinburke/twilio-go"
 )
