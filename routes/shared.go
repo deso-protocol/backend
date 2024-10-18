@@ -5,12 +5,12 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/uint256"
 	"net/http"
 	"time"
 
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
-	"github.com/holiman/uint256"
 	"github.com/pkg/errors"
 	"github.com/tyler-smith/go-bip39"
 )

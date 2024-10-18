@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 )
@@ -612,7 +612,7 @@ func (fes *APIServer) TestSignTransactionWithDerivedKey(ww http.ResponseWriter, 
 		_AddBadRequestError(ww, fmt.Sprintf("TestSignTransactionWithDerivedKey: Problem decoding seed hex %v", err))
 		return
 	}
-	privKeyBytes, _ := btcec.PrivKeyFromBytes(btcec.S256(), privBytes)
+	privKeyBytes, _ := btcec.PrivKeyFromBytes(privBytes)
 
 	// Sign the transaction with a derived key. Since the txn extraData must be modified,
 	// we also get new transaction bytes, along with the signature.
