@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/backend/config"
 	coreCmd "github.com/deso-protocol/core/cmd"
 	"github.com/deso-protocol/core/lib"
@@ -644,7 +644,7 @@ func newTestApiServer(t *testing.T) *APIServer {
 func signTxn(t *testing.T, txn *lib.MsgDeSoTxn, privKeyBase58Check string) {
 	privKeyBytes, _, err := lib.Base58CheckDecode(privKeyBase58Check)
 	require.NoError(t, err)
-	privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), privKeyBytes)
+	privKey, _ := btcec.PrivKeyFromBytes(privKeyBytes)
 	txnSignature, err := txn.Sign(privKey)
 	require.NoError(t, err)
 	txn.Signature.SetSignature(txnSignature)
