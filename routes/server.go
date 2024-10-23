@@ -6,6 +6,7 @@ import (
 	fmt "fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -13,13 +14,13 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/backend/config"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/tyler-smith/go-bip39"
 
 	"github.com/deso-protocol/core/lib"
-	"github.com/dgraph-io/badger/v3"
+	"github.com/dgraph-io/badger/v4"
 	"github.com/golang/glog"
 	"github.com/kevinburke/twilio-go"
 	muxtrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/gorilla/mux"
@@ -71,38 +72,46 @@ const (
 	RoutePathGetSignatureIndex        = "/api/v0/signature-index"
 	RoutePathGetTxnConstructionParams = "/api/v0/txn-construction-params"
 
-	RoutePathGetUsersStateless                          = "/api/v0/get-users-stateless"
-	RoutePathDeleteIdentities                           = "/api/v0/delete-identities"
-	RoutePathGetProfiles                                = "/api/v0/get-profiles"
-	RoutePathGetSingleProfile                           = "/api/v0/get-single-profile"
-	RoutePathGetSingleProfilePicture                    = "/api/v0/get-single-profile-picture"
-	RoutePathGetHodlersForPublicKey                     = "/api/v0/get-hodlers-for-public-key"
-	RoutePathGetTokenBalancesForPublicKey               = "/api/v0/get-token-balances-for-public-key"
-	RoutePathGetHodlersCountForPublicKeys               = "/api/v0/get-hodlers-count-for-public-keys"
-	RoutePathGetDiamondsForPublicKey                    = "/api/v0/get-diamonds-for-public-key"
-	RoutePathGetFollowsStateless                        = "/api/v0/get-follows-stateless"
-	RoutePathGetUserGlobalMetadata                      = "/api/v0/get-user-global-metadata"
-	RoutePathUpdateUserGlobalMetadata                   = "/api/v0/update-user-global-metadata"
-	RoutePathGetNotifications                           = "/api/v0/get-notifications"
-	RoutePathGetUnreadNotificationsCount                = "/api/v0/get-unread-notifications-count"
-	RoutePathSetNotificationMetadata                    = "/api/v0/set-notification-metadata"
-	RoutePathBlockPublicKey                             = "/api/v0/block-public-key"
-	RoutePathIsFollowingPublicKey                       = "/api/v0/is-following-public-key"
-	RoutePathIsHodlingPublicKey                         = "/api/v0/is-hodling-public-key"
-	RoutePathGetUserDerivedKeys                         = "/api/v0/get-user-derived-keys"
-	RoutePathGetSingleDerivedKey                        = "/api/v0/get-single-derived-key"
-	RoutePathGetTransactionSpendingLimitHexString       = "/api/v0/get-transaction-spending-limit-hex-string"
-	RoutePathGetAccessBytes                             = "/api/v0/get-access-bytes"
-	RoutePathGetTransactionSpendingLimitResponseFromHex = "/api/v0/get-transaction-spending-limit-response-from-hex"
-	RoutePathDeletePII                                  = "/api/v0/delete-pii"
-	RoutePathGetUserMetadata                            = "/api/v0/get-user-metadata"
-	RoutePathGetUsernameForPublicKey                    = "/api/v0/get-user-name-for-public-key"
-	RoutePathGetPublicKeyForUsername                    = "/api/v0/get-public-key-for-user-name"
+	RoutePathGetUsersStateless                           = "/api/v0/get-users-stateless"
+	RoutePathDeleteIdentities                            = "/api/v0/delete-identities"
+	RoutePathGetProfiles                                 = "/api/v0/get-profiles"
+	RoutePathGetSingleProfile                            = "/api/v0/get-single-profile"
+	RoutePathGetSingleProfilePicture                     = "/api/v0/get-single-profile-picture"
+	RoutePathGetHodlersForPublicKey                      = "/api/v0/get-hodlers-for-public-key"
+	RoutePathGetGetHoldersForPublicKeyWithLockedBalances = "/api/v0/get-holders-for-public-key-with-locked-balances"
+	RoutePathGetTokenBalancesForPublicKey                = "/api/v0/get-token-balances-for-public-key"
+	RoutePathGetHodlersCountForPublicKeys                = "/api/v0/get-hodlers-count-for-public-keys"
+	RoutePathGetDiamondsForPublicKey                     = "/api/v0/get-diamonds-for-public-key"
+	RoutePathGetFollowsStateless                         = "/api/v0/get-follows-stateless"
+	RoutePathGetUserGlobalMetadata                       = "/api/v0/get-user-global-metadata"
+	RoutePathUpdateUserGlobalMetadata                    = "/api/v0/update-user-global-metadata"
+	RoutePathGetNotifications                            = "/api/v0/get-notifications"
+	RoutePathGetUnreadNotificationsCount                 = "/api/v0/get-unread-notifications-count"
+	RoutePathSetNotificationMetadata                     = "/api/v0/set-notification-metadata"
+	RoutePathBlockPublicKey                              = "/api/v0/block-public-key"
+	RoutePathIsFollowingPublicKey                        = "/api/v0/is-following-public-key"
+	RoutePathIsHodlingPublicKey                          = "/api/v0/is-hodling-public-key"
+	RoutePathGetUserDerivedKeys                          = "/api/v0/get-user-derived-keys"
+	RoutePathGetSingleDerivedKey                         = "/api/v0/get-single-derived-key"
+	RoutePathGetTransactionSpendingLimitHexString        = "/api/v0/get-transaction-spending-limit-hex-string"
+	RoutePathGetAccessBytes                              = "/api/v0/get-access-bytes"
+	RoutePathGetTransactionSpendingLimitResponseFromHex  = "/api/v0/get-transaction-spending-limit-response-from-hex"
+	RoutePathDeletePII                                   = "/api/v0/delete-pii"
+	RoutePathGetUserMetadata                             = "/api/v0/get-user-metadata"
+	RoutePathGetUsernameForPublicKey                     = "/api/v0/get-user-name-for-public-key"
+	RoutePathGetPublicKeyForUsername                     = "/api/v0/get-public-key-for-user-name"
 
 	// dao_coin_exchange.go
 	RoutePathGetDaoCoinLimitOrders           = "/api/v0/get-dao-coin-limit-orders"
 	RoutePathGetDaoCoinLimitOrdersById       = "/api/v0/get-dao-coin-limit-orders-by-id"
 	RoutePathGetTransactorDaoCoinLimitOrders = "/api/v0/get-transactor-dao-coin-limit-orders"
+
+	// dao_coin_exchange_with_fees.go
+	RoutePathUpdateDaoCoinMarketFees        = "/api/v0/update-dao-coin-market-fees"
+	RoutePathGetDaoCoinMarketFees           = "/api/v0/get-dao-coin-market-fees"
+	RoutePathCreateDAOCoinLimitOrderWithFee = "/api/v0/create-dao-coin-limit-order-with-fee"
+	RoutePathGetQuoteCurrencyPriceInUsd     = "/api/v0/get-quote-currency-price-in-usd"
+	RoutePathGetBaseCurrencyPrice           = "/api/v0/get-base-currency-price"
 
 	// post.go
 	RoutePathGetPostsHashHexList    = "/api/v0/get-posts-hashhexlist"
@@ -191,8 +200,9 @@ const (
 	// Admin route paths can only be accessed if a user's public key is whitelisted as an admin.
 
 	// admin_node.go
-	RoutePathNodeControl          = "/api/v0/admin/node-control"
-	RoutePathAdminGetMempoolStats = "/api/v0/admin/get-mempool-stats"
+	RoutePathNodeControl           = "/api/v0/admin/node-control"
+	RoutePathAdminGetMempoolStats  = "/api/v0/admin/get-mempool-stats"
+	RoutePathAdminUpdateViewNumber = "/api/v0/admin/update-view-number"
 
 	// admin_buy_deso.go
 	RoutePathSetUSDCentsToDeSoReserveExchangeRate = "/api/v0/admin/set-usd-cents-to-deso-reserve-exchange-rate"
@@ -202,6 +212,7 @@ const (
 
 	// admin_transaction.go
 	RoutePathGetGlobalParams                   = "/api/v0/get-global-params"
+	RoutePathGetAllGlobalParams                = "/api/v0/get-all-global-params"
 	RoutePathTestSignTransactionWithDerivedKey = "/api/v0/admin/test-sign-transaction-with-derived-key"
 
 	// Eventually we will deprecate the admin endpoint since it does not need to be protected.
@@ -473,6 +484,8 @@ type APIServer struct {
 	// Cache of Total Supply and Rich List
 	TotalSupplyNanos  uint64
 	TotalSupplyDESO   float64
+	TotalStakedNanos  uint64
+	TotalStakedDESO   float64
 	RichList          []RichListEntryResponse
 	CountKeysWithDESO uint64
 
@@ -551,6 +564,7 @@ func NewAPIServer(
 	}
 
 	fes.StartSeedBalancesMonitoring()
+	fes.StartPeerMonitoring()
 
 	// Call this once upon starting server to ensure we have a good initial value
 	fes.UpdateUSDCentsToDeSoExchangeRate()
@@ -656,6 +670,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetGlobalParams,
 			fes.GetGlobalParams,
+			PublicAccess,
+		},
+		{
+			"GetAllGlobalParams",
+			[]string{"GET"},
+			RoutePathGetAllGlobalParams,
+			fes.GetAllGlobalParams,
 			PublicAccess,
 		},
 		// Route for sending DeSo
@@ -928,6 +949,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetHodlersForPublicKey,
 			fes.GetHodlersForPublicKey,
+			PublicAccess,
+		},
+		{
+			"GetHoldersForPublicKeyWithLockedBalances",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetGetHoldersForPublicKeyWithLockedBalances,
+			fes.GetHoldersForPublicKeyWithLockedBalances,
 			PublicAccess,
 		},
 		{
@@ -1257,6 +1285,41 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetTransactorDaoCoinLimitOrders,
 			fes.GetTransactorDAOCoinLimitOrders,
+			PublicAccess,
+		},
+		{
+			"UpdateDaoCoinMarketFees",
+			[]string{"POST", "OPTIONS"},
+			RoutePathUpdateDaoCoinMarketFees,
+			fes.UpdateDaoCoinMarketFees,
+			PublicAccess,
+		},
+		{
+			"GetDaoCoinMarketFees",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetDaoCoinMarketFees,
+			fes.GetDaoCoinMarketFees,
+			PublicAccess,
+		},
+		{
+			"CreateDAOCoinLimitOrderWithFee",
+			[]string{"POST", "OPTIONS"},
+			RoutePathCreateDAOCoinLimitOrderWithFee,
+			fes.CreateDAOCoinLimitOrderWithFee,
+			PublicAccess,
+		},
+		{
+			"GetBaseCurrencyPrice",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetBaseCurrencyPrice,
+			fes.GetBaseCurrencyPriceEndpoint,
+			PublicAccess,
+		},
+		{
+			"GetQuoteCurrencyPriceInUsd",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetQuoteCurrencyPriceInUsd,
+			fes.GetQuoteCurrencyPriceInUsdEndpoint,
 			PublicAccess,
 		},
 		{
@@ -1638,6 +1701,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			RoutePathAdminGetMempoolStats,
 			fes.AdminGetMempoolStats,
 			AdminAccess,
+		},
+		{
+			"AdminUpdateViewNumber",
+			[]string{"POST", "OPTIONS"},
+			RoutePathAdminUpdateViewNumber,
+			fes.AdminUpdateViewNumber,
+			SuperAdminAccess,
 		},
 		{
 			"AdminGetGlobalParams",
@@ -2687,7 +2757,7 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 		return false, errors.Wrapf(err, "Problem decoding public key")
 	}
 
-	pubKey, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+	pubKey, err := btcec.ParsePubKey(pubKeyBytes)
 	if err != nil {
 		return false, errors.Wrapf(err, "Problem parsing public key")
 	}
@@ -2705,7 +2775,7 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 			if err != nil {
 				return nil, errors.Wrapf(err, "Problem decoding derived public key")
 			}
-			derivedPublicKey, err := btcec.ParsePubKey(derivedPublicKeyBytes, btcec.S256())
+			derivedPublicKey, err := btcec.ParsePubKey(derivedPublicKeyBytes)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Problem parsing derived public key bytes")
 			}
@@ -2831,6 +2901,235 @@ func (fes *APIServer) StartExchangePriceMonitoring() {
 			}
 		}
 	}()
+}
+
+func (fes *APIServer) StartPeerMonitoring() {
+	if fes.backendServer == nil || fes.backendServer.GetStatsdClient() == nil {
+		return
+	}
+
+	ipAddressMap, trackedDomains, err := fes.InitializePeerIpAddressMap()
+	if err != nil {
+		fmt.Printf("Error initializing peer IP address map: %v\n", err)
+	}
+
+	go func() {
+		peerLoggingTicker := time.NewTicker(30 * time.Second)
+		validatorUrlRefreshTicker := time.NewTicker(1 * time.Hour)
+		defer peerLoggingTicker.Stop()
+		defer validatorUrlRefreshTicker.Stop()
+
+		for {
+			select {
+			case <-peerLoggingTicker.C:
+				fes.LogConnectedPeers(ipAddressMap)
+			case <-validatorUrlRefreshTicker.C:
+				var err error
+				ipAddressMap, trackedDomains, err = fes.TrackNewValidatorUrls(ipAddressMap, trackedDomains)
+				if err != nil {
+					fmt.Printf("Error tracking new validator URLs: %v\n", err)
+				}
+			case <-fes.quit:
+				return
+			}
+		}
+	}()
+}
+
+// InitializePeerIpAddressMap retrieves a list of likely peer URLs from the validator set, the set of default DeSo nodes,
+// and the set of manually-tracked DeSo nodes. It then retrieves the IP addresses associated with these URLs and stores
+// them in a map.
+func (fes *APIServer) InitializePeerIpAddressMap() (map[string]string, map[string]bool, error) {
+	ipAddressMap := make(map[string]string)
+	trackedDomains := make(map[string]bool)
+
+	// Retrieve DeSo node URLs.
+	desoNodeUrls, trackedDomains := fes.GetUntrackedDeSoNodeUrls(trackedDomains)
+
+	// Retrieve validator URLs.
+	validatorUrls, trackedDomains, err := fes.GetUntrackedValidatorUrls(trackedDomains)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "InitializePeerIpAddressMap: Error getting validator URLs")
+	}
+
+	// Combine the DeSo node URLs and validator URLs.
+	urls := append(desoNodeUrls, validatorUrls...)
+
+	// Create an IP address map for the URLs.
+	ipAddressMap, err = UpdateIPsForURLs(urls, ipAddressMap)
+
+	return ipAddressMap, trackedDomains, nil
+}
+
+// TrackNewValidatorUrls retrieves the URLs of the top 200 validators that aren't already being tracked, updates the IP
+// address map with the IP addresses associated with these URLs, and returns the updated IP address map and tracked
+// domains.
+func (fes *APIServer) TrackNewValidatorUrls(ipAddressMap map[string]string, trackedDomains map[string]bool) (map[string]string, map[string]bool, error) {
+	validatorUrls, trackedDomains, err := fes.GetUntrackedValidatorUrls(trackedDomains)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "TrackNewValidatorUrls: Error getting validator URLs")
+	}
+
+	if len(validatorUrls) == 0 {
+		return ipAddressMap, trackedDomains, nil
+	}
+
+	ipAddressMap, err = UpdateIPsForURLs(validatorUrls, ipAddressMap)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "TrackNewValidatorUrls: Error updating IP address map")
+	}
+
+	return ipAddressMap, trackedDomains, nil
+}
+
+// UpdateIPsForURLs updates the IP address map with the IP addresses associated with the URLs in the URL list.
+func UpdateIPsForURLs(urlList []string, ipAddressMap map[string]string) (map[string]string, error) {
+	for _, url := range urlList {
+		ipAddresses, err := GetIPsForURL(url)
+		if err != nil {
+			fmt.Printf("Error getting IP for URL %v: %v\n", url, err)
+			continue
+		}
+		for _, ipAddress := range ipAddresses {
+			ipAddressMap[ipAddress] = url
+		}
+	}
+	return ipAddressMap, nil
+}
+
+// GetIPsForURL returns the IP addresses associated with the URL.
+func GetIPsForURL(url string) ([]string, error) {
+	returnIps := []string{}
+
+	ips, err := net.LookupIP(url)
+	if err != nil {
+		return nil, errors.Wrapf(err, "GetIPsForURL: Error looking up IP for URL %v", url)
+	}
+	for _, ip := range ips {
+		returnIps = append(returnIps, ip.String())
+	}
+	return returnIps, nil
+}
+
+// GetUntrackedValidatorUrls returns the URLs of the top 200 validators that aren't already being tracked.
+func (fes *APIServer) GetUntrackedValidatorUrls(trackedDomains map[string]bool) ([]string, map[string]bool, error) {
+	utxoView, error := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if error != nil {
+		return nil, nil, errors.Wrapf(error, "GetAllValidatorUrls: Error getting utxoView")
+	}
+	validatorEntries, err := utxoView.GetTopActiveValidatorsByStakeAmount(200)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "GetAllValidatorUrls: Error getting top active validators")
+	}
+
+	var validatorUrls []string
+
+	for _, validatorEntry := range validatorEntries {
+		for _, domainBytes := range validatorEntry.Domains {
+			domain := string(domainBytes)
+			// Retrieve only the part of the domain before the ":".
+			validatorUrl := strings.Split(domain, ":")[0]
+
+			if _, ok := trackedDomains[validatorUrl]; !ok {
+				validatorUrls = append(validatorUrls, validatorUrl)
+				trackedDomains[validatorUrl] = true
+			}
+		}
+	}
+
+	return validatorUrls, trackedDomains, nil
+}
+
+// GetUntrackedDeSoNodeUrls returns the URLs of all tracked DESO nodes. It filters out the URLs that are already being tracked.
+func (fes *APIServer) GetUntrackedDeSoNodeUrls(trackedDomains map[string]bool) ([]string, map[string]bool) {
+	// Start with the manually-tracked DeSo node URLs.
+	var nodeUrls []string
+	if fes.Config.PeersToMonitor != nil {
+		for _, url := range fes.Config.PeersToMonitor {
+			// Remove https:// from the URL
+			url = strings.Replace(url, "https://", "", 1)
+			// Remove port from URL.
+			url = strings.Split(url, ":")[0]
+			trackedDomains[url] = true
+			nodeUrls = append(nodeUrls, url)
+		}
+	}
+
+	// Loop through the default DeSo node URLs.
+	for _, node := range lib.NODES {
+		// Get node URL
+		nodeUrl := node.URL
+		// Remove https:// from the URL
+		nodeUrl = strings.Replace(nodeUrl, "https://", "", 1)
+
+		if _, ok := trackedDomains[nodeUrl]; !ok {
+			nodeUrls = append(nodeUrls, nodeUrl)
+			trackedDomains[nodeUrl] = true
+		}
+	}
+
+	return nodeUrls, trackedDomains
+}
+
+// LogConnectedPeers logs the connected peers to datadog. It will give each peer a human-readable name if it can find one
+// in the URL map.
+func (fes *APIServer) LogConnectedPeers(ipAddressMap map[string]string) {
+	connManager := fes.backendServer.GetConnectionManager()
+	peers := connManager.GetAllPeers()
+
+	// Loop through all peers and update their info
+	for _, peer := range peers {
+		peerIdentifier := peer.IP()
+
+		// Try to give our peer a more human-readable name from the URL map if we can.
+		if url, ok := ipAddressMap[peerIdentifier]; ok {
+			peerIdentifier = url
+		}
+
+		// Get the peer's statuses.
+		isConnected := 0
+		if peer.Connected() {
+			isConnected = 1
+		}
+
+		isPersistent := 0
+		if peer.IsPersistent() {
+			isPersistent = 1
+		}
+
+		isOutbound := 0
+		if peer.IsOutbound() {
+			isOutbound = 1
+		}
+
+		tags := []string{
+			fmt.Sprintf("peer_name:%s", peerIdentifier),
+			fmt.Sprintf("is_connected:%d", isConnected),
+			fmt.Sprintf("is_persistent:%d", isPersistent),
+			fmt.Sprintf("is_outbound:%d", isOutbound),
+		}
+
+		// Log the peer statuses to datadog.
+		if err := fes.backendServer.GetStatsdClient().Gauge("node.peer.status", 1, tags, 1); err != nil {
+			glog.Errorf("LogConnectedPeers: Error logging peer to datadog: %v", err)
+		}
+		if isConnected == 1 {
+			if err := fes.backendServer.GetStatsdClient().Gauge("node.peer.status_connected", 1, tags, 1); err != nil {
+				glog.Errorf("LogConnectedPeers: Error logging peer to datadog: %v", err)
+			}
+		}
+		if isPersistent == 1 {
+			if err := fes.backendServer.GetStatsdClient().Gauge("node.peer.status_persistent", 1, tags, 1); err != nil {
+				glog.Errorf("LogConnectedPeers: Error logging peer to datadog: %v", err)
+			}
+		}
+		if isOutbound == 1 {
+			if err := fes.backendServer.GetStatsdClient().Gauge("node.peer.status_outbound", 1, tags, 1); err != nil {
+				glog.Errorf("LogConnectedPeers: Error logging peer to datadog: %v", err)
+			}
+		}
+
+	}
 }
 
 // Monitor balances for starter deso seed and buy deso seed

@@ -2,7 +2,7 @@ package config
 
 import (
 	"fmt"
-	"github.com/holiman/uint256"
+	"github.com/deso-protocol/uint256"
 	"math/big"
 	"strconv"
 	"strings"
@@ -16,6 +16,10 @@ import (
 type Config struct {
 	// Core
 	APIPort uint16
+
+	// This is the base58-encoded public key for the AMM_METADATA user, which is
+	// used to set the trading fees on users' coins.
+	AmmMetadataPublicKey string
 
 	// Onboarding
 	StarterDESOSeed         string
@@ -100,6 +104,9 @@ type Config struct {
 
 	// Secret used to validate hCaptcha tokens.
 	HCaptchaSecret string
+
+	// URLs + optional port for peers that we may connect to and should monitor.
+	PeersToMonitor []string
 }
 
 func LoadConfig(coreConfig *coreCmd.Config) *Config {
@@ -110,6 +117,10 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 		// TODO: pull this out of core. we shouldn't need core's config here
 		config.APIPort = coreConfig.Params.DefaultJSONPort
 	}
+
+	// This is the base58-encoded public key for the AMM_METADATA user, which is
+	// used to set the trading fees on users' coins.
+	config.AmmMetadataPublicKey = viper.GetString("amm-metadata-public-key")
 
 	// Onboarding
 	config.StarterDESOSeed = viper.GetString("starter-deso-seed")
@@ -206,6 +217,8 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 	// hCaptcha secret
 	config.HCaptchaSecret = viper.GetString("hcaptcha-secret")
 
+	config.PeersToMonitor = viper.GetStringSlice("peers-to-monitor")
+
 	// Public keys that need their balances monitored. Map of Label to Public key
 	labelsToPublicKeys := viper.GetString("public-key-balances-to-monitor")
 	if len(labelsToPublicKeys) > 0 {
@@ -234,7 +247,7 @@ func LoadConfig(coreConfig *coreCmd.Config) *Config {
 			panic(fmt.Sprintf("metamask-airdrop-eth-minimum value %v overflows uint256", metamaskAirdropMinStr))
 		}
 	} else {
-		config.MetamaskAirdropEthMinimum = uint256.NewInt()
+		config.MetamaskAirdropEthMinimum = uint256.NewInt(0)
 	}
 	config.MetamaskAirdropDESONanosAmount = viper.GetUint64("metamask-airdrop-deso-nanos-amount")
 

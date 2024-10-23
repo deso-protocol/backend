@@ -25,10 +25,14 @@ func (fes *APIServer) Index(w http.ResponseWriter, r *http.Request) {
 
 // NOTE: This is a readiness check not a health check
 func (fes *APIServer) HealthCheck(ww http.ResponseWriter, rr *http.Request) {
-	// Check that the blockchain is fully current.
+	// Check that the blockchain is fully current OR the blockchain is in a
+	// needs blocks state and the header tip is within 10 blocks of the block tip.
 	blockchainHeight := fes.blockchain.BlockTip().Height
-	if fes.blockchain.ChainState() != lib.SyncStateFullyCurrent {
-		_AddBadRequestError(ww, fmt.Sprintf("Waiting for blockchain to sync. "+
+	chainState := fes.blockchain.ChainState()
+	if chainState != lib.SyncStateFullyCurrent &&
+		!(chainState == lib.SyncStateNeedBlocksss &&
+			fes.blockchain.HeaderTip().Height-blockchainHeight < 10) {
+		_AddInternalServerError(ww, fmt.Sprintf("Waiting for blockchain to sync. "+
 			"Height: %v, SyncState: %v", blockchainHeight, fes.blockchain.ChainState()))
 		return
 	}
@@ -38,16 +42,18 @@ func (fes *APIServer) HealthCheck(ww http.ResponseWriter, rr *http.Request) {
 	// any mempool messages from our peers.
 	if !fes.backendServer.HasProcessedFirstTransactionBundle() &&
 		!fes.backendServer.DisableNetworking {
-		_AddBadRequestError(ww, "Waiting on mempool to sync")
+		_AddInternalServerError(ww, "Waiting on mempool to sync")
 		return
 	}
 
 	// If we have txindex configured then also do a check for that.
 	if fes.TXIndex != nil &&
-		fes.TXIndex.TXIndexChain.ChainState() != lib.SyncStateFullyCurrent {
+		fes.TXIndex.TXIndexChain.ChainState() != lib.SyncStateFullyCurrent &&
+		!(fes.TXIndex.TXIndexChain.ChainState() == lib.SyncStateNeedBlocksss &&
+			fes.TXIndex.TXIndexChain.HeaderTip().Height-fes.TXIndex.TXIndexChain.BlockTip().Height < 10) {
 		txindexHeight := fes.TXIndex.TXIndexChain.BlockTip().Height
 
-		_AddBadRequestError(ww, fmt.Sprintf("Waiting for txindex to sync. "+
+		_AddInternalServerError(ww, fmt.Sprintf("Waiting for txindex to sync. "+
 			"Height: %v, SyncState: %v", txindexHeight, fes.TXIndex.TXIndexChain.ChainState()))
 		return
 	}

@@ -2,7 +2,7 @@ package toolslib
 
 import (
 	"github.com/deso-protocol/core/lib"
-	"github.com/dgraph-io/badger/v3"
+	"github.com/dgraph-io/badger/v4"
 	"github.com/pkg/errors"
 )
 
@@ -32,13 +32,13 @@ func GetBestChainFromBadger(syncedDBHandle *badger.DB, params *lib.DeSoParams) (
 	}
 
 	// Find the tip node with the best node hash.
-	tipNode := blockIndex[*bestBlockHash]
+	tipNode, _ := blockIndex.Get(*bestBlockHash)
 	if tipNode == nil {
 		return nil, errors.Errorf("GetBestChainFromBadger() bestBlockHash not found in blockIndex")
 	}
 
 	// Walk back from the best node to the genesis block and store them all in bestChain.
-	bestChain, err := lib.GetBestChain(tipNode, blockIndex)
+	bestChain, err := lib.GetBestChain(tipNode)
 	if err != nil {
 		return nil, errors.Wrap(err, "GetBestChainFromBadger() failed to GetBestChain")
 	}

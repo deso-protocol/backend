@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/uint256"
 	"io"
 	"net"
 	"net/http"
@@ -13,7 +14,6 @@ import (
 	"github.com/deso-protocol/core/collections"
 	"github.com/deso-protocol/core/lib"
 	"github.com/gorilla/mux"
-	"github.com/holiman/uint256"
 )
 
 type RegisterAsValidatorRequest struct {
@@ -364,8 +364,9 @@ type GetEpochProgressResponse struct {
 	EpochEntry     lib.EpochEntry  `safeForLogging:"true"`
 	LeaderSchedule []UserInfoBasic `safeForLogging:"true"`
 
-	CurrentView      uint64 `safeForLogging:"true"`
-	CurrentTipHeight uint64 `safeForLogging:"true"`
+	CurrentView      uint64        `safeForLogging:"true"`
+	CurrentTipHeight uint64        `safeForLogging:"true"`
+	CurrentLeader    UserInfoBasic `safeForLogging:"true"`
 }
 
 type UserInfoBasic struct {
@@ -435,12 +436,18 @@ func (fes *APIServer) GetCurrentEpochProgress(ww http.ResponseWriter, req *http.
 		currentView = currentTip.Header.GetView() + estimateNumTimeoutsSinceTip(time.Now(), currentTipTimestamp, timeoutDuration)
 	}
 
+	currentLeaderIdx := (currentEpochEntry.InitialLeaderIndexOffset +
+		(currentView - currentEpochEntry.InitialView) -
+		(currentTip.Header.Height - currentEpochEntry.InitialBlockHeight)) % uint64(len(leaderSchedule))
+	currentLeader := leaderSchedule[currentLeaderIdx]
+
 	// Construct the response
 	response := GetEpochProgressResponse{
 		EpochEntry:       *currentEpochEntry,
 		LeaderSchedule:   leaderSchedule,
 		CurrentView:      currentView,
 		CurrentTipHeight: currentTip.Header.Height,
+		CurrentLeader:    currentLeader,
 	}
 
 	// Encode response.

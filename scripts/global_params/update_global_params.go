@@ -5,10 +5,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/golang-jwt/jwt/v4"
 	"io/ioutil"
 	"net/http"
 	"reflect"
+
+	"github.com/golang-jwt/jwt/v4"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/backend/routes"

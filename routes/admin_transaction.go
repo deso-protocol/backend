@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"
 )
@@ -88,6 +88,22 @@ func (fes *APIServer) GetGlobalParams(ww http.ResponseWriter, req *http.Request)
 	}
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetGlobalParams: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
+func (fes *APIServer) GetAllGlobalParams(ww http.ResponseWriter, req *http.Request) {
+	// Get a view
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllGlobalParams: Error getting utxoView: %v", err))
+		return
+	}
+	globalParamsEntry := utxoView.GetCurrentGlobalParamsEntry()
+	// Return all the data associated with the transaction in the response
+	res := globalParamsEntry
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetAllGlobalParams: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
@@ -596,7 +612,7 @@ func (fes *APIServer) TestSignTransactionWithDerivedKey(ww http.ResponseWriter, 
 		_AddBadRequestError(ww, fmt.Sprintf("TestSignTransactionWithDerivedKey: Problem decoding seed hex %v", err))
 		return
 	}
-	privKeyBytes, _ := btcec.PrivKeyFromBytes(btcec.S256(), privBytes)
+	privKeyBytes, _ := btcec.PrivKeyFromBytes(privBytes)
 
 	// Sign the transaction with a derived key. Since the txn extraData must be modified,
 	// we also get new transaction bytes, along with the signature.

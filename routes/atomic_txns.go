@@ -28,6 +28,10 @@ type CreateAtomicTxnsWrapperResponse struct {
 	TotalFeeNanos  uint64
 	Transaction    *lib.MsgDeSoTxn
 	TransactionHex string
+
+	// InnerTransactionHexes is a list of hex-encoded inner transactions
+	// contained in Transaction above.
+	InnerTransactionHexes []string
 }
 
 func (fes *APIServer) CreateAtomicTxnsWrapper(ww http.ResponseWriter, req *http.Request) {
@@ -92,12 +96,19 @@ func (fes *APIServer) CreateAtomicTxnsWrapper(ww http.ResponseWriter, req *http.
 		}
 	}
 
+	innerTransactionHexes, err := GetInnerTransactionHexesFromAtomicTxn(txn)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateAtomicTxnsWrapper: Problem getting inner transaction hexes: %v", err))
+		return
+	}
+
 	// Construct a response.
 	res := CreateAtomicTxnsWrapperResponse{
-		TransactionsWrapped: uint64(len(txn.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns)),
-		TotalFeeNanos:       totalFees,
-		Transaction:         txn,
-		TransactionHex:      hex.EncodeToString(txnBytes),
+		TransactionsWrapped:   uint64(len(txn.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns)),
+		TotalFeeNanos:         totalFees,
+		Transaction:           txn,
+		TransactionHex:        hex.EncodeToString(txnBytes),
+		InnerTransactionHexes: innerTransactionHexes,
 	}
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
@@ -105,4 +116,21 @@ func (fes *APIServer) CreateAtomicTxnsWrapper(ww http.ResponseWriter, req *http.
 			fmt.Sprintf("CreateAtomicTxnsWrapper: Problem serializing object to JSON: %v", err))
 		return
 	}
+}
+
+func GetInnerTransactionHexesFromAtomicTxn(txn *lib.MsgDeSoTxn) ([]string, error) {
+	if txn.TxnMeta.GetTxnType() != lib.TxnTypeAtomicTxnsWrapper {
+		return nil,
+			fmt.Errorf("GetInnerTransactionHexesFromAtomicTxn: Transaction is not an atomic transaction wrapper")
+	}
+	innerTransactionHexes := []string{}
+	for _, innerTxn := range txn.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns {
+		innerTxnBytes, err := innerTxn.ToBytes(true)
+		if err != nil {
+			return nil,
+				fmt.Errorf("GetInnerTransactionHexesFromAtomicTxn: Problem serializing inner transaction: %v", err)
+		}
+		innerTransactionHexes = append(innerTransactionHexes, hex.EncodeToString(innerTxnBytes))
+	}
+	return innerTransactionHexes, nil
 }

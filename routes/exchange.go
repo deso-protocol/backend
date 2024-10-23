@@ -15,7 +15,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/golang/glog"
 	bip39 "github.com/tyler-smith/go-bip39"
 )
@@ -31,7 +31,7 @@ var (
 	IsBlacklisted = []byte{1}
 )
 
-const NodeVersion = "4.0.0"
+const NodeVersion = "4.0.3"
 
 const (
 	// RoutePathAPIBase ...
@@ -729,7 +729,7 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 			"base58 private key: %v", err))
 		return
 	}
-	senderPriv, senderPub := btcec.PrivKeyFromBytes(btcec.S256(), senderPrivBytes)
+	senderPriv, senderPub := btcec.PrivKeyFromBytes(senderPrivBytes)
 	if senderPriv == nil {
 		APIAddError(ww, fmt.Sprintf("APITransferDeSo: Problem parsing sender "+
 			"base58 private key"))
@@ -744,7 +744,7 @@ func (fes *APIServer) APITransferDeSo(ww http.ResponseWriter, rr *http.Request) 
 			"base58 public key %s: %v", transferDeSoRequest.RecipientPublicKeyBase58Check, err))
 		return
 	}
-	recipientPub, err := btcec.ParsePubKey(recipientPubBytes, btcec.S256())
+	recipientPub, err := btcec.ParsePubKey(recipientPubBytes)
 	if err != nil {
 		APIAddError(ww, fmt.Sprintf("APITransferDeSo: Problem encoding recipient "+
 			"base58 public key %s: %v", transferDeSoRequest.RecipientPublicKeyBase58Check, err))
@@ -1173,6 +1173,9 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 		// Tack on mempool transactions if LastPublicKeyTransactionIndex is not specified
 		for _, poolTx := range poolTxns {
 			txnMeta := poolTx.TxMeta
+			if txnMeta == nil {
+				continue
+			}
 
 			isRelevantTxn := false
 			// Iterate over the affected public keys to see if any of them hit the one we're looking for.
@@ -1187,7 +1190,6 @@ func (fes *APIServer) APITransactionInfo(ww http.ResponseWriter, rr *http.Reques
 			if !isRelevantTxn && txnMeta.TransactorPublicKeyBase58Check != transactionInfoRequest.PublicKeyBase58Check {
 				continue
 			}
-
 			// Finally, add the transaction to our list if it's relevant
 			if transactionInfoRequest.IDsOnly {
 				txRes := &TransactionResponse{TransactionIDBase58Check: lib.PkToString(poolTx.Tx.Hash()[:], fes.Params)}

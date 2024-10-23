@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"github.com/deso-protocol/core/collections"
 	"github.com/deso-protocol/core/lib"
+	"github.com/deso-protocol/uint256"
 	"github.com/gorilla/mux"
-	"github.com/holiman/uint256"
 	"io"
 	"net/http"
 	"reflect"
@@ -660,19 +660,19 @@ func (fes *APIServer) LockedBalanceEntries(ww http.ResponseWriter, req *http.Req
 		// NOTE: It's possible to create multiple locked balance entries that are impossible to unlock due to overflow.
 		// As such, if the addition triggers an overflow we will just ignore adding more and use the max Uint256.
 		var newTotalLockedBaseUnits *uint256.Int
-		if uint256.NewInt().Sub(
+		if uint256.NewInt(0).Sub(
 			lib.MaxUint256,
 			&cumulativeResponse.TotalLockedBaseUnits).Lt(&lockedBalanceEntry.BalanceBaseUnits) {
 			newTotalLockedBaseUnits = lib.MaxUint256
 		} else {
-			newTotalLockedBaseUnits = uint256.NewInt().Add(
+			newTotalLockedBaseUnits = uint256.NewInt(0).Add(
 				&cumulativeResponse.TotalLockedBaseUnits,
 				&lockedBalanceEntry.BalanceBaseUnits)
 		}
 
 		// Compute how much (if any) is unlockable in the give entry.
-		unlockableBaseUnitsFromEntry := uint256.NewInt()
-		newTotalUnlockableBaseUnits := uint256.NewInt()
+		unlockableBaseUnitsFromEntry := uint256.NewInt(0)
+		newTotalUnlockableBaseUnits := uint256.NewInt(0)
 		if lockedBalanceEntry.UnlockTimestampNanoSecs < currentTimestampNanoSecs {
 			// Check if the locked balance entry is unvested or vested.
 			if lockedBalanceEntry.UnlockTimestampNanoSecs == lockedBalanceEntry.VestingEndTimestampNanoSecs {
@@ -687,12 +687,12 @@ func (fes *APIServer) LockedBalanceEntries(ww http.ResponseWriter, req *http.Req
 				}
 			}
 		}
-		if uint256.NewInt().Sub(
+		if uint256.NewInt(0).Sub(
 			lib.MaxUint256,
 			&cumulativeResponse.UnlockableBaseUnits).Lt(unlockableBaseUnitsFromEntry) {
 			newTotalUnlockableBaseUnits = lib.MaxUint256
 		} else {
-			newTotalUnlockableBaseUnits = uint256.NewInt().Add(
+			newTotalUnlockableBaseUnits = uint256.NewInt(0).Add(
 				&cumulativeResponse.UnlockableBaseUnits,
 				unlockableBaseUnitsFromEntry)
 		}

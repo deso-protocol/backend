@@ -5,12 +5,12 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/uint256"
 	"net/http"
 	"time"
 
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
-	"github.com/holiman/uint256"
 	"github.com/pkg/errors"
 	"github.com/tyler-smith/go-bip39"
 )
@@ -210,6 +210,15 @@ type User struct {
 
 	// Does this user need to complete the tutorial
 	MustCompleteTutorial bool
+}
+
+// Create a new type of BalanceEntryResponse so we don't break any existing
+// code that relies on the old version.
+type ExtendedBalanceEntryResponse struct {
+	UnlockedBalanceEntry *BalanceEntryResponse
+
+	LockedBalanceEntrys    []*LockedBalanceEntryResponse
+	LockedBalanceBaseUnits *uint256.Int
 }
 
 type BalanceEntryResponse struct {
