@@ -338,7 +338,7 @@ func (fes *APIServer) _handleConnectDeSoNode(
 				// Note: We don't need to acquire the ChainLock because our parent does it.
 
 				// Grab the ChainLock since we might do a blockchain lookup below.
-				locator := fes.blockchain.LatestLocator(fes.blockchain.HeaderTip())
+				locator := fes.blockchain.LatestHeaderLocator()
 
 				desoPeer.AddDeSoMessage(&lib.MsgDeSoGetHeaders{
 					StopHash:     &lib.BlockHash{},
