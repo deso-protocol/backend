@@ -901,6 +901,11 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsdEndpoint(ww http.ResponseWriter,
 	}
 }
 
+// TODO: When we boot up the Focus AMM, we need to update this value. The FOCUS floor price
+// is set to $0.001 in DESO, so using a DESO price of $6 gets this value = $0.001 / $6. When
+// we launch, we need use the updated DESO price and update this value.
+const FOCUS_FLOOR_PRICE_DESO_NANOS = 166666
+
 func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 	quoteCurrencyPublicKey string) (_midmarket string, _bid string, _ask string, _err error) {
 	if IsDesoPkid(quoteCurrencyPublicKey) {
@@ -967,6 +972,9 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 		allOrders := append(ordersBuyingCoin1, ordersBuyingCoin2...)
 		// Find the highest bid price and the lowest ask price
 		highestBidPrice := float64(0.0)
+		if lowerUsername == "focus" {
+			highestBidPrice = float64(FOCUS_FLOOR_PRICE_DESO_NANOS) / float64(lib.NanosPerUnit)
+		}
 		lowestAskPrice := math.MaxFloat64
 		for _, order := range allOrders {
 			priceStr, err := CalculatePriceStringFromScaledExchangeRate(
@@ -997,8 +1005,8 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 			midPriceUsd := midPriceDeso * float64(desoUsdCents) / 100
 
 			return fmt.Sprintf("%0.9f", midPriceUsd),
-				fmt.Sprintf("%0.9f", highestBidPrice),
-				fmt.Sprintf("%0.9f", lowestAskPrice),
+				fmt.Sprintf("%0.9f", highestBidPrice*float64(desoUsdCents)/100),
+				fmt.Sprintf("%0.9f", lowestAskPrice*float64(desoUsdCents)/100),
 				nil
 		}
 
