@@ -909,7 +909,7 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 		// in order to minimize discrepancies with other sources.
 		desoUsdCents := fes.MostRecentCoinbasePriceUSDCents
 		if desoUsdCents == 0 {
-			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Coinbase price is zero")
+			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Coinbase DESO price is zero")
 		}
 		price := fmt.Sprintf("%0.9f", float64(desoUsdCents)/100)
 		return price, price, price, nil // TODO: get real bid and ask prices.
@@ -947,7 +947,7 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 		// in order to minimize discrepancies with other sources.
 		desoUsdCents := fes.MostRecentCoinbasePriceUSDCents
 		if desoUsdCents == 0 {
-			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Coinbase price is zero")
+			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Coinbase DESO price is zero")
 		}
 		pkid := utxoView.GetPKIDForPublicKey(pkBytes)
 		if pkid == nil {
