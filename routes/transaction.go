@@ -1189,6 +1189,9 @@ func (fes *APIServer) GetNanosFromETH(eth *big.Float, feeBasisPoints uint64) uin
 // GetNanosFromUSDCents - convert USD cents to DeSo nanos
 func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint64) uint64 {
 	// Get Exchange Price gets the max of price from blockchain.com and the reserve price.
+	// TODO: This function isn't using the Coinbase price. We should make it consistent with other
+	// places that use the Coinbase price, but it's fine for now because the places that call this
+	// function are deprecated.
 	usdCentsPerDeSo := fes.GetExchangeDeSoPrice()
 	conversionRateAfterFee := float64(usdCentsPerDeSo) * (1 + (float64(feeBasisPoints) / (100.0 * 100.0)))
 	nanosPurchased := uint64(usdCents * float64(lib.NanosPerUnit) / conversionRateAfterFee)
