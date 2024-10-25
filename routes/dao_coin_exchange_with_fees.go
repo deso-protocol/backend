@@ -939,6 +939,9 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 	} else if lowerUsername == "focus" ||
 		lowerUsername == "openfund" {
 
+		// TODO: We're taking the Coinbase price directly here, but ideally we would get it from
+		// a function that abstracts away the exchange we're getting it from. We do this for now
+		// in order to minimize discrepancies with other sources.
 		desoUsdCents := fes.MostRecentCoinbasePriceUSDCents
 		pkid := utxoView.GetPKIDForPublicKey(pkBytes)
 		if pkid == nil {
