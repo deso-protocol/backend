@@ -904,7 +904,13 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsdEndpoint(ww http.ResponseWriter,
 func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 	quoteCurrencyPublicKey string) (_midmarket string, _bid string, _ask string, _err error) {
 	if IsDesoPkid(quoteCurrencyPublicKey) {
-		desoUsdCents := fes.GetExchangeDeSoPrice()
+		// TODO: We're taking the Coinbase price directly here, but ideally we would get it from
+		// a function that abstracts away the exchange we're getting it from. We do this for now
+		// in order to minimize discrepancies with other sources.
+		desoUsdCents := fes.MostRecentCoinbasePriceUSDCents
+		if desoUsdCents == 0 {
+			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Coinbase DESO price is zero")
+		}
 		price := fmt.Sprintf("%0.9f", float64(desoUsdCents)/100)
 		return price, price, price, nil // TODO: get real bid and ask prices.
 	}
@@ -936,7 +942,13 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 	} else if lowerUsername == "focus" ||
 		lowerUsername == "openfund" {
 
-		desoUsdCents := fes.GetExchangeDeSoPrice()
+		// TODO: We're taking the Coinbase price directly here, but ideally we would get it from
+		// a function that abstracts away the exchange we're getting it from. We do this for now
+		// in order to minimize discrepancies with other sources.
+		desoUsdCents := fes.MostRecentCoinbasePriceUSDCents
+		if desoUsdCents == 0 {
+			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Coinbase DESO price is zero")
+		}
 		pkid := utxoView.GetPKIDForPublicKey(pkBytes)
 		if pkid == nil {
 			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error getting pkid for public key %v",
