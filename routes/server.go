@@ -400,6 +400,7 @@ type APIServer struct {
 	// most recent exchange prices fetched
 	MostRecentCoinbasePriceUSDCents         uint64
 	MostRecentBlockchainDotComPriceUSDCents uint64
+	MostRecentGatePriceUSDCents             uint64
 
 	// Base-58 prefix to check for to determine if a string could be a public key.
 	PublicKeyBase58Prefix string
