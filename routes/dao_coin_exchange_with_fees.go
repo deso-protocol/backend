@@ -954,54 +954,24 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 		if desoUsdCents == 0 {
 			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Coinbase DESO price is zero")
 		}
+
 		pkid := utxoView.GetPKIDForPublicKey(pkBytes)
 		if pkid == nil {
 			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error getting pkid for public key %v",
 				quoteCurrencyPublicKey)
 		}
-		ordersBuyingCoin1, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
-			&lib.ZeroPKID, pkid.PKID)
-		if err != nil {
-			return "", "", "", fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
-		}
-		ordersBuyingCoin2, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
-			pkid.PKID, &lib.ZeroPKID)
-		if err != nil {
-			return "", "", "", fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
-		}
-		allOrders := append(ordersBuyingCoin1, ordersBuyingCoin2...)
 		// Find the highest bid price and the lowest ask price
 		highestBidPrice := float64(0.0)
 		if lowerUsername == "focus" {
 			highestBidPrice = float64(FOCUS_FLOOR_PRICE_DESO_NANOS) / float64(lib.NanosPerUnit)
 		}
-		lowestAskPrice := math.MaxFloat64
-		for _, order := range allOrders {
-			priceStr, err := CalculatePriceStringFromScaledExchangeRate(
-				lib.PkToString(order.BuyingDAOCoinCreatorPKID[:], fes.Params),
-				lib.PkToString(order.SellingDAOCoinCreatorPKID[:], fes.Params),
-				order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
-				DAOCoinLimitOrderOperationTypeString(order.OperationType.String()))
-			if err != nil {
-				return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price: %v", err)
-			}
-			priceFloat, err := strconv.ParseFloat(priceStr, 64)
-			if err != nil {
-				return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error parsing price: %v", err)
-			}
-			if order.OperationType == lib.DAOCoinLimitOrderOperationTypeBID &&
-				priceFloat > highestBidPrice {
-
-				highestBidPrice = priceFloat
-			}
-			if order.OperationType == lib.DAOCoinLimitOrderOperationTypeASK &&
-				priceFloat < lowestAskPrice {
-
-				lowestAskPrice = priceFloat
-			}
+		var lowestAskPrice, midPriceDeso float64
+		midPriceDeso, highestBidPrice, lowestAskPrice, err = fes.GetHighestBidAndLowestAskPriceFromPKIDs(
+			pkid.PKID, &lib.ZeroPKID, utxoView, highestBidPrice)
+		if err != nil {
+			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error getting price: %v", err)
 		}
 		if highestBidPrice != 0.0 && lowestAskPrice != math.MaxFloat64 {
-			midPriceDeso := (highestBidPrice + lowestAskPrice) / 2.0
 			midPriceUsd := midPriceDeso * float64(desoUsdCents) / 100
 
 			return fmt.Sprintf("%0.9f", midPriceUsd),
@@ -1016,6 +986,58 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 	return "", "", "", fmt.Errorf(
 		"GetQuoteCurrencyPriceInUsd: Quote currency %v not supported",
 		quoteCurrencyPublicKey)
+}
+
+func (fes *APIServer) GetHighestBidAndLowestAskPriceFromPKIDs(
+	coin1PKID *lib.PKID,
+	coin2PKID *lib.PKID,
+	utxoView *lib.UtxoView,
+	initialHighestBidPrice float64,
+) (float64, float64, float64, error) {
+	ordersBuyingCoin1, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
+		coin1PKID, coin2PKID)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
+	}
+	ordersBuyingCoin2, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
+		coin2PKID, coin1PKID)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
+	}
+	allOrders := append(ordersBuyingCoin1, ordersBuyingCoin2...)
+	// Find the highest bid price and the lowest ask price
+	highestBidPrice := initialHighestBidPrice
+	lowestAskPrice := math.MaxFloat64
+	for _, order := range allOrders {
+		priceStr, err := CalculatePriceStringFromScaledExchangeRate(
+			lib.PkToString(order.BuyingDAOCoinCreatorPKID[:], fes.Params),
+			lib.PkToString(order.SellingDAOCoinCreatorPKID[:], fes.Params),
+			order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
+			DAOCoinLimitOrderOperationTypeString(order.OperationType.String()))
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price: %v", err)
+		}
+		priceFloat, err := strconv.ParseFloat(priceStr, 64)
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error parsing price: %v", err)
+		}
+		if order.OperationType == lib.DAOCoinLimitOrderOperationTypeBID &&
+			priceFloat > highestBidPrice {
+
+			highestBidPrice = priceFloat
+		}
+		if order.OperationType == lib.DAOCoinLimitOrderOperationTypeASK &&
+			priceFloat < lowestAskPrice {
+
+			lowestAskPrice = priceFloat
+		}
+	}
+	if highestBidPrice != 0.0 && lowestAskPrice != math.MaxFloat64 {
+		midPrice := (highestBidPrice + lowestAskPrice) / 2.0
+
+		return midPrice, highestBidPrice, lowestAskPrice, nil
+	}
+	return 0, 0, 0, fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price")
 }
 
 func (fes *APIServer) CreateMarketOrLimitOrder(
