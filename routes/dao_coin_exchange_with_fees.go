@@ -908,21 +908,30 @@ const FOCUS_FLOOR_PRICE_DESO_NANOS = 166666
 
 func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 	quoteCurrencyPublicKey string) (_midmarket string, _bid string, _ask string, _err error) {
-	if IsDesoPkid(quoteCurrencyPublicKey) {
-		// TODO: We're taking the Coinbase price directly here, but ideally we would get it from
-		// a function that abstracts away the exchange we're getting it from. We do this for now
-		// in order to minimize discrepancies with other sources.
-		desoUsdCents := fes.MostRecentCoinbasePriceUSDCents
-		if desoUsdCents == 0 {
-			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Coinbase DESO price is zero")
-		}
-		price := fmt.Sprintf("%0.9f", float64(desoUsdCents)/100)
-		return price, price, price, nil // TODO: get real bid and ask prices.
-	}
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return "", "", "", fmt.Errorf(
 			"GetQuoteCurrencyPriceInUsd: Error fetching mempool view: %v", err)
+	}
+	if IsDesoPkid(quoteCurrencyPublicKey) {
+		usdcProfileEntry := utxoView.GetProfileEntryForUsername([]byte("dusdc_"))
+		if usdcProfileEntry == nil {
+			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Could not find profile entry for dusdc_")
+		}
+
+		usdcPKID := utxoView.GetPKIDForPublicKey(usdcProfileEntry.PublicKey)
+		midMarketPrice, highestBidPrice, lowestAskPrice, err := fes.GetHighestBidAndLowestAskPriceFromPKIDs(
+			&lib.ZeroPKID, usdcPKID.PKID, utxoView, 0)
+		if err != nil {
+			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error getting price for DESO: %v", err)
+		}
+		if highestBidPrice == 0.0 || lowestAskPrice == math.MaxFloat64 {
+			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price for DESO")
+		}
+		return fmt.Sprintf("%0.9f", midMarketPrice),
+			fmt.Sprintf("%0.9f", highestBidPrice),
+			fmt.Sprintf("%0.9f", lowestAskPrice),
+			nil
 	}
 
 	pkBytes, _, err := lib.Base58CheckDecode(quoteCurrencyPublicKey)
