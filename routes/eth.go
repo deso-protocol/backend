@@ -550,11 +550,11 @@ func (fes *APIServer) ExecuteETHRPCRequest(method string, params []interface{}, 
 	if useNetwork == nil {
 		networkString = "mainnet"
 		if fes.Params.NetworkType == lib.NetworkType_TESTNET {
-			networkString = "goerli"
+			networkString = "sepolia"
 		}
 	} else {
-		if *useNetwork != "mainnet" && *useNetwork != "goerli" {
-			return nil, fmt.Errorf("ExecuteETHRPCRequest: Invalid network type. Must be mainnet or goerli")
+		if *useNetwork != "mainnet" && *useNetwork != "sepolia" {
+			return nil, fmt.Errorf("ExecuteETHRPCRequest: Invalid network type. Must be mainnet or sepolia")
 		}
 		networkString = *useNetwork
 	}
@@ -627,9 +627,9 @@ func publicKeyToEthAddress(address []byte) (str string, err error) {
 type ETHNetwork string
 
 const (
-	UNDEFINED   ETHNetwork = ""
-	ETH_MAINNET ETHNetwork = "mainnet"
-	ETH_GOERLI  ETHNetwork = "goerli"
+	UNDEFINED  ETHNetwork = ""
+	EthMainnet ETHNetwork = "mainnet"
+	EthSepolia ETHNetwork = "sepolia"
 )
 
 type EtherscanTransaction struct {
@@ -667,15 +667,15 @@ func (fes *APIServer) GetETHTransactionsForETHAddress(ww http.ResponseWriter, re
 	ethAddress := vars["ethAddress"]
 
 	ethNetworkString := req.URL.Query().Get("eth_network")
-	if ethNetworkString != "" && ethNetworkString != string(ETH_MAINNET) && ethNetworkString != string(ETH_GOERLI) {
-		_AddBadRequestError(ww, fmt.Sprintf("GetETHTransactionsForETHAddress: Invalid network type. Must be mainnet or goerli"))
+	if ethNetworkString != "" && ethNetworkString != string(EthMainnet) && ethNetworkString != string(EthSepolia) {
+		_AddBadRequestError(ww, fmt.Sprintf("GetETHTransactionsForETHAddress: Invalid network type. Must be %v or %v", EthMainnet, EthSepolia))
 		return
 	}
 	ethNetwork := ETHNetwork(ethNetworkString)
 	if ethNetwork == UNDEFINED {
-		ethNetwork = ETH_MAINNET
+		ethNetwork = EthMainnet
 		if fes.Params.NetworkType == lib.NetworkType_TESTNET {
-			ethNetwork = ETH_GOERLI
+			ethNetwork = EthSepolia
 		}
 	}
 	ethTransactions, err := fes.GetETHTransactionsForETHAddressHandler(ethAddress, ethNetwork)
@@ -698,7 +698,7 @@ func (fes *APIServer) GetETHTransactionsForETHAddressHandler(
 		return nil, fmt.Errorf("GetETHTransactionsForETHAddress: Etherscan API key not set")
 	}
 	var apiSuffix string
-	if ethereumNetwork != ETH_MAINNET {
+	if ethereumNetwork != EthMainnet {
 		apiSuffix = "-" + string(ethereumNetwork)
 	}
 	url := fmt.Sprintf(
