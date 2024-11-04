@@ -956,10 +956,9 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 	} else if lowerUsername == "focus" ||
 		lowerUsername == "openfund" {
 
-		// TODO: We're taking the Coinbase price directly here, but ideally we would get it from
-		// a function that abstracts away the exchange we're getting it from. We do this for now
-		// in order to minimize discrepancies with other sources.
-		desoUsdCents := fes.MostRecentCoinbasePriceUSDCents
+		// Get the exchange deso price. currently this function
+		// just returns the price from the deso dex.
+		desoUsdCents := fes.GetExchangeDeSoPrice()
 		if desoUsdCents == 0 {
 			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Coinbase DESO price is zero")
 		}
