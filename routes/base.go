@@ -76,7 +76,7 @@ type GetExchangeRateResponse struct {
 	USDCentsPerDeSoReserveExchangeRate uint64
 	BuyDeSoFeeBasisPoints              uint64
 	USDCentsPerDeSoBlockchainDotCom    uint64
-	USDCentsPerDeSoCoinbase            uint64
+	USDCentsPerDeSoCoinbase            uint64 // Deprecated
 
 	SatoshisPerBitCloutExchangeRate        uint64 // Deprecated
 	USDCentsPerBitCloutExchangeRate        uint64 // Deprecated
@@ -130,10 +130,11 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 }
 
 func (fes *APIServer) GetExchangeDeSoPrice() uint64 {
-	if fes.UsdCentsPerDeSoExchangeRate > fes.USDCentsToDESOReserveExchangeRate {
-		return fes.UsdCentsPerDeSoExchangeRate
+	// We no longer observe a reserve rate.
+	if fes.MostRecentDesoDexPriceUSDCents == 0 {
+		return fes.MostRecentGatePriceUSDCents
 	}
-	return fes.USDCentsToDESOReserveExchangeRate
+	return fes.MostRecentDesoDexPriceUSDCents
 }
 
 type BlockchainDeSoTickerResponse struct {
@@ -261,14 +262,14 @@ type GateTickerResponse struct {
 	Low24H           string `json:"low_24h"`
 }
 
-var currencyPair string
+type currencyPair string
 
 const (
-	GATE_DESO_USDT = "deso_usdt"
-	GATE_USDT_USD  = "usdt_usd"
+	GateDesoUsdt currencyPair = "deso_usdt"
+	GateUsdtUsd  currencyPair = "usdt_usd"
 )
 
-func getTickerResponseFromGate(currencyPair string) (*GateTickerResponse, error) {
+func getTickerResponseFromGate(currencyPair currencyPair) (*GateTickerResponse, error) {
 	httpClient := &http.Client{}
 	url := fmt.Sprintf("https://api.gateio.ws/api/v4/spot/tickers?currency_pair=%v", currencyPair)
 	req, err := http.NewRequest("GET", url, nil)
@@ -302,12 +303,12 @@ func getTickerResponseFromGate(currencyPair string) (*GateTickerResponse, error)
 }
 
 func (fes *APIServer) GetGateExchangeRate() (_exchangeRate float64, _err error) {
-	desoToUSDTTickerResponse, err := getTickerResponseFromGate(GATE_DESO_USDT)
+	desoToUSDTTickerResponse, err := getTickerResponseFromGate(GateDesoUsdt)
 	if err != nil {
 		glog.Errorf("GetGateExchangeRate: Problem fetching exchange rate from gate: %v", err)
 		return 0, err
 	}
-	usdtToUSDTickerResponse, err := getTickerResponseFromGate(GATE_USDT_USD)
+	usdtToUSDTickerResponse, err := getTickerResponseFromGate(GateUsdtUsd)
 	if err != nil {
 		glog.Errorf("GetGateExchangeRate: Problem fetching exchange rate from gate: %v", err)
 		return 0, err
@@ -331,6 +332,25 @@ func (fes *APIServer) GetGateExchangeRate() (_exchangeRate float64, _err error) 
 		}
 	}
 	return usdCentsToDESOExchangePrice, nil
+}
+
+func (fes *APIServer) GetExchangeRateFromDeSoDex() (float64, error) {
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return 0, err
+	}
+	usdcProfileEntry := utxoView.GetProfileEntryForUsername([]byte(dusdcProfileUsername))
+	if usdcProfileEntry == nil {
+		return 0, fmt.Errorf("GetExchangeRateFromDeSoDex: Could not find profile entry for dusdc_")
+	}
+
+	usdcPKID := utxoView.GetPKIDForPublicKey(usdcProfileEntry.PublicKey)
+
+	midPriceUSD, _, _, err := fes.GetHighestBidAndLowestAskPriceFromPKIDs(&lib.ZeroPKID, usdcPKID.PKID, utxoView, 0)
+	if err != nil {
+		return 0, err
+	}
+	return midPriceUSD * 100, nil
 }
 
 // UpdateUSDCentsToDeSoExchangeRate updates app state's USD Cents per DeSo value
@@ -358,21 +378,22 @@ func (fes *APIServer) UpdateUSDCentsToDeSoExchangeRate() {
 		glog.Errorf("UpdateUSDCentsToDeSoExchangeRate: Error fetching exchange rate from gate: %v", err)
 	}
 
-	// Take the max
-	lastTradePrice, err := stats.Max([]float64{blockchainDotComPrice, gatePrice})
+	desoDexPrice, err := fes.GetExchangeRateFromDeSoDex()
+	glog.V(2).Infof("DeSoDex price (USD Cents): %v", desoDexPrice)
+	if err != nil {
+		glog.Errorf("UpdateUSDCentsToDeSoExchangeRate: Error fetching exchange rate from DeSoDex: %v", err)
+	}
 
 	// store the most recent exchange prices
-	// For now, we are using gate.io as the primary exchange
-	// for pricing of deso.
-	//fes.MostRecentCoinbasePriceUSDCents = uint64(coinbasePrice)
-	fes.MostRecentCoinbasePriceUSDCents = uint64(gatePrice)
+	fes.MostRecentCoinbasePriceUSDCents = uint64(desoDexPrice)
 	fes.MostRecentBlockchainDotComPriceUSDCents = uint64(blockchainDotComPrice)
 	fes.MostRecentGatePriceUSDCents = uint64(gatePrice)
+	fes.MostRecentDesoDexPriceUSDCents = uint64(desoDexPrice)
 
 	// Get the current timestamp and append the current last trade price to the LastTradeDeSoPriceHistory slice
 	timestamp := uint64(time.Now().UnixNano())
 	fes.LastTradeDeSoPriceHistory = append(fes.LastTradeDeSoPriceHistory, LastTradePriceHistoryItem{
-		LastTradePrice: uint64(lastTradePrice),
+		LastTradePrice: uint64(desoDexPrice),
 		Timestamp:      timestamp,
 	})
 
