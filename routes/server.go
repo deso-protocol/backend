@@ -398,7 +398,7 @@ type APIServer struct {
 	LastTradePriceLookback uint64
 
 	// most recent exchange prices fetched
-	MostRecentCoinbasePriceUSDCents         uint64
+	MostRecentCoinbasePriceUSDCents         uint64 // Deprecated
 	MostRecentBlockchainDotComPriceUSDCents uint64
 	MostRecentGatePriceUSDCents             uint64
 	MostRecentDesoDexPriceUSDCents          uint64
