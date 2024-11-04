@@ -76,7 +76,7 @@ type GetExchangeRateResponse struct {
 	USDCentsPerDeSoReserveExchangeRate uint64
 	BuyDeSoFeeBasisPoints              uint64
 	USDCentsPerDeSoBlockchainDotCom    uint64
-	USDCentsPerDeSoCoinbase            uint64
+	USDCentsPerDeSoCoinbase            uint64 // Deprecated
 
 	SatoshisPerBitCloutExchangeRate        uint64 // Deprecated
 	USDCentsPerBitCloutExchangeRate        uint64 // Deprecated
@@ -130,10 +130,11 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 }
 
 func (fes *APIServer) GetExchangeDeSoPrice() uint64 {
-	if fes.UsdCentsPerDeSoExchangeRate > fes.USDCentsToDESOReserveExchangeRate {
-		return fes.UsdCentsPerDeSoExchangeRate
+	// We no longer observe a reserve rate.
+	if fes.MostRecentDesoDexPriceUSDCents == 0 {
+		return fes.MostRecentGatePriceUSDCents
 	}
-	return fes.USDCentsToDESOReserveExchangeRate
+	return fes.MostRecentDesoDexPriceUSDCents
 }
 
 type BlockchainDeSoTickerResponse struct {
@@ -247,6 +248,111 @@ func (fes *APIServer) GetCoinbaseExchangeRate() (_exchangeRate float64, _err err
 	return usdCentsToDESOExchangePrice, nil
 }
 
+type GateTickerResponse struct {
+	CurrencyPair     string `json:"currency_pair"`
+	Last             string `json:"last"`
+	LowestAsk        string `json:"lowest_ask"`
+	LowestSize       string `json:"lowest_size"`
+	HighestBid       string `json:"highest_bid"`
+	HighestSize      string `json:"highest_size"`
+	ChangePercentage string `json:"change_percentage"`
+	BaseVolume       string `json:"base_volume"`
+	QuoteVolume      string `json:"quote_volume"`
+	High24H          string `json:"high_24h"`
+	Low24H           string `json:"low_24h"`
+}
+
+type currencyPair string
+
+const (
+	GateDesoUsdt currencyPair = "deso_usdt"
+	GateUsdtUsd  currencyPair = "usdt_usd"
+)
+
+func getTickerResponseFromGate(currencyPair currencyPair) (*GateTickerResponse, error) {
+	httpClient := &http.Client{}
+	url := fmt.Sprintf("https://api.gateio.ws/api/v4/spot/tickers?currency_pair=%v", currencyPair)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		glog.Errorf("GetGateExchangeRate: Problem creating request: %v", err)
+		return nil, err
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		glog.Errorf("GetGateExchangeRate: Problem making request: %v", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+	// Decode the response into the appropriate struct.
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		glog.Errorf("GetGateExchangeRate: Problem reading response body: %v", err)
+		return nil, err
+	}
+	responseData := []GateTickerResponse{}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	if err = decoder.Decode(&responseData); err != nil {
+		glog.Errorf("GetGateExchangeRate: Problem decoding response JSON into "+
+			"interface %v, response: %v, error: %v", responseData, resp, err)
+		return nil, err
+	}
+	if len(responseData) != 1 {
+		return nil, fmt.Errorf("GetGateExchangeRate: unexpected number of tickers returned from Gate: %v", len(responseData))
+	}
+	return &responseData[0], nil
+}
+
+func (fes *APIServer) GetGateExchangeRate() (_exchangeRate float64, _err error) {
+	desoToUSDTTickerResponse, err := getTickerResponseFromGate(GateDesoUsdt)
+	if err != nil {
+		glog.Errorf("GetGateExchangeRate: Problem fetching exchange rate from gate: %v", err)
+		return 0, err
+	}
+	usdtToUSDTickerResponse, err := getTickerResponseFromGate(GateUsdtUsd)
+	if err != nil {
+		glog.Errorf("GetGateExchangeRate: Problem fetching exchange rate from gate: %v", err)
+		return 0, err
+	}
+	usdtToUSDExchangePrice, err := strconv.ParseFloat(usdtToUSDTickerResponse.Last, 64)
+	if err != nil {
+		glog.Errorf("GetGateExchangeRate: Problem parsing USDT amount as float: %v", err)
+		return 0, err
+	}
+	desoToUSDTExchangePrice, err := strconv.ParseFloat(desoToUSDTTickerResponse.Last, 64)
+	if err != nil {
+		glog.Errorf("GetGateExchangeRate: Problem parsing DESO amount as float: %v", err)
+		return 0, err
+	}
+
+	// usdCents/DESO = (usdt/USD) * (DESO/USDT) * 100
+	usdCentsToDESOExchangePrice := (usdtToUSDExchangePrice * desoToUSDTExchangePrice) * 100
+	if fes.backendServer != nil && fes.backendServer.GetStatsdClient() != nil {
+		if err = fes.backendServer.GetStatsdClient().Gauge("GATE_LAST_TRADE_PRICE", usdCentsToDESOExchangePrice, []string{}, 1); err != nil {
+			glog.Errorf("GetGateExchangeRate: Error logging Last Trade Price of %f to datadog: %v", usdCentsToDESOExchangePrice, err)
+		}
+	}
+	return usdCentsToDESOExchangePrice, nil
+}
+
+func (fes *APIServer) GetExchangeRateFromDeSoDex() (float64, error) {
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		return 0, err
+	}
+	usdcProfileEntry := utxoView.GetProfileEntryForUsername([]byte(dusdcProfileUsername))
+	if usdcProfileEntry == nil {
+		return 0, fmt.Errorf("GetExchangeRateFromDeSoDex: Could not find profile entry for dusdc_")
+	}
+
+	usdcPKID := utxoView.GetPKIDForPublicKey(usdcProfileEntry.PublicKey)
+
+	midPriceUSD, _, _, err := fes.GetHighestBidAndLowestAskPriceFromPKIDs(&lib.ZeroPKID, usdcPKID.PKID, utxoView, 0)
+	if err != nil {
+		return 0, err
+	}
+	return midPriceUSD * 100, nil
+}
+
 // UpdateUSDCentsToDeSoExchangeRate updates app state's USD Cents per DeSo value
 func (fes *APIServer) UpdateUSDCentsToDeSoExchangeRate() {
 	glog.V(2).Info("Refreshing exchange rate...")
@@ -265,17 +371,29 @@ func (fes *APIServer) UpdateUSDCentsToDeSoExchangeRate() {
 		glog.Errorf("UpdateUSDCentsToDeSoExchangeRate: Error fetching exchange rate from coinbase: %v", err)
 	}
 
-	// Take the max
-	lastTradePrice, err := stats.Max([]float64{blockchainDotComPrice, coinbasePrice})
+	// Fetch price from gate
+	gatePrice, err := fes.GetGateExchangeRate()
+	glog.V(2).Infof("Gate price (USD Cents): %v", gatePrice)
+	if err != nil {
+		glog.Errorf("UpdateUSDCentsToDeSoExchangeRate: Error fetching exchange rate from gate: %v", err)
+	}
+
+	desoDexPrice, err := fes.GetExchangeRateFromDeSoDex()
+	glog.V(2).Infof("DeSoDex price (USD Cents): %v", desoDexPrice)
+	if err != nil {
+		glog.Errorf("UpdateUSDCentsToDeSoExchangeRate: Error fetching exchange rate from DeSoDex: %v", err)
+	}
 
 	// store the most recent exchange prices
-	fes.MostRecentCoinbasePriceUSDCents = uint64(coinbasePrice)
+	fes.MostRecentCoinbasePriceUSDCents = uint64(desoDexPrice)
 	fes.MostRecentBlockchainDotComPriceUSDCents = uint64(blockchainDotComPrice)
+	fes.MostRecentGatePriceUSDCents = uint64(gatePrice)
+	fes.MostRecentDesoDexPriceUSDCents = uint64(desoDexPrice)
 
 	// Get the current timestamp and append the current last trade price to the LastTradeDeSoPriceHistory slice
 	timestamp := uint64(time.Now().UnixNano())
 	fes.LastTradeDeSoPriceHistory = append(fes.LastTradeDeSoPriceHistory, LastTradePriceHistoryItem{
-		LastTradePrice: uint64(lastTradePrice),
+		LastTradePrice: uint64(desoDexPrice),
 		Timestamp:      timestamp,
 	})
 
