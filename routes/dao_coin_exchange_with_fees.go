@@ -16,6 +16,10 @@ import (
 	"strings"
 )
 
+const (
+	dusdcProfileUsername = "dusdc_"
+)
+
 type UpdateDaoCoinMarketFeesRequest struct {
 	// The profile that the fees are being modified for.
 	ProfilePublicKeyBase58Check string `safeForLogging:"true"`
@@ -914,7 +918,7 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 			"GetQuoteCurrencyPriceInUsd: Error fetching mempool view: %v", err)
 	}
 	if IsDesoPkid(quoteCurrencyPublicKey) {
-		usdcProfileEntry := utxoView.GetProfileEntryForUsername([]byte("dusdc_"))
+		usdcProfileEntry := utxoView.GetProfileEntryForUsername([]byte(dusdcProfileUsername))
 		if usdcProfileEntry == nil {
 			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Could not find profile entry for dusdc_")
 		}
@@ -951,7 +955,7 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 
 	// If the profile is the dusdc profile then just return 1.0
 	lowerUsername := strings.ToLower(string(existingProfileEntry.Username))
-	if lowerUsername == "dusdc_" {
+	if lowerUsername == dusdcProfileUsername {
 		return "1.0", "1.0", "1.0", nil
 	} else if lowerUsername == "focus" ||
 		lowerUsername == "openfund" {

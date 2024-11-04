@@ -339,7 +339,7 @@ func (fes *APIServer) GetExchangeRateFromDeSoDex() (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	usdcProfileEntry := utxoView.GetProfileEntryForUsername([]byte("dusdc_"))
+	usdcProfileEntry := utxoView.GetProfileEntryForUsername([]byte(dusdcProfileUsername))
 	if usdcProfileEntry == nil {
 		return 0, fmt.Errorf("GetExchangeRateFromDeSoDex: Could not find profile entry for dusdc_")
 	}
