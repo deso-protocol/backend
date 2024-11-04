@@ -131,6 +131,9 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 
 func (fes *APIServer) GetExchangeDeSoPrice() uint64 {
 	// We no longer observe a reserve rate.
+	if fes.MostRecentDesoDexPriceUSDCents == 0 {
+		return fes.MostRecentGatePriceUSDCents
+	}
 	return fes.MostRecentDesoDexPriceUSDCents
 }
 
