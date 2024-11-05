@@ -18,7 +18,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/core/lib"
-	"github.com/dgraph-io/badger/v4"
+	"github.com/dgraph-io/badger/v3"
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
