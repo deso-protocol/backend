@@ -20,7 +20,7 @@ import (
 	"github.com/tyler-smith/go-bip39"
 
 	"github.com/deso-protocol/core/lib"
-	"github.com/dgraph-io/badger/v4"
+	"github.com/dgraph-io/badger/v3"
 	"github.com/golang/glog"
 	"github.com/kevinburke/twilio-go"
 	muxtrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/gorilla/mux"
@@ -398,8 +398,10 @@ type APIServer struct {
 	LastTradePriceLookback uint64
 
 	// most recent exchange prices fetched
-	MostRecentCoinbasePriceUSDCents         uint64
+	MostRecentCoinbasePriceUSDCents         uint64 // Deprecated
 	MostRecentBlockchainDotComPriceUSDCents uint64
+	MostRecentGatePriceUSDCents             uint64
+	MostRecentDesoDexPriceUSDCents          uint64
 
 	// Base-58 prefix to check for to determine if a string could be a public key.
 	PublicKeyBase58Prefix string

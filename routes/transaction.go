@@ -1199,7 +1199,7 @@ func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint
 }
 
 func (fes *APIServer) GetUSDFromNanos(nanos uint64) float64 {
-	usdCentsPerDeSo := float64(fes.UsdCentsPerDeSoExchangeRate)
+	usdCentsPerDeSo := float64(fes.GetExchangeDeSoPrice())
 	return usdCentsPerDeSo * float64(nanos/lib.NanosPerUnit) / 100
 }
 
