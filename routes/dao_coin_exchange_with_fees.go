@@ -1600,8 +1600,6 @@ func (fes *APIServer) HandleMarketOrder(
 				// Again ONLY when deso is the quote currency do we need to do this extra step.
 				if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
 					bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
-				} else if IsDesoPkid(req.BaseCurrencyPublicKeyBase58Check) {
-					bigLimitAmount = big.NewInt(0).Mul(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
 				}
 				uint256LimitAmount, overflow := uint256.FromBig(bigLimitAmount)
 				if overflow {
@@ -1733,24 +1731,30 @@ func (fes *APIServer) HandleMarketOrder(
 		// The receive amount is the buying coin quantity filled because that's how we set up the order.
 		executionReceiveAmount := newOrderRes.SimulatedExecutionResult.BuyingCoinQuantityFilled
 		executionReceiveAmountCurrencyType := CurrencyTypeBase
+		executionReceiveAmountBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
+			req.BaseCurrencyPublicKeyBase58Check, executionReceiveAmount)
 		if err != nil {
 			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating base currency received: %v", err)
 		}
 
 		// The price per token the user is getting, expressed as a decimal float
-		// - executionAmount / executionReceiveAmount
+		// - quoteAmountSpentTotal / baseAmountReceived
+		// - = (quoteAmountSpentTotal * BaseUnitsPerCoin / baseAmountReceived) / BaseUnitsPerCoin
 		executionPriceInQuoteCurrency := ""
-		executionAmountFloat, err := strconv.ParseFloat(executionAmount, 64)
-		if err != nil {
-			return nil, fmt.Errorf("HandleMarketOrder: Problem parsing execution amount: %v", err)
-		}
-		executionReceiveAmountFloat, err := strconv.ParseFloat(executionReceiveAmount, 64)
-		if err != nil {
-			return nil, fmt.Errorf("HandleMarketOrder: Problem parsing execution receive amount: %v", err)
-		}
-		if executionReceiveAmountFloat > 0.0 {
-			executionPriceInQuoteCurrencyFloat := executionAmountFloat / executionReceiveAmountFloat
-			executionPriceInQuoteCurrency = fmt.Sprintf("%0.9f", executionPriceInQuoteCurrencyFloat)
+		if !executionReceiveAmountBaseUnits.IsZero() {
+			priceQuotePerBase := big.NewInt(0).Mul(
+				quoteCurrencyExecutedPlusFeesBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
+			priceQuotePerBase = big.NewInt(0).Div(
+				priceQuotePerBase, executionReceiveAmountBaseUnits.ToBig())
+			uint256PriceQuotePerBase, overflow := uint256.FromBig(priceQuotePerBase)
+			if overflow {
+				return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating price: %v", err)
+			}
+			executionPriceInQuoteCurrency, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
+				req.QuoteCurrencyPublicKeyBase58Check, uint256PriceQuotePerBase)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating price: %v", err)
+			}
 		}
 
 		// Compute the percentage of the amount spent that went to fees
@@ -1845,8 +1849,6 @@ func (fes *APIServer) HandleMarketOrder(
 				// Again ONLY when deso is the quote currency do we need to do this extra step.
 				if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
 					bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
-				} else if IsDesoPkid(req.BaseCurrencyPublicKeyBase58Check) {
-					bigLimitAmount = big.NewInt(0).Mul(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
 				}
 				uint256LimitAmount, overflow := uint256.FromBig(bigLimitAmount)
 				if overflow {
@@ -1888,8 +1890,6 @@ func (fes *APIServer) HandleMarketOrder(
 				// = (1e9) * limitAmountQuote / scaledPrice
 				if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
 					bigLimitReceiveAmount = big.NewInt(0).Mul(bigLimitReceiveAmount, big.NewInt(int64(lib.NanosPerUnit)))
-				} else if IsDesoPkid(req.BaseCurrencyPublicKeyBase58Check) {
-					bigLimitReceiveAmount = big.NewInt(0).Div(bigLimitReceiveAmount, big.NewInt(int64(lib.NanosPerUnit)))
 				}
 				uint256LimitReceiveAmount, overflow := uint256.FromBig(bigLimitReceiveAmount)
 				if overflow {
@@ -2021,18 +2021,21 @@ func (fes *APIServer) HandleMarketOrder(
 		}
 		// The price per token the user is getting, expressed as a decimal float
 		// - quoteAmountReceived / baseAmountSpent
+		// - = (quoteAmountReceived * BaseUnitsPerCoin / baseAmountReceived) / BaseUnitsPerCoin
 		finalPriceStr := "0.0"
 		if !baseAmountSpentBaseUnits.IsZero() {
-			quoteAmountReceivedFloat, err := strconv.ParseFloat(quoteAmountReceivedStr, 64)
-			if err != nil {
-				return nil, fmt.Errorf("HandleMarketOrder: Problem parsing quote amount received: %v", err)
+			priceQuotePerBase := big.NewInt(0).Mul(
+				quoteAmountReceivedBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
+			priceQuotePerBase = big.NewInt(0).Div(
+				priceQuotePerBase, baseAmountSpentBaseUnits.ToBig())
+			uint256PriceQuotePerBase, overflow := uint256.FromBig(priceQuotePerBase)
+			if overflow {
+				return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating price: %v", err)
 			}
-			baseAmountSpentFloat, err := strconv.ParseFloat(baseAmountSpentStr, 64)
+			finalPriceStr, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
+				req.QuoteCurrencyPublicKeyBase58Check, uint256PriceQuotePerBase)
 			if err != nil {
-				return nil, fmt.Errorf("HandleMarketOrder: Problem parsing base amount spent: %v", err)
-			}
-			if baseAmountSpentFloat != 0 {
-				finalPriceStr = fmt.Sprintf("%0.9f", quoteAmountReceivedFloat/baseAmountSpentFloat)
+				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating price: %v", err)
 			}
 		}
 
@@ -2128,8 +2131,6 @@ func (fes *APIServer) HandleMarketOrder(
 					// - 1e9 * quoteAmount / scaledPriceBasePerQuote
 					if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
 						bigLimitAmount = big.NewInt(0).Mul(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
-					} else if IsDesoPkid(req.BaseCurrencyPublicKeyBase58Check) {
-						bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
 					}
 					uint256LimitAmount, overflow := uint256.FromBig(bigLimitAmount)
 					if overflow {
@@ -2178,8 +2179,6 @@ func (fes *APIServer) HandleMarketOrder(
 			// = 1/1e9 * limitAmountBaseUnits * scaledPriceQuotePerBase
 			if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
 				bigLimitReceiveAmount = big.NewInt(0).Div(bigLimitReceiveAmount, big.NewInt(int64(lib.NanosPerUnit)))
-			} else if IsDesoPkid(req.BaseCurrencyPublicKeyBase58Check) {
-				bigLimitReceiveAmount = big.NewInt(0).Mul(bigLimitReceiveAmount, big.NewInt(int64(lib.NanosPerUnit)))
 			}
 			uint256LimitReceiveAmount, overflow := uint256.FromBig(bigLimitReceiveAmount)
 			if overflow {
