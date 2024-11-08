@@ -364,12 +364,12 @@ func (fes *APIServer) UpdateUSDCentsToDeSoExchangeRate() {
 		glog.Errorf("UpdateUSDCentsToDeSoExchangeRate: Error fetching exchange rate from blockchain.com: %v", err)
 	}
 
-	// Fetch price from coinbase
-	coinbasePrice, err := fes.GetCoinbaseExchangeRate()
-	glog.V(2).Infof("Coinbase price (USD Cents): %v", coinbasePrice)
-	if err != nil {
-		glog.Errorf("UpdateUSDCentsToDeSoExchangeRate: Error fetching exchange rate from coinbase: %v", err)
-	}
+	// DEPRECATED: Fetch price from coinbase
+	// coinbasePrice, err := fes.GetCoinbaseExchangeRate()
+	// glog.V(2).Infof("Coinbase price (USD Cents): %v", coinbasePrice)
+	// if err != nil {
+	// 	 glog.Errorf("UpdateUSDCentsToDeSoExchangeRate: Error fetching exchange rate from coinbase: %v", err)
+	// }
 
 	// Fetch price from gate
 	gatePrice, err := fes.GetGateExchangeRate()
