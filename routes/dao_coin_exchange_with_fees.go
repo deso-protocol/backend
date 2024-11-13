@@ -1033,12 +1033,26 @@ func (fes *APIServer) GetHighestBidAndLowestAskPriceFromPKIDs(
 		if err != nil {
 			return 0, 0, 0, fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error parsing price: %v", err)
 		}
+
+		// Flip orders as needed.
+		appliedOperationType := order.OperationType
 		if order.OperationType == lib.DAOCoinLimitOrderOperationTypeBID &&
+			order.BuyingDAOCoinCreatorPKID.Eq(coin2PKID) {
+			priceFloat = 1.0 / priceFloat
+			appliedOperationType = lib.DAOCoinLimitOrderOperationTypeASK
+		}
+		if order.OperationType == lib.DAOCoinLimitOrderOperationTypeASK &&
+			order.SellingDAOCoinCreatorPKID.Eq(coin2PKID) {
+			priceFloat = 1.0 / priceFloat
+			appliedOperationType = lib.DAOCoinLimitOrderOperationTypeBID
+		}
+
+		if appliedOperationType == lib.DAOCoinLimitOrderOperationTypeBID &&
 			priceFloat > highestBidPrice {
 
 			highestBidPrice = priceFloat
 		}
-		if order.OperationType == lib.DAOCoinLimitOrderOperationTypeASK &&
+		if appliedOperationType == lib.DAOCoinLimitOrderOperationTypeASK &&
 			priceFloat < lowestAskPrice {
 
 			lowestAskPrice = priceFloat
