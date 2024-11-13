@@ -1001,18 +1001,18 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 }
 
 func (fes *APIServer) GetHighestBidAndLowestAskPriceFromPKIDs(
-	coin1PKID *lib.PKID,
-	coin2PKID *lib.PKID,
+	basePkid *lib.PKID,
+	quotePkid *lib.PKID,
 	utxoView *lib.UtxoView,
 	initialHighestBidPrice float64,
 ) (float64, float64, float64, error) {
 	ordersBuyingCoin1, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
-		coin1PKID, coin2PKID)
+		basePkid, quotePkid)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
 	}
 	ordersBuyingCoin2, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
-		coin2PKID, coin1PKID)
+		quotePkid, basePkid)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
 	}
@@ -1037,12 +1037,12 @@ func (fes *APIServer) GetHighestBidAndLowestAskPriceFromPKIDs(
 		// Flip orders as needed.
 		appliedOperationType := order.OperationType
 		if order.OperationType == lib.DAOCoinLimitOrderOperationTypeBID &&
-			order.BuyingDAOCoinCreatorPKID.Eq(coin2PKID) {
+			order.BuyingDAOCoinCreatorPKID.Eq(quotePkid) {
 			priceFloat = 1.0 / priceFloat
 			appliedOperationType = lib.DAOCoinLimitOrderOperationTypeASK
 		}
 		if order.OperationType == lib.DAOCoinLimitOrderOperationTypeASK &&
-			order.SellingDAOCoinCreatorPKID.Eq(coin2PKID) {
+			order.SellingDAOCoinCreatorPKID.Eq(quotePkid) {
 			priceFloat = 1.0 / priceFloat
 			appliedOperationType = lib.DAOCoinLimitOrderOperationTypeBID
 		}
