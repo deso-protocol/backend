@@ -98,7 +98,11 @@ func (fes *APIServer) GetExchangeRate(ww http.ResponseWriter, rr *http.Request) 
 	nanosPerETH := fes.GetNanosFromETH(big.NewFloat(1), 0)
 
 	usdCentsPerDeSoExchangeRate := fes.GetExchangeDeSoPrice()
-	satoshisPerUnit := lib.NanosPerUnit / fes.GetNanosFromSats(1, 0)
+	nanosFromSats := fes.GetNanosFromSats(1, 0)
+	satoshisPerUnit := uint64(0)
+	if nanosFromSats != 0 {
+		satoshisPerUnit = lib.NanosPerUnit / fes.GetNanosFromSats(1, 0)
+	}
 
 	res := &GetExchangeRateResponse{
 		// BTC
