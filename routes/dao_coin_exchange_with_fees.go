@@ -1526,6 +1526,9 @@ func (fes *APIServer) HandleMarketOrder(
 				feeBaseUnits,
 				req.MinFeeRateNanosPerKB,
 				nil)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem creating transaction: %v", err)
+			}
 			_, _, _, _, err = utxoView.ConnectTransaction(
 				txn, txn.Hash(), fes.blockchain.BlockTip().Height,
 				fes.blockchain.BlockTip().Header.TstampNanoSecs,
@@ -1991,7 +1994,7 @@ func (fes *APIServer) HandleMarketOrder(
 		}
 
 		// Wrap all of the resulting txns into an atomic
-		allTxns := append(transferTxns, orderTxn)
+		allTxns := append([]*lib.MsgDeSoTxn{orderTxn}, transferTxns...)
 		if tokenWhitelistTxn != nil && !skipWhitelist {
 			allTxns = append(allTxns, tokenWhitelistTxn)
 		}
