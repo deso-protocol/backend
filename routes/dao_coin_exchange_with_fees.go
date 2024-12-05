@@ -4,9 +4,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/core/lib"
-	"github.com/holiman/uint256"
+	"github.com/deso-protocol/uint256"
 	"io"
 	"math"
 	"math/big"
@@ -14,6 +14,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+)
+
+const (
+	dusdcProfileUsername = "dusdc_"
 )
 
 type UpdateDaoCoinMarketFeesRequest struct {
@@ -901,17 +905,37 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsdEndpoint(ww http.ResponseWriter,
 	}
 }
 
+// TODO: When we boot up the Focus AMM, we need to update this value. The FOCUS floor price
+// is set to $0.001 in DESO, so using a DESO price of $6 gets this value = $0.001 / $6. When
+// we launch, we need use the updated DESO price and update this value.
+const FOCUS_FLOOR_PRICE_DESO_NANOS = 166666
+
 func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 	quoteCurrencyPublicKey string) (_midmarket string, _bid string, _ask string, _err error) {
-	if IsDesoPkid(quoteCurrencyPublicKey) {
-		desoUsdCents := fes.GetExchangeDeSoPrice()
-		price := fmt.Sprintf("%0.9f", float64(desoUsdCents)/100)
-		return price, price, price, nil // TODO: get real bid and ask prices.
-	}
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
 		return "", "", "", fmt.Errorf(
 			"GetQuoteCurrencyPriceInUsd: Error fetching mempool view: %v", err)
+	}
+	if IsDesoPkid(quoteCurrencyPublicKey) {
+		usdcProfileEntry := utxoView.GetProfileEntryForUsername([]byte(dusdcProfileUsername))
+		if usdcProfileEntry == nil {
+			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Could not find profile entry for dusdc_")
+		}
+
+		usdcPKID := utxoView.GetPKIDForPublicKey(usdcProfileEntry.PublicKey)
+		midMarketPrice, highestBidPrice, lowestAskPrice, err := fes.GetHighestBidAndLowestAskPriceFromPKIDs(
+			&lib.ZeroPKID, usdcPKID.PKID, utxoView, 0)
+		if err != nil {
+			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error getting price for DESO: %v", err)
+		}
+		if highestBidPrice == 0.0 || lowestAskPrice == math.MaxFloat64 {
+			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price for DESO")
+		}
+		return fmt.Sprintf("%0.9f", midMarketPrice),
+			fmt.Sprintf("%0.9f", highestBidPrice),
+			fmt.Sprintf("%0.9f", lowestAskPrice),
+			nil
 	}
 
 	pkBytes, _, err := lib.Base58CheckDecode(quoteCurrencyPublicKey)
@@ -931,62 +955,40 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 
 	// If the profile is the dusdc profile then just return 1.0
 	lowerUsername := strings.ToLower(string(existingProfileEntry.Username))
-	if lowerUsername == "dusdc_" {
+	if lowerUsername == dusdcProfileUsername {
 		return "1.0", "1.0", "1.0", nil
 	} else if lowerUsername == "focus" ||
 		lowerUsername == "openfund" {
 
+		// Get the exchange deso price. currently this function
+		// just returns the price from the deso dex.
 		desoUsdCents := fes.GetExchangeDeSoPrice()
+		if desoUsdCents == 0 {
+			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Coinbase DESO price is zero")
+		}
+
 		pkid := utxoView.GetPKIDForPublicKey(pkBytes)
 		if pkid == nil {
 			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error getting pkid for public key %v",
 				quoteCurrencyPublicKey)
 		}
-		ordersBuyingCoin1, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
-			&lib.ZeroPKID, pkid.PKID)
-		if err != nil {
-			return "", "", "", fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
-		}
-		ordersBuyingCoin2, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
-			pkid.PKID, &lib.ZeroPKID)
-		if err != nil {
-			return "", "", "", fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
-		}
-		allOrders := append(ordersBuyingCoin1, ordersBuyingCoin2...)
 		// Find the highest bid price and the lowest ask price
 		highestBidPrice := float64(0.0)
-		lowestAskPrice := math.MaxFloat64
-		for _, order := range allOrders {
-			priceStr, err := CalculatePriceStringFromScaledExchangeRate(
-				lib.PkToString(order.BuyingDAOCoinCreatorPKID[:], fes.Params),
-				lib.PkToString(order.SellingDAOCoinCreatorPKID[:], fes.Params),
-				order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
-				DAOCoinLimitOrderOperationTypeString(order.OperationType.String()))
-			if err != nil {
-				return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price: %v", err)
-			}
-			priceFloat, err := strconv.ParseFloat(priceStr, 64)
-			if err != nil {
-				return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error parsing price: %v", err)
-			}
-			if order.OperationType == lib.DAOCoinLimitOrderOperationTypeBID &&
-				priceFloat > highestBidPrice {
-
-				highestBidPrice = priceFloat
-			}
-			if order.OperationType == lib.DAOCoinLimitOrderOperationTypeASK &&
-				priceFloat < lowestAskPrice {
-
-				lowestAskPrice = priceFloat
-			}
+		if lowerUsername == "focus" {
+			highestBidPrice = float64(FOCUS_FLOOR_PRICE_DESO_NANOS) / float64(lib.NanosPerUnit)
+		}
+		var lowestAskPrice, midPriceDeso float64
+		midPriceDeso, highestBidPrice, lowestAskPrice, err = fes.GetHighestBidAndLowestAskPriceFromPKIDs(
+			pkid.PKID, &lib.ZeroPKID, utxoView, highestBidPrice)
+		if err != nil {
+			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error getting price: %v", err)
 		}
 		if highestBidPrice != 0.0 && lowestAskPrice != math.MaxFloat64 {
-			midPriceDeso := (highestBidPrice + lowestAskPrice) / 2.0
 			midPriceUsd := midPriceDeso * float64(desoUsdCents) / 100
 
 			return fmt.Sprintf("%0.9f", midPriceUsd),
-				fmt.Sprintf("%0.9f", highestBidPrice),
-				fmt.Sprintf("%0.9f", lowestAskPrice),
+				fmt.Sprintf("%0.9f", highestBidPrice*float64(desoUsdCents)/100),
+				fmt.Sprintf("%0.9f", lowestAskPrice*float64(desoUsdCents)/100),
 				nil
 		}
 
@@ -996,6 +998,72 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 	return "", "", "", fmt.Errorf(
 		"GetQuoteCurrencyPriceInUsd: Quote currency %v not supported",
 		quoteCurrencyPublicKey)
+}
+
+func (fes *APIServer) GetHighestBidAndLowestAskPriceFromPKIDs(
+	basePkid *lib.PKID,
+	quotePkid *lib.PKID,
+	utxoView *lib.UtxoView,
+	initialHighestBidPrice float64,
+) (float64, float64, float64, error) {
+	ordersBuyingCoin1, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
+		basePkid, quotePkid)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
+	}
+	ordersBuyingCoin2, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
+		quotePkid, basePkid)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("GetDAOCoinLimitOrders: Error getting limit orders: %v", err)
+	}
+	allOrders := append(ordersBuyingCoin1, ordersBuyingCoin2...)
+	// Find the highest bid price and the lowest ask price
+	highestBidPrice := initialHighestBidPrice
+	lowestAskPrice := math.MaxFloat64
+	for _, order := range allOrders {
+		priceStr, err := CalculatePriceStringFromScaledExchangeRate(
+			lib.PkToString(order.BuyingDAOCoinCreatorPKID[:], fes.Params),
+			lib.PkToString(order.SellingDAOCoinCreatorPKID[:], fes.Params),
+			order.ScaledExchangeRateCoinsToSellPerCoinToBuy,
+			DAOCoinLimitOrderOperationTypeString(order.OperationType.String()))
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price: %v", err)
+		}
+		priceFloat, err := strconv.ParseFloat(priceStr, 64)
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error parsing price: %v", err)
+		}
+
+		// Flip orders as needed.
+		appliedOperationType := order.OperationType
+		if order.OperationType == lib.DAOCoinLimitOrderOperationTypeBID &&
+			order.BuyingDAOCoinCreatorPKID.Eq(quotePkid) {
+			priceFloat = 1.0 / priceFloat
+			appliedOperationType = lib.DAOCoinLimitOrderOperationTypeASK
+		}
+		if order.OperationType == lib.DAOCoinLimitOrderOperationTypeASK &&
+			order.SellingDAOCoinCreatorPKID.Eq(quotePkid) {
+			priceFloat = 1.0 / priceFloat
+			appliedOperationType = lib.DAOCoinLimitOrderOperationTypeBID
+		}
+
+		if appliedOperationType == lib.DAOCoinLimitOrderOperationTypeBID &&
+			priceFloat > highestBidPrice {
+
+			highestBidPrice = priceFloat
+		}
+		if appliedOperationType == lib.DAOCoinLimitOrderOperationTypeASK &&
+			priceFloat < lowestAskPrice {
+
+			lowestAskPrice = priceFloat
+		}
+	}
+	if highestBidPrice != 0.0 && lowestAskPrice != math.MaxFloat64 {
+		midPrice := (highestBidPrice + lowestAskPrice) / 2.0
+
+		return midPrice, highestBidPrice, lowestAskPrice, nil
+	}
+	return 0, 0, 0, fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price")
 }
 
 func (fes *APIServer) CreateMarketOrLimitOrder(
@@ -1363,14 +1431,14 @@ func (fes *APIServer) HandleMarketOrder(
 
 	// Compute how much in quote currency we need to pay each constituent
 	feeBaseUnitsByPubkey := make(map[string]*uint256.Int)
-	totalFeeBaseUnits := uint256.NewInt()
+	totalFeeBaseUnits := uint256.NewInt(0)
 	for pubkey, feeBasisPoints := range feeMapByPubkey {
 		feeBaseUnits, err := lib.SafeUint256().Mul(
-			quoteCurrencyExecutedBeforeFeesBaseUnits, uint256.NewInt().SetUint64(feeBasisPoints))
+			quoteCurrencyExecutedBeforeFeesBaseUnits, uint256.NewInt(feeBasisPoints))
 		if err != nil {
 			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating fee for quote: %v", err)
 		}
-		feeBaseUnits, err = lib.SafeUint256().Div(feeBaseUnits, uint256.NewInt().SetUint64(10000))
+		feeBaseUnits, err = lib.SafeUint256().Div(feeBaseUnits, uint256.NewInt(10000))
 		if err != nil {
 			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating fee div: %v", err)
 		}
@@ -1458,6 +1526,9 @@ func (fes *APIServer) HandleMarketOrder(
 				feeBaseUnits,
 				req.MinFeeRateNanosPerKB,
 				nil)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem creating transaction: %v", err)
+			}
 			_, _, _, _, err = utxoView.ConnectTransaction(
 				txn, txn.Hash(), fes.blockchain.BlockTip().Height,
 				fes.blockchain.BlockTip().Header.TstampNanoSecs,
@@ -1546,9 +1617,11 @@ func (fes *APIServer) HandleMarketOrder(
 				// Again ONLY when deso is the quote currency do we need to do this extra step.
 				if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
 					bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
+				} else if IsDesoPkid(req.BaseCurrencyPublicKeyBase58Check) {
+					bigLimitAmount = big.NewInt(0).Mul(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
 				}
-				uint256LimitAmount := uint256.NewInt()
-				if overflow := uint256LimitAmount.SetFromBig(bigLimitAmount); overflow {
+				uint256LimitAmount, overflow := uint256.FromBig(bigLimitAmount)
+				if overflow {
 					return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit amount")
 				}
 				// Subtract the fees from the total quantity
@@ -1677,30 +1750,24 @@ func (fes *APIServer) HandleMarketOrder(
 		// The receive amount is the buying coin quantity filled because that's how we set up the order.
 		executionReceiveAmount := newOrderRes.SimulatedExecutionResult.BuyingCoinQuantityFilled
 		executionReceiveAmountCurrencyType := CurrencyTypeBase
-		executionReceiveAmountBaseUnits, err := CalculateBaseUnitsFromStringDecimalAmountSimple(
-			req.BaseCurrencyPublicKeyBase58Check, executionReceiveAmount)
 		if err != nil {
 			return nil, fmt.Errorf("HandleMarketOrder: Problem calculating base currency received: %v", err)
 		}
 
 		// The price per token the user is getting, expressed as a decimal float
-		// - quoteAmountSpentTotal / baseAmountReceived
-		// - = (quoteAmountSpentTotal * BaseUnitsPerCoin / baseAmountReceived) / BaseUnitsPerCoin
+		// - executionAmount / executionReceiveAmount
 		executionPriceInQuoteCurrency := ""
-		if !executionReceiveAmountBaseUnits.IsZero() {
-			priceQuotePerBase := big.NewInt(0).Mul(
-				quoteCurrencyExecutedPlusFeesBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
-			priceQuotePerBase = big.NewInt(0).Div(
-				priceQuotePerBase, executionReceiveAmountBaseUnits.ToBig())
-			uint256PriceQuotePerBase := uint256.NewInt()
-			if overflow := uint256PriceQuotePerBase.SetFromBig(priceQuotePerBase); overflow {
-				return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating price: %v", err)
-			}
-			executionPriceInQuoteCurrency, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
-				req.QuoteCurrencyPublicKeyBase58Check, uint256PriceQuotePerBase)
-			if err != nil {
-				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating price: %v", err)
-			}
+		executionAmountFloat, err := strconv.ParseFloat(executionAmount, 64)
+		if err != nil {
+			return nil, fmt.Errorf("HandleMarketOrder: Problem parsing execution amount: %v", err)
+		}
+		executionReceiveAmountFloat, err := strconv.ParseFloat(executionReceiveAmount, 64)
+		if err != nil {
+			return nil, fmt.Errorf("HandleMarketOrder: Problem parsing execution receive amount: %v", err)
+		}
+		if executionReceiveAmountFloat > 0.0 {
+			executionPriceInQuoteCurrencyFloat := executionAmountFloat / executionReceiveAmountFloat
+			executionPriceInQuoteCurrency = fmt.Sprintf("%0.9f", executionPriceInQuoteCurrencyFloat)
 		}
 
 		// Compute the percentage of the amount spent that went to fees
@@ -1772,6 +1839,7 @@ func (fes *APIServer) HandleMarketOrder(
 				}
 				bigLimitAmount := big.NewInt(0).Mul(quantityBaseUnits.ToBig(), scaledPrice.ToBig())
 				bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, lib.OneE38.ToBig())
+
 				// The reason why this extra step is needed is extremely subtle. It's required because
 				// scaledPrice represents (whole coin / whole coin) rather than (base unit / base unit).
 				// When the coins have the same number of base units per whole coin, this conversion isn't
@@ -1794,9 +1862,11 @@ func (fes *APIServer) HandleMarketOrder(
 				// Again ONLY when deso is the quote currency do we need to do this extra step.
 				if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
 					bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
+				} else if IsDesoPkid(req.BaseCurrencyPublicKeyBase58Check) {
+					bigLimitAmount = big.NewInt(0).Mul(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
 				}
-				uint256LimitAmount := uint256.NewInt()
-				if overflow := uint256LimitAmount.SetFromBig(bigLimitAmount); overflow {
+				uint256LimitAmount, overflow := uint256.FromBig(bigLimitAmount)
+				if overflow {
 					return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit amount")
 				}
 
@@ -1835,9 +1905,11 @@ func (fes *APIServer) HandleMarketOrder(
 				// = (1e9) * limitAmountQuote / scaledPrice
 				if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
 					bigLimitReceiveAmount = big.NewInt(0).Mul(bigLimitReceiveAmount, big.NewInt(int64(lib.NanosPerUnit)))
+				} else if IsDesoPkid(req.BaseCurrencyPublicKeyBase58Check) {
+					bigLimitReceiveAmount = big.NewInt(0).Div(bigLimitReceiveAmount, big.NewInt(int64(lib.NanosPerUnit)))
 				}
-				uint256LimitReceiveAmount := uint256.NewInt()
-				if overflow := uint256LimitReceiveAmount.SetFromBig(bigLimitReceiveAmount); overflow {
+				uint256LimitReceiveAmount, overflow := uint256.FromBig(bigLimitReceiveAmount)
+				if overflow {
 					return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit receive amount")
 				}
 				limitReceiveAmount, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
@@ -1922,7 +1994,7 @@ func (fes *APIServer) HandleMarketOrder(
 		}
 
 		// Wrap all of the resulting txns into an atomic
-		allTxns := append(transferTxns, orderTxn)
+		allTxns := append([]*lib.MsgDeSoTxn{orderTxn}, transferTxns...)
 		if tokenWhitelistTxn != nil && !skipWhitelist {
 			allTxns = append(allTxns, tokenWhitelistTxn)
 		}
@@ -1966,21 +2038,18 @@ func (fes *APIServer) HandleMarketOrder(
 		}
 		// The price per token the user is getting, expressed as a decimal float
 		// - quoteAmountReceived / baseAmountSpent
-		// - = (quoteAmountReceived * BaseUnitsPerCoin / baseAmountReceived) / BaseUnitsPerCoin
 		finalPriceStr := "0.0"
 		if !baseAmountSpentBaseUnits.IsZero() {
-			priceQuotePerBase := big.NewInt(0).Mul(
-				quoteAmountReceivedBaseUnits.ToBig(), lib.BaseUnitsPerCoin.ToBig())
-			priceQuotePerBase = big.NewInt(0).Div(
-				priceQuotePerBase, baseAmountSpentBaseUnits.ToBig())
-			uint256PriceQuotePerBase := uint256.NewInt()
-			if overflow := uint256PriceQuotePerBase.SetFromBig(priceQuotePerBase); overflow {
-				return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating price: %v", err)
-			}
-			finalPriceStr, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
-				req.QuoteCurrencyPublicKeyBase58Check, uint256PriceQuotePerBase)
+			quoteAmountReceivedFloat, err := strconv.ParseFloat(quoteAmountReceivedStr, 64)
 			if err != nil {
-				return nil, fmt.Errorf("HandleMarketOrder: Problem calculating price: %v", err)
+				return nil, fmt.Errorf("HandleMarketOrder: Problem parsing quote amount received: %v", err)
+			}
+			baseAmountSpentFloat, err := strconv.ParseFloat(baseAmountSpentStr, 64)
+			if err != nil {
+				return nil, fmt.Errorf("HandleMarketOrder: Problem parsing base amount spent: %v", err)
+			}
+			if baseAmountSpentFloat != 0 {
+				finalPriceStr = fmt.Sprintf("%0.9f", quoteAmountReceivedFloat/baseAmountSpentFloat)
 			}
 		}
 
@@ -2076,9 +2145,11 @@ func (fes *APIServer) HandleMarketOrder(
 					// - 1e9 * quoteAmount / scaledPriceBasePerQuote
 					if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
 						bigLimitAmount = big.NewInt(0).Mul(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
+					} else if IsDesoPkid(req.BaseCurrencyPublicKeyBase58Check) {
+						bigLimitAmount = big.NewInt(0).Div(bigLimitAmount, big.NewInt(int64(lib.NanosPerUnit)))
 					}
-					uint256LimitAmount := uint256.NewInt()
-					if overflow := uint256LimitAmount.SetFromBig(bigLimitAmount); overflow {
+					uint256LimitAmount, overflow := uint256.FromBig(bigLimitAmount)
+					if overflow {
 						return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit amount")
 					}
 					limitAmount, err = CalculateStringDecimalAmountFromBaseUnitsSimple(
@@ -2124,9 +2195,11 @@ func (fes *APIServer) HandleMarketOrder(
 			// = 1/1e9 * limitAmountBaseUnits * scaledPriceQuotePerBase
 			if IsDesoPkid(req.QuoteCurrencyPublicKeyBase58Check) {
 				bigLimitReceiveAmount = big.NewInt(0).Div(bigLimitReceiveAmount, big.NewInt(int64(lib.NanosPerUnit)))
+			} else if IsDesoPkid(req.BaseCurrencyPublicKeyBase58Check) {
+				bigLimitReceiveAmount = big.NewInt(0).Mul(bigLimitReceiveAmount, big.NewInt(int64(lib.NanosPerUnit)))
 			}
-			uint256LimitReceiveAmount := uint256.NewInt()
-			if overflow := uint256LimitReceiveAmount.SetFromBig(bigLimitReceiveAmount); overflow {
+			uint256LimitReceiveAmount, overflow := uint256.FromBig(bigLimitReceiveAmount)
+			if overflow {
 				return nil, fmt.Errorf("HandleMarketOrder: Overflow calculating limit receive amount")
 			}
 			limitReceiveAmount, err := CalculateStringDecimalAmountFromBaseUnitsSimple(
