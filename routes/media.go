@@ -53,7 +53,7 @@ func (fes *APIServer) uploadSingleImage(image string, extension string) (_imageU
 
 	if extension != ".gif" {
 		var imageBytes []byte
-		imageBytes, err = resizeAndConvertFromEncodedImageContent(image, 1000, extension)
+		imageBytes, err = resizeAndConvertFromEncodedImageContent(image, 4000, extension)
 		if err != nil {
 			return "", err
 		}
