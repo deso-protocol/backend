@@ -242,6 +242,17 @@ func (fes *APIServer) SubmitAtomicTransaction(ww http.ResponseWriter, req *http.
 			innerTxnPreSignatureHashToSignature[*preSignatureInnerTxnHash]
 	}
 
+	atomicTxnLen, err := atomicTxn.ToBytes(false)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"SubmitAtomicTransaction: Problem serializing completed atomic transaction: %v", err))
+		return
+	}
+	if TransactionFeeRateTooHigh(atomicTxn, uint64(len(atomicTxnLen))) {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitAtomicTransaction: Transaction fee rate too high"))
+		return
+	}
+
 	// Verify and broadcast the completed atomic transaction.
 	if err := fes.backendServer.VerifyAndBroadcastTransaction(atomicTxn); err != nil {
 		_AddBadRequestError(ww,
@@ -275,6 +286,19 @@ type SubmitTransactionResponse struct {
 	PostEntryResponse *PostEntryResponse
 }
 
+// FeeRateNanosPerKBThreshold is the threshold above which transactions will be rejected if the fee rate exceeds it.
+const FeeRateNanosPerKBThreshold = 1e8
+
+func TransactionFeeRateTooHigh(txn *lib.MsgDeSoTxn, txnLen uint64) bool {
+	// Handle base cases.
+	if txn.TxnFeeNanos == 0 || txnLen == 0 {
+		return false
+	}
+	// Compute the fee rate in nanos per KB.
+	feeRateNanosPerKB := (txn.TxnFeeNanos * 1000) / txnLen
+	return feeRateNanosPerKB > FeeRateNanosPerKBThreshold
+}
+
 func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := SubmitTransactionRequest{}
@@ -293,6 +317,11 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 	err = txn.FromBytes(txnBytes)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem deserializing transaction from bytes: %v", err))
+		return
+	}
+
+	if TransactionFeeRateTooHigh(txn, uint64(len(txnBytes))) {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Transaction fee rate too high"))
 		return
 	}
 
