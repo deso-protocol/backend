@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	ecdsa2 "github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 	"io"
 	"math/big"
 	"net/http"
@@ -13,12 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/holiman/uint256"
+	"github.com/deso-protocol/uint256"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/deso-protocol/core/lib"
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
@@ -241,6 +242,17 @@ func (fes *APIServer) SubmitAtomicTransaction(ww http.ResponseWriter, req *http.
 			innerTxnPreSignatureHashToSignature[*preSignatureInnerTxnHash]
 	}
 
+	atomicTxnLen, err := atomicTxn.ToBytes(false)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"SubmitAtomicTransaction: Problem serializing completed atomic transaction: %v", err))
+		return
+	}
+	if TransactionFeeRateTooHigh(atomicTxn, uint64(len(atomicTxnLen))) {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitAtomicTransaction: Transaction fee rate too high"))
+		return
+	}
+
 	// Verify and broadcast the completed atomic transaction.
 	if err := fes.backendServer.VerifyAndBroadcastTransaction(atomicTxn); err != nil {
 		_AddBadRequestError(ww,
@@ -274,6 +286,19 @@ type SubmitTransactionResponse struct {
 	PostEntryResponse *PostEntryResponse
 }
 
+// FeeRateNanosPerKBThreshold is the threshold above which transactions will be rejected if the fee rate exceeds it.
+const FeeRateNanosPerKBThreshold = 1e8
+
+func TransactionFeeRateTooHigh(txn *lib.MsgDeSoTxn, txnLen uint64) bool {
+	// Handle base cases.
+	if txn.TxnFeeNanos == 0 || txnLen == 0 {
+		return false
+	}
+	// Compute the fee rate in nanos per KB.
+	feeRateNanosPerKB := (txn.TxnFeeNanos * 1000) / txnLen
+	return feeRateNanosPerKB > FeeRateNanosPerKBThreshold
+}
+
 func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := SubmitTransactionRequest{}
@@ -292,6 +317,11 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 	err = txn.FromBytes(txnBytes)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem deserializing transaction from bytes: %v", err))
+		return
+	}
+
+	if TransactionFeeRateTooHigh(txn, uint64(len(txnBytes))) {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Transaction fee rate too high"))
 		return
 	}
 
@@ -813,16 +843,7 @@ func (fes *APIServer) CompProfileCreation(profilePublicKey []byte, userMetadata 
 func GetBalanceForPublicKeyUsingUtxoView(
 	publicKeyBytes []byte, utxoView *lib.UtxoView) (_balance uint64, _err error) {
 
-	// Get unspent utxos from the view.
-	utxoEntriesFound, err := utxoView.GetUnspentUtxoEntrysForPublicKey(publicKeyBytes)
-	if err != nil {
-		return 0, fmt.Errorf("UpdateProfile: Problem getting spendable utxos from UtxoView: %v", err)
-	}
-	totalBalanceNanos := uint64(0)
-	for _, utxoEntry := range utxoEntriesFound {
-		totalBalanceNanos += utxoEntry.AmountNanos
-	}
-	return totalBalanceNanos, nil
+	return utxoView.GetDeSoBalanceNanosForPublicKey(publicKeyBytes)
 }
 
 // ExchangeBitcoinRequest ...
@@ -1007,7 +1028,7 @@ func (fes *APIServer) ExchangeBitcoinStateless(ww http.ResponseWriter, req *http
 			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Failed to decode hash: %v", err))
 			return
 		}
-		parsedSig, err := btcec.ParseDERSignature(sig, btcec.S256())
+		parsedSig, err := ecdsa2.ParseDERSignature(sig)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("ExchangeBitcoinStateless: Parsing "+
 				"signature failed: %v: %v", signedHash, err))
@@ -1197,6 +1218,9 @@ func (fes *APIServer) GetNanosFromETH(eth *big.Float, feeBasisPoints uint64) uin
 // GetNanosFromUSDCents - convert USD cents to DeSo nanos
 func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint64) uint64 {
 	// Get Exchange Price gets the max of price from blockchain.com and the reserve price.
+	// TODO: This function isn't using the Coinbase price. We should make it consistent with other
+	// places that use the Coinbase price, but it's fine for now because the places that call this
+	// function are deprecated.
 	usdCentsPerDeSo := fes.GetExchangeDeSoPrice()
 	conversionRateAfterFee := float64(usdCentsPerDeSo) * (1 + (float64(feeBasisPoints) / (100.0 * 100.0)))
 	nanosPurchased := uint64(usdCents * float64(lib.NanosPerUnit) / conversionRateAfterFee)
@@ -1204,7 +1228,7 @@ func (fes *APIServer) GetNanosFromUSDCents(usdCents float64, feeBasisPoints uint
 }
 
 func (fes *APIServer) GetUSDFromNanos(nanos uint64) float64 {
-	usdCentsPerDeSo := float64(fes.UsdCentsPerDeSoExchangeRate)
+	usdCentsPerDeSo := float64(fes.GetExchangeDeSoPrice())
 	return usdCentsPerDeSo * float64(nanos/lib.NanosPerUnit) / 100
 }
 
@@ -2696,13 +2720,12 @@ func (fes *APIServer) DAOCoin(ww http.ResponseWriter, req *http.Request) {
 			"DAOCoin: Must be profile owner in order to perform %v operation", requestData.OperationType))
 		return
 	}
-	zero := uint256.NewInt()
-	if operationType == lib.DAOCoinOperationTypeMint && requestData.CoinsToMintNanos.Eq(zero) {
+	if operationType == lib.DAOCoinOperationTypeMint && requestData.CoinsToMintNanos.IsZero() {
 		_AddBadRequestError(ww, fmt.Sprint("DAOCoin: Cannot mint 0 coins"))
 		return
 	}
 
-	if operationType == lib.DAOCoinOperationTypeBurn && requestData.CoinsToBurnNanos.Eq(zero) {
+	if operationType == lib.DAOCoinOperationTypeBurn && requestData.CoinsToBurnNanos.IsZero() {
 		_AddBadRequestError(ww, fmt.Sprint("DAOCoin: Cannot burn 0 coins"))
 		return
 	}
@@ -2996,7 +3019,7 @@ func (fes *APIServer) createDaoCoinLimitOrderHelper(
 	}
 
 	// Validated and parse price to a scaled exchange rate
-	scaledExchangeRateCoinsToSellPerCoinToBuy := uint256.NewInt()
+	scaledExchangeRateCoinsToSellPerCoinToBuy := uint256.NewInt(0)
 	if requestData.Price == "" && requestData.ExchangeRateCoinsToSellPerCoinToBuy == 0 {
 		err = errors.Errorf("Price must be provided as a valid decimal string (ex: 1.23)")
 	} else if requestData.Price != "" {
@@ -3021,7 +3044,7 @@ func (fes *APIServer) createDaoCoinLimitOrderHelper(
 	}
 
 	// Parse and validated quantity
-	quantityToFillInBaseUnits := uint256.NewInt()
+	quantityToFillInBaseUnits := uint256.NewInt(0)
 	if requestData.Quantity == "" && requestData.QuantityToFill == 0 {
 		err = errors.Errorf("Quantity must be provided as a valid decimal string (ex: 1.23)")
 	} else if requestData.Quantity != "" {
@@ -3188,7 +3211,7 @@ func (fes *APIServer) createDaoCoinMarketOrderHelper(
 	// Validate and convert quantity to base units
 
 	// Parse and validated quantity
-	quantityToFillInBaseUnits := uint256.NewInt()
+	quantityToFillInBaseUnits := uint256.NewInt(0)
 	if requestData.Quantity == "" && requestData.QuantityToFill == 0 {
 		err = errors.Errorf("CreateDAOCoinMarketOrder: Quantity must be provided as a valid decimal string (ex: 1.23)")
 	} else if requestData.Quantity != "" {
@@ -3248,7 +3271,7 @@ func (fes *APIServer) createDaoCoinMarketOrderHelper(
 	}
 
 	// override the initial value and explicitly set to 0 for clarity
-	zeroUint256 := uint256.NewInt().SetUint64(0)
+	zeroUint256 := uint256.NewInt(0)
 
 	res, err := fes.createDAOCoinLimitOrderResponse(
 		utxoView,

@@ -3,7 +3,7 @@ package toolslib
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/backend/routes"
 	"github.com/deso-protocol/core/lib"
 	"github.com/pkg/errors"

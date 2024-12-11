@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/uint256"
 	"io"
 	"net"
 	"net/http"
@@ -13,7 +14,6 @@ import (
 	"github.com/deso-protocol/core/collections"
 	"github.com/deso-protocol/core/lib"
 	"github.com/gorilla/mux"
-	"github.com/holiman/uint256"
 )
 
 type RegisterAsValidatorRequest struct {

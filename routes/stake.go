@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/deso-protocol/core/lib"
+	"github.com/deso-protocol/uint256"
 	"github.com/gorilla/mux"
-	"github.com/holiman/uint256"
 	"io"
 	"math"
 	"net/http"
@@ -334,6 +334,11 @@ func (fes *APIServer) CreateUnstakeTxn(ww http.ResponseWriter, req *http.Request
 		additionalOutputs,
 	)
 
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateUnstakeTxn: Problem creating transaction: %v", err))
+		return
+	}
+
 	// Construct response.
 	txnBytes, err := txn.ToBytes(true)
 	if err != nil {
@@ -428,6 +433,10 @@ func (fes *APIServer) CreateUnlockStakeTxn(ww http.ResponseWriter, req *http.Req
 		fes.backendServer.GetMempool(),
 		additionalOutputs,
 	)
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateUnlockStakeTxn: Problem creating transaction: %v", err))
+		return
+	}
 
 	// Construct response.
 	txnBytes, err := txn.ToBytes(true)

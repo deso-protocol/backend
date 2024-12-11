@@ -14,7 +14,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/deso-protocol/backend/config"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/tyler-smith/go-bip39"
@@ -72,33 +72,34 @@ const (
 	RoutePathGetSignatureIndex        = "/api/v0/signature-index"
 	RoutePathGetTxnConstructionParams = "/api/v0/txn-construction-params"
 
-	RoutePathGetUsersStateless                          = "/api/v0/get-users-stateless"
-	RoutePathDeleteIdentities                           = "/api/v0/delete-identities"
-	RoutePathGetProfiles                                = "/api/v0/get-profiles"
-	RoutePathGetSingleProfile                           = "/api/v0/get-single-profile"
-	RoutePathGetSingleProfilePicture                    = "/api/v0/get-single-profile-picture"
-	RoutePathGetHodlersForPublicKey                     = "/api/v0/get-hodlers-for-public-key"
-	RoutePathGetTokenBalancesForPublicKey               = "/api/v0/get-token-balances-for-public-key"
-	RoutePathGetHodlersCountForPublicKeys               = "/api/v0/get-hodlers-count-for-public-keys"
-	RoutePathGetDiamondsForPublicKey                    = "/api/v0/get-diamonds-for-public-key"
-	RoutePathGetFollowsStateless                        = "/api/v0/get-follows-stateless"
-	RoutePathGetUserGlobalMetadata                      = "/api/v0/get-user-global-metadata"
-	RoutePathUpdateUserGlobalMetadata                   = "/api/v0/update-user-global-metadata"
-	RoutePathGetNotifications                           = "/api/v0/get-notifications"
-	RoutePathGetUnreadNotificationsCount                = "/api/v0/get-unread-notifications-count"
-	RoutePathSetNotificationMetadata                    = "/api/v0/set-notification-metadata"
-	RoutePathBlockPublicKey                             = "/api/v0/block-public-key"
-	RoutePathIsFollowingPublicKey                       = "/api/v0/is-following-public-key"
-	RoutePathIsHodlingPublicKey                         = "/api/v0/is-hodling-public-key"
-	RoutePathGetUserDerivedKeys                         = "/api/v0/get-user-derived-keys"
-	RoutePathGetSingleDerivedKey                        = "/api/v0/get-single-derived-key"
-	RoutePathGetTransactionSpendingLimitHexString       = "/api/v0/get-transaction-spending-limit-hex-string"
-	RoutePathGetAccessBytes                             = "/api/v0/get-access-bytes"
-	RoutePathGetTransactionSpendingLimitResponseFromHex = "/api/v0/get-transaction-spending-limit-response-from-hex"
-	RoutePathDeletePII                                  = "/api/v0/delete-pii"
-	RoutePathGetUserMetadata                            = "/api/v0/get-user-metadata"
-	RoutePathGetUsernameForPublicKey                    = "/api/v0/get-user-name-for-public-key"
-	RoutePathGetPublicKeyForUsername                    = "/api/v0/get-public-key-for-user-name"
+	RoutePathGetUsersStateless                           = "/api/v0/get-users-stateless"
+	RoutePathDeleteIdentities                            = "/api/v0/delete-identities"
+	RoutePathGetProfiles                                 = "/api/v0/get-profiles"
+	RoutePathGetSingleProfile                            = "/api/v0/get-single-profile"
+	RoutePathGetSingleProfilePicture                     = "/api/v0/get-single-profile-picture"
+	RoutePathGetHodlersForPublicKey                      = "/api/v0/get-hodlers-for-public-key"
+	RoutePathGetGetHoldersForPublicKeyWithLockedBalances = "/api/v0/get-holders-for-public-key-with-locked-balances"
+	RoutePathGetTokenBalancesForPublicKey                = "/api/v0/get-token-balances-for-public-key"
+	RoutePathGetHodlersCountForPublicKeys                = "/api/v0/get-hodlers-count-for-public-keys"
+	RoutePathGetDiamondsForPublicKey                     = "/api/v0/get-diamonds-for-public-key"
+	RoutePathGetFollowsStateless                         = "/api/v0/get-follows-stateless"
+	RoutePathGetUserGlobalMetadata                       = "/api/v0/get-user-global-metadata"
+	RoutePathUpdateUserGlobalMetadata                    = "/api/v0/update-user-global-metadata"
+	RoutePathGetNotifications                            = "/api/v0/get-notifications"
+	RoutePathGetUnreadNotificationsCount                 = "/api/v0/get-unread-notifications-count"
+	RoutePathSetNotificationMetadata                     = "/api/v0/set-notification-metadata"
+	RoutePathBlockPublicKey                              = "/api/v0/block-public-key"
+	RoutePathIsFollowingPublicKey                        = "/api/v0/is-following-public-key"
+	RoutePathIsHodlingPublicKey                          = "/api/v0/is-hodling-public-key"
+	RoutePathGetUserDerivedKeys                          = "/api/v0/get-user-derived-keys"
+	RoutePathGetSingleDerivedKey                         = "/api/v0/get-single-derived-key"
+	RoutePathGetTransactionSpendingLimitHexString        = "/api/v0/get-transaction-spending-limit-hex-string"
+	RoutePathGetAccessBytes                              = "/api/v0/get-access-bytes"
+	RoutePathGetTransactionSpendingLimitResponseFromHex  = "/api/v0/get-transaction-spending-limit-response-from-hex"
+	RoutePathDeletePII                                   = "/api/v0/delete-pii"
+	RoutePathGetUserMetadata                             = "/api/v0/get-user-metadata"
+	RoutePathGetUsernameForPublicKey                     = "/api/v0/get-user-name-for-public-key"
+	RoutePathGetPublicKeyForUsername                     = "/api/v0/get-public-key-for-user-name"
 
 	// dao_coin_exchange.go
 	RoutePathGetDaoCoinLimitOrders           = "/api/v0/get-dao-coin-limit-orders"
@@ -110,6 +111,7 @@ const (
 	RoutePathGetDaoCoinMarketFees           = "/api/v0/get-dao-coin-market-fees"
 	RoutePathCreateDAOCoinLimitOrderWithFee = "/api/v0/create-dao-coin-limit-order-with-fee"
 	RoutePathGetQuoteCurrencyPriceInUsd     = "/api/v0/get-quote-currency-price-in-usd"
+	RoutePathGetBaseCurrencyPrice           = "/api/v0/get-base-currency-price"
 
 	// post.go
 	RoutePathGetPostsHashHexList    = "/api/v0/get-posts-hashhexlist"
@@ -396,8 +398,10 @@ type APIServer struct {
 	LastTradePriceLookback uint64
 
 	// most recent exchange prices fetched
-	MostRecentCoinbasePriceUSDCents         uint64
+	MostRecentCoinbasePriceUSDCents         uint64 // Deprecated
 	MostRecentBlockchainDotComPriceUSDCents uint64
+	MostRecentGatePriceUSDCents             uint64
+	MostRecentDesoDexPriceUSDCents          uint64
 
 	// Base-58 prefix to check for to determine if a string could be a public key.
 	PublicKeyBase58Prefix string
@@ -950,6 +954,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			PublicAccess,
 		},
 		{
+			"GetHoldersForPublicKeyWithLockedBalances",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetGetHoldersForPublicKeyWithLockedBalances,
+			fes.GetHoldersForPublicKeyWithLockedBalances,
+			PublicAccess,
+		},
+		{
 			"GetTokenBalancesForPublicKey",
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetTokenBalancesForPublicKey,
@@ -1297,6 +1308,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathCreateDAOCoinLimitOrderWithFee,
 			fes.CreateDAOCoinLimitOrderWithFee,
+			PublicAccess,
+		},
+		{
+			"GetBaseCurrencyPrice",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetBaseCurrencyPrice,
+			fes.GetBaseCurrencyPriceEndpoint,
 			PublicAccess,
 		},
 		{
@@ -2741,7 +2759,7 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 		return false, errors.Wrapf(err, "Problem decoding public key")
 	}
 
-	pubKey, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+	pubKey, err := btcec.ParsePubKey(pubKeyBytes)
 	if err != nil {
 		return false, errors.Wrapf(err, "Problem parsing public key")
 	}
@@ -2759,7 +2777,7 @@ func (fes *APIServer) ValidateJWT(publicKey string, jwtToken string) (bool, erro
 			if err != nil {
 				return nil, errors.Wrapf(err, "Problem decoding derived public key")
 			}
-			derivedPublicKey, err := btcec.ParsePubKey(derivedPublicKeyBytes, btcec.S256())
+			derivedPublicKey, err := btcec.ParsePubKey(derivedPublicKeyBytes)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Problem parsing derived public key bytes")
 			}
