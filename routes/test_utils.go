@@ -7,19 +7,6 @@ import (
 	"testing"
 )
 
-func CleanUpBadger(db *badger.DB) {
-	// Close the database.
-	err := db.Close()
-	if err != nil {
-		log.Fatal(err)
-	}
-	// Delete the database directory.
-	err = os.RemoveAll(db.Opts().Dir)
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
 func GetTestBadgerDb(t *testing.T) (_db *badger.DB, _dir string) {
 	dir, err := os.MkdirTemp("", "badgerdb")
 	if err != nil {
@@ -40,4 +27,17 @@ func GetTestBadgerDb(t *testing.T) (_db *badger.DB, _dir string) {
 		CleanUpBadger(db)
 	})
 	return db, dir
+}
+
+func CleanUpBadger(db *badger.DB) {
+	// Close the database.
+	err := db.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Delete the database directory.
+	err = os.RemoveAll(db.Opts().Dir)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
