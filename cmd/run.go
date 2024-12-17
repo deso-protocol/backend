@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"time"
 )
 
 // runCmd represents the run command
@@ -19,6 +20,7 @@ var runCmd = &cobra.Command{
 
 func Run(cmd *cobra.Command, args []string) {
 	shutdownListener := make(chan struct{})
+	time.Sleep(10 * time.Minute)
 
 	// Start the core node
 	coreConfig := coreCmd.LoadConfig()

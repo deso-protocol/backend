@@ -1,9 +1,6 @@
 package cmd
 
 import (
-	"path/filepath"
-	"time"
-
 	"github.com/deso-protocol/backend/config"
 	"github.com/deso-protocol/backend/routes"
 	coreCmd "github.com/deso-protocol/core/cmd"
@@ -11,6 +8,7 @@ import (
 	"github.com/dgraph-io/badger/v3"
 	"github.com/golang/glog"
 	"github.com/kevinburke/twilio-go"
+	"path/filepath"
 )
 
 type Node struct {
@@ -58,7 +56,6 @@ func (node *Node) Start() {
 				"to set --archival-mode=true if you want to run hot feed with hypersync."))
 		}
 	}
-	time.Sleep(10 * time.Minute)
 
 	node.APIServer, err = routes.NewAPIServer(
 		node.CoreNode.Server,
