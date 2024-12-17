@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"path/filepath"
+	"time"
 
 	"github.com/deso-protocol/backend/config"
 	"github.com/deso-protocol/backend/routes"
@@ -57,6 +58,7 @@ func (node *Node) Start() {
 				"to set --archival-mode=true if you want to run hot feed with hypersync."))
 		}
 	}
+	time.Sleep(10 * time.Minute)
 
 	node.APIServer, err = routes.NewAPIServer(
 		node.CoreNode.Server,
