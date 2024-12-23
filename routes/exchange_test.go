@@ -1363,12 +1363,12 @@ func TestAPI(t *testing.T) {
 		{
 			prefix := lib.DbTxindexTxIDKey(&lib.BlockHash{})[0]
 			txnsInTransactionIndex, _ := lib.EnumerateKeysForPrefix(
-				apiServer.TXIndex.TXIndexChain.DB(), []byte{prefix}, true)
+				apiServer.TXIndex.TXIndexChain.DB(), []byte{prefix}, true, false)
 			require.Equal(1+len(apiServer.Params.SeedTxns)+len(apiServer.Params.SeedBalances), len(txnsInTransactionIndex))
 		}
 		{
 			keysInPublicKeyTable, _ := lib.EnumerateKeysForPrefix(
-				apiServer.TXIndex.TXIndexChain.DB(), lib.DbTxindexPublicKeyPrefix([]byte{}), true)
+				apiServer.TXIndex.TXIndexChain.DB(), lib.DbTxindexPublicKeyPrefix([]byte{}), true, false)
 			// There should be two keys since one is the miner public key and
 			// the other is a dummy public key corresponding to the input of
 			// a block reward txn. Plus one for the seed balance, which creates
@@ -1449,12 +1449,12 @@ func TestAPI(t *testing.T) {
 		{
 			prefix := lib.DbTxindexTxIDKey(&lib.BlockHash{})[0]
 			txnsInTransactionIndex, _ := lib.EnumerateKeysForPrefix(
-				apiServer.TXIndex.TXIndexChain.DB(), []byte{prefix}, true)
+				apiServer.TXIndex.TXIndexChain.DB(), []byte{prefix}, true, false)
 			require.Equal(5+len(apiServer.Params.SeedTxns)+len(apiServer.Params.SeedBalances), len(txnsInTransactionIndex))
 		}
 		{
 			keysInPublicKeyTable, _ := lib.EnumerateKeysForPrefix(
-				apiServer.TXIndex.TXIndexChain.DB(), lib.DbTxindexPublicKeyPrefix([]byte{}), true)
+				apiServer.TXIndex.TXIndexChain.DB(), lib.DbTxindexPublicKeyPrefix([]byte{}), true, false)
 			// Three pairs for the block rewards and two pairs for the transactions
 			// we created.
 			require.Equal(10+
