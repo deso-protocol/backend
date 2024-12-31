@@ -1428,7 +1428,9 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 				maxHeight))
 			return
 		}
-		blockNode, exists, err := fes.blockchain.GetBlockFromBestChainByHeight(uint64(blockRequest.Height), false)
+		var exists bool
+		var err error
+		blockNode, exists, err = fes.blockchain.GetBlockFromBestChainByHeight(uint64(blockRequest.Height), false)
 		if err != nil {
 			APIAddError(ww, fmt.Sprintf("APIBlockRequest: Problem fetching block: %v", err))
 			return
