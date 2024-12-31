@@ -1453,11 +1453,6 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 		return
 	}
 
-	if blockNode == nil {
-		APIAddError(ww, fmt.Sprintf("APIBlockRequest: Block node with hash %v not found: %v", blockHash, blockRequest))
-		return
-	}
-
 	res := &APIBlockResponse{
 		Header: _headerToResponse(blockMsg.Header, blockHash.String()),
 	}
