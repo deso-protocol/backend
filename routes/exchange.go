@@ -1447,12 +1447,12 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 		return
 	}
 	if blockMsg == nil {
-		APIAddError(ww, fmt.Sprintf("APIBlockRequest: Block with hash %v not found: %v", blockHash))
+		APIAddError(ww, fmt.Sprintf("APIBlockRequest: Block with hash %v not found", blockHash))
 		return
 	}
 
 	if blockNode == nil {
-		APIAddError(ww, fmt.Sprintf("APIBlockRequest: Block node with hash %v not found", blockHash, blockRequest))
+		APIAddError(ww, fmt.Sprintf("APIBlockRequest: Block node with hash %v not found: %v", blockHash, blockRequest))
 		return
 	}
 
