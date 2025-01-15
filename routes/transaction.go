@@ -138,7 +138,7 @@ type SubmitAtomicTransactionRequest struct {
 	// the unsigned transactions and the signatures separately. This is useful in cases where the
 	// client does not have the ability to intelligently decode a transaction and embed the signature
 	// within it. The effect will be the same as if they had submitted the SignedInnerTransactionsHex
-	// of the UnsignedInnerTranactions with the TransactionSignatures embedded within them.
+	// of the UnsignedInnerTranactions with the TransactionSignaturesHex embedded within them.
 	UnsignedInnerTransactionsHex []string
 	TransactionSignaturesHex     []string
 }
@@ -166,7 +166,7 @@ func (fes *APIServer) SubmitAtomicTransaction(ww http.ResponseWriter, req *http.
 	if len(requestData.UnsignedInnerTransactionsHex) > 0 &&
 		len(requestData.UnsignedInnerTransactionsHex) != len(requestData.TransactionSignaturesHex) {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitAtomicTransaction: "+
-			"Number of UnsignedInnerTransactionsHex must match number of TransactionSignatures."))
+			"Number of UnsignedInnerTransactionsHex must match number of TransactionSignaturesHex."))
 		return
 	}
 
@@ -403,7 +403,7 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 	if requestData.UnsignedTransactionHex != "" {
 		if requestData.TransactionSignatureHex == "" {
 			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: "+
-				"Must provide TransactionSignature when submitting UnsignedTransactionHex."))
+				"Must provide TransactionSignatureHex when submitting UnsignedTransactionHex."))
 			return
 		}
 		// When the user is submitting the signature separately, then we ignore whatever
