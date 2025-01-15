@@ -592,7 +592,7 @@ func GetQuoteBasePkidFromBuyingSellingPkids(
 	}
 }
 
-type GetBaseCurrencyPriceRequest struct {
+type BaseCurrencyPriceRequestEntry struct {
 	BaseCurrencyPublicKeyBase58Check string `safeForLogging:"true"`
 	// Only deso, focus, and usdc supported
 	QuoteCurrencyPublicKeyBase58Check string `safeForLogging:"true"`
@@ -601,7 +601,11 @@ type GetBaseCurrencyPriceRequest struct {
 	BaseCurrencyQuantityToSell float64 `safeForLogging:"true"`
 }
 
-type GetBaseCurrencyPriceResponse struct {
+type GetBaseCurrencyPriceRequest struct {
+	Entries []*BaseCurrencyPriceRequestEntry `safeForLogging:"true"`
+}
+
+type BaseCurrencyPriceResponseEntry struct {
 	// It's useful to include the quote currency price used for USD conversions
 	QuoteCurrencyPriceInUsd float64 `safeForLogging:"true"`
 
@@ -621,49 +625,41 @@ type GetBaseCurrencyPriceResponse struct {
 	ExecutionPriceInUsd           float64 `safeForLogging:"true"`
 }
 
-func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
-	requestData := GetBaseCurrencyPriceRequest{}
-	if err := decoder.Decode(&requestData); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Problem parsing request body: %v", err))
-		return
-	}
+type GetBaseCurrencyPriceResponse struct {
+	Entries []*BaseCurrencyPriceResponseEntry `safeForLogging:"true"`
+}
 
-	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
-	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Error fetching mempool view: %v", err))
-		return
-	}
+func (fes *APIServer) GetBaseCurrencyPriceForEntry(
+	utxoView *lib.UtxoView,
+	entry *BaseCurrencyPriceRequestEntry,
+) (*BaseCurrencyPriceResponseEntry, error) {
 
 	quotePkid, err := fes.getPKIDFromPublicKeyBase58CheckOrDESOString(
 		utxoView,
-		requestData.QuoteCurrencyPublicKeyBase58Check,
+		entry.QuoteCurrencyPublicKeyBase58Check,
 	)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Error getting quote pkid: %v", err))
-		return
+		return nil, fmt.Errorf("Error getting quote pkid: %v", err)
 	}
 
 	basePkid, err := fes.getPKIDFromPublicKeyBase58CheckOrDESOString(
 		utxoView,
-		requestData.BaseCurrencyPublicKeyBase58Check,
+		entry.BaseCurrencyPublicKeyBase58Check,
 	)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Error getting base pkid: %v", err))
-		return
+		return nil, fmt.Errorf("Error getting base pkid: %v", err)
 	}
+
 	// Super annoying, but it takes two fetches to get all the orders for a market
 	ordersSide1, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
 		basePkid, quotePkid)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Error getting limit orders: %v", err))
-		return
+		return nil, fmt.Errorf("Error getting limit orders: %v", err)
 	}
 	ordersSide2, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
 		quotePkid, basePkid)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Error getting limit orders: %v", err))
-		return
+		return nil, fmt.Errorf("Error getting limit orders: %v", err)
 	}
 	allOrders := append(ordersSide1, ordersSide2...)
 
@@ -692,8 +688,7 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 				lib.PkToString(order.SellingDAOCoinCreatorPKID[:], fes.Params),
 				order.ScaledExchangeRateCoinsToSellPerCoinToBuy)
 			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice for bid: Error calculating price: %v", err))
-				return
+				return nil, fmt.Errorf("GetBaseCurrencyPrice for bid: Error calculating price: %v", err)
 			}
 
 			// The quantity is tricky. If we had a bid order then the quantity is just the
@@ -706,8 +701,7 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 				DAOCoinLimitOrderOperationTypeString(order.OperationType.String()),
 				order.QuantityToFillInBaseUnits)
 			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Error calculating quantity: %v", err))
-				return
+				return nil, fmt.Errorf("GetBaseCurrencyPrice: Error calculating quantity: %v", err)
 			}
 			if order.OperationType == lib.DAOCoinLimitOrderOperationTypeASK {
 				// If the order is an ask, then the quantity is the amount of quote currency
@@ -731,13 +725,11 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 				lib.PkToString(order.SellingDAOCoinCreatorPKID[:], fes.Params),
 				order.ScaledExchangeRateCoinsToSellPerCoinToBuy)
 			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice for ask: Error calculating price: %v", err))
-				return
+				return nil, fmt.Errorf("GetBaseCurrencyPrice for ask: Error calculating price: %v", err)
 			}
 			if priceFloat == 0.0 {
 				// We should never see an order with a zero price so error if we see one.
-				_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Zero price order: %v", order))
-				return
+				return nil, fmt.Errorf("GetBaseCurrencyPrice: Zero price order: %v", order)
 			}
 			priceFloat = 1.0 / priceFloat
 
@@ -751,8 +743,7 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 				DAOCoinLimitOrderOperationTypeString(order.OperationType.String()),
 				order.QuantityToFillInBaseUnits)
 			if err != nil {
-				_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Error calculating quantity: %v", err))
-				return
+				return nil, fmt.Errorf("GetBaseCurrencyPrice: Error calculating quantity: %v", err)
 			}
 			if order.OperationType == lib.DAOCoinLimitOrderOperationTypeBID {
 				// If the order is an bid, then the quantity is the amount of quote currency
@@ -792,7 +783,7 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 
 		// Iterate through the bids "filling" orders until we hit the base currency
 		// quantity we're looking for.
-		baseCurrencyToFill := big.NewFloat(requestData.BaseCurrencyQuantityToSell)
+		baseCurrencyToFill := big.NewFloat(entry.BaseCurrencyQuantityToSell)
 		for _, bid := range simpleBidOrders {
 			// If the amount filled plus the amount we're about to fill is greater
 			// than the amount we're looking to fill, then we just partially fill
@@ -826,15 +817,13 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 
 	// Get the price of the quote currency in usd. Use the mid price
 	quoteCurrencyPriceInUsdStr, _, _, err := fes.GetQuoteCurrencyPriceInUsd(
-		requestData.QuoteCurrencyPublicKeyBase58Check)
+		entry.QuoteCurrencyPublicKeyBase58Check)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Problem getting quote currency price in usd: %v", err))
-		return
+		return nil, fmt.Errorf("Problem getting quote currency price in usd: %v", err)
 	}
 	quoteCurrencyPriceInUsd, err := strconv.ParseFloat(quoteCurrencyPriceInUsdStr, 64)
 	if err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Problem parsing quote currency price in usd: %v", err))
-		return
+		return nil, fmt.Errorf("Problem parsing quote currency price in usd: %v", err)
 	}
 
 	// If any of these are too big for the Float64() it's better to best-effort
@@ -846,7 +835,9 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 	priceInQuoteCurrencyFloat, _ := priceInQuoteCurrency.Float64()
 	executionPriceInUsdFloat, _ := big.NewFloat(0).Mul(
 		priceInQuoteCurrency, big.NewFloat(quoteCurrencyPriceInUsd)).Float64()
-	res := &GetBaseCurrencyPriceResponse{
+
+	// Useful for computing "cashout" values on the wallet page
+	responseEntry := &BaseCurrencyPriceResponseEntry{
 		QuoteCurrencyPriceInUsd: quoteCurrencyPriceInUsd,
 
 		// Traditional price values
@@ -864,7 +855,38 @@ func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *
 		ExecutionPriceInQuoteCurrency: priceInQuoteCurrencyFloat,
 		ExecutionPriceInUsd:           executionPriceInUsdFloat,
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+
+	return responseEntry, nil
+}
+
+func (fes *APIServer) GetBaseCurrencyPriceEndpoint(ww http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetBaseCurrencyPriceRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Problem parsing request body: %v", err))
+		return
+	}
+
+	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
+	if err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: Error fetching mempool view: %v", err))
+		return
+	}
+
+	response := &GetBaseCurrencyPriceResponse{
+		Entries: []*BaseCurrencyPriceResponseEntry{},
+	}
+
+	for _, entry := range requestData.Entries {
+		respEntry, err := fes.GetBaseCurrencyPriceForEntry(utxoView, entry)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetBaseCurrencyPrice: %v", err))
+			return
+		}
+		response.Entries = append(response.Entries, respEntry)
+	}
+
+	if err := json.NewEncoder(ww).Encode(response); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("GetQuoteCurrencyPriceInUsd: Problem encoding response: %v", err))
 		return
 	}
