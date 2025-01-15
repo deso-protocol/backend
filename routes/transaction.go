@@ -140,7 +140,7 @@ type SubmitAtomicTransactionRequest struct {
 	// within it. The effect will be the same as if they had submitted the SignedInnerTransactionsHex
 	// of the UnsignedInnerTranactions with the TransactionSignatures embedded within them.
 	UnsignedInnerTransactionsHex []string
-	TransactionSignatures        []string
+	TransactionSignaturesHex     []string
 }
 
 type SubmitAtomicTransactionResponse struct {
@@ -164,7 +164,7 @@ func (fes *APIServer) SubmitAtomicTransaction(ww http.ResponseWriter, req *http.
 		return
 	}
 	if len(requestData.UnsignedInnerTransactionsHex) > 0 &&
-		len(requestData.UnsignedInnerTransactionsHex) != len(requestData.TransactionSignatures) {
+		len(requestData.UnsignedInnerTransactionsHex) != len(requestData.TransactionSignaturesHex) {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitAtomicTransaction: "+
 			"Number of UnsignedInnerTransactionsHex must match number of TransactionSignatures."))
 		return
@@ -195,7 +195,7 @@ func (fes *APIServer) SubmitAtomicTransaction(ww http.ResponseWriter, req *http.
 			}
 
 			// Decode the signature
-			signatureBytes, err := hex.DecodeString(requestData.TransactionSignatures[ii])
+			signatureBytes, err := hex.DecodeString(requestData.TransactionSignaturesHex[ii])
 			if err != nil {
 				_AddBadRequestError(ww, fmt.Sprintf(
 					"SubmitAtomicTransaction: Problem decoding signature hex: %v", err))
@@ -359,8 +359,8 @@ type SubmitTransactionRequest struct {
 	// and embed the signature within it. The effect will be the same as if they had
 	// submitted the TransactionHex of the UnsignedTransaction with the TransactionSignature
 	// embedded within it.
-	UnsignedTransactionHex string `safeForLogging:"true"`
-	TransactionSignature   string `safeForLogging:"true"`
+	UnsignedTransactionHex  string `safeForLogging:"true"`
+	TransactionSignatureHex string `safeForLogging:"true"`
 }
 
 type SubmitTransactionResponse struct {
@@ -401,7 +401,7 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 
 	signedTransactionHex := requestData.TransactionHex
 	if requestData.UnsignedTransactionHex != "" {
-		if requestData.TransactionSignature == "" {
+		if requestData.TransactionSignatureHex == "" {
 			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: "+
 				"Must provide TransactionSignature when submitting UnsignedTransactionHex."))
 			return
@@ -424,7 +424,7 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 		}
 
 		// Decode the signature
-		signatureBytes, err := hex.DecodeString(requestData.TransactionSignature)
+		signatureBytes, err := hex.DecodeString(requestData.TransactionSignatureHex)
 		if err != nil {
 			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem decoding signature hex: %v", err))
 			return
