@@ -133,6 +133,14 @@ type SubmitAtomicTransactionRequest struct {
 	// SignedInnerTransactionsHex are the hex-encoded signed inner transactions that
 	// will be used to complete the atomic transaction.
 	SignedInnerTransactionsHex []string `safeForLogging:"true"`
+
+	// Alternatively, instead of submitting the signed inner transactions, the user can submit
+	// the unsigned transactions and the signatures separately. This is useful in cases where the
+	// client does not have the ability to intelligently decode a transaction and embed the signature
+	// within it. The effect will be the same as if they had submitted the SignedInnerTransactionsHex
+	// of the UnsignedInnerTranactions with the TransactionSignatures embedded within them.
+	UnsignedInnerTransactionsHex []string
+	TransactionSignatures        []string
 }
 
 type SubmitAtomicTransactionResponse struct {
@@ -147,6 +155,75 @@ func (fes *APIServer) SubmitAtomicTransaction(ww http.ResponseWriter, req *http.
 	if err := decoder.Decode(&requestData); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitAtomicTransaction: Problem parsing request body: %v", err))
 		return
+	}
+
+	if len(requestData.SignedInnerTransactionsHex) > 0 && len(requestData.UnsignedInnerTransactionsHex) > 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitAtomicTransaction: "+
+			"Cannot submit both SignedInnerTransactionsHex and UnsignedInnerTransactionsHex. You must pick "+
+			"one or the other."))
+		return
+	}
+	if len(requestData.UnsignedInnerTransactionsHex) > 0 &&
+		len(requestData.UnsignedInnerTransactionsHex) != len(requestData.TransactionSignatures) {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitAtomicTransaction: "+
+			"Number of UnsignedInnerTransactionsHex must match number of TransactionSignatures."))
+		return
+	}
+
+	signedInnerTransactionHexes := requestData.SignedInnerTransactionsHex
+	if len(requestData.UnsignedInnerTransactionsHex) > 0 {
+		// When the user is submitting the signatures separately, then we ignore whatever
+		// was set in SignedInnerTransactionsHex and embed the signatures manually for the
+		// user.
+		signedInnerTransactionHexes = make([]string, len(requestData.UnsignedInnerTransactionsHex))
+		for ii, unsignedInnerTxnHex := range requestData.UnsignedInnerTransactionsHex {
+			// Decode the unsigned inner transaction.
+			unsignedTxnBytes, err := hex.DecodeString(unsignedInnerTxnHex)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf(
+					"SubmitAtomicTransaction: Problem decoding unsigned transaction hex: %v", err))
+				return
+			}
+
+			// Deserialize the unsigned transaction.
+			unsignedInnerTxn := &lib.MsgDeSoTxn{}
+			if err := unsignedInnerTxn.FromBytes(unsignedTxnBytes); err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf(
+					"SubmitAtomicTransaction: Problem deserializing unsigned transaction %d from bytes: %v",
+					ii, err))
+				return
+			}
+
+			// Decode the signature
+			signatureBytes, err := hex.DecodeString(requestData.TransactionSignatures[ii])
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf(
+					"SubmitAtomicTransaction: Problem decoding signature hex: %v", err))
+				return
+			}
+			signature := lib.DeSoSignature{}
+			if err := signature.FromBytes(signatureBytes); err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf(
+					"SubmitAtomicTransaction: Problem deserializing signature %d from bytes: %v",
+					ii, err))
+				return
+			}
+
+			// Embed the signature within the transaction
+			unsignedInnerTxn.Signature = signature
+
+			// Serialize the unsignedInnerTxn with the signature
+			signedInnerTxnBytes, err := unsignedInnerTxn.ToBytes(false)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf(
+					"SubmitAtomicTransaction: Problem serializing "+
+						"unsigned transaction %d with signature: %v", ii, err))
+				return
+			}
+
+			// Encode the signed inner transaction.
+			signedInnerTransactionHexes[ii] = hex.EncodeToString(signedInnerTxnBytes)
+		}
 	}
 
 	// Fetch the incomplete atomic transaction.
@@ -173,7 +250,7 @@ func (fes *APIServer) SubmitAtomicTransaction(ww http.ResponseWriter, req *http.
 
 	// Create a map from the pre-signature inner transaction hash to DeSo signature.
 	innerTxnPreSignatureHashToSignature := make(map[lib.BlockHash]lib.DeSoSignature)
-	for ii, signedInnerTxnHex := range requestData.SignedInnerTransactionsHex {
+	for ii, signedInnerTxnHex := range signedInnerTransactionHexes {
 		// Decode the signed inner transaction.
 		signedTxnBytes, err := hex.DecodeString(signedInnerTxnHex)
 		if err != nil {
@@ -275,6 +352,15 @@ func (fes *APIServer) SubmitAtomicTransaction(ww http.ResponseWriter, req *http.
 
 type SubmitTransactionRequest struct {
 	TransactionHex string `safeForLogging:"true"`
+
+	// Alternatively, instead of submitting the transaction hex, the user can submit
+	// the unsigned transaction and the signature separately. This is useful in cases
+	// where the client does not have the ability to intelligently decode a transaction
+	// and embed the signature within it. The effect will be the same as if they had
+	// submitted the TransactionHex of the UnsignedTransaction with the TransactionSignature
+	// embedded within it.
+	UnsignedTransactionHex string `safeForLogging:"true"`
+	TransactionSignature   string `safeForLogging:"true"`
 }
 
 type SubmitTransactionResponse struct {
@@ -307,7 +393,64 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	txnBytes, err := hex.DecodeString(requestData.TransactionHex)
+	if requestData.TransactionHex != "" && requestData.UnsignedTransactionHex != "" {
+		_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: "+
+			"Cannot submit both TransactionHex and UnsignedTransactionHex. You must pick one or the other."))
+		return
+	}
+
+	signedTransactionHex := requestData.TransactionHex
+	if requestData.UnsignedTransactionHex != "" {
+		if requestData.TransactionSignature == "" {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: "+
+				"Must provide TransactionSignature when submitting UnsignedTransactionHex."))
+			return
+		}
+		// When the user is submitting the signature separately, then we ignore whatever
+		// was set in TransactionHex and embed the signature manually for the user.
+
+		// Decode the unsigned transaction.
+		unsignedTxnBytes, err := hex.DecodeString(requestData.UnsignedTransactionHex)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem decoding unsigned transaction hex: %v", err))
+			return
+		}
+
+		// Deserialize the unsigned transaction.
+		unsignedTxn := &lib.MsgDeSoTxn{}
+		if err := unsignedTxn.FromBytes(unsignedTxnBytes); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem deserializing unsigned transaction from bytes: %v", err))
+			return
+		}
+
+		// Decode the signature
+		signatureBytes, err := hex.DecodeString(requestData.TransactionSignature)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem decoding signature hex: %v", err))
+			return
+		}
+
+		signature := lib.DeSoSignature{}
+		if err := signature.FromBytes(signatureBytes); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem deserializing signature from bytes: %v", err))
+			return
+		}
+
+		// Embed the signature within the transaction
+		unsignedTxn.Signature = signature
+
+		// Serialize the unsignedTxn with the signature
+		signedTxnBytes, err := unsignedTxn.ToBytes(false)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem serializing unsigned transaction with signature: %v", err))
+			return
+		}
+
+		// Encode the signed transaction.
+		signedTransactionHex = hex.EncodeToString(signedTxnBytes)
+	}
+
+	txnBytes, err := hex.DecodeString(signedTransactionHex)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionRequest: Problem deserializing transaction hex: %v", err))
 		return
