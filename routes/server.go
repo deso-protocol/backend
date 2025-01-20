@@ -2543,7 +2543,7 @@ func Logger(inner http.Handler, name string) http.Handler {
 
 		inner.ServeHTTP(w, r)
 
-		glog.V(2).Infof(
+		glog.V(3).Infof(
 			"%s\t%s\t%s\t%s",
 			r.Method,
 			r.RequestURI,
