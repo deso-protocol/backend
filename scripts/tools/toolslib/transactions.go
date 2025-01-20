@@ -23,7 +23,7 @@ func SubmitTransactionToNode(txn *lib.MsgDeSoTxn, node string) error {
 	txnHex := hex.EncodeToString(txnBytes)
 
 	// Setup request
-	payload := &routes.SubmitTransactionRequest{txnHex}
+	payload := &routes.SubmitTransactionRequest{TransactionHex: txnHex}
 	postBody, err := json.Marshal(payload)
 	if err != nil {
 		return errors.Wrap(err, "SubmitTransactionToServer() failed to marshal struct")

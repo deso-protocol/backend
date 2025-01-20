@@ -13,6 +13,13 @@ type CreateAtomicTxnsWrapperRequest struct {
 	Transactions         []*lib.MsgDeSoTxn
 	ExtraData            map[string]string
 	MinFeeRateNanosPerKB uint64 `safeForLogging:"true"`
+
+	// Alternatively, instead of submitting the Transactions as MsgDeSoTxn, the user can submit
+	// the unsigned transactions in hex form. This is useful in cases where the
+	// client does not have the ability to intelligently encode a transaction. The effect will be
+	// the same as if they had submitted the Transactions field populated with the encoded
+	// UnsignedTransactionHexes.
+	UnsignedTransactionHexes []string
 }
 
 type CreateAtomicTxnsWrapperResponse struct {
@@ -42,6 +49,38 @@ func (fes *APIServer) CreateAtomicTxnsWrapper(ww http.ResponseWriter, req *http.
 		return
 	}
 
+	if len(requestData.Transactions) > 0 && len(requestData.UnsignedTransactionHexes) > 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("CreateAtomicTxnsWrapper: "+
+			"Cannot have both Transactions and UnsignedTransactionHexes populated."))
+		return
+	}
+
+	// Set encodedTransactions from UnsignedTransactionHexes only if the latter is provided.
+	encodedTransactions := requestData.Transactions
+	if len(requestData.UnsignedTransactionHexes) > 0 {
+		encodedTransactions = make([]*lib.MsgDeSoTxn, len(requestData.UnsignedTransactionHexes))
+		for ii, unsignedTxnHex := range requestData.UnsignedTransactionHexes {
+			// Decode the unsigned transaction.
+			unsignedTxnBytes, err := hex.DecodeString(unsignedTxnHex)
+			if err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf(
+					"CreateAtomicTxnsWrapper: Problem decoding unsigned transaction hex at index %v: %v", ii, err))
+				return
+			}
+
+			// Deserialize the unsigned transaction.
+			unsignedTxn := &lib.MsgDeSoTxn{}
+			if err := unsignedTxn.FromBytes(unsignedTxnBytes); err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf(
+					"CreateAtomicTxnsWrapper: Problem deserializing unsigned transaction %d from bytes: %v",
+					ii, err))
+				return
+			}
+
+			encodedTransactions[ii] = unsignedTxn
+		}
+	}
+
 	// Grab a view (needed for getting global params, etc).
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
@@ -50,9 +89,9 @@ func (fes *APIServer) CreateAtomicTxnsWrapper(ww http.ResponseWriter, req *http.
 	}
 
 	// Validate the request data.
-	if len(requestData.Transactions) == 0 {
+	if len(encodedTransactions) == 0 {
 		_AddBadRequestError(ww, fmt.Sprint("CreateAtomicTxnsWrapper: must have at least one transaction "+
-			"in Transactions"))
+			"in Transactions or UnsignedTransactionHexes"))
 		return
 	}
 
@@ -65,7 +104,7 @@ func (fes *APIServer) CreateAtomicTxnsWrapper(ww http.ResponseWriter, req *http.
 
 	// Construct the atomic transactions wrapper transaction type.
 	txn, totalFees, err := fes.blockchain.CreateAtomicTxnsWrapper(
-		requestData.Transactions, extraData, fes.backendServer.GetMempool(), requestData.MinFeeRateNanosPerKB)
+		encodedTransactions, extraData, fes.backendServer.GetMempool(), requestData.MinFeeRateNanosPerKB)
 	if err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("CreateAtomicTxnsWrapper: Problem constructing transaction: %v", err))
 		return
