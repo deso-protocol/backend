@@ -315,6 +315,19 @@ func GetTradingFeesForMarket(
 			"GetTradingFeesForMarket: Problem decoding public key %s: %v",
 			profilePublicKey, err)
 	}
+
+	// Add a special case for the DESO pubkey to pay the Openfund pubkey.
+	// TODO: We hardcode this for now so we can launch quickly.
+	if IsDesoPkid(profilePublicKey) {
+		openfundPkid := "BC1YLj3zNA7hRAqBVkvsTeqw7oi4H6ogKiAFL1VXhZy6pYeZcZ6TDRY"
+		if params.NetworkType == lib.NetworkType_TESTNET {
+			openfundPkid = "tBCKWUK6mKhWpT4quLZjM2iPqPMwEWnHuj4Q99vSS4jFRLGeFJ3G3p"
+		}
+		return map[string]uint64{
+			openfundPkid: 10,
+		}, false, nil
+	}
+
 	profilePkid := utxoView.GetPKIDForPublicKey(profilePublicKeyBytes)
 	if profilePkid == nil {
 		return nil, false, fmt.Errorf(
