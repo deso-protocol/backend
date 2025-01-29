@@ -945,7 +945,7 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsdEndpoint(ww http.ResponseWriter,
 // focus launches on mainnet, the FOCUS_FLOOR_PRICE_DESO_NANOS_MAINNET value needs to be updated
 // based on the price of DESO at launch.
 const FOCUS_FLOOR_PRICE_DESO_NANOS_TESTNET = 166666
-const FOCUS_FLOOR_PRICE_DESO_NANOS_MAINNET = 166666 // TODO: UPDATE ME.
+const FOCUS_FLOOR_PRICE_DESO_NANOS_MAINNET = 40000
 
 func GetFocusFloorPriceDESONanos(isTestnet bool) uint64 {
 	if isTestnet {
@@ -1018,12 +1018,14 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 		}
 		// Find the highest bid price and the lowest ask price
 		highestBidPrice := float64(0.0)
-		if lowerUsername == "focus" {
-			highestBidPrice = float64(GetFocusFloorPriceDESONanos(fes.Params.NetworkType == lib.NetworkType_TESTNET)) / float64(lib.NanosPerUnit)
+		isFocus := lowerUsername == "focus"
+		if isFocus {
+			isTestnet := fes.Params.NetworkType == lib.NetworkType_TESTNET
+			highestBidPrice = float64(GetFocusFloorPriceDESONanos(isTestnet)) / float64(lib.NanosPerUnit)
 		}
 		var lowestAskPrice, midPriceDeso float64
 		midPriceDeso, highestBidPrice, lowestAskPrice, err = fes.GetHighestBidAndLowestAskPriceFromPKIDs(
-			pkid.PKID, &lib.ZeroPKID, utxoView, highestBidPrice, lowerUsername == "focus")
+			pkid.PKID, &lib.ZeroPKID, utxoView, highestBidPrice, isFocus)
 		if err != nil {
 			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error getting price: %v", err)
 		}
