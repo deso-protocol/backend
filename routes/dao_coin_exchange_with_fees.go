@@ -940,10 +940,19 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsdEndpoint(ww http.ResponseWriter,
 	}
 }
 
-// TODO: When we boot up the Focus AMM, we need to update this value. The FOCUS floor price
-// is set to $0.001 in DESO, so using a DESO price of $6 gets this value = $0.001 / $6. When
-// we launch, we need use the updated DESO price and update this value.
-const FOCUS_FLOOR_PRICE_DESO_NANOS = 166666
+// The FOCUS floor price is set to $0.001 in DESO.
+// On testnet, focus launched when DESO was at a price of $6 gets this value = $0.001 / $6. When
+// focus launches on mainnet, the FOCUS_FLOOR_PRICE_DESO_NANOS_MAINNET value needs to be updated
+// based on the price of DESO at launch.
+const FOCUS_FLOOR_PRICE_DESO_NANOS_TESTNET = 166666
+const FOCUS_FLOOR_PRICE_DESO_NANOS_MAINNET = 40000
+
+func GetFocusFloorPriceDESONanos(isTestnet bool) uint64 {
+	if isTestnet {
+		return FOCUS_FLOOR_PRICE_DESO_NANOS_TESTNET
+	}
+	return FOCUS_FLOOR_PRICE_DESO_NANOS_MAINNET
+}
 
 func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 	quoteCurrencyPublicKey string) (_midmarket string, _bid string, _ask string, _err error) {
@@ -960,7 +969,7 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 
 		usdcPKID := utxoView.GetPKIDForPublicKey(usdcProfileEntry.PublicKey)
 		midMarketPrice, highestBidPrice, lowestAskPrice, err := fes.GetHighestBidAndLowestAskPriceFromPKIDs(
-			&lib.ZeroPKID, usdcPKID.PKID, utxoView, 0)
+			&lib.ZeroPKID, usdcPKID.PKID, utxoView, 0, false)
 		if err != nil {
 			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error getting price for DESO: %v", err)
 		}
@@ -1009,12 +1018,14 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsd(
 		}
 		// Find the highest bid price and the lowest ask price
 		highestBidPrice := float64(0.0)
-		if lowerUsername == "focus" {
-			highestBidPrice = float64(FOCUS_FLOOR_PRICE_DESO_NANOS) / float64(lib.NanosPerUnit)
+		isFocus := lowerUsername == "focus"
+		if isFocus {
+			isTestnet := fes.Params.NetworkType == lib.NetworkType_TESTNET
+			highestBidPrice = float64(GetFocusFloorPriceDESONanos(isTestnet)) / float64(lib.NanosPerUnit)
 		}
 		var lowestAskPrice, midPriceDeso float64
 		midPriceDeso, highestBidPrice, lowestAskPrice, err = fes.GetHighestBidAndLowestAskPriceFromPKIDs(
-			pkid.PKID, &lib.ZeroPKID, utxoView, highestBidPrice)
+			pkid.PKID, &lib.ZeroPKID, utxoView, highestBidPrice, isFocus)
 		if err != nil {
 			return "", "", "", fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error getting price: %v", err)
 		}
@@ -1040,6 +1051,7 @@ func (fes *APIServer) GetHighestBidAndLowestAskPriceFromPKIDs(
 	quotePkid *lib.PKID,
 	utxoView *lib.UtxoView,
 	initialHighestBidPrice float64,
+	isFocus bool,
 ) (float64, float64, float64, error) {
 	ordersBuyingCoin1, err := utxoView.GetAllDAOCoinLimitOrdersForThisDAOCoinPair(
 		basePkid, quotePkid)
@@ -1094,9 +1106,20 @@ func (fes *APIServer) GetHighestBidAndLowestAskPriceFromPKIDs(
 		}
 	}
 	if highestBidPrice != 0.0 && lowestAskPrice != math.MaxFloat64 {
+		// It's possible that the floor bid is greater than the
+		// lowest ask. In this case, we simply return the highest bid
+		// for all three prices.
+		if isFocus && highestBidPrice > lowestAskPrice {
+			return highestBidPrice, highestBidPrice, highestBidPrice, nil
+		}
 		midPrice := (highestBidPrice + lowestAskPrice) / 2.0
 
 		return midPrice, highestBidPrice, lowestAskPrice, nil
+	}
+	// Special case for FOCUS which has a floor bid. We only
+	// hit this case if we don't have any ASK orders.
+	if isFocus {
+		return highestBidPrice, highestBidPrice, highestBidPrice, nil
 	}
 	return 0, 0, 0, fmt.Errorf("GetQuoteCurrencyPriceInUsd: Error calculating price")
 }

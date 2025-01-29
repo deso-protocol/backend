@@ -350,7 +350,7 @@ func (fes *APIServer) GetExchangeRateFromDeSoDex() (float64, error) {
 
 	usdcPKID := utxoView.GetPKIDForPublicKey(usdcProfileEntry.PublicKey)
 
-	midPriceUSD, _, _, err := fes.GetHighestBidAndLowestAskPriceFromPKIDs(&lib.ZeroPKID, usdcPKID.PKID, utxoView, 0)
+	midPriceUSD, _, _, err := fes.GetHighestBidAndLowestAskPriceFromPKIDs(&lib.ZeroPKID, usdcPKID.PKID, utxoView, 0, false)
 	if err != nil {
 		return 0, err
 	}
