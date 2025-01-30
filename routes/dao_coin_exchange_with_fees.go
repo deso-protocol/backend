@@ -945,7 +945,7 @@ func (fes *APIServer) GetQuoteCurrencyPriceInUsdEndpoint(ww http.ResponseWriter,
 // focus launches on mainnet, the FOCUS_FLOOR_PRICE_DESO_NANOS_MAINNET value needs to be updated
 // based on the price of DESO at launch.
 const FOCUS_FLOOR_PRICE_DESO_NANOS_TESTNET = 166666
-const FOCUS_FLOOR_PRICE_DESO_NANOS_MAINNET = 40000
+const FOCUS_FLOOR_PRICE_DESO_NANOS_MAINNET = 44474
 
 func GetFocusFloorPriceDESONanos(isTestnet bool) uint64 {
 	if isTestnet {
