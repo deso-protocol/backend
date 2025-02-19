@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	fmt "fmt"
+	"github.com/deso-protocol/core/collections"
 	"io"
 	"io/ioutil"
 	"net"
@@ -425,7 +426,7 @@ type APIServer struct {
 	// The height of the last block evaluated by the hotness routine.
 	HotFeedBlockHeight uint32
 	// A cache to store blocks for the block feed - in order to reduce processing time.
-	HotFeedBlockCache map[lib.BlockHash]*lib.MsgDeSoBlock
+	HotFeedBlockCache *collections.LruCache[lib.BlockHash, []*lib.MsgDeSoTxn]
 	// Map of whitelisted post hashes used for serving the hot feed.
 	// The float64 value is a multiplier than can be modified and used in scoring.
 	HotFeedApprovedPostsToMultipliers             map[lib.BlockHash]float64

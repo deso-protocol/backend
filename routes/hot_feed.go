@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core/collections"
 	"io"
 	"math"
 	"net/http"
@@ -79,7 +80,11 @@ func (fes *APIServer) StartHotFeedRoutine() {
 	fes.PostTagToOrderedHotFeedEntries = make(map[string][]*HotFeedEntry)
 	fes.PostTagToOrderedNewestEntries = make(map[string][]*HotFeedEntry)
 	fes.PostHashToPostTagsMap = make(map[lib.BlockHash][]string)
-	fes.HotFeedBlockCache = make(map[lib.BlockHash]*lib.MsgDeSoBlock)
+	var err error
+	fes.HotFeedBlockCache, err = collections.NewLruCache[lib.BlockHash, []*lib.MsgDeSoTxn](LookbackWindowBlocks + 50000) // Give it a buffer of 50k blocks.
+	if err != nil {
+		glog.Errorf("StartHotFeedRoutine: Error initializing HotFeedBlockCache: %v", err)
+	}
 	cacheResetCounter := 0
 	go func() {
 	out:
@@ -117,7 +122,6 @@ func (fes *APIServer) UpdateHotFeed(resetCache bool) {
 		glog.V(2).Info("Resetting hot feed cache.")
 		fes.PostTagToPostHashesMap = make(map[string]map[lib.BlockHash]bool)
 		fes.PostHashToPostTagsMap = make(map[lib.BlockHash][]string)
-		fes.HotFeedBlockCache = make(map[lib.BlockHash]*lib.MsgDeSoBlock)
 	}
 
 	// We copy the HotFeedApprovedPosts map and HotFeedPKIDMultiplier maps so we can access
@@ -430,15 +434,16 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 
 	var hotnessInfoBlocks []*HotnessInfoBlock
 	for blockIdx, node := range relevantNodes {
-		var block *lib.MsgDeSoBlock
-		if cachedBlock, ok := fes.HotFeedBlockCache[*node.Hash]; ok {
-			block = cachedBlock
+		var txns []*lib.MsgDeSoTxn
+		if cachedBlock, ok := fes.HotFeedBlockCache.Get(*node.Hash); ok {
+			txns = cachedBlock
 		} else {
-			block, _ = lib.GetBlock(node.Hash, utxoView.Handle, fes.blockchain.Snapshot())
-			fes.HotFeedBlockCache[*node.Hash] = block
+			block, _ := lib.GetBlock(node.Hash, utxoView.Handle, fes.blockchain.Snapshot())
+			fes.HotFeedBlockCache.Put(*node.Hash, block.Txns)
+			txns = block.Txns
 		}
 		hotnessInfoBlocks = append(hotnessInfoBlocks, &HotnessInfoBlock{
-			Block: block,
+			BlockTxns: txns,
 			// For time decay, we care about how many blocks away from the tip this block is.
 			BlockAge: len(relevantNodes) - blockIdx,
 		})
@@ -462,14 +467,10 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 		txnsFromMempoolOrderedByTime = append(txnsFromMempoolOrderedByTime, mempoolTxn.Tx)
 	}
 
-	if err != nil {
-		glog.Errorf("Error getting mempool transactions: %v", err)
-	} else if len(txnsFromMempoolOrderedByTime) > 0 {
+	if len(txnsFromMempoolOrderedByTime) > 0 {
 		hotnessInfoBlocks = append(hotnessInfoBlocks, &HotnessInfoBlock{
-			Block: &lib.MsgDeSoBlock{
-				Txns: txnsFromMempoolOrderedByTime,
-			},
-			BlockAge: mempoolBlockHeight,
+			BlockTxns: txnsFromMempoolOrderedByTime,
+			BlockAge:  mempoolBlockHeight,
 		})
 	}
 
@@ -526,8 +527,8 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 }
 
 type HotnessInfoBlock struct {
-	Block    *lib.MsgDeSoBlock
-	BlockAge int
+	BlockTxns []*lib.MsgDeSoTxn
+	BlockAge  int
 }
 
 func (fes *APIServer) PopulateHotnessInfoMap(
@@ -542,12 +543,12 @@ func (fes *APIServer) PopulateHotnessInfoMap(
 	postInteractionMap := make(map[HotFeedInteractionKey]uint64)
 
 	for _, hotnessInfoBlock := range hotnessInfoBlocks {
-		block := hotnessInfoBlock.Block
-		blockAgee := hotnessInfoBlock.BlockAge
-		if block == nil {
+
+		if hotnessInfoBlock == nil {
 			continue
 		}
-		for _, txn := range block.Txns {
+		blockAgee := hotnessInfoBlock.BlockAge
+		for _, txn := range hotnessInfoBlock.BlockTxns {
 			// We only care about posts created in the specified look-back period. There should always be a
 			// transaction that creates a given post before someone interacts with it. By only
 			// scoring posts that meet this condition, we can restrict the HotFeedOrderedList
