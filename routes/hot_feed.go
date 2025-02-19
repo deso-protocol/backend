@@ -435,21 +435,19 @@ func (fes *APIServer) UpdateHotFeedOrderedList(
 
 	var hotnessInfoBlocks []*HotnessInfoBlock
 	for blockIdx, node := range relevantNodes {
+		var txns []*lib.MsgDeSoTxn
 		if cachedBlock, ok := fes.HotFeedBlockCache.Get(*node.Hash); ok {
-			hotnessInfoBlocks = append(hotnessInfoBlocks, &HotnessInfoBlock{
-				BlockTxns: cachedBlock,
-				// For time decay, we care about how many blocks away from the tip this block is.
-				BlockAge: len(relevantNodes) - blockIdx,
-			})
+			txns = cachedBlock
 		} else {
 			block, _ := lib.GetBlock(node.Hash, utxoView.Handle, fes.blockchain.Snapshot())
 			fes.HotFeedBlockCache.Put(*node.Hash, block.Txns)
-			hotnessInfoBlocks = append(hotnessInfoBlocks, &HotnessInfoBlock{
-				BlockTxns: block.Txns,
-				// For time decay, we care about how many blocks away from the tip this block is.
-				BlockAge: len(relevantNodes) - blockIdx,
-			})
+			txns = block.Txns
 		}
+		hotnessInfoBlocks = append(hotnessInfoBlocks, &HotnessInfoBlock{
+			BlockTxns: txns,
+			// For time decay, we care about how many blocks away from the tip this block is.
+			BlockAge: len(relevantNodes) - blockIdx,
+		})
 	}
 
 	// Fake block height for mempool transactions that haven't been mined yet
