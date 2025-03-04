@@ -480,13 +480,13 @@ func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Reques
 	}
 
 	if txn.TxnMeta.GetTxnType() == lib.TxnTypeSubmitPost {
-		err = fes._afterProcessSubmitPostTransaction(txn, res)
-		if err != nil {
-			_AddBadRequestError(ww, fmt.Sprintf("_afterSubmitPostTransaction: %v", err))
+		if err = fes._afterProcessSubmitPostTransaction(txn, res); err != nil {
+			glog.Errorf("_afterSubmitPostTransaction: %v", err)
+			//_AddBadRequestError(ww, fmt.Sprintf("_afterSubmitPostTransaction: %v", err))
 		}
 	}
 
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf("SubmitTransactionResponse: Problem encoding response as JSON: %v", err))
 		return
 	}
