@@ -53,4 +53,17 @@ func TestGetTxns(t *testing.T) {
 		require.True(t, getTxnsRes.TxnsFound[txnHashHex1])
 		require.True(t, getTxnsRes.TxnsFound[txnHashHex2])
 	}
+	{
+		// Get both transactions and a random missing transaction.
+		txnHashHex3 := lib.NewBlockHash(lib.RandomBytes(lib.HashSizeBytes)).String()
+		getTxnsReq := &GetTxnsRequest{
+			TxnHashHexes: []string{txnHashHex1, txnHashHex2, txnHashHex3},
+			TxnStatus:    TxnStatusInMempool,
+		}
+		getTxnsRes := &GetTxnsResponse{}
+		makePostRequest(t, apiServer, RoutePathGetTxns, getTxnsReq, getTxnsRes)
+		require.True(t, getTxnsRes.TxnsFound[txnHashHex1])
+		require.True(t, getTxnsRes.TxnsFound[txnHashHex2])
+		require.False(t, getTxnsRes.TxnsFound[txnHashHex3])
+	}
 }

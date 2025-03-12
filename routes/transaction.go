@@ -192,11 +192,11 @@ func (fes *APIServer) GetTxns(ww http.ResponseWriter, req *http.Request) {
 	// fact it is in "limbo" between the mempool and txindex.
 	//
 	// 1. Check the mempool for each txn if TxnStatusInMempool.
-	txnsFoundInMempool := make(map[string]bool)
+	txnsFound := make(map[lib.BlockHash]bool)
 	if txnStatus == TxnStatusInMempool {
 		mempool := fes.backendServer.GetMempool()
 		for _, txnHash := range txnHashes {
-			txnsFoundInMempool[txnHash.String()] = mempool.IsTransactionInPool(txnHash)
+			txnsFound[*txnHash] = mempool.IsTransactionInPool(txnHash)
 		}
 	}
 
@@ -213,16 +213,17 @@ func (fes *APIServer) GetTxns(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// 3. Check the txindex for each txn.
-	txnsFoundInTxindex := make(map[string]bool)
 	for _, txnHash := range txnHashes {
-		txnsFoundInTxindex[txnHash.String()] = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
+		if txnsFound[*txnHash] {
+			continue // Skip if TxnStatusInMempool and we already found the txn in the mempool.
+		}
+		txnsFound[*txnHash] = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
 	}
 
 	// Construct response.
 	res := &GetTxnsResponse{TxnsFound: make(map[string]bool)}
-	for _, txnHash := range txnHashes {
-		// If TxnStatusCommited, txnsFoundInMempool[txnHash.String()] will always be false.
-		res.TxnsFound[txnHash.String()] = txnsFoundInMempool[txnHash.String()] || txnsFoundInTxindex[txnHash.String()]
+	for txnHash, txnFound := range txnsFound {
+		res.TxnsFound[txnHash.String()] = txnFound
 	}
 
 	// Encode response as JSON.
