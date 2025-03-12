@@ -170,14 +170,14 @@ func (fes *APIServer) GetTxns(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// Decode the TxnHashHexes.
-	var txnHashes []*lib.BlockHash
+	txnHashes := make(map[string]*lib.BlockHash, len(requestData.TxnHashHexes))
 	for _, txnHashHex := range requestData.TxnHashHexes {
 		txnHashBytes, err := hex.DecodeString(txnHashHex)
 		if err != nil || len(txnHashBytes) != lib.HashSizeBytes {
 			_AddBadRequestError(ww, fmt.Sprintf("GetTxns: Error parsing txn hash %s: %v", txnHashHex, err))
 			return
 		}
-		txnHashes = append(txnHashes, lib.NewBlockHash(txnHashBytes))
+		txnHashes[txnHashHex] = lib.NewBlockHash(txnHashBytes)
 	}
 
 	// The order of operations is tricky here. We need to do the following in this
@@ -190,13 +190,13 @@ func (fes *APIServer) GetTxns(ww http.ResponseWriter, req *http.Request) {
 	// has been removed by a new block that is not yet in txindex. This would cause the
 	// endpoint to incorrectly report that the txn doesn't exist on the node, when in
 	// fact it is in "limbo" between the mempool and txindex.
-	//
+	res := &GetTxnsResponse{TxnsFound: make(map[string]bool)}
+
 	// 1. Check the mempool for each txn if TxnStatusInMempool.
-	txnsFound := make(map[lib.BlockHash]bool)
 	if txnStatus == TxnStatusInMempool {
 		mempool := fes.backendServer.GetMempool()
-		for _, txnHash := range txnHashes {
-			txnsFound[*txnHash] = mempool.IsTransactionInPool(txnHash)
+		for txnHashHex, txnHash := range txnHashes {
+			res.TxnsFound[txnHashHex] = mempool.IsTransactionInPool(txnHash)
 		}
 	}
 
@@ -213,17 +213,11 @@ func (fes *APIServer) GetTxns(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	// 3. Check the txindex for each txn.
-	for _, txnHash := range txnHashes {
-		if txnsFound[*txnHash] {
+	for txnHashHex, txnHash := range txnHashes {
+		if res.TxnsFound[txnHashHex] {
 			continue // Skip if TxnStatusInMempool and we already found the txn in the mempool.
 		}
-		txnsFound[*txnHash] = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
-	}
-
-	// Construct response.
-	res := &GetTxnsResponse{TxnsFound: make(map[string]bool)}
-	for txnHash, txnFound := range txnsFound {
-		res.TxnsFound[txnHash.String()] = txnFound
+		res.TxnsFound[txnHashHex] = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
 	}
 
 	// Encode response as JSON.
