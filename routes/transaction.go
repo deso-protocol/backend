@@ -122,6 +122,111 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 	}
 }
 
+const GetTxnsRequestCountMax = 500
+
+type GetTxnsRequest struct {
+	TxnHashHexes []string  `safeForLogging:"true"`
+	TxnStatus    TxnStatus `safeForLogging:"true"` // If unset, defaults to TxnStatusInMempool.
+}
+
+type GetTxnsResponse struct {
+	// Map of TxnHashHex strings -> TxnFound booleans
+	TxnsFound map[string]bool
+}
+
+func (fes *APIServer) GetTxns(ww http.ResponseWriter, req *http.Request) {
+	// Parse JSON request body.
+	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
+	requestData := GetTxnsRequest{}
+	if err := decoder.Decode(&requestData); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTxns: Problem parsing request body: %v", err))
+		return
+	}
+
+	// Validate the TxnHashHexes param.
+	if len(requestData.TxnHashHexes) == 0 {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTxns: TxnHashHexes is empty."))
+		return
+	}
+	if len(requestData.TxnHashHexes) > GetTxnsRequestCountMax {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetTxns: TxnHashHexes length %d is greater than %d.",
+			len(requestData.TxnHashHexes),
+			GetTxnsRequestCountMax,
+		))
+		return
+	}
+
+	// Validate the TxnStatus param.
+	txnStatus := requestData.TxnStatus
+	if txnStatus == "" {
+		txnStatus = TxnStatusInMempool
+	}
+	if txnStatus != TxnStatusInMempool && txnStatus != TxnStatusCommitted {
+		_AddBadRequestError(ww, fmt.Sprintf(
+			"GetTxns: Invalid TxnStatus: %s. Options are {InMempool, Committed}.", txnStatus,
+		))
+		return
+	}
+
+	// Decode the TxnHashHexes.
+	txnHashes := make(map[string]*lib.BlockHash, len(requestData.TxnHashHexes))
+	for _, txnHashHex := range requestData.TxnHashHexes {
+		txnHashBytes, err := hex.DecodeString(txnHashHex)
+		if err != nil || len(txnHashBytes) != lib.HashSizeBytes {
+			_AddBadRequestError(ww, fmt.Sprintf("GetTxns: Error parsing txn hash %s: %v", txnHashHex, err))
+			return
+		}
+		txnHashes[txnHashHex] = lib.NewBlockHash(txnHashBytes)
+	}
+
+	// The order of operations is tricky here. We need to do the following in this
+	// exact order:
+	// 1. Check the mempool for each txn
+	// 2. Wait for txindex to fully sync
+	// 3. Then check txindex
+	//
+	// If we instead check the mempool afterward, then there is a chance that a txn
+	// has been removed by a new block that is not yet in txindex. This would cause the
+	// endpoint to incorrectly report that the txn doesn't exist on the node, when in
+	// fact it is in "limbo" between the mempool and txindex.
+	res := &GetTxnsResponse{TxnsFound: make(map[string]bool)}
+
+	// 1. Check the mempool for each txn if TxnStatusInMempool.
+	if txnStatus == TxnStatusInMempool {
+		mempool := fes.backendServer.GetMempool()
+		for txnHashHex, txnHash := range txnHashes {
+			res.TxnsFound[txnHashHex] = mempool.IsTransactionInPool(txnHash)
+		}
+	}
+
+	// 2. We have to wait until txindex has reached the uncommitted tip height, not
+	//    the committed tip height. Otherwise, we'll be missing ~2 blocks in limbo.
+	startTime := time.Now()
+	coreChainTipHeight := fes.TXIndex.CoreChain.BlockTip().Height
+	for fes.TXIndex.TXIndexChain.BlockTip().Height < coreChainTipHeight {
+		if time.Since(startTime) > 30*time.Second {
+			_AddBadRequestError(ww, fmt.Sprintf("GetTxns: Timed out waiting for txindex to sync."))
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// 3. Check the txindex for each txn.
+	for txnHashHex, txnHash := range txnHashes {
+		if res.TxnsFound[txnHashHex] {
+			continue // Skip if TxnStatusInMempool and we already found the txn in the mempool.
+		}
+		res.TxnsFound[txnHashHex] = lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash)
+	}
+
+	// Encode response as JSON.
+	if err := json.NewEncoder(ww).Encode(res); err != nil {
+		_AddBadRequestError(ww, fmt.Sprintf("GetTxns: Problem encoding response as JSON: %v", err))
+		return
+	}
+}
+
 // SubmitAtomicTransactionRequest is meant to aid in the submission of atomic transactions
 // with identity service signed transactions. Specifically, it takes an incomplete atomic transaction
 // and "completes" the transaction by adding in identity service signed transactions.

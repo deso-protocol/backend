@@ -51,6 +51,7 @@ const (
 
 	// transaction.go
 	RoutePathGetTxn                   = "/api/v0/get-txn"
+	RoutePathGetTxns                  = "/api/v0/get-txns"
 	RoutePathSubmitTransaction        = "/api/v0/submit-transaction"
 	RoutePathSubmitAtomicTransaction  = "/api/v0/submit-atomic-transaction"
 	RoutePathUpdateProfile            = "/api/v0/update-profile"
@@ -1162,6 +1163,13 @@ func (fes *APIServer) NewRouter() *muxtrace.Router {
 			[]string{"POST", "OPTIONS"},
 			RoutePathGetTxn,
 			fes.GetTxn,
+			PublicAccess,
+		},
+		{
+			"BlockGetTxns",
+			[]string{"POST", "OPTIONS"},
+			RoutePathGetTxns,
+			fes.GetTxns,
 			PublicAccess,
 		},
 		{
