@@ -16,6 +16,21 @@ import (
 	"github.com/pkg/errors"
 )
 
+// ------------
+// Constants
+// ------------
+
+// NanosInSecond is a helper constant to convert seconds into nanos
+const NanosInSecond = uint64(1_000_000_000)
+
+// MaxTstampSecsInterval is the max difference allowed between
+// GetPostsStatelessRequest.StartTstampSecs and GetPostsStatelessRequest.EndTstampSecs
+const MaxTstampSecsInterval = uint64(2 * 24 * 60 * 60)
+
+// ------------
+// Types
+// ------------
+
 // GetPostsStatelessRequest ...
 type GetPostsStatelessRequest struct {
 	// This is the PostHashHex of the post we want to start our paginated lookup at. We
@@ -25,6 +40,7 @@ type GetPostsStatelessRequest struct {
 	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
 	OrderBy                    string `safeForLogging:"true"`
 	StartTstampSecs            uint64 `safeForLogging:"true"`
+	EndTstampSecs              uint64 `safeForLogging:"true"`
 	PostContent                string `safeForLogging:"true"`
 	NumToFetch                 int    `safeForLogging:"true"`
 
@@ -336,7 +352,9 @@ func (fes *APIServer) GetAllPostEntries(readerPK []byte) (
 }
 
 func (fes *APIServer) GetPostEntriesForFollowFeed(
-	startAfterPostHash *lib.BlockHash, readerPK []byte, numToFetch int, utxoView *lib.UtxoView, mediaRequired bool, onlyNFTs bool, onlyPosts bool) (
+	startAfterPostHash *lib.BlockHash, readerPK []byte, minTimestampNanos uint64, maxTimestampNanos uint64,
+	numToFetch int, utxoView *lib.UtxoView, mediaRequired bool, onlyNFTs bool, onlyPosts bool,
+) (
 	_postEntries []*lib.PostEntry,
 	_profilesByPublicKey map[lib.PkMapKey]*lib.ProfileEntry,
 	_postEntryReaderStates map[lib.BlockHash]*lib.PostEntryReaderState, err error) {
@@ -345,7 +363,7 @@ func (fes *APIServer) GetPostEntriesForFollowFeed(
 		return nil, nil, nil, fmt.Errorf("GetPostEntriesForFollowFeed: OnlyNFTS and OnlyPosts can not be enabled both")
 	}
 
-	postEntries, err := fes.GetPostsForFollowFeedForPublicKey(utxoView, startAfterPostHash, readerPK, numToFetch, true /* skip hidden */, mediaRequired, onlyNFTs, onlyPosts)
+	postEntries, err := fes.GetPostsForFollowFeedForPublicKey(utxoView, startAfterPostHash, readerPK, minTimestampNanos, maxTimestampNanos, numToFetch, true /* skip hidden */, mediaRequired, onlyNFTs, onlyPosts)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("GetPostEntriesForFollowFeed: Error fetching posts from view: %v", err)
 	}
@@ -901,11 +919,40 @@ func (fes *APIServer) GetPostsStateless(ww http.ResponseWriter, req *http.Reques
 	var profileEntryMap map[lib.PkMapKey]*lib.ProfileEntry
 	var readerStateMap map[lib.BlockHash]*lib.PostEntryReaderState
 	if requestData.GetPostsForFollowFeed {
+		utcTimeNow := time.Now().UTC()
+
+		var minTimestampNanos, maxTimestampNanos uint64
+		if requestData.StartTstampSecs > 0 {
+			minTimestampNanos = requestData.StartTstampSecs * NanosInSecond
+		} else {
+			// two days ago
+			minTimestampNanos = uint64(utcTimeNow.AddDate(0, 0, -2).UnixNano())
+		}
+
+		if requestData.EndTstampSecs > 0 {
+			maxTimestampNanos = requestData.EndTstampSecs * NanosInSecond
+		} else {
+			// now
+			minTimestampNanos = uint64(utcTimeNow.UnixNano())
+		}
+
+		// min should not be greater than max
+		if minTimestampNanos > maxTimestampNanos {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPostsStateless: minTimestampNanos cannot be greater than maxTimestampNanos"))
+			return
+		}
+
+		// ensure window is at most 2 days
+		if maxTimestampNanos-minTimestampNanos > MaxTstampSecsInterval*NanosInSecond {
+			_AddBadRequestError(ww, fmt.Sprintf("GetPostsStateless: minTimestampNanos/maxTimestampNanos cannot be more than 2 hours apart"))
+			return
+		}
+
 		postEntries,
 			profileEntryMap,
 			readerStateMap,
-			err = fes.GetPostEntriesForFollowFeed(startPostHash, readerPublicKeyBytes, numToFetch, utxoView,
-			requestData.MediaRequired, requestData.OnlyNFTs, requestData.OnlyPosts)
+			err = fes.GetPostEntriesForFollowFeed(startPostHash, readerPublicKeyBytes, minTimestampNanos, maxTimestampNanos,
+			numToFetch, utxoView, requestData.MediaRequired, requestData.OnlyNFTs, requestData.OnlyPosts)
 		// if we're getting posts for follow feed, no comments are returned (they aren't necessary)
 		commentsByPostHash = make(map[lib.BlockHash][]*lib.PostEntry)
 	} else if requestData.GetPostsForGlobalWhitelist {
