@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
@@ -40,41 +39,6 @@ const (
 	blockSignerSeed = "essence camp ghost remove document vault ladder swim pupil index apart ring"
 	blockSignerPk   = "BC1YLiQ86kwXUy3nfK391xht7N72UmbFY6bGrUsds1A7QKZrs4jJsxo"
 )
-
-func CleanUpBadger(db *badger.DB) {
-	// Close the database.
-	err := db.Close()
-	if err != nil {
-		log.Fatal(err)
-	}
-	// Delete the database directory.
-	err = os.RemoveAll(db.Opts().Dir)
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
-func GetTestBadgerDb(t *testing.T) (_db *badger.DB, _dir string) {
-	dir, err := os.MkdirTemp("", "badgerdb")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Open a badgerdb in a temporary directory.
-	opts := badger.DefaultOptions(dir)
-	opts.Dir = dir
-	opts.ValueDir = dir
-	// No logger when running tests
-	opts.Logger = nil
-	db, err := badger.Open(opts)
-	if err != nil {
-		log.Fatal(err)
-	}
-	t.Cleanup(func() {
-		CleanUpBadger(db)
-	})
-	return db, dir
-}
 
 func NewLowDifficultyBlockchain(t *testing.T) (*lib.Blockchain, *lib.DeSoParams, *badger.DB, string) {
 
