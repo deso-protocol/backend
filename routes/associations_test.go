@@ -586,6 +586,14 @@ func TestAssociations(t *testing.T) {
 }
 
 func newTestApiServer(t *testing.T) *APIServer {
+	return _newTestApiServer(t, false)
+}
+
+func newTestApiServerWithTxIndex(t *testing.T) *APIServer {
+	return _newTestApiServer(t, true)
+}
+
+func _newTestApiServer(t *testing.T, txIndex bool) *APIServer {
 	// Create a badger db instance.
 	badgerDB, badgerDir := GetTestBadgerDb(t)
 
@@ -594,7 +602,7 @@ func newTestApiServer(t *testing.T) *APIServer {
 	coreConfig.Params = &lib.DeSoTestnetParams
 	coreConfig.DataDirectory = badgerDir
 	coreConfig.Regtest = true
-	coreConfig.TXIndex = false
+	coreConfig.TXIndex = txIndex
 	coreConfig.MinerPublicKeys = []string{senderPkString}
 	coreConfig.NumMiningThreads = 1
 	coreConfig.HyperSync = false
@@ -641,6 +649,19 @@ func newTestApiServer(t *testing.T) *APIServer {
 	return apiServer
 }
 
+func makePostRequest(t *testing.T, apiServer *APIServer, routePath string, req interface{}, res interface{}) {
+	bodyJSON, err := json.Marshal(req)
+	require.NoError(t, err)
+	request, _ := http.NewRequest("POST", routePath, bytes.NewBuffer(bodyJSON))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	apiServer.router.ServeHTTP(response, request)
+	require.NotContains(t, string(response.Body.Bytes()), "error")
+	decoder := json.NewDecoder(io.LimitReader(response.Body, MaxRequestBodySizeBytes))
+	err = decoder.Decode(res)
+	require.NoError(t, err)
+}
+
 func signTxn(t *testing.T, txn *lib.MsgDeSoTxn, privKeyBase58Check string) {
 	privKeyBytes, _, err := lib.Base58CheckDecode(privKeyBase58Check)
 	require.NoError(t, err)
@@ -676,4 +697,16 @@ func submitTxn(t *testing.T, apiServer *APIServer, txn *lib.MsgDeSoTxn) (*Submit
 	err = decoder.Decode(&txnResponse)
 	require.NoError(t, err)
 	return &txnResponse, nil
+}
+
+func signAndSubmitTxn(t *testing.T, apiServer *APIServer, txn *lib.MsgDeSoTxn, privKeyBase58Check string) string {
+	// Sign txn.
+	require.Nil(t, txn.Signature.Sign)
+	signTxn(t, txn, privKeyBase58Check)
+	require.NotNil(t, txn.Signature.Sign)
+	// Submit txn.
+	_, err := submitTxn(t, apiServer, txn)
+	require.NoError(t, err)
+	// Return txn hash hex.
+	return txn.Hash().String()
 }
