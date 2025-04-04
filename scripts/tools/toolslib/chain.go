@@ -18,6 +18,8 @@ func OpenDataDir(dataDir string) (*badger.DB, error) {
 	return db, nil
 }
 
+// TODO: This utility function needs to be updated to account for not having the entire chain in
+// memory (no more BEST CHAIN representing the entire history of the blockchain).
 // Returns the best chain associated with a badgerDB handle.
 func GetBestChainFromBadger(syncedDBHandle *badger.DB, params *lib.DeSoParams) ([]*lib.BlockNode, error) {
 	bestBlockHash := lib.DbGetBestHash(syncedDBHandle, nil, lib.ChainTypeDeSoBlock)
@@ -38,7 +40,8 @@ func GetBestChainFromBadger(syncedDBHandle *badger.DB, params *lib.DeSoParams) (
 	}
 
 	// Walk back from the best node to the genesis block and store them all in bestChain.
-	bestChain, err := lib.GetBestChain(tipNode)
+	bi := lib.NewBlockIndex(syncedDBHandle, nil, tipNode)
+	bestChain, err := lib.GetBestChain(tipNode, bi)
 	if err != nil {
 		return nil, errors.Wrap(err, "GetBestChainFromBadger() failed to GetBestChain")
 	}
