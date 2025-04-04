@@ -2998,7 +2998,7 @@ func UpdateIPsForURLs(urlList []string, ipAddressMap map[string]string) (map[str
 	for _, url := range urlList {
 		ipAddresses, err := GetIPsForURL(url)
 		if err != nil {
-			fmt.Printf("Error getting IP for URL %v: %v\n", url, err)
+			glog.Infof("Error getting IP for URL %v: %v\n", url, err)
 			continue
 		}
 		for _, ipAddress := range ipAddresses {
