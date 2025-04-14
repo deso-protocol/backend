@@ -496,6 +496,9 @@ type TransactionResponse struct {
 	TransactionIDBase58Check string
 	// Hash of the transaction in hex format.
 	TransactionHashHex string
+	// Hashes of the inner transaction in hex format. Only supplied if the
+	// transaction is an atomic transaction.
+	InnerTransactionHashHexes []string `json:",omitempty"`
 	// The raw hex of the transaction data. This can be fully-constructed from
 	// the human-readable portions of this object.
 	RawTransactionHex string `json:",omitempty"`
@@ -538,25 +541,27 @@ func (response *TransactionResponse) UnmarshalJSON(data []byte) error {
 	// Define an anonymous struct with identical fields to the TransactionResponse
 	// type above, but excluding the RawTxnMetadata field.
 	parsedResponse := struct {
-		TransactionIDBase58Check string
-		TransactionHashHex       string
-		RawTransactionHex        string
-		Inputs                   []*InputResponse
-		Outputs                  []*OutputResponse
-		SignatureHex             string
-		TransactionType          string
-		BlockHashHex             string
-		BlockInfo                *TransactionBlockInfo
-		TransactionMetadata      *lib.TransactionMetadata
-		ExtraData                map[string]string
-		TxnNonce                 *lib.DeSoNonce
-		TxnFeeNanos              uint64
-		TxnVersion               lib.DeSoTxnVersion
+		TransactionIDBase58Check  string
+		TransactionHashHex        string
+		InnerTransactionHashHexes []string
+		RawTransactionHex         string
+		Inputs                    []*InputResponse
+		Outputs                   []*OutputResponse
+		SignatureHex              string
+		TransactionType           string
+		BlockHashHex              string
+		BlockInfo                 *TransactionBlockInfo
+		TransactionMetadata       *lib.TransactionMetadata
+		ExtraData                 map[string]string
+		TxnNonce                  *lib.DeSoNonce
+		TxnFeeNanos               uint64
+		TxnVersion                lib.DeSoTxnVersion
 	}{}
 	json.Unmarshal(data, &parsedResponse)
 
 	response.TransactionIDBase58Check = parsedResponse.TransactionIDBase58Check
 	response.TransactionHashHex = parsedResponse.TransactionHashHex
+	response.InnerTransactionHashHexes = parsedResponse.InnerTransactionHashHexes
 	response.RawTransactionHex = parsedResponse.RawTransactionHex
 	response.Inputs = parsedResponse.Inputs
 	response.Outputs = parsedResponse.Outputs
@@ -715,6 +720,14 @@ func APITransactionToResponse(
 		})
 	}
 	ret.ExtraData = DecodeExtraDataMap(params, utxoView, txnn.ExtraData)
+
+	// If this is an atomic transaction, add the inner transaction hashes.
+	if txnn.TxnMeta.GetTxnType() == lib.TxnTypeAtomicTxnsWrapper {
+		ret.InnerTransactionHashHexes = []string{}
+		for _, innerTxn := range txnn.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns {
+			ret.InnerTransactionHashHexes = append(ret.InnerTransactionHashHexes, innerTxn.Hash().String())
+		}
+	}
 
 	if txnMeta != nil {
 		ret.BlockHashHex = txnMeta.BlockHashHex
