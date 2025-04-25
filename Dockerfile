@@ -4,7 +4,7 @@ RUN apk update
 RUN apk upgrade
 RUN apk add --update bash cmake g++ gcc git make vips-dev
 
-COPY --from=golang:1.23-alpine /usr/local/go/ /usr/local/go/
+COPY --from=golang:1.24-alpine /usr/local/go/ /usr/local/go/
 ENV PATH="/usr/local/go/bin:${PATH}"
 
 WORKDIR /deso/src
@@ -38,7 +38,7 @@ COPY core/migrate     ../core/migrate
 
 # Install Delve debugger, specifying the installation path explicitly
 ENV GOPATH=/root/go
-RUN go install github.com/go-delve/delve/cmd/dlv@v1.23.0
+RUN go install github.com/go-delve/delve/cmd/dlv@v1.24.0
 
 # build backend
 #RUN GOOS=linux go build -mod=mod -a -installsuffix cgo -o bin/backend main.go
