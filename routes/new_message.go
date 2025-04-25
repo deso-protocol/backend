@@ -308,9 +308,9 @@ func (fes *APIServer) sendMessageHandler(
 		ValidateAccessGroupPublicKeyAndName(requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName)
 	// Abruptly end the request processing on error and return.
 	if err != nil {
-		return errors.Wrapf(err, fmt.Sprintf("Problem validating sender public key and access group name"+
-			"base58 public key %s: %s ",
-			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
+		return errors.Wrapf(err,
+			"Problem validating sender public key and access group name base58 public key %s: %s ",
+			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName)
 	}
 
 	// Basic validation of the recipient public key and access group name.
@@ -318,9 +318,9 @@ func (fes *APIServer) sendMessageHandler(
 		ValidateAccessGroupPublicKeyAndName(requestData.RecipientAccessGroupOwnerPublicKeyBase58Check, requestData.RecipientAccessGroupKeyName)
 	// Abruptly end the request processing on error and return.
 	if err != nil {
-		return errors.Wrapf(err, fmt.Sprintf("Problem validating sender public key and access group name"+
-			"base58 public key %s: %s ",
-			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName))
+		return errors.Wrapf(err,
+			"Problem validating sender public key and access group name base58 public key %s: %s ",
+			requestData.SenderAccessGroupOwnerPublicKeyBase58Check, requestData.SenderAccessGroupKeyName)
 	}
 
 	hexDecodedEncryptedMessageBytes, err := hex.DecodeString(requestData.EncryptedMessageText)
@@ -331,15 +331,17 @@ func (fes *APIServer) sendMessageHandler(
 	// Validate the sender access group public key.
 	senderAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.SenderAccessGroupPublicKeyBase58Check)
 	if err != nil {
-		return errors.Wrapf(err, fmt.Sprintf("Problem validating sender "+
-			"base58 public key %s: ", requestData.SenderAccessGroupPublicKeyBase58Check))
+		return errors.Wrapf(err,
+			"Problem validating sender base58 public key %s: ",
+			requestData.SenderAccessGroupPublicKeyBase58Check)
 	}
 
 	// Validate the recipient access group public key.
 	recipientAccessGroupPkbytes, err := Base58DecodeAndValidatePublickey(requestData.RecipientAccessGroupPublicKeyBase58Check)
 	if err != nil {
-		return errors.Wrapf(err, fmt.Sprintf("Problem validating recipient "+
-			"base58 public key %s: ", requestData.SenderAccessGroupPublicKeyBase58Check))
+		return errors.Wrapf(err,
+			"Problem validating recipient base58 public key %s: ",
+			requestData.SenderAccessGroupPublicKeyBase58Check)
 	}
 
 	// Compute the additional transaction fees as specified by the request body and the node-level fees.
@@ -806,8 +808,9 @@ func (fes *APIServer) getUserMessageThreadsHandler(ww http.ResponseWriter, req *
 	// Decode the access group owner public key.
 	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.UserPublicKeyBase58Check)
 	if err != nil {
-		return errors.Wrapf(err, fmt.Sprintf("Problem decoding owner"+
-			"base58 public key %s: ", requestData.UserPublicKeyBase58Check))
+		return errors.Wrapf(err,
+			"Problem decoding owner base58 public key %s: ",
+			requestData.UserPublicKeyBase58Check)
 	}
 
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
@@ -821,15 +824,17 @@ func (fes *APIServer) getUserMessageThreadsHandler(ww http.ResponseWriter, req *
 		// get all the direct message threads associated with the public key.
 		dmThreads, err := utxoView.GetAllUserDmThreads(*lib.NewPublicKey(accessGroupOwnerPkBytes))
 		if err != nil {
-			return errors.Wrapf(err, fmt.Sprintf("Problem getting access group IDs of"+
-				"public key %s: ", requestData.UserPublicKeyBase58Check))
+			return errors.Wrapf(err,
+				"Problem getting access group IDs of public key %s: ",
+				requestData.UserPublicKeyBase58Check)
 		}
 
 		// fetch the latest message for each of the dmThread.
 		latestMessagesForThreadKeys, err := fes.fetchLatestMessageFromDmThreads(dmThreads, utxoView)
 		if err != nil {
-			return errors.Wrapf(err, fmt.Sprintf("Problem getting access group IDs of"+
-				"public key %s: ", requestData.UserPublicKeyBase58Check))
+			return errors.Wrapf(err,
+				"Problem getting access group IDs of public key %s: ",
+				requestData.UserPublicKeyBase58Check)
 		}
 
 		for _, threadMsg := range latestMessagesForThreadKeys {
@@ -842,14 +847,16 @@ func (fes *APIServer) getUserMessageThreadsHandler(ww http.ResponseWriter, req *
 		// get all the group chat threads for the public key.
 		groupChatThreads, err := utxoView.GetAllUserGroupChatThreads(*lib.NewPublicKey(accessGroupOwnerPkBytes))
 		if err != nil {
-			return errors.Wrapf(err, fmt.Sprintf("Problem getting access group IDs of"+
-				"public key %s: ", requestData.UserPublicKeyBase58Check))
+			return errors.Wrapf(err,
+				"Problem getting access group IDs of public key %s: ",
+				requestData.UserPublicKeyBase58Check)
 		}
 		// get the latest message for each group chat thread.
 		latestMessagesForGroupChats, err := fes.fetchLatestMessageFromGroupChatThreads(groupChatThreads, utxoView)
 		if err != nil {
-			return errors.Wrapf(err, fmt.Sprintf("Problem getting access group IDs of"+
-				"public key %s: ", requestData.UserPublicKeyBase58Check))
+			return errors.Wrapf(err,
+				"Problem getting access group IDs of public key %s: ",
+				requestData.UserPublicKeyBase58Check)
 		}
 
 		// Add direct messages into MessageThread type.
