@@ -1352,14 +1352,8 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	isCurrentPosterMissingProfile := false
-	if utxoView.GetProfileEntryForPublicKey(postEntry.PosterPublicKey) != nil {
-		isCurrentPosterMissingProfile = true
-	}
-
 	// If the profile that posted this post is not in our filtered list, return with error.
-	if filteredProfilePubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] == nil && !isCurrentPosterGreylisted &&
-		!isCurrentPosterMissingProfile {
+	if filteredProfilePubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] == nil && !isCurrentPosterGreylisted {
 		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: The poster public key for this post is restricted."))
 		return
 	}
