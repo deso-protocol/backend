@@ -1504,26 +1504,21 @@ func (fes *APIServer) GetSinglePostComments(
 			fes._profileEntryToResponse(profileEntry, utxoView)
 	}
 
-	// If the profile that posted this post does not have a profile, return with error.
-	if pubKeyToProfileEntryResponseMap[posterPkMapKey] == nil {
-		return nil, fmt.Errorf("GetSinglePostComments: The profile that posted this post does not have a profile.")
-	}
-
 	for _, commentEntry := range commentEntries {
 		pkMapKey := lib.MakePkMapKey(commentEntry.PosterPublicKey)
 		// Remove comments that are blocked by either the reader or the poster of the root post
 		if _, ok := blockedPublicKeys[lib.PkToString(commentEntry.PosterPublicKey, fes.Params)]; !ok && profilePubKeyMap[pkMapKey] == nil {
 			profilePubKeyMap[pkMapKey] = commentEntry.PosterPublicKey
 		}
-		commentProfileEntryResponse := pubKeyToProfileEntryResponseMap[lib.MakePkMapKey(commentEntry.PosterPublicKey)]
+		commentProfileEntryResponse, pubKeyKeyExistsInMap := pubKeyToProfileEntryResponseMap[lib.MakePkMapKey(commentEntry.PosterPublicKey)]
 		commentAuthorIsCurrentPoster := reflect.DeepEqual(commentEntry.PosterPublicKey, posterPublicKeyBytes)
 		// Skip comments that:
-		//  - Don't have a profile (it was most likely banned).
+		//  - Don't have a profile (it was most likely banned). UPDATE: only remove if public key is blacklisted.
 		//	- Are hidden *AND* don't have comments. Keep hidden posts with comments.
 		//  - isDeleted (this was already filtered in an earlier stage and should never be true)
 		//	- Skip comment is it's by the poster of the single post we are fetching and the currentPoster is blocked by
 		// 	the reader
-		if commentProfileEntryResponse == nil || commentEntry.IsDeleted() ||
+		if (commentProfileEntryResponse == nil && !pubKeyKeyExistsInMap) || commentEntry.IsDeleted() ||
 			(commentEntry.IsHidden && commentEntry.CommentCount == 0) ||
 			(commentAuthorIsCurrentPoster && isCurrentPosterBlocked) {
 			continue
@@ -1595,8 +1590,14 @@ func (fes *APIServer) GetSinglePostComments(
 			}
 		}
 
-		iiCoinPrice := iiCommentEntryResponse.PostEntryResponse.ProfileEntryResponse.CoinEntry.DeSoLockedNanos
-		jjCoinPrice := jjCommentEntryResponse.PostEntryResponse.ProfileEntryResponse.CoinEntry.DeSoLockedNanos
+		iiCoinPrice := uint64(0)
+		jjCoinPrice := uint64(0)
+		if iiCommentEntryResponse.PostEntryResponse.ProfileEntryResponse != nil {
+			iiCoinPrice = iiCommentEntryResponse.PostEntryResponse.ProfileEntryResponse.CoinEntry.DeSoLockedNanos
+		}
+		if jjCommentEntryResponse.PostEntryResponse.ProfileEntryResponse != nil {
+			jjCoinPrice = jjCommentEntryResponse.PostEntryResponse.ProfileEntryResponse.CoinEntry.DeSoLockedNanos
+		}
 		if iiCoinPrice > jjCoinPrice {
 			return true
 		} else if iiCoinPrice < jjCoinPrice {
