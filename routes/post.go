@@ -1343,7 +1343,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	isCurrentPosterGreylisted := false
 	if _, ok := filteredProfilePubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)]; !ok {
 		currentPosterPKID := utxoView.GetPKIDForPublicKey(postEntry.PosterPublicKey)
-		// If the currentPoster's userMetadata doesn't exist, then they are no greylisted, so we can exit.
+		// If the currentPoster's userMetadata doesn't exist, then they are not greylisted, so we can exit.
 		if fes.IsUserGraylisted(currentPosterPKID.PKID, utxoView) && !fes.IsUserBlacklisted(currentPosterPKID.PKID, utxoView) {
 			// If the currentPoster is not blacklisted (removed everywhere) and is greylisted (removed from leaderboard)
 			// add them back to the filteredProfilePubKeyMap and note that the currentPoster is greylisted.
@@ -1370,12 +1370,6 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	// If the profile that posted this post does not have a profile, return with error.
-	if pubKeyToProfileEntryResponseMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] == nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: The poster public key for this post is restricted."))
-		return
-	}
-
 	// Create the postEntryResponse.
 	postEntryResponse, err := fes._postEntryToResponse(postEntry, requestData.AddGlobalFeedBool /*AddGlobalFeedBool*/, fes.Params, utxoView, readerPublicKeyBytes, 2)
 	if err != nil {
@@ -1394,7 +1388,11 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 
 		// If the profile is banned, skip this post.
 		if parentProfileEntryResponse == nil {
-			continue
+			// Check if profile entry exists OR if the public key is blacklisted.
+			if utxoView.GetProfileEntryForPublicKey(parentEntry.PosterPublicKey) != nil ||
+				fes.IsUserBlacklisted(utxoView.GetPKIDForPublicKey(parentEntry.PosterPublicKey).PKID, utxoView) {
+				continue
+			}
 		}
 		// Build the parent entry response and append.
 		parentEntryResponse, err := fes._postEntryToResponse(parentEntry, requestData.AddGlobalFeedBool /*AddGlobalFeed*/, fes.Params, utxoView, readerPublicKeyBytes, 2)
@@ -1431,7 +1429,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	res := &GetSinglePostResponse{
 		PostFound: postEntryResponse,
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetSinglePost: Problem encoding response as JSON: %v", err))
 		return
