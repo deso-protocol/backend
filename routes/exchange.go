@@ -1375,7 +1375,7 @@ func (fes *APIServer) getTxindexMetadataForUncommittedBlock(
 	uncommittedTxnMetaMap := make(map[lib.BlockHash]*lib.TransactionMetadata)
 	txindexUtxoView := lib.NewUtxoView(fes.blockchain.DB(), fes.Params, nil, nil, nil)
 	if blockNode.Header.PrevBlockHash != nil && !txindexUtxoView.TipHash.IsEqual(blockNode.Header.PrevBlockHash) {
-		utxoViewAndUtxoOps, err := fes.blockchain.GetUtxoViewAndUtxoOpsAtBlockHash(*blockNode.Header.PrevBlockHash)
+		utxoViewAndUtxoOps, err := fes.blockchain.GetUtxoViewAndUtxoOpsAtBlockHash(*blockNode.Header.PrevBlockHash, blockNode.Header.Height-1)
 		if err != nil {
 			return nil, errors.Wrap(err,
 				"getTxindexMetadataForUncommittedBlock: Problem fetching utxoView for uncommitted block")
@@ -1411,7 +1411,7 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 
 	// For this endpoint we need to lock the blockchain for reading.
 	// If the HashHex is set, look the block up using that.
-	numBlocks := len(fes.blockchain.BestChain())
+	numBlocks := fes.blockchain.BlockTip().Height + 1
 
 	var blockNode *lib.BlockNode
 	var blockHash *lib.BlockHash
@@ -1433,7 +1433,7 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 	} else {
 		// Find the block node with the corresponding height on the best chain.
 		if blockRequest.Height >= int64(numBlocks) || blockRequest.Height < 0 {
-			maxHeight := len(fes.blockchain.BestChain()) - 1
+			maxHeight := fes.blockchain.BlockTip().Height
 
 			APIAddError(ww, fmt.Sprintf("APIBlockRequest: Height requested "+
 				"%d must be >= 0 and <= "+
@@ -1441,7 +1441,17 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 				maxHeight))
 			return
 		}
-		blockNode = fes.blockchain.BestChain()[blockRequest.Height]
+		var exists bool
+		var err error
+		blockNode, exists, err = fes.blockchain.GetBlockFromBestChainByHeight(uint64(blockRequest.Height), false)
+		if err != nil {
+			APIAddError(ww, fmt.Sprintf("APIBlockRequest: Problem fetching block: %v", err))
+			return
+		}
+		if !exists {
+			APIAddError(ww, fmt.Sprintf("APIBlockRequest: Block with height %d not found", blockRequest.Height))
+			return
+		}
 		blockHash = blockNode.Hash
 	}
 

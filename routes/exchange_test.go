@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/deso-protocol/core/collections"
 	"io"
 	"log"
 	"net/http"
@@ -108,6 +109,13 @@ func NewLowDifficultyBlockchainWithParams(t *testing.T, params *lib.DeSoParams) 
 	}
 
 	return chain, &paramsCopy, db, dir
+}
+
+func GetBlockFromBestChainByHeight(t *testing.T, blockchain *lib.Blockchain, height uint32) *lib.BlockNode {
+	blockNode, exists, err := blockchain.GetBlockFromBestChainByHeight(uint64(height), false)
+	require.NoError(t, err)
+	require.True(t, exists)
+	return blockNode
 }
 
 func NewTestMiner(t *testing.T, chain *lib.Blockchain, params *lib.DeSoParams, isSender bool) (*lib.DeSoMempool, *lib.DeSoMiner) {
@@ -559,16 +567,18 @@ func TestAPI(t *testing.T) {
 		}
 		assert.Equal("", transactionInfoRes.Error)
 		assert.Equal(2, len(transactionInfoRes.Transactions))
+		block1 := GetBlockFromBestChainByHeight(t, apiServer.blockchain, 1)
+		block2 := GetBlockFromBestChainByHeight(t, apiServer.blockchain, 2)
 		assert.Contains(
 			[]string{
-				hex.EncodeToString(apiServer.blockchain.BestChain()[1].Hash[:]),
-				hex.EncodeToString(apiServer.blockchain.BestChain()[2].Hash[:]),
+				hex.EncodeToString(block1.Hash[:]),
+				hex.EncodeToString(block2.Hash[:]),
 			},
 			transactionInfoRes.Transactions[0].BlockHashHex)
 		assert.Contains(
 			[]string{
-				hex.EncodeToString(apiServer.blockchain.BestChain()[1].Hash[:]),
-				hex.EncodeToString(apiServer.blockchain.BestChain()[2].Hash[:]),
+				hex.EncodeToString(block1.Hash[:]),
+				hex.EncodeToString(block2.Hash[:]),
 			},
 			transactionInfoRes.Transactions[1].BlockHashHex)
 		assert.Equal(0, len(transactionInfoRes.Transactions[0].Inputs))
@@ -578,10 +588,10 @@ func TestAPI(t *testing.T) {
 	var firstBlockTxn *lib.MsgDeSoTxn
 	var secondBlockTxn *lib.MsgDeSoTxn
 	{
-		blockHash := apiServer.blockchain.BestChain()[1].Hash
+		blockHash := GetBlockFromBestChainByHeight(t, apiServer.blockchain, 1).Hash
 		blockLookup, err := lib.GetBlock(blockHash, apiServer.blockchain.DB(), apiServer.blockchain.Snapshot())
 		require.NoError(err)
-		block2Lookup, err := lib.GetBlock(apiServer.blockchain.BestChain()[2].Hash, apiServer.blockchain.DB(), apiServer.blockchain.Snapshot())
+		block2Lookup, err := lib.GetBlock(GetBlockFromBestChainByHeight(t, apiServer.blockchain, 2).Hash, apiServer.blockchain.DB(), apiServer.blockchain.Snapshot())
 
 		firstBlockTxn = blockLookup.Txns[0]
 		secondBlockTxn = block2Lookup.Txns[0]
@@ -607,7 +617,7 @@ func TestAPI(t *testing.T) {
 		assert.Equal(1, len(transactionInfoRes.Transactions))
 		assert.Contains(
 			[]string{
-				hex.EncodeToString(apiServer.blockchain.BestChain()[1].Hash[:]),
+				hex.EncodeToString(GetBlockFromBestChainByHeight(t, apiServer.blockchain, 1).Hash[:]),
 			},
 			transactionInfoRes.Transactions[0].BlockHashHex)
 		assert.Equal(0, len(transactionInfoRes.Transactions[0].Inputs))
@@ -1299,8 +1309,16 @@ func TestAPI(t *testing.T) {
 
 	// Set the tip to the first block and make sure all txns get deleted.
 	{
-		chainWithFirstBlockOnly := apiServer.blockchain.BestChain()[:2]
-		oldBestChain := apiServer.blockchain.BestChain()
+		block0 := GetBlockFromBestChainByHeight(t, apiServer.blockchain, 0)
+		block1 := GetBlockFromBestChainByHeight(t, apiServer.blockchain, 1)
+		chainWithFirstBlockOnly := []*lib.BlockNode{block0, block1}
+		oldBestChainTip := apiServer.blockchain.BlockTip()
+		oldBestChain := []*lib.BlockNode{}
+		for oldBestChainTip != nil {
+			oldBestChain = append(oldBestChain, oldBestChainTip)
+			oldBestChainTip = oldBestChainTip.GetParent(apiServer.blockchain.GetBlockIndex())
+		}
+		oldBestChain = collections.Reverse(oldBestChain)
 		apiServer.blockchain.SetBestChain(chainWithFirstBlockOnly)
 		require.NoError(apiServer.TXIndex.Update())
 
@@ -1309,12 +1327,12 @@ func TestAPI(t *testing.T) {
 		{
 			prefix := lib.DbTxindexTxIDKey(&lib.BlockHash{})[0]
 			txnsInTransactionIndex, _ := lib.EnumerateKeysForPrefix(
-				apiServer.TXIndex.TXIndexChain.DB(), []byte{prefix}, true)
+				apiServer.TXIndex.TXIndexChain.DB(), []byte{prefix}, true, false)
 			require.Equal(1+len(apiServer.Params.SeedTxns)+len(apiServer.Params.SeedBalances), len(txnsInTransactionIndex))
 		}
 		{
 			keysInPublicKeyTable, _ := lib.EnumerateKeysForPrefix(
-				apiServer.TXIndex.TXIndexChain.DB(), lib.DbTxindexPublicKeyPrefix([]byte{}), true)
+				apiServer.TXIndex.TXIndexChain.DB(), lib.DbTxindexPublicKeyPrefix([]byte{}), true, false)
 			// There should be two keys since one is the miner public key and
 			// the other is a dummy public key corresponding to the input of
 			// a block reward txn. Plus one for the seed balance, which creates
@@ -1355,7 +1373,7 @@ func TestAPI(t *testing.T) {
 			assert.Equal(1, len(transactionInfoRes.Transactions))
 			assert.Contains(
 				[]string{
-					hex.EncodeToString(apiServer.blockchain.BestChain()[1].Hash[:]),
+					hex.EncodeToString(GetBlockFromBestChainByHeight(t, apiServer.blockchain, 1).Hash[:]),
 				},
 				transactionInfoRes.Transactions[0].BlockHashHex)
 			assert.Equal(0, len(transactionInfoRes.Transactions[0].Inputs))
@@ -1395,12 +1413,12 @@ func TestAPI(t *testing.T) {
 		{
 			prefix := lib.DbTxindexTxIDKey(&lib.BlockHash{})[0]
 			txnsInTransactionIndex, _ := lib.EnumerateKeysForPrefix(
-				apiServer.TXIndex.TXIndexChain.DB(), []byte{prefix}, true)
+				apiServer.TXIndex.TXIndexChain.DB(), []byte{prefix}, true, false)
 			require.Equal(5+len(apiServer.Params.SeedTxns)+len(apiServer.Params.SeedBalances), len(txnsInTransactionIndex))
 		}
 		{
 			keysInPublicKeyTable, _ := lib.EnumerateKeysForPrefix(
-				apiServer.TXIndex.TXIndexChain.DB(), lib.DbTxindexPublicKeyPrefix([]byte{}), true)
+				apiServer.TXIndex.TXIndexChain.DB(), lib.DbTxindexPublicKeyPrefix([]byte{}), true, false)
 			// Three pairs for the block rewards and two pairs for the transactions
 			// we created.
 			require.Equal(10+
