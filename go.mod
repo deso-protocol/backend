@@ -7,7 +7,7 @@ toolchain go1.24.1
 replace github.com/deso-protocol/core => ../core/
 
 require (
-	cloud.google.com/go/storage v1.52.0
+	cloud.google.com/go/storage v1.53.0
 	github.com/btcsuite/btcd v0.24.2
 	github.com/btcsuite/btcd/btcec/v2 v2.3.4
 	github.com/btcsuite/btcd/btcutil v1.1.6
@@ -20,7 +20,7 @@ require (
 	github.com/dgraph-io/badger/v4 v4.7.0
 	github.com/fatih/structs v1.1.0
 	github.com/golang-jwt/jwt/v4 v4.5.2
-	github.com/golang/glog v1.2.4
+	github.com/golang/glog v1.2.5
 	github.com/gorilla/mux v1.8.1
 	github.com/h2non/bimg v1.1.9
 	github.com/kevinburke/twilio-go v0.0.0-20240716172313-813590983ccc
@@ -38,7 +38,7 @@ require (
 	golang.org/x/crypto v0.37.0
 	golang.org/x/image v0.26.0
 	golang.org/x/sync v0.13.0
-	google.golang.org/api v0.230.0
+	google.golang.org/api v0.231.0
 	gopkg.in/DataDog/dd-trace-go.v1 v1.72.2
 )
 

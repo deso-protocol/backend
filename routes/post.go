@@ -1343,7 +1343,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	isCurrentPosterGreylisted := false
 	if _, ok := filteredProfilePubKeyMap[lib.MakePkMapKey(postEntry.PosterPublicKey)]; !ok {
 		currentPosterPKID := utxoView.GetPKIDForPublicKey(postEntry.PosterPublicKey)
-		// If the currentPoster's userMetadata doesn't exist, then they are no greylisted, so we can exit.
+		// If the currentPoster's userMetadata doesn't exist, then they are not greylisted, so we can exit.
 		if fes.IsUserGraylisted(currentPosterPKID.PKID, utxoView) && !fes.IsUserBlacklisted(currentPosterPKID.PKID, utxoView) {
 			// If the currentPoster is not blacklisted (removed everywhere) and is greylisted (removed from leaderboard)
 			// add them back to the filteredProfilePubKeyMap and note that the currentPoster is greylisted.
@@ -1370,12 +1370,6 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	// If the profile that posted this post does not have a profile, return with error.
-	if pubKeyToProfileEntryResponseMap[lib.MakePkMapKey(postEntry.PosterPublicKey)] == nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: The poster public key for this post is restricted."))
-		return
-	}
-
 	// Create the postEntryResponse.
 	postEntryResponse, err := fes._postEntryToResponse(postEntry, requestData.AddGlobalFeedBool /*AddGlobalFeedBool*/, fes.Params, utxoView, readerPublicKeyBytes, 2)
 	if err != nil {
@@ -1394,7 +1388,11 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 
 		// If the profile is banned, skip this post.
 		if parentProfileEntryResponse == nil {
-			continue
+			// Check if profile entry exists OR if the public key is blacklisted.
+			if utxoView.GetProfileEntryForPublicKey(parentEntry.PosterPublicKey) != nil ||
+				fes.IsUserBlacklisted(utxoView.GetPKIDForPublicKey(parentEntry.PosterPublicKey).PKID, utxoView) {
+				continue
+			}
 		}
 		// Build the parent entry response and append.
 		parentEntryResponse, err := fes._postEntryToResponse(parentEntry, requestData.AddGlobalFeedBool /*AddGlobalFeed*/, fes.Params, utxoView, readerPublicKeyBytes, 2)
@@ -1431,7 +1429,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	res := &GetSinglePostResponse{
 		PostFound: postEntryResponse,
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetSinglePost: Problem encoding response as JSON: %v", err))
 		return
@@ -1506,26 +1504,21 @@ func (fes *APIServer) GetSinglePostComments(
 			fes._profileEntryToResponse(profileEntry, utxoView)
 	}
 
-	// If the profile that posted this post does not have a profile, return with error.
-	if pubKeyToProfileEntryResponseMap[posterPkMapKey] == nil {
-		return nil, fmt.Errorf("GetSinglePostComments: The profile that posted this post does not have a profile.")
-	}
-
 	for _, commentEntry := range commentEntries {
 		pkMapKey := lib.MakePkMapKey(commentEntry.PosterPublicKey)
 		// Remove comments that are blocked by either the reader or the poster of the root post
 		if _, ok := blockedPublicKeys[lib.PkToString(commentEntry.PosterPublicKey, fes.Params)]; !ok && profilePubKeyMap[pkMapKey] == nil {
 			profilePubKeyMap[pkMapKey] = commentEntry.PosterPublicKey
 		}
-		commentProfileEntryResponse := pubKeyToProfileEntryResponseMap[lib.MakePkMapKey(commentEntry.PosterPublicKey)]
+		commentProfileEntryResponse, pubKeyKeyExistsInMap := pubKeyToProfileEntryResponseMap[lib.MakePkMapKey(commentEntry.PosterPublicKey)]
 		commentAuthorIsCurrentPoster := reflect.DeepEqual(commentEntry.PosterPublicKey, posterPublicKeyBytes)
 		// Skip comments that:
-		//  - Don't have a profile (it was most likely banned).
+		//  - Don't have a profile (it was most likely banned). UPDATE: only remove if public key is blacklisted.
 		//	- Are hidden *AND* don't have comments. Keep hidden posts with comments.
 		//  - isDeleted (this was already filtered in an earlier stage and should never be true)
 		//	- Skip comment is it's by the poster of the single post we are fetching and the currentPoster is blocked by
 		// 	the reader
-		if commentProfileEntryResponse == nil || commentEntry.IsDeleted() ||
+		if (commentProfileEntryResponse == nil && !pubKeyKeyExistsInMap) || commentEntry.IsDeleted() ||
 			(commentEntry.IsHidden && commentEntry.CommentCount == 0) ||
 			(commentAuthorIsCurrentPoster && isCurrentPosterBlocked) {
 			continue
@@ -1597,8 +1590,14 @@ func (fes *APIServer) GetSinglePostComments(
 			}
 		}
 
-		iiCoinPrice := iiCommentEntryResponse.PostEntryResponse.ProfileEntryResponse.CoinEntry.DeSoLockedNanos
-		jjCoinPrice := jjCommentEntryResponse.PostEntryResponse.ProfileEntryResponse.CoinEntry.DeSoLockedNanos
+		iiCoinPrice := uint64(0)
+		jjCoinPrice := uint64(0)
+		if iiCommentEntryResponse.PostEntryResponse.ProfileEntryResponse != nil {
+			iiCoinPrice = iiCommentEntryResponse.PostEntryResponse.ProfileEntryResponse.CoinEntry.DeSoLockedNanos
+		}
+		if jjCommentEntryResponse.PostEntryResponse.ProfileEntryResponse != nil {
+			jjCoinPrice = jjCommentEntryResponse.PostEntryResponse.ProfileEntryResponse.CoinEntry.DeSoLockedNanos
+		}
 		if iiCoinPrice > jjCoinPrice {
 			return true
 		} else if iiCoinPrice < jjCoinPrice {
