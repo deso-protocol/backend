@@ -21,7 +21,7 @@ import (
 	"github.com/tyler-smith/go-bip39"
 
 	"github.com/deso-protocol/core/lib"
-	"github.com/dgraph-io/badger/v4"
+	"github.com/dgraph-io/badger/v3"
 	"github.com/golang/glog"
 	"github.com/kevinburke/twilio-go"
 	muxtrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/gorilla/mux"

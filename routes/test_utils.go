@@ -1,7 +1,7 @@
 package routes
 
 import (
-	"github.com/dgraph-io/badger/v4"
+	"github.com/dgraph-io/badger/v3"
 	"log"
 	"os"
 	"testing"

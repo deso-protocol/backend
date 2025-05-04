@@ -17,7 +17,7 @@ require (
 	github.com/deso-protocol/core v1.2.9
 	github.com/deso-protocol/go-deadlock v1.0.1
 	github.com/deso-protocol/uint256 v1.3.2
-	github.com/dgraph-io/badger/v4 v4.7.0
+	github.com/dgraph-io/badger/v3 v3.2103.5
 	github.com/fatih/structs v1.1.0
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/golang/glog v1.2.5
@@ -79,6 +79,7 @@ require (
 	github.com/andygrunwald/go-jira v1.16.0 // indirect
 	github.com/btcsuite/btclog v0.0.0-20241017175713-3428138b75c7 // indirect
 	github.com/bwesterb/go-ristretto v1.2.3 // indirect
+	github.com/cespare/xxhash v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cihub/seelog v0.0.0-20170130134532-f561c5e57575 // indirect
 	github.com/cloudflare/circl v1.6.1 // indirect
@@ -87,7 +88,7 @@ require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
 	github.com/deso-protocol/go-merkle-tree v1.0.0 // indirect
-	github.com/dgraph-io/ristretto/v2 v2.2.0 // indirect
+	github.com/dgraph-io/ristretto v0.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/eapache/queue/v2 v2.0.0-20230407133247-75960ed334e4 // indirect
 	github.com/ebitengine/purego v0.8.2 // indirect
@@ -109,7 +110,9 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/gofrs/uuid v4.4.0+incompatible // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
+	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/flatbuffers v25.2.10+incompatible // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/pprof v0.0.0-20250423184734-337e5dd93bb4 // indirect
@@ -184,6 +187,7 @@ require (
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zeebo/errs v1.4.0 // indirect
+	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/collector/component v1.30.0 // indirect
 	go.opentelemetry.io/collector/featuregate v1.30.0 // indirect
