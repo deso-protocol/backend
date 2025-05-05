@@ -36,7 +36,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/tyler-smith/go-bip39 v1.1.0
 	golang.org/x/crypto v0.38.0
-	golang.org/x/image v0.26.0
+	golang.org/x/image v0.27.0
 	golang.org/x/sync v0.14.0
 	google.golang.org/api v0.231.0
 	gopkg.in/DataDog/dd-trace-go.v1 v1.72.2
