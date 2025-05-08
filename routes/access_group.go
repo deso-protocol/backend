@@ -590,10 +590,10 @@ func (fes *APIServer) getUserAccessGroupsHandler(ww http.ResponseWriter, req *ht
 	// Decode the access group owner public key.
 	accessGroupOwnerPkBytes, _, err := lib.Base58CheckDecode(requestData.PublicKeyBase58Check)
 	if err != nil {
-		return errors.Wrapf(err, fmt.Sprintf(
+		return errors.Wrapf(err,
 			"Problem decoding ownerbase58 public key %s: ",
 			requestData.PublicKeyBase58Check,
-		))
+		)
 	}
 
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()

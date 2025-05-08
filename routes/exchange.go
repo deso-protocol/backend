@@ -496,6 +496,9 @@ type TransactionResponse struct {
 	TransactionIDBase58Check string
 	// Hash of the transaction in hex format.
 	TransactionHashHex string
+	// Hashes of the inner transaction in hex format. Only supplied if the
+	// transaction is an atomic transaction.
+	InnerTransactionHashHexes []string `json:",omitempty"`
 	// The raw hex of the transaction data. This can be fully-constructed from
 	// the human-readable portions of this object.
 	RawTransactionHex string `json:",omitempty"`
@@ -538,25 +541,27 @@ func (response *TransactionResponse) UnmarshalJSON(data []byte) error {
 	// Define an anonymous struct with identical fields to the TransactionResponse
 	// type above, but excluding the RawTxnMetadata field.
 	parsedResponse := struct {
-		TransactionIDBase58Check string
-		TransactionHashHex       string
-		RawTransactionHex        string
-		Inputs                   []*InputResponse
-		Outputs                  []*OutputResponse
-		SignatureHex             string
-		TransactionType          string
-		BlockHashHex             string
-		BlockInfo                *TransactionBlockInfo
-		TransactionMetadata      *lib.TransactionMetadata
-		ExtraData                map[string]string
-		TxnNonce                 *lib.DeSoNonce
-		TxnFeeNanos              uint64
-		TxnVersion               lib.DeSoTxnVersion
+		TransactionIDBase58Check  string
+		TransactionHashHex        string
+		InnerTransactionHashHexes []string
+		RawTransactionHex         string
+		Inputs                    []*InputResponse
+		Outputs                   []*OutputResponse
+		SignatureHex              string
+		TransactionType           string
+		BlockHashHex              string
+		BlockInfo                 *TransactionBlockInfo
+		TransactionMetadata       *lib.TransactionMetadata
+		ExtraData                 map[string]string
+		TxnNonce                  *lib.DeSoNonce
+		TxnFeeNanos               uint64
+		TxnVersion                lib.DeSoTxnVersion
 	}{}
 	json.Unmarshal(data, &parsedResponse)
 
 	response.TransactionIDBase58Check = parsedResponse.TransactionIDBase58Check
 	response.TransactionHashHex = parsedResponse.TransactionHashHex
+	response.InnerTransactionHashHexes = parsedResponse.InnerTransactionHashHexes
 	response.RawTransactionHex = parsedResponse.RawTransactionHex
 	response.Inputs = parsedResponse.Inputs
 	response.Outputs = parsedResponse.Outputs
@@ -715,6 +720,14 @@ func APITransactionToResponse(
 		})
 	}
 	ret.ExtraData = DecodeExtraDataMap(params, utxoView, txnn.ExtraData)
+
+	// If this is an atomic transaction, add the inner transaction hashes.
+	if txnn.TxnMeta.GetTxnType() == lib.TxnTypeAtomicTxnsWrapper {
+		ret.InnerTransactionHashHexes = []string{}
+		for _, innerTxn := range txnn.TxnMeta.(*lib.AtomicTxnsWrapperMetadata).Txns {
+			ret.InnerTransactionHashHexes = append(ret.InnerTransactionHashHexes, innerTxn.Hash().String())
+		}
+	}
 
 	if txnMeta != nil {
 		ret.BlockHashHex = txnMeta.BlockHashHex
@@ -1362,7 +1375,7 @@ func (fes *APIServer) getTxindexMetadataForUncommittedBlock(
 	uncommittedTxnMetaMap := make(map[lib.BlockHash]*lib.TransactionMetadata)
 	txindexUtxoView := lib.NewUtxoView(fes.blockchain.DB(), fes.Params, nil, nil, nil)
 	if blockNode.Header.PrevBlockHash != nil && !txindexUtxoView.TipHash.IsEqual(blockNode.Header.PrevBlockHash) {
-		utxoViewAndUtxoOps, err := fes.blockchain.GetUtxoViewAndUtxoOpsAtBlockHash(*blockNode.Header.PrevBlockHash)
+		utxoViewAndUtxoOps, err := fes.blockchain.GetUtxoViewAndUtxoOpsAtBlockHash(*blockNode.Header.PrevBlockHash, blockNode.Header.Height-1)
 		if err != nil {
 			return nil, errors.Wrap(err,
 				"getTxindexMetadataForUncommittedBlock: Problem fetching utxoView for uncommitted block")
@@ -1398,7 +1411,7 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 
 	// For this endpoint we need to lock the blockchain for reading.
 	// If the HashHex is set, look the block up using that.
-	numBlocks := len(fes.blockchain.BestChain())
+	numBlocks := fes.blockchain.BlockTip().Height + 1
 
 	var blockNode *lib.BlockNode
 	var blockHash *lib.BlockHash
@@ -1420,7 +1433,7 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 	} else {
 		// Find the block node with the corresponding height on the best chain.
 		if blockRequest.Height >= int64(numBlocks) || blockRequest.Height < 0 {
-			maxHeight := len(fes.blockchain.BestChain()) - 1
+			maxHeight := fes.blockchain.BlockTip().Height
 
 			APIAddError(ww, fmt.Sprintf("APIBlockRequest: Height requested "+
 				"%d must be >= 0 and <= "+
@@ -1428,7 +1441,17 @@ func (fes *APIServer) APIBlock(ww http.ResponseWriter, rr *http.Request) {
 				maxHeight))
 			return
 		}
-		blockNode = fes.blockchain.BestChain()[blockRequest.Height]
+		var exists bool
+		var err error
+		blockNode, exists, err = fes.blockchain.GetBlockFromBestChainByHeight(uint64(blockRequest.Height), false)
+		if err != nil {
+			APIAddError(ww, fmt.Sprintf("APIBlockRequest: Problem fetching block: %v", err))
+			return
+		}
+		if !exists {
+			APIAddError(ww, fmt.Sprintf("APIBlockRequest: Block with height %d not found", blockRequest.Height))
+			return
+		}
 		blockHash = blockNode.Hash
 	}
 

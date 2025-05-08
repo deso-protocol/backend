@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	fmt "fmt"
+	"github.com/deso-protocol/core/collections"
 	"io"
 	"io/ioutil"
 	"net"
@@ -426,7 +427,7 @@ type APIServer struct {
 	// The height of the last block evaluated by the hotness routine.
 	HotFeedBlockHeight uint32
 	// A cache to store blocks for the block feed - in order to reduce processing time.
-	HotFeedBlockCache map[lib.BlockHash]*lib.MsgDeSoBlock
+	HotFeedBlockCache *collections.LruCache[lib.BlockHash, []*lib.MsgDeSoTxn]
 	// Map of whitelisted post hashes used for serving the hot feed.
 	// The float64 value is a multiplier than can be modified and used in scoring.
 	HotFeedApprovedPostsToMultipliers             map[lib.BlockHash]float64
@@ -2551,7 +2552,7 @@ func Logger(inner http.Handler, name string) http.Handler {
 
 		inner.ServeHTTP(w, r)
 
-		glog.V(2).Infof(
+		glog.V(3).Infof(
 			"%s\t%s\t%s\t%s",
 			r.Method,
 			r.RequestURI,
@@ -2997,7 +2998,7 @@ func UpdateIPsForURLs(urlList []string, ipAddressMap map[string]string) (map[str
 	for _, url := range urlList {
 		ipAddresses, err := GetIPsForURL(url)
 		if err != nil {
-			fmt.Printf("Error getting IP for URL %v: %v\n", url, err)
+			glog.Infof("Error getting IP for URL %v: %v\n", url, err)
 			continue
 		}
 		for _, ipAddress := range ipAddresses {
