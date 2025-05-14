@@ -40,7 +40,7 @@ func GetBestChainFromBadger(syncedDBHandle *badger.DB, params *lib.DeSoParams) (
 	}
 
 	// Walk back from the best node to the genesis block and store them all in bestChain.
-	bi := lib.NewBlockIndex(syncedDBHandle, nil, tipNode)
+	bi, err := lib.NewBlockIndex(syncedDBHandle, nil, tipNode, lib.DefaultBlockIndexSize)
 	bestChain, err := lib.GetBestChain(tipNode, bi)
 	if err != nil {
 		return nil, errors.Wrap(err, "GetBestChainFromBadger() failed to GetBestChain")
