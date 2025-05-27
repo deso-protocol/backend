@@ -85,6 +85,13 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 		txnStatus = TxnStatusInMempool
 	}
 	txnInMempool := fes.backendServer.GetMempool().IsTransactionInPool(txnHash)
+	//
+	if txnStatus == TxnStatusInMempool && txnInMempool {
+		if err := json.NewEncoder(ww).Encode(&GetTxnResponse{TxnFound: true}); err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetTxn: Problem encoding response as JSON: %v", err))
+			return
+		}
+	}
 	startTime := time.Now()
 	// We have to wait until txindex has reached the uncommitted tip height, not the
 	// committed tip height. Otherwise we'll be missing ~2 blocks in limbo.
@@ -92,6 +99,14 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 	for fes.TXIndex.TXIndexChain.BlockTip().Height < coreChainTipHeight {
 		if time.Since(startTime) > 30*time.Second {
 			_AddBadRequestError(ww, fmt.Sprintf("GetTxn: Timed out waiting for txindex to sync."))
+			return
+		}
+		if lib.DbCheckTxnExistence(fes.TXIndex.TXIndexChain.DB(), nil, txnHash) {
+			// If the txn is found in txindex, we can return early.
+			if err := json.NewEncoder(ww).Encode(&GetTxnResponse{TxnFound: true}); err != nil {
+				_AddBadRequestError(ww, fmt.Sprintf("GetTxn: Problem encoding response as JSON: %v", err))
+				return
+			}
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -117,7 +132,7 @@ func (fes *APIServer) GetTxn(ww http.ResponseWriter, req *http.Request) {
 	}
 
 	if err := json.NewEncoder(ww).Encode(res); err != nil {
-		_AddBadRequestError(ww, fmt.Sprintf("GetSinglePost: Problem encoding response as JSON: %v", err))
+		_AddBadRequestError(ww, fmt.Sprintf("GetTxn: Problem encoding response as JSON: %v", err))
 		return
 	}
 }
