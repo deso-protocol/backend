@@ -1362,9 +1362,7 @@ func (fes *APIServer) GetSinglePost(ww http.ResponseWriter, req *http.Request) {
 	pubKeyToProfileEntryResponseMap := make(map[lib.PkMapKey]*ProfileEntryResponse)
 	for _, pubKeyBytes := range filteredProfilePubKeyMap {
 		profileEntry := utxoView.GetProfileEntryForPublicKey(pubKeyBytes)
-		if profileEntry == nil {
-			continue
-		} else {
+		if profileEntry != nil {
 			pubKeyToProfileEntryResponseMap[lib.MakePkMapKey(pubKeyBytes)] =
 				fes._profileEntryToResponse(profileEntry, utxoView)
 		}
@@ -1544,6 +1542,7 @@ func (fes *APIServer) GetSinglePostComments(
 	sort.Slice(commentEntryResponseList, func(ii, jj int) bool {
 		iiCommentEntryResponse := commentEntryResponseList[ii]
 		jjCommentEntryResponse := commentEntryResponseList[jj]
+
 		// If the poster of ii is the poster of the main post and jj is not, ii should be first.
 		iiIsPoster := iiCommentEntryResponse.PostEntryResponse.PosterPublicKeyBase58Check == postEntryResponse.PosterPublicKeyBase58Check
 		jjIsPoster := jjCommentEntryResponse.PostEntryResponse.PosterPublicKeyBase58Check == postEntryResponse.PosterPublicKeyBase58Check
