@@ -1508,7 +1508,7 @@ func (fes *APIServer) GetSinglePostComments(
 		if _, ok := blockedPublicKeys[lib.PkToString(commentEntry.PosterPublicKey, fes.Params)]; !ok && profilePubKeyMap[pkMapKey] == nil {
 			profilePubKeyMap[pkMapKey] = commentEntry.PosterPublicKey
 		}
-		commentProfileEntryResponse, pubKeyKeyExistsInMap := pubKeyToProfileEntryResponseMap[lib.MakePkMapKey(commentEntry.PosterPublicKey)]
+		commentProfileEntryResponse, _ := pubKeyToProfileEntryResponseMap[lib.MakePkMapKey(commentEntry.PosterPublicKey)]
 		commentAuthorIsCurrentPoster := reflect.DeepEqual(commentEntry.PosterPublicKey, posterPublicKeyBytes)
 		// Skip comments that:
 		//  - Don't have a profile (it was most likely banned). UPDATE: only remove if public key is blacklisted.
@@ -1516,7 +1516,8 @@ func (fes *APIServer) GetSinglePostComments(
 		//  - isDeleted (this was already filtered in an earlier stage and should never be true)
 		//	- Skip comment is it's by the poster of the single post we are fetching and the currentPoster is blocked by
 		// 	the reader
-		if (commentProfileEntryResponse == nil && !pubKeyKeyExistsInMap) || commentEntry.IsDeleted() ||
+		_, pubKeyExistsInMap := profilePubKeyMap[lib.MakePkMapKey(commentEntry.PosterPublicKey)]
+		if (commentProfileEntryResponse == nil && !pubKeyExistsInMap) || commentEntry.IsDeleted() ||
 			(commentEntry.IsHidden && commentEntry.CommentCount == 0) ||
 			(commentAuthorIsCurrentPoster && isCurrentPosterBlocked) {
 			continue
