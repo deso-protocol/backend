@@ -2297,7 +2297,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	// heavy lifting.
 	postEntryResponses := make(map[string]*PostEntryResponse)
 
-	addPostForHash := func(postHashHex string, readerPK []byte, profileEntryRequired bool) {
+	addPostForHash := func(postHashHex string, readerPK []byte) {
 		// If we already have the post entry response in the map, just return
 		if _, exists := postEntryResponses[postHashHex]; exists || postHashHex == "" {
 			return
@@ -2317,12 +2317,6 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		}
 
 		profileEntryResponse := profileEntryResponses[lib.PkToString(postEntry.PosterPublicKey, fes.Params)]
-
-		// Filter out responses if profile entry is missing and is required
-		if profileEntryRequired && profileEntryResponse == nil {
-			postEntryResponses[postHashHex] = nil
-			return
-		}
 
 		postEntryResponse, err := fes._postEntryToResponse(postEntry, false, fes.Params, utxoView, userPublicKeyBytes, 2)
 		if err != nil {
@@ -2349,26 +2343,26 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		postAssociationMetadata := txnMeta.Metadata.CreatePostAssociationTxindexMetadata
 
 		if postMetadata != nil {
-			addPostForHash(postMetadata.PostHashBeingModifiedHex, userPublicKeyBytes, true)
-			addPostForHash(postMetadata.ParentPostHashHex, userPublicKeyBytes, true)
+			addPostForHash(postMetadata.PostHashBeingModifiedHex, userPublicKeyBytes)
+			addPostForHash(postMetadata.ParentPostHashHex, userPublicKeyBytes)
 		} else if likeMetadata != nil {
-			addPostForHash(likeMetadata.PostHashHex, userPublicKeyBytes, true)
+			addPostForHash(likeMetadata.PostHashHex, userPublicKeyBytes)
 		} else if transferCreatorCoinMetadata != nil {
 			if transferCreatorCoinMetadata.PostHashHex != "" {
-				addPostForHash(transferCreatorCoinMetadata.PostHashHex, userPublicKeyBytes, true)
+				addPostForHash(transferCreatorCoinMetadata.PostHashHex, userPublicKeyBytes)
 			}
 		} else if nftBidMetadata != nil {
-			addPostForHash(nftBidMetadata.NFTPostHashHex, userPublicKeyBytes, true)
+			addPostForHash(nftBidMetadata.NFTPostHashHex, userPublicKeyBytes)
 		} else if acceptNFTBidMetadata != nil {
-			addPostForHash(acceptNFTBidMetadata.NFTPostHashHex, userPublicKeyBytes, true)
+			addPostForHash(acceptNFTBidMetadata.NFTPostHashHex, userPublicKeyBytes)
 		} else if nftTransferMetadata != nil {
-			addPostForHash(nftTransferMetadata.NFTPostHashHex, userPublicKeyBytes, false)
+			addPostForHash(nftTransferMetadata.NFTPostHashHex, userPublicKeyBytes)
 		} else if createNFTMetadata != nil {
-			addPostForHash(createNFTMetadata.NFTPostHashHex, userPublicKeyBytes, true)
+			addPostForHash(createNFTMetadata.NFTPostHashHex, userPublicKeyBytes)
 		} else if updateNFTMetadata != nil {
-			addPostForHash(updateNFTMetadata.NFTPostHashHex, userPublicKeyBytes, true)
+			addPostForHash(updateNFTMetadata.NFTPostHashHex, userPublicKeyBytes)
 		} else if postAssociationMetadata != nil {
-			addPostForHash(postAssociationMetadata.PostHashHex, userPublicKeyBytes, false)
+			addPostForHash(postAssociationMetadata.PostHashHex, userPublicKeyBytes)
 		} else if basicTransferMetadata != nil {
 			txnOutputs := txnMeta.Metadata.TxnOutputs
 			for _, output := range txnOutputs {
@@ -2380,7 +2374,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 					})
 			}
 			if basicTransferMetadata.PostHashHex != "" {
-				addPostForHash(basicTransferMetadata.PostHashHex, userPublicKeyBytes, true)
+				addPostForHash(basicTransferMetadata.PostHashHex, userPublicKeyBytes)
 			}
 		}
 
