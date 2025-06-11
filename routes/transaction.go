@@ -493,7 +493,7 @@ func TransactionFeeRateTooHigh(txn *lib.MsgDeSoTxn, txnLen uint64) bool {
 func (fes *APIServer) SubmitTransaction(ww http.ResponseWriter, req *http.Request) {
 
 	now := time.Now()
-	fmt.Printf("SubmitTransaction: %v\n", now)
+	glog.Infof("SubmitTransaction: %v\n", now)
 	decoder := json.NewDecoder(io.LimitReader(req.Body, MaxRequestBodySizeBytes))
 	requestData := SubmitTransactionRequest{}
 	if err := decoder.Decode(&requestData); err != nil {
