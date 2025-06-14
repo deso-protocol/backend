@@ -198,7 +198,7 @@ func (fes *APIServer) SubmitBlock(ww http.ResponseWriter, req *http.Request) {
 	// The optimal solution is to check signatures in a way that doesn't acquire the
 	// ChainLock, which is what Bitcoin Core does.
 	isMainChain, isOrphan, _, err := fes.blockchain.ProcessBlock(
-		blockFound, true /*verifySignatures*/)
+		blockFound, nil, true /*verifySignatures*/)
 	glog.V(1).Infof("Called ProcessBlock/ConnectBlock: isMainChain=(%v), isOrphan=(%v), err=(%v)",
 		isMainChain, isOrphan, err)
 	if err != nil {
