@@ -2376,6 +2376,13 @@ func (fes *APIServer) addPostForHashForNotification(
 	updateNFTMetadata := txnMeta.UpdateNFTTxindexMetadata
 	postAssociationMetadata := txnMeta.CreatePostAssociationTxindexMetadata
 	atomicTxnMetadata := txnMeta.AtomicTxnsWrapperTxindexMetadata
+	if atomicTxnMetadata != nil {
+		for ii, innerTxn := range atomicTxnMetadata.InnerTxnsTransactionMetadata {
+			fes.addPostForHashForNotification(txnMetaRes, innerTxn, userPublicKeyBytes, addPostForHash, &ii)
+			innerTxn.BasicTransferTxindexMetadata.UtxoOps = nil
+			innerTxn.BasicTransferTxindexMetadata.UtxoOpsDump = ""
+		}
+	}
 
 	if postMetadata != nil {
 		addPostForHash(postMetadata.PostHashBeingModifiedHex, userPublicKeyBytes)
@@ -2421,12 +2428,6 @@ func (fes *APIServer) addPostForHashForNotification(
 		}
 		if basicTransferMetadata.PostHashHex != "" {
 			addPostForHash(basicTransferMetadata.PostHashHex, userPublicKeyBytes)
-		}
-	} else if atomicTxnMetadata != nil {
-		for ii, innerTxn := range atomicTxnMetadata.InnerTxnsTransactionMetadata {
-			fes.addPostForHashForNotification(txnMetaRes, innerTxn, userPublicKeyBytes, addPostForHash, &ii)
-			innerTxn.BasicTransferTxindexMetadata.UtxoOps = nil
-			innerTxn.BasicTransferTxindexMetadata.UtxoOpsDump = ""
 		}
 	}
 
