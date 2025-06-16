@@ -2425,10 +2425,14 @@ func (fes *APIServer) addPostForHashForNotification(
 	} else if atomicTxnMetadata != nil {
 		for ii, innerTxn := range atomicTxnMetadata.InnerTxnsTransactionMetadata {
 			fes.addPostForHashForNotification(txnMetaRes, innerTxn, userPublicKeyBytes, addPostForHash, &ii)
+			innerTxn.BasicTransferTxindexMetadata.UtxoOps = nil
+			innerTxn.BasicTransferTxindexMetadata.UtxoOpsDump = ""
 		}
 	}
 
 	// Delete the UTXO ops because they aren't needed for the frontend
+	txnMeta.BasicTransferTxindexMetadata.UtxoOps = nil
+	txnMeta.BasicTransferTxindexMetadata.UtxoOpsDump = ""
 	basicTransferMetadata.UtxoOps = nil
 	basicTransferMetadata.UtxoOpsDump = ""
 }
