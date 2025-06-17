@@ -2553,38 +2553,46 @@ func (fes *APIServer) _getDBNotifications(request *GetNotificationsRequest, bloc
 
 			// In this case we need to look up the full transaction and convert
 			// it into a proper transaction response.
-			txnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), nil, txID)
-			if txnMeta == nil {
+			dbTxnMeta := lib.DbGetTxindexTransactionRefByTxID(fes.TXIndex.TXIndexChain.DB(), nil, txID)
+			if dbTxnMeta == nil {
 				// We should never be missing a transaction for a given txid, but
 				// just continue in this case.
 				glog.Errorf("GetNotifications: Missing TransactionMetadata for txid %v", txID)
 				continue
 			}
-			// Skip transactions that aren't notifications
-			if !TxnMetaIsNotification(txnMeta, request.PublicKeyBase58Check, utxoView) {
-				continue
+			txnMetas := []*lib.TransactionMetadata{dbTxnMeta}
+			if dbTxnMeta.AtomicTxnsWrapperTxindexMetadata != nil {
+				// If this is an atomic transaction, we need to iterate over the inner transactions
+				// and convert them into TransactionMetadata objects.
+				txnMetas = dbTxnMeta.AtomicTxnsWrapperTxindexMetadata.InnerTxnsTransactionMetadata
 			}
-			transactorPkBytes, _, err := lib.Base58CheckDecode(txnMeta.TransactorPublicKeyBase58Check)
-			if err != nil {
-				glog.Errorf("GetNotifications: unable to decode public key %v", txnMeta.TransactorPublicKeyBase58Check)
-				continue
-			}
-			// Skip transactions from blocked users.
-			if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
-				continue
-			}
-			// Skip transactions from blacklisted public keys
-			transactorPKID := utxoView.GetPKIDForPublicKey(transactorPkBytes)
-			if transactorPKID == nil || fes.IsUserBlacklisted(transactorPKID.PKID, utxoView) {
-				continue
-			}
-			currentIndexBytes := keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]
-			res := &TransactionMetadataResponse{
-				Metadata: txnMeta,
-				Index:    int64(lib.DecodeUint32(currentIndexBytes)),
-			}
-			if NotificationTxnShouldBeIncluded(res.Metadata, &filteredOutCategories) {
-				dbTxnMetadataFound = append(dbTxnMetadataFound, res)
+			for _, txnMeta := range txnMetas {
+				// Skip transactions that aren't notifications
+				if !TxnMetaIsNotification(txnMeta, request.PublicKeyBase58Check, utxoView) {
+					continue
+				}
+				transactorPkBytes, _, err := lib.Base58CheckDecode(txnMeta.TransactorPublicKeyBase58Check)
+				if err != nil {
+					glog.Errorf("GetNotifications: unable to decode public key %v", txnMeta.TransactorPublicKeyBase58Check)
+					continue
+				}
+				// Skip transactions from blocked users.
+				if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
+					continue
+				}
+				// Skip transactions from blacklisted public keys
+				transactorPKID := utxoView.GetPKIDForPublicKey(transactorPkBytes)
+				if transactorPKID == nil || fes.IsUserBlacklisted(transactorPKID.PKID, utxoView) {
+					continue
+				}
+				currentIndexBytes := keysFound[ii][len(lib.DbTxindexPublicKeyPrefix(pkBytes)):]
+				res := &TransactionMetadataResponse{
+					Metadata: txnMeta,
+					Index:    int64(lib.DecodeUint32(currentIndexBytes)),
+				}
+				if NotificationTxnShouldBeIncluded(res.Metadata, &filteredOutCategories) {
+					dbTxnMetadataFound = append(dbTxnMetadataFound, res)
+				}
 			}
 		}
 
@@ -2658,51 +2666,60 @@ func (fes *APIServer) _getMempoolNotifications(request *GetNotificationsRequest,
 
 		mempoolTxnMetadata := []*TransactionMetadataResponse{}
 		for _, poolTx := range poolTxns {
-			txnMeta := poolTx.TxMeta
-			if txnMeta == nil {
+			poolTxnMeta := poolTx.TxMeta
+			if poolTxnMeta == nil {
 				continue
 			}
 
 			// Set the current index we will use to identify this transaction.
 			currentIndex := NextIndex
 
-			// Increment the NextIndex if this transaction is associated with the user's
-			// public key in any way. This is what the db would do when storing it, and so
-			// this treatment should be consistent.
-			if TxnIsAssociatedWithPublicKey(txnMeta, request.PublicKeyBase58Check) {
-				NextIndex++
+			txnMetas := []*lib.TransactionMetadata{poolTxnMeta}
+			if poolTxnMeta.AtomicTxnsWrapperTxindexMetadata != nil {
+				// If this is an atomic transaction, we need to iterate over the inner transactions
+				// and convert them into TransactionMetadata objects.
+				txnMetas = poolTxnMeta.AtomicTxnsWrapperTxindexMetadata.InnerTxnsTransactionMetadata
 			}
+			for _, txnMeta := range txnMetas {
 
-			// If the transaction is a notification then add it to our list with the proper
-			// index value if the transactor is not a blocked public key
-			if TxnMetaIsNotification(txnMeta, request.PublicKeyBase58Check, utxoView) {
-				transactorPkBytes, _, err := lib.Base58CheckDecode(txnMeta.TransactorPublicKeyBase58Check)
-				if err != nil {
-					glog.Errorf("GetNotifications: unable to decode public key %v", txnMeta.TransactorPublicKeyBase58Check)
-					continue
+				// Increment the NextIndex if this transaction is associated with the user's
+				// public key in any way. This is what the db would do when storing it, and so
+				// this treatment should be consistent.
+				if TxnIsAssociatedWithPublicKey(txnMeta, request.PublicKeyBase58Check) {
+					NextIndex++
 				}
 
-				// Skip transactions from blocked users.
-				if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
-					continue
-				}
-				// Skip blacklisted public keys
-				transactorPKID := utxoView.GetPKIDForPublicKey(transactorPkBytes)
-				if transactorPKID == nil || fes.IsUserBlacklisted(transactorPKID.PKID, utxoView) {
-					continue
-				}
+				// If the transaction is a notification then add it to our list with the proper
+				// index value if the transactor is not a blocked public key
+				if TxnMetaIsNotification(txnMeta, request.PublicKeyBase58Check, utxoView) {
+					transactorPkBytes, _, err := lib.Base58CheckDecode(txnMeta.TransactorPublicKeyBase58Check)
+					if err != nil {
+						glog.Errorf("GetNotifications: unable to decode public key %v", txnMeta.TransactorPublicKeyBase58Check)
+						continue
+					}
 
-				// Skip transactions when notification should not be included based on filter
-				if !NotificationTxnShouldBeIncluded(txnMeta, &filteredOutCategories) {
-					continue
-				}
+					// Skip transactions from blocked users.
+					if _, ok := blockedPubKeys[lib.PkToString(transactorPkBytes, fes.Params)]; ok {
+						continue
+					}
+					// Skip blacklisted public keys
+					transactorPKID := utxoView.GetPKIDForPublicKey(transactorPkBytes)
+					if transactorPKID == nil || fes.IsUserBlacklisted(transactorPKID.PKID, utxoView) {
+						continue
+					}
 
-				// Only include transactions that occur on or after the start index, if defined
-				if request.FetchStartIndex < 0 || (request.FetchStartIndex >= currentIndex && iterateReverse) || (request.FetchStartIndex <= currentIndex && !iterateReverse) {
-					mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
-						Metadata: txnMeta,
-						Index:    currentIndex,
-					})
+					// Skip transactions when notification should not be included based on filter
+					if !NotificationTxnShouldBeIncluded(txnMeta, &filteredOutCategories) {
+						continue
+					}
+
+					// Only include transactions that occur on or after the start index, if defined
+					if request.FetchStartIndex < 0 || (request.FetchStartIndex >= currentIndex && iterateReverse) || (request.FetchStartIndex <= currentIndex && !iterateReverse) {
+						mempoolTxnMetadata = append(mempoolTxnMetadata, &TransactionMetadataResponse{
+							Metadata: txnMeta,
+							Index:    currentIndex,
+						})
+					}
 				}
 			}
 
@@ -2892,12 +2909,6 @@ func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredO
 	} else if txnMeta.TxnType == lib.TxnTypeCreateUserAssociation.String() ||
 		txnMeta.TxnType == lib.TxnTypeDeleteUserAssociation.String() {
 		return !filteredOutCategories["user association"]
-	} else if txnMeta.TxnType == lib.TxnTypeAtomicTxnsWrapper.String() {
-		// If any of the component transactions would be included, then this atomic txn should be included.
-		return collections.Any(txnMeta.AtomicTxnsWrapperTxindexMetadata.InnerTxnsTransactionMetadata,
-			func(innerTxnMeta *lib.TransactionMetadata) bool {
-				return NotificationTxnShouldBeIncluded(innerTxnMeta, filteredOutCategoriesPointer)
-			})
 	}
 	// If the transaction type doesn't fall into any of the previous steps, we don't want it
 	return false
