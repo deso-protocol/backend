@@ -964,7 +964,7 @@ func (gs *GlobalState) Get(key []byte) (value []byte, _err error) {
 			"application/json", /*contentType*/
 			bytes.NewBuffer(json_data))
 		if err != nil {
-			return nil, fmt.Errorf("Get: Error processing remote request")
+			return nil, fmt.Errorf("Get: Error processing remote request: %v", err)
 		}
 
 		res := GetRemoteResponse{}
