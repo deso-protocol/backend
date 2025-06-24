@@ -1005,7 +1005,8 @@ func (fes *APIServer) GetNFTsForUser(ww http.ResponseWriter, req *http.Request) 
 	}
 
 	// TODO: move filtering of IsForSale and IsPending to GetNFTEntriesForPKID
-	nftEntries, lastSeenKey := utxoView.GetNFTEntriesForPKID(pkid.PKID, limit, lastKeyBytes)
+	nftEntries, lastSeenKey := utxoView.GetNFTEntriesForPKID(
+		pkid.PKID, limit, lastKeyBytes, requestData.IsForSale, requestData.IsPending)
 
 	filteredNFTEntries := []*lib.NFTEntry{}
 	if requestData.IsForSale != nil {
