@@ -970,7 +970,7 @@ func (gs *GlobalState) Get(key []byte) (value []byte, _err error) {
 
 		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 		if err != nil {
-			return nil, fmt.Errorf("Get: Error creating new request: %v", err)
+			return nil, fmt.Errorf("Get: Error creating new request: ")
 		}
 		req.Header.Set("Content-Type", "application/json")
 
