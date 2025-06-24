@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/deso-protocol/core/lib"
 
@@ -948,23 +949,34 @@ func (gs *GlobalState) CreateGetRequest(key []byte) (
 	return url, json_data, nil
 }
 
+var sharedClient = &http.Client{
+	Transport: &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 100,
+		IdleConnTimeout:     90 * time.Second,
+	},
+}
+
 func (gs *GlobalState) Get(key []byte) (value []byte, _err error) {
 	// If we have a remote node then use that node to fulfill this request.
 	if gs.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
-		url, json_data, err := gs.CreateGetRequest(key)
+		url, jsonData, err := gs.CreateGetRequest(key)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"Get: Error constructing request: %v", err)
 		}
 
-		resReturned, err := http.Post(
-			url,
-			"application/json", /*contentType*/
-			bytes.NewBuffer(json_data))
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 		if err != nil {
-			return nil, fmt.Errorf("Get: Error processing remote request: %v", err)
+			return nil, fmt.Errorf("Get: Error creating new request: %v", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resReturned, err := sharedClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("Get: Error processing remote request: ")
 		}
 
 		res := GetRemoteResponse{}
