@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/deso-protocol/core/lib"
-
 	"github.com/dgraph-io/badger/v3"
 	"github.com/nyaruka/phonenumbers"
 	"github.com/pkg/errors"
@@ -29,6 +28,7 @@ type GlobalState struct {
 	GlobalStateRemoteNode   string
 	GlobalStateRemoteSecret string
 	GlobalStateDB           *badger.DB
+	SharedClient            *http.Client
 }
 
 // GlobalStateRoutes returns the routes for managing global state.
@@ -845,13 +845,13 @@ func (gs *GlobalState) PutRemote(ww http.ResponseWriter, rr *http.Request) {
 }
 
 func (gs *GlobalState) CreatePutRequest(key []byte, value []byte) (
-	_url string, _json_data []byte, _err error) {
+	_url string, _jsonData []byte, _err error) {
 
 	req := PutRemoteRequest{
 		Key:   key,
 		Value: value,
 	}
-	json_data, err := json.Marshal(req)
+	jsonData, err := json.Marshal(req)
 	if err != nil {
 		return "", nil, fmt.Errorf("Put: Could not marshal JSON: %v", err)
 	}
@@ -860,7 +860,7 @@ func (gs *GlobalState) CreatePutRequest(key []byte, value []byte) (
 		gs.GlobalStateRemoteNode, RoutePathGlobalStatePutRemote,
 		GlobalStateSharedSecretParam, gs.GlobalStateRemoteSecret)
 
-	return url, json_data, nil
+	return url, jsonData, nil
 }
 
 func (gs *GlobalState) Put(key []byte, value []byte) error {
@@ -868,16 +868,19 @@ func (gs *GlobalState) Put(key []byte, value []byte) error {
 	if gs.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is hard to exercise in a test.
 
-		url, json_data, err := gs.CreatePutRequest(key, value)
+		url, jsonData, err := gs.CreatePutRequest(key, value)
 		if err != nil {
 			return fmt.Errorf("Put: Error constructing request: %v", err)
 		}
-		res, err := http.Post(
-			url,
-			"application/json", /*contentType*/
-			bytes.NewBuffer(json_data))
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 		if err != nil {
-			return fmt.Errorf("Put: Error processing remote request")
+			return fmt.Errorf("Put: Error creating new request: ")
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		res, err := gs.SharedClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("Put: Error processing remote request: ")
 		}
 		res.Body.Close()
 
@@ -931,12 +934,12 @@ func (gs *GlobalState) GetRemote(ww http.ResponseWriter, rr *http.Request) {
 }
 
 func (gs *GlobalState) CreateGetRequest(key []byte) (
-	_url string, _json_data []byte, _err error) {
+	_url string, _jsonData []byte, _err error) {
 
 	req := GetRemoteRequest{
 		Key: key,
 	}
-	json_data, err := json.Marshal(req)
+	jsonData, err := json.Marshal(req)
 	if err != nil {
 		return "", nil, fmt.Errorf("Get: Could not marshal JSON: %v", err)
 	}
@@ -945,7 +948,7 @@ func (gs *GlobalState) CreateGetRequest(key []byte) (
 		gs.GlobalStateRemoteNode, RoutePathGlobalStateGetRemote,
 		GlobalStateSharedSecretParam, gs.GlobalStateRemoteSecret)
 
-	return url, json_data, nil
+	return url, jsonData, nil
 }
 
 func (gs *GlobalState) Get(key []byte) (value []byte, _err error) {
@@ -953,18 +956,21 @@ func (gs *GlobalState) Get(key []byte) (value []byte, _err error) {
 	if gs.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
-		url, json_data, err := gs.CreateGetRequest(key)
+		url, jsonData, err := gs.CreateGetRequest(key)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"Get: Error constructing request: %v", err)
 		}
 
-		resReturned, err := http.Post(
-			url,
-			"application/json", /*contentType*/
-			bytes.NewBuffer(json_data))
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 		if err != nil {
-			return nil, fmt.Errorf("Get: Error processing remote request")
+			return nil, fmt.Errorf("Get: Error creating new request: ")
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resReturned, err := gs.SharedClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("Get: Error processing remote request: ")
 		}
 
 		res := GetRemoteResponse{}
@@ -1035,12 +1041,12 @@ func (gs *GlobalState) BatchGetRemote(ww http.ResponseWriter, rr *http.Request) 
 }
 
 func (gs *GlobalState) CreateBatchGetRequest(keyList [][]byte) (
-	_url string, _json_data []byte, _err error) {
+	_url string, _jsonData []byte, _err error) {
 
 	req := BatchGetRemoteRequest{
 		KeyList: keyList,
 	}
-	json_data, err := json.Marshal(req)
+	jsonData, err := json.Marshal(req)
 	if err != nil {
 		return "", nil, fmt.Errorf("BatchGet: Could not marshal JSON: %v", err)
 	}
@@ -1049,7 +1055,7 @@ func (gs *GlobalState) CreateBatchGetRequest(keyList [][]byte) (
 		gs.GlobalStateRemoteNode, RoutePathGlobalStateBatchGetRemote,
 		GlobalStateSharedSecretParam, gs.GlobalStateRemoteSecret)
 
-	return url, json_data, nil
+	return url, jsonData, nil
 }
 
 func (gs *GlobalState) BatchGet(keyList [][]byte) (value [][]byte, _err error) {
@@ -1057,18 +1063,21 @@ func (gs *GlobalState) BatchGet(keyList [][]byte) (value [][]byte, _err error) {
 	if gs.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
-		url, json_data, err := gs.CreateBatchGetRequest(keyList)
+		url, jsonData, err := gs.CreateBatchGetRequest(keyList)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"BatchGet: Error constructing request: %v", err)
 		}
 
-		resReturned, err := http.Post(
-			url,
-			"application/json", /*contentType*/
-			bytes.NewBuffer(json_data))
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 		if err != nil {
-			return nil, fmt.Errorf("BatchGet: Error processing remote request")
+			return nil, fmt.Errorf("BatchGet: Error creating new request: ")
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resReturned, err := gs.SharedClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("BatchGet: Error processing remote request: ")
 		}
 
 		res := BatchGetRemoteResponse{}
@@ -1113,12 +1122,12 @@ type DeleteRemoteResponse struct {
 }
 
 func (gs *GlobalState) CreateDeleteRequest(key []byte) (
-	_url string, _json_data []byte, _err error) {
+	_url string, _jsonData []byte, _err error) {
 
 	req := DeleteRemoteRequest{
 		Key: key,
 	}
-	json_data, err := json.Marshal(req)
+	jsonData, err := json.Marshal(req)
 	if err != nil {
 		return "", nil, fmt.Errorf("Delete: Could not marshal JSON: %v", err)
 	}
@@ -1127,7 +1136,7 @@ func (gs *GlobalState) CreateDeleteRequest(key []byte) (
 		gs.GlobalStateRemoteNode, RoutePathGlobalStateDeleteRemote,
 		GlobalStateSharedSecretParam, gs.GlobalStateRemoteSecret)
 
-	return url, json_data, nil
+	return url, jsonData, nil
 }
 
 func (gs *GlobalState) DeleteRemote(ww http.ResponseWriter, rr *http.Request) {
@@ -1159,17 +1168,20 @@ func (gs *GlobalState) Delete(key []byte) error {
 	if gs.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
 
-		url, json_data, err := gs.CreateDeleteRequest(key)
+		url, jsonData, err := gs.CreateDeleteRequest(key)
 		if err != nil {
 			return fmt.Errorf("Delete: Could not construct request: %v", err)
 		}
 
-		res, err := http.Post(
-			url,
-			"application/json", /*contentType*/
-			bytes.NewBuffer(json_data))
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 		if err != nil {
-			return fmt.Errorf("Delete: Error processing remote request")
+			return fmt.Errorf("Delete: Error creating new request: ")
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		res, err := gs.SharedClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("Delete: Error processing remote request: ")
 		}
 
 		res.Body.Close()
@@ -1202,7 +1214,7 @@ type SeekRemoteResponse struct {
 
 func (gs *GlobalState) CreateSeekRequest(startPrefix []byte, validForPrefix []byte,
 	maxKeyLen int, numToFetch int, reverse bool, fetchValues bool) (
-	_url string, _json_data []byte, _err error) {
+	_url string, _jsonData []byte, _err error) {
 
 	req := SeekRemoteRequest{
 		StartPrefix:    startPrefix,
@@ -1212,7 +1224,7 @@ func (gs *GlobalState) CreateSeekRequest(startPrefix []byte, validForPrefix []by
 		Reverse:        reverse,
 		FetchValues:    fetchValues,
 	}
-	json_data, err := json.Marshal(req)
+	jsonData, err := json.Marshal(req)
 	if err != nil {
 		return "", nil, fmt.Errorf("Seek: Could not marshal JSON: %v", err)
 	}
@@ -1221,7 +1233,7 @@ func (gs *GlobalState) CreateSeekRequest(startPrefix []byte, validForPrefix []by
 		gs.GlobalStateRemoteNode, RoutePathGlobalStateSeekRemote,
 		GlobalStateSharedSecretParam, gs.GlobalStateRemoteSecret)
 
-	return url, json_data, nil
+	return url, jsonData, nil
 }
 
 func (gs *GlobalState) GlobalStateSeekRemote(ww http.ResponseWriter, rr *http.Request) {
@@ -1266,7 +1278,7 @@ func (gs *GlobalState) Seek(startPrefix []byte, validForPrefix []byte,
 	// If we have a remote node then use that node to fulfill this request.
 	if gs.GlobalStateRemoteNode != "" {
 		// TODO: This codepath is currently annoying to test.
-		url, json_data, err := gs.CreateSeekRequest(
+		url, jsonData, err := gs.CreateSeekRequest(
 			startPrefix,
 			validForPrefix,
 			maxKeyLen,
@@ -1278,12 +1290,15 @@ func (gs *GlobalState) Seek(startPrefix []byte, validForPrefix []byte,
 				"Seek: Error constructing request: %v", err)
 		}
 
-		resReturned, err := http.Post(
-			url,
-			"application/json", /*contentType*/
-			bytes.NewBuffer(json_data))
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 		if err != nil {
-			return nil, nil, fmt.Errorf("Seek: Error processing remote request")
+			return nil, nil, fmt.Errorf("Seek: Error creating new request: ")
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resReturned, err := gs.SharedClient.Do(req)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Seek: Error processing remote request: ")
 		}
 
 		res := SeekRemoteResponse{}

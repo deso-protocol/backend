@@ -534,6 +534,13 @@ func NewAPIServer(
 		GlobalStateRemoteSecret: config.GlobalStateRemoteSecret,
 		GlobalStateRemoteNode:   config.GlobalStateRemoteNode,
 		GlobalStateDB:           globalStateDB,
+		SharedClient: &http.Client{
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 100,
+				IdleConnTimeout:     90 * time.Second,
+			},
+		},
 	}
 
 	if globalStateDB == nil && globalState.GlobalStateRemoteNode == "" {

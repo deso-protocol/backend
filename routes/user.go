@@ -2351,7 +2351,6 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		LastSeenIndex:       lastSeenIndex,
 	}
 	if err = json.NewEncoder(ww).Encode(res); err != nil {
-		fmt.Printf("%#v\n", res)
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetNotifications: Problem encoding response as JSON: %v", err))
 		return
