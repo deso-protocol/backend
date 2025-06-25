@@ -1004,7 +1004,6 @@ func (fes *APIServer) GetNFTsForUser(ww http.ResponseWriter, req *http.Request) 
 		readerPKID = readerPKIDEntry.PKID
 	}
 
-	// TODO: move filtering of IsForSale and IsPending to GetNFTEntriesForPKID
 	nftEntries, lastSeenKey := utxoView.GetNFTEntriesForPKID(
 		pkid.PKID, limit, lastKeyBytes, requestData.IsForSale, requestData.IsPending)
 
