@@ -428,8 +428,12 @@ func (fes *APIServer) GetCurrentEpochProgress(ww http.ResponseWriter, req *http.
 	// then this will return a non-zero value. This value always overrides the tip block's current view.
 	fastHotStuffConsensusView := fes.backendServer.GetLatestView()
 	currentView := currentTipView
+	leaderIdxAdjustmentForValidators := uint64(0)
 	if fastHotStuffConsensusView != 0 {
 		currentView = fastHotStuffConsensusView
+		if currentView > currentTipView {
+			leaderIdxAdjustmentForValidators = 1
+		}
 	}
 
 	// If the current tip is at or past the final PoW block height, but we don't have a view returned by the
@@ -443,7 +447,8 @@ func (fes *APIServer) GetCurrentEpochProgress(ww http.ResponseWriter, req *http.
 
 	currentLeaderIdx := (currentEpochEntry.InitialLeaderIndexOffset +
 		(currentView - currentEpochEntry.InitialView) -
-		(currentTip.Header.Height - currentEpochEntry.InitialBlockHeight)) % uint64(len(leaderSchedule))
+		(currentTip.Header.Height - currentEpochEntry.InitialBlockHeight) -
+		leaderIdxAdjustmentForValidators) % uint64(len(leaderSchedule))
 	currentLeader := leaderSchedule[currentLeaderIdx]
 
 	// Construct the response
