@@ -930,7 +930,9 @@ type GetNFTsForUserRequest struct {
 	ReaderPublicKeyBase58Check string `safeForLogging:"true"`
 	IsForSale                  *bool  `safeForLogging:"true"`
 	// Ignored if IsForSale is provided
-	IsPending *bool `safeForLogging:"true"`
+	IsPending  *bool  `safeForLogging:"true"`
+	LastKeyHex string `safeForLogging:"true"`
+	Limit      int    `safeForLogging:"true"`
 }
 
 type NFTEntryAndPostEntryResponse struct {
@@ -939,7 +941,8 @@ type NFTEntryAndPostEntryResponse struct {
 }
 
 type GetNFTsForUserResponse struct {
-	NFTsMap map[string]*NFTEntryAndPostEntryResponse
+	NFTsMap    map[string]*NFTEntryAndPostEntryResponse
+	LastKeyHex string
 }
 
 func (fes *APIServer) GetNFTsForUser(ww http.ResponseWriter, req *http.Request) {
@@ -969,6 +972,20 @@ func (fes *APIServer) GetNFTsForUser(ww http.ResponseWriter, req *http.Request) 
 		}
 	}
 
+	limit := requestData.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+
+	lastKeyBytes := []byte{}
+	if requestData.LastKeyHex != "" {
+		lastKeyBytes, err = hex.DecodeString(requestData.LastKeyHex)
+		if err != nil {
+			_AddBadRequestError(ww, fmt.Sprintf("GetNFTsForUser: Problem decoding LastKeyHex: %v", err))
+			return
+		}
+	}
+
 	// Get the NFT bid so we can do a more hardcore validation of the request data.
 	utxoView, err := fes.backendServer.GetMempool().GetAugmentedUniversalView()
 	if err != nil {
@@ -987,7 +1004,8 @@ func (fes *APIServer) GetNFTsForUser(ww http.ResponseWriter, req *http.Request) 
 		readerPKID = readerPKIDEntry.PKID
 	}
 
-	nftEntries := utxoView.GetNFTEntriesForPKID(pkid.PKID)
+	nftEntries, lastSeenKey := utxoView.GetNFTEntriesForPKID(
+		pkid.PKID, limit, lastKeyBytes, requestData.IsForSale, requestData.IsPending)
 
 	filteredNFTEntries := []*lib.NFTEntry{}
 	if requestData.IsForSale != nil {
@@ -1039,6 +1057,10 @@ func (fes *APIServer) GetNFTsForUser(ww http.ResponseWriter, req *http.Request) 
 		res.NFTsMap[postEntryResponse.PostHashHex].NFTEntryResponses = append(
 			res.NFTsMap[postEntryResponse.PostHashHex].NFTEntryResponses,
 			fes._nftEntryToResponse(nftEntry, nil, utxoView, true, readerPKID))
+	}
+
+	if len(lastSeenKey) > 0 {
+		res.LastKeyHex = hex.EncodeToString(lastSeenKey)
 	}
 
 	if err = json.NewEncoder(ww).Encode(res); err != nil {

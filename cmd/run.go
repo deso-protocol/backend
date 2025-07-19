@@ -49,7 +49,9 @@ func init() {
 	runCmd.PersistentFlags().Uint64("api-port", 0,
 		"When set, determines the port on which this node will listen for json "+
 			"requests. If unset, the port will default to what is present in the DeSoParams set.")
-
+	runCmd.PersistentFlags().String("amm-metadata-public-key", "",
+		"The base58-encoded public key for the AMM_METADATA user, which is "+
+			"used to set the trading fees on users' coins.")
 	// Onboarding
 	runCmd.PersistentFlags().String("starter-deso-seed", "",
 		"Send a small amount of DeSo from this seed to new users.")

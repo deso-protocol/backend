@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/deso-protocol/core/collections"
 	"github.com/deso-protocol/uint256"
 	"io"
 	"math"
@@ -2331,56 +2332,7 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 	}
 
 	for _, txnMeta := range finalTxnMetadataList {
-		postMetadata := txnMeta.Metadata.SubmitPostTxindexMetadata
-		likeMetadata := txnMeta.Metadata.LikeTxindexMetadata
-		transferCreatorCoinMetadata := txnMeta.Metadata.CreatorCoinTransferTxindexMetadata
-		nftBidMetadata := txnMeta.Metadata.NFTBidTxindexMetadata
-		acceptNFTBidMetadata := txnMeta.Metadata.AcceptNFTBidTxindexMetadata
-		nftTransferMetadata := txnMeta.Metadata.NFTTransferTxindexMetadata
-		basicTransferMetadata := txnMeta.Metadata.BasicTransferTxindexMetadata
-		createNFTMetadata := txnMeta.Metadata.CreateNFTTxindexMetadata
-		updateNFTMetadata := txnMeta.Metadata.UpdateNFTTxindexMetadata
-		postAssociationMetadata := txnMeta.Metadata.CreatePostAssociationTxindexMetadata
-
-		if postMetadata != nil {
-			addPostForHash(postMetadata.PostHashBeingModifiedHex, userPublicKeyBytes)
-			addPostForHash(postMetadata.ParentPostHashHex, userPublicKeyBytes)
-		} else if likeMetadata != nil {
-			addPostForHash(likeMetadata.PostHashHex, userPublicKeyBytes)
-		} else if transferCreatorCoinMetadata != nil {
-			if transferCreatorCoinMetadata.PostHashHex != "" {
-				addPostForHash(transferCreatorCoinMetadata.PostHashHex, userPublicKeyBytes)
-			}
-		} else if nftBidMetadata != nil {
-			addPostForHash(nftBidMetadata.NFTPostHashHex, userPublicKeyBytes)
-		} else if acceptNFTBidMetadata != nil {
-			addPostForHash(acceptNFTBidMetadata.NFTPostHashHex, userPublicKeyBytes)
-		} else if nftTransferMetadata != nil {
-			addPostForHash(nftTransferMetadata.NFTPostHashHex, userPublicKeyBytes)
-		} else if createNFTMetadata != nil {
-			addPostForHash(createNFTMetadata.NFTPostHashHex, userPublicKeyBytes)
-		} else if updateNFTMetadata != nil {
-			addPostForHash(updateNFTMetadata.NFTPostHashHex, userPublicKeyBytes)
-		} else if postAssociationMetadata != nil {
-			addPostForHash(postAssociationMetadata.PostHashHex, userPublicKeyBytes)
-		} else if basicTransferMetadata != nil {
-			txnOutputs := txnMeta.Metadata.TxnOutputs
-			for _, output := range txnOutputs {
-				txnMeta.TxnOutputResponses = append(
-					txnMeta.TxnOutputResponses,
-					&OutputResponse{
-						PublicKeyBase58Check: lib.PkToString(output.PublicKey, fes.Params),
-						AmountNanos:          output.AmountNanos,
-					})
-			}
-			if basicTransferMetadata.PostHashHex != "" {
-				addPostForHash(basicTransferMetadata.PostHashHex, userPublicKeyBytes)
-			}
-		}
-
-		// Delete the UTXO ops because they aren't needed for the frontend
-		basicTransferMetadata.UtxoOps = nil
-		basicTransferMetadata.UtxoOpsDump = ""
+		fes.addPostForHashForNotification(txnMeta, txnMeta.Metadata, userPublicKeyBytes, addPostForHash, nil)
 	}
 
 	var lastSeenIndex int64
@@ -2398,11 +2350,98 @@ func (fes *APIServer) GetNotifications(ww http.ResponseWriter, req *http.Request
 		PostsByHash:         postEntryResponses,
 		LastSeenIndex:       lastSeenIndex,
 	}
-	if err := json.NewEncoder(ww).Encode(res); err != nil {
+	if err = json.NewEncoder(ww).Encode(res); err != nil {
 		_AddBadRequestError(ww, fmt.Sprintf(
 			"GetNotifications: Problem encoding response as JSON: %v", err))
 		return
 	}
+}
+
+func (fes *APIServer) addPostForHashForNotification(
+	txnMetaRes *TransactionMetadataResponse,
+	txnMeta *lib.TransactionMetadata,
+	userPublicKeyBytes []byte,
+	addPostForHash func(postHashHex string, readerPK []byte),
+	indexInAtomic *int,
+) {
+	postMetadata := txnMeta.SubmitPostTxindexMetadata
+	likeMetadata := txnMeta.LikeTxindexMetadata
+	transferCreatorCoinMetadata := txnMeta.CreatorCoinTransferTxindexMetadata
+	nftBidMetadata := txnMeta.NFTBidTxindexMetadata
+	acceptNFTBidMetadata := txnMeta.AcceptNFTBidTxindexMetadata
+	nftTransferMetadata := txnMeta.NFTTransferTxindexMetadata
+	basicTransferMetadata := txnMeta.BasicTransferTxindexMetadata
+	createNFTMetadata := txnMeta.CreateNFTTxindexMetadata
+	updateNFTMetadata := txnMeta.UpdateNFTTxindexMetadata
+	postAssociationMetadata := txnMeta.CreatePostAssociationTxindexMetadata
+	atomicTxnMetadata := txnMeta.AtomicTxnsWrapperTxindexMetadata
+	if atomicTxnMetadata != nil {
+		for ii, innerTxn := range atomicTxnMetadata.InnerTxnsTransactionMetadata {
+			fes.addPostForHashForNotification(txnMetaRes, innerTxn, userPublicKeyBytes, addPostForHash, &ii)
+			innerTxn.BasicTransferTxindexMetadata.UtxoOps = nil
+			innerTxn.BasicTransferTxindexMetadata.UtxoOpsDump = ""
+		}
+	}
+	if atomicTxnMetadata != nil {
+		for ii, innerTxn := range atomicTxnMetadata.InnerTxnsTransactionMetadata {
+			fes.addPostForHashForNotification(txnMetaRes, innerTxn, userPublicKeyBytes, addPostForHash, &ii)
+			innerTxn.BasicTransferTxindexMetadata.UtxoOps = nil
+			innerTxn.BasicTransferTxindexMetadata.UtxoOpsDump = ""
+		}
+	}
+
+	if postMetadata != nil {
+		addPostForHash(postMetadata.PostHashBeingModifiedHex, userPublicKeyBytes)
+		addPostForHash(postMetadata.ParentPostHashHex, userPublicKeyBytes)
+	} else if likeMetadata != nil {
+		addPostForHash(likeMetadata.PostHashHex, userPublicKeyBytes)
+	} else if transferCreatorCoinMetadata != nil {
+		if transferCreatorCoinMetadata.PostHashHex != "" {
+			addPostForHash(transferCreatorCoinMetadata.PostHashHex, userPublicKeyBytes)
+		}
+	} else if nftBidMetadata != nil {
+		addPostForHash(nftBidMetadata.NFTPostHashHex, userPublicKeyBytes)
+	} else if acceptNFTBidMetadata != nil {
+		addPostForHash(acceptNFTBidMetadata.NFTPostHashHex, userPublicKeyBytes)
+	} else if nftTransferMetadata != nil {
+		addPostForHash(nftTransferMetadata.NFTPostHashHex, userPublicKeyBytes)
+	} else if createNFTMetadata != nil {
+		addPostForHash(createNFTMetadata.NFTPostHashHex, userPublicKeyBytes)
+	} else if updateNFTMetadata != nil {
+		addPostForHash(updateNFTMetadata.NFTPostHashHex, userPublicKeyBytes)
+	} else if postAssociationMetadata != nil {
+		addPostForHash(postAssociationMetadata.PostHashHex, userPublicKeyBytes)
+	} else if basicTransferMetadata != nil {
+		txnOutputs := txnMeta.TxnOutputs
+		for _, output := range txnOutputs {
+			txnMetaRes.TxnOutputResponses = append(
+				txnMetaRes.TxnOutputResponses,
+				&OutputResponse{
+					PublicKeyBase58Check: lib.PkToString(output.PublicKey, fes.Params),
+					AmountNanos:          output.AmountNanos,
+				})
+			if indexInAtomic != nil {
+				if txnMetaRes.InnerTxnOutputResponses == nil {
+					txnMetaRes.InnerTxnOutputResponses = make(map[int][]*OutputResponse)
+				}
+				txnMetaRes.InnerTxnOutputResponses[*indexInAtomic] = append(
+					txnMetaRes.InnerTxnOutputResponses[*indexInAtomic],
+					&OutputResponse{
+						PublicKeyBase58Check: lib.PkToString(output.PublicKey, fes.Params),
+						AmountNanos:          output.AmountNanos,
+					})
+			}
+		}
+		if basicTransferMetadata.PostHashHex != "" {
+			addPostForHash(basicTransferMetadata.PostHashHex, userPublicKeyBytes)
+		}
+	}
+
+	// Delete the UTXO ops because they aren't needed for the frontend
+	txnMeta.BasicTransferTxindexMetadata.UtxoOps = nil
+	txnMeta.BasicTransferTxindexMetadata.UtxoOpsDump = ""
+	basicTransferMetadata.UtxoOps = nil
+	basicTransferMetadata.UtxoOpsDump = ""
 }
 
 type SetNotificationMetadataRequest struct {
@@ -2859,6 +2898,12 @@ func NotificationTxnShouldBeIncluded(txnMeta *lib.TransactionMetadata, filteredO
 	} else if txnMeta.TxnType == lib.TxnTypeCreateUserAssociation.String() ||
 		txnMeta.TxnType == lib.TxnTypeDeleteUserAssociation.String() {
 		return !filteredOutCategories["user association"]
+	} else if txnMeta.TxnType == lib.TxnTypeAtomicTxnsWrapper.String() {
+		// If any of the component transactions would be included, then this atomic txn should be included.
+		return collections.Any(txnMeta.AtomicTxnsWrapperTxindexMetadata.InnerTxnsTransactionMetadata,
+			func(innerTxnMeta *lib.TransactionMetadata) bool {
+				return NotificationTxnShouldBeIncluded(innerTxnMeta, filteredOutCategoriesPointer)
+			})
 	}
 	// If the transaction type doesn't fall into any of the previous steps, we don't want it
 	return false
@@ -2955,6 +3000,12 @@ func TxnMetaIsNotification(txnMeta *lib.TransactionMetadata, publicKeyBase58Chec
 	} else if txnMeta.CreatePostAssociationTxindexMetadata != nil {
 		// Some created an association referring to one of your posts
 		return true
+	} else if txnMeta.AtomicTxnsWrapperTxindexMetadata != nil {
+		// If any of the component transactions would trigger a notification, then this atomic txn should trigger a notification.
+		return collections.Any(txnMeta.AtomicTxnsWrapperTxindexMetadata.InnerTxnsTransactionMetadata,
+			func(innerTxnMeta *lib.TransactionMetadata) bool {
+				return TxnMetaIsNotification(innerTxnMeta, publicKeyBase58Check, utxoView)
+			})
 	}
 	return false
 }
@@ -2972,10 +3023,11 @@ func TxnIsAssociatedWithPublicKey(txnMeta *lib.TransactionMetadata, publicKeyBas
 }
 
 type TransactionMetadataResponse struct {
-	Metadata           *lib.TransactionMetadata
-	TxnOutputResponses []*OutputResponse
-	Txn                *TransactionResponse
-	Index              int64
+	Metadata                *lib.TransactionMetadata
+	TxnOutputResponses      []*OutputResponse
+	InnerTxnOutputResponses map[int][]*OutputResponse
+	Txn                     *TransactionResponse
+	Index                   int64
 }
 
 type BlockPublicKeyRequest struct {

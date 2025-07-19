@@ -366,6 +366,8 @@ type GetEpochProgressResponse struct {
 
 	CurrentView      uint64        `safeForLogging:"true"`
 	CurrentTipHeight uint64        `safeForLogging:"true"`
+	CurrentTipView   uint64        `safeForLogging:"true"`
+	CurrentBlockHash string        `safeForLogging:"true"`
 	CurrentLeader    UserInfoBasic `safeForLogging:"true"`
 }
 
@@ -382,15 +384,14 @@ func (fes *APIServer) GetCurrentEpochProgress(ww http.ResponseWriter, req *http.
 		return
 	}
 
+	timeoutIntervallMilliseconds := utxoView.GetCurrentGlobalParamsEntry().TimeoutIntervalMillisecondsPoS
+
 	// Get the current epoch number.
 	currentEpochEntry, err := utxoView.GetCurrentEpochEntry()
 	if err != nil {
 		_AddInternalServerError(ww, "GetCurrentEpochProgress: problem fetching current epoch number")
 		return
 	}
-
-	// Get the current uncommitted tip.
-	currentTip := fes.backendServer.GetBlockchain().BlockTip()
 
 	// Get the leader schedule for the current snapshot epoch.
 	leaderSchedulePKIDs, err := utxoView.GetCurrentSnapshotLeaderSchedule()
@@ -416,29 +417,38 @@ func (fes *APIServer) GetCurrentEpochProgress(ww http.ResponseWriter, req *http.
 		return UserInfoBasic{PublicKeyBase58Check: publicKeyBase58Check, Username: string(profileEntry.Username)}
 	})
 
+	// Get the current uncommitted tip.
+	currentTip := fes.backendServer.GetBlockchain().BlockTip()
+
 	// By default, set the current View to the tip block's view. The GetView() function is safe to use
 	// whether we are on PoW or PoS.
-	currentView := currentTip.Header.GetView()
+	currentTipView := currentTip.Header.GetView()
 
 	// Try to fetch the current Fast-HotStuff view. If the server is running the Fast-HotStuff consensus,
 	// then this will return a non-zero value. This value always overrides the tip block's current view.
 	fastHotStuffConsensusView := fes.backendServer.GetLatestView()
+	currentView := currentTipView
+	leaderIdxAdjustmentForValidators := uint64(0)
 	if fastHotStuffConsensusView != 0 {
 		currentView = fastHotStuffConsensusView
+		if currentView > currentTipView {
+			leaderIdxAdjustmentForValidators = 1
+		}
 	}
 
 	// If the current tip is at or past the final PoW block height, but we don't have a view returned by the
 	// Fast-HotStuff consensus, then we can estimate the current view based on the Fast-HotStuff rules. This
 	// is the best fallback value we can use once the chain has transitioned to PoS.
 	if currentView == 0 && currentTip.Header.Height >= fes.Params.GetFinalPoWBlockHeight() {
-		timeoutDuration := time.Duration(utxoView.GetCurrentGlobalParamsEntry().TimeoutIntervalMillisecondsPoS) * time.Millisecond
+		timeoutDuration := time.Duration(timeoutIntervallMilliseconds) * time.Millisecond
 		currentTipTimestamp := time.Unix(0, currentTip.Header.TstampNanoSecs)
 		currentView = currentTip.Header.GetView() + estimateNumTimeoutsSinceTip(time.Now(), currentTipTimestamp, timeoutDuration)
 	}
 
 	currentLeaderIdx := (currentEpochEntry.InitialLeaderIndexOffset +
 		(currentView - currentEpochEntry.InitialView) -
-		(currentTip.Header.Height - currentEpochEntry.InitialBlockHeight)) % uint64(len(leaderSchedule))
+		(currentTip.Header.Height - currentEpochEntry.InitialBlockHeight) -
+		leaderIdxAdjustmentForValidators) % uint64(len(leaderSchedule))
 	currentLeader := leaderSchedule[currentLeaderIdx]
 
 	// Construct the response
@@ -447,6 +457,8 @@ func (fes *APIServer) GetCurrentEpochProgress(ww http.ResponseWriter, req *http.
 		LeaderSchedule:   leaderSchedule,
 		CurrentView:      currentView,
 		CurrentTipHeight: currentTip.Header.Height,
+		CurrentTipView:   currentTipView,
+		CurrentBlockHash: currentTip.Hash.String(),
 		CurrentLeader:    currentLeader,
 	}
 

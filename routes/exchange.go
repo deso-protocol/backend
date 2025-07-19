@@ -31,7 +31,7 @@ var (
 	IsBlacklisted = []byte{1}
 )
 
-const NodeVersion = "4.0.5"
+const NodeVersion = "4.0.6"
 
 const (
 	// RoutePathAPIBase ...
