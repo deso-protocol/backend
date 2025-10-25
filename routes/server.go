@@ -577,18 +577,21 @@ func NewAPIServer(
 	fes.StartSeedBalancesMonitoring()
 	fes.StartPeerMonitoring()
 
-	// Call this once upon starting server to ensure we have a good initial value
-	fes.UpdateUSDCentsToDeSoExchangeRate()
-	fes.UpdateUSDToBTCPrice()
-	fes.UpdateUSDToETHPrice()
 
 	// Get the transaction fee map from global state if it exists
 	fes.TransactionFeeMap = fes.GetTransactionFeeMapFromGlobalState()
 
 	fes.ExemptPublicKeyMap = fes.GetExemptPublicKeyMapFromGlobalState()
 
-	// Then monitor them
-	fes.StartExchangePriceMonitoring()
+	if fes.Config.RunExchangePriceMonitoring {
+		// Call this once upon starting server to ensure we have a good initial value
+		fes.UpdateUSDCentsToDeSoExchangeRate()
+		fes.UpdateUSDToBTCPrice()
+		fes.UpdateUSDToETHPrice()
+
+		// Then monitor them
+		fes.StartExchangePriceMonitoring()
+	}
 
 	if fes.Config.RunHotFeedRoutine {
 		fes.StartHotFeedRoutine()
