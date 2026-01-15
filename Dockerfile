@@ -44,7 +44,8 @@ RUN go install github.com/go-delve/delve/cmd/dlv@v1.24.0
 #RUN GOOS=linux go build -mod=mod -a -installsuffix cgo -o bin/backend main.go
 # NOTE: We're running an unoptimized build here because it makes it possible to attach
 # a debugger directly to any of our running nodes. We take this trade-off for now.
-RUN GOOS=linux go build -gcflags="all=-N -l" -mod=mod -a -installsuffix cgo -o bin/backend main.go
+# NOTE: CGO_CFLAGS uses gnu11 to avoid C23 'bool' keyword conflict with onflow/crypto library
+RUN CGO_CFLAGS="-std=gnu11" GOOS=linux go build -gcflags="all=-N -l" -mod=mod -a -installsuffix cgo -o bin/backend main.go
 
 
 # create tiny image
