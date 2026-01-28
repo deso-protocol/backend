@@ -39,6 +39,6 @@ COPY config    config
 COPY main.go   .
 
 # build backend
-RUN GOOS=linux go build -mod=mod -a -installsuffix cgo -o bin/backend main.go
+RUN CGO_CFLAGS="-std=gnu11" GOOS=linux go build -mod=mod -a -installsuffix cgo -o bin/backend main.go
 
 ENTRYPOINT ["go", "test", "-v", "github.com/deso-protocol/backend/routes"]
