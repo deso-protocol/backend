@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -2569,24 +2570,36 @@ func Logger(inner http.Handler, name string) http.Handler {
 	})
 }
 
-var publicRoutes = map[string]interface{}{
-	RoutePathGetJumioStatusForPublicKey:     nil,
-	RoutePathUploadVideo:                    nil,
-	RoutePathEnableVideoDownload:            nil,
-	RoutePathGetReferralInfoForReferralHash: nil,
-	RoutePathGetReferralInfoForUser:         nil,
-	RoutePathGetVerifiedUsernames:           nil,
-	RoutePathGetBlacklistedPublicKeys:       nil,
-	RoutePathGetGraylistedPublicKeys:        nil,
-	RoutePathGetGlobalFeed:                  nil,
-	RoutePathDeletePII:                      nil,
-	RoutePathGetUserMetadata:                nil,
-	RoutePathSubmitTransaction:              nil,
-	RoutePathGetTxn:                         nil,
-	RoutePathUpdateProfile:                  nil,
+// isAllowedOrigin reports whether actualOrigin is a valid, explicitly configured origin.
+func isAllowedOrigin(actualOrigin string, allowedOrigins []string) bool {
+	if actualOrigin == "" {
+		return false
+	}
+
+	parsedOrigin, err := url.Parse(actualOrigin)
+	if err != nil || parsedOrigin.Scheme == "" || parsedOrigin.Host == "" ||
+		parsedOrigin.User != nil || parsedOrigin.Path != "" || parsedOrigin.RawQuery != "" ||
+		parsedOrigin.Fragment != "" {
+		return false
+	}
+
+	hostname := parsedOrigin.Hostname()
+	for _, allowedOrigin := range allowedOrigins {
+		if allowedOrigin == "*" {
+			continue
+		}
+		if allowedOrigin == actualOrigin {
+			return true
+		}
+		if hostname == allowedOrigin || strings.HasSuffix(hostname, "."+allowedOrigin) {
+			return true
+		}
+	}
+
+	return false
 }
 
-// AddHeaders ...
+// AddHeaders adds response headers only for explicitly allowlisted origins.
 func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// We have to add Access-Control-Allow-Origin headers so that bitclout.com can make
@@ -2595,72 +2608,29 @@ func AddHeaders(inner http.Handler, allowedOrigins []string) http.Handler {
 		// We have to allow multiple origins, since both bitclout.com and explorer.bitclout.com
 		// hit the node.
 
-		// Test whether the actual origin matches any of the allowedOrigins. If so, set
-		// the Access-Control-Allow-Origin header to the origin in the request.
-		actualOrigin := r.Header.Get("Origin")
-		match := false
-		for _, allowedOrigin := range allowedOrigins {
-			// Match wildcard
-			if allowedOrigin == "*" {
-				match = true
-				break
-			}
-
-			// Exact match including protocol and subdomain e.g. https://my.domain.com
-			if allowedOrigin == actualOrigin {
-				match = true
-				break
-			}
-
-			// Match any domain excluding protocol and subdomain e.g. domain.com
-			actualDomain := strings.Split(actualOrigin, "://")
-			if len(actualDomain) >= 2 {
-				actualDomain = strings.Split(actualDomain[1], ".")
-				actualDomainLen := len(actualDomain)
-				if actualDomainLen >= 2 {
-					actualDomainStr := fmt.Sprintf("%s.%s", actualDomain[actualDomainLen-2], actualDomain[actualDomainLen-1])
-					if actualDomainStr == allowedOrigin {
-						match = true
-						break
-					}
-				}
-			}
-		}
+			// Only reflect an origin that is explicitly allowlisted. Wildcards are
+			// intentionally rejected because this middleware enables credentials.
+			actualOrigin := r.Header.Get("Origin")
+			match := isAllowedOrigin(actualOrigin, allowedOrigins)
 
 		// Note Content-Type header contains the media type, as well as some additional directives based on media type
 		// (such as boundary for multipart media types and charset to indicate string encoding).
 		contentType := r.Header.Get("Content-Type")
 		mediaType := strings.SplitN(contentType, ";", 2)[0]
 
-		invalidPostRequest := false
-		// upload-image endpoint is the only one allowed to use multipart/form-data
-		if (r.RequestURI == RoutePathUploadImage || r.RequestURI == RoutePathAdminUploadReferralCSV) &&
-			mediaType == "multipart/form-data" {
-			match = true
-		} else if _, exists := publicRoutes[r.RequestURI]; exists {
-			// We set the headers for all requests to public routes.
-			// This allows third-party frontends to access this endpoint
-			match = true
-		} else if strings.HasPrefix(r.RequestURI, RoutePathGetVideoStatus) || strings.HasPrefix(r.RequestURI, RoutePathGetUserMetadata) {
-			// We don't match the RoutePathGetVideoStatus and RoutePathGetUserMetadata paths exactly since there is a
-			// variable param. Check for the prefix instead.
-			match = true
-		} else if r.Method == "POST" && mediaType != "application/json" && r.RequestURI != RoutePathJumioCallback {
-			invalidPostRequest = true
-		}
+		multipartUpload := r.RequestURI == RoutePathUploadImage ||
+			r.RequestURI == RoutePathAdminUploadReferralCSV ||
+			r.RequestURI == RoutePathUploadVideo
+		invalidPostRequest := r.Method == "POST" && mediaType != "application/json" &&
+			r.RequestURI != RoutePathJumioCallback && !multipartUpload
 
 		if match {
-			// Needed in order for the user's browser to set a cookie
-			w.Header().Add("Access-Control-Allow-Credentials", "true")
-
-			if r.RequestURI != RoutePathUploadVideo {
-				w.Header().Set("Access-Control-Allow-Origin", actualOrigin)
-				w.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept")
-			} else {
-				w.Header().Set("Access-Control-Allow-Origin", "*")
-				w.Header().Set("Access-Control-Allow-Headers", "*")
-			}
+			// Credentials are safe only when the response names one exact origin.
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Origin", actualOrigin)
+			w.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE, OPTIONS")
+			w.Header().Add("Vary", "Origin")
 		}
 
 		// Otherwise, don't add any headers. This should make a CORS request fail.
