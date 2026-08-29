@@ -99,9 +99,9 @@ func init() {
 		"If set, hot feed excludes posts without media.")
 
 	// Web Security
-	runCmd.PersistentFlags().StringSlice("access-control-allow-origins", []string{"*"},
-		"Accepts a comma-separated lists of origin domains that will be allowed as the "+
-			"Access-Control-Allow-Origin HTTP header. Defaults to * if not set.")
+	runCmd.PersistentFlags().StringSlice("access-control-allow-origins", []string{},
+		"Accepts a comma-separated list of explicitly allowed origins for the Access-Control-Allow-Origin HTTP header. "+
+			"No cross-origin requests are allowed unless this option is configured.")
 	runCmd.PersistentFlags().StringSlice("secure-header-allow-hosts", []string{},
 		"This is the domain that our secure middleware will accept requests from. We also set the "+
 			"HTTP Access-Control-Allow-Origin")
