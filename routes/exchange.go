@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"reflect"
 	"sort"
-	"time"
 
 	"github.com/deso-protocol/core/lib"
 
@@ -1847,8 +1846,18 @@ func (fes *APIServer) GetProfilesByCoinValue(
 	return profilesByPublicKey, postsByPublicKey, postEntryReaderStates, nil
 }
 
-func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, startAfterPostHash *lib.BlockHash, publicKey []byte, numToFetch int, skipHidden bool, mediaRequired bool, onlyNFTs bool, onlyPosts bool) (
-	_postEntries []*lib.PostEntry, _err error) {
+func (fes *APIServer) GetPostsForFollowFeedForPublicKey(
+	bav *lib.UtxoView,
+	startAfterPostHash *lib.BlockHash,
+	publicKey []byte,
+	minTimestampNanos uint64,
+	maxTimestampNanos uint64,
+	numToFetch int,
+	skipHidden bool,
+	mediaRequired bool,
+	onlyNFTs bool,
+	onlyPosts bool,
+) (_postEntries []*lib.PostEntry, _err error) {
 	// Get the people who follow publicKey
 	// Note: GetFollowEntriesForPublicKey also loads them into the view
 	if onlyNFTs && onlyPosts {
@@ -1883,12 +1892,11 @@ func (fes *APIServer) GetPostsForFollowFeedForPublicKey(bav *lib.UtxoView, start
 		return nil, errors.Wrapf(err, "GetPostsForFollowFeedForPublicKey: Problem filtering out restricted public keys: ")
 	}
 
-	minTimestampNanos := uint64(time.Now().UTC().AddDate(0, 0, -2).UnixNano()) // two days ago
 	// For each of these pub keys, get their posts, and load them into the view too
 	for _, followedPubKey := range filteredPubKeysMap {
 
 		_, dbPostAndCommentHashes, _, err := lib.DBGetAllPostsAndCommentsForPublicKeyOrderedByTimestamp(
-			bav.Handle, fes.blockchain.Snapshot(), followedPubKey, false /*fetchEntries*/, minTimestampNanos, 0, /*maxTimestampNanos*/
+			bav.Handle, fes.blockchain.Snapshot(), followedPubKey, false /*fetchEntries*/, minTimestampNanos, maxTimestampNanos,
 		)
 		if err != nil {
 			return nil, errors.Wrapf(err, "GetPostsForFollowFeedForPublicKey: Problem fetching PostEntry's from db: ")
